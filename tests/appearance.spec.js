@@ -91,6 +91,10 @@ test('appearance rollout is unchanged; persisted safe configuration survives ano
     let DB = new SqliteD1Database({ filename: path.join(directory, 'settings.db') });
     try {
         applyAuthMigrations(DB);
+        // Pricing migrations may legitimately set a nonzero revision. Appearance
+        // must preserve the entire pre-existing pricing record and audit.
+        const pricingSnapshot=async()=>({state:(await DB.prepare('SELECT * FROM model_pricing_state ORDER BY id').all()).results,changes:(await DB.prepare('SELECT * FROM model_pricing_changes ORDER BY revision').all()).results});
+        const pricingBefore=await pricingSnapshot();
         expect(await m.getAppearance({ DB })).toEqual({ version: 1, revision: 0, segments: defaults, personalEnabled: false, walletEnabled: true });
         expect((await DB.prepare("SELECT COUNT(*) AS n FROM app_settings WHERE key='appearance.global.v1'").first()).n).toBe(0);
         const segments = { ...defaults, canvas: 'light' };
@@ -104,7 +108,11 @@ test('appearance rollout is unchanged; persisted safe configuration survives ano
         expect((await DB.prepare('SELECT COUNT(*) AS n FROM activity_search_index WHERE source_event_id=?').bind(audit.id).first()).n).toBe(1);
         const reset = await m.saveAppearance({ DB }, admin, { revision: 1, segments: defaults });
         expect(reset.segments).toEqual(defaults); expect(reset.revision).toBe(2);
-        expect((await DB.prepare('SELECT revision FROM model_pricing_state').first()).revision).toBe(0);
+        const unchanged=value=>expect(value).toEqual(pricingBefore);
+        unchanged(await pricingSnapshot());
+        // A real unintended pricing mutation must be detected by the same oracle.
+        await DB.prepare('UPDATE model_pricing_state SET revision=revision+1').run();
+        const changed=await pricingSnapshot();expect(()=>unchanged(changed)).toThrow();
     } finally { DB.close(); fs.rmSync(directory, { recursive: true, force: true }); }
 });
 

@@ -6342,6 +6342,20 @@ test.describe('BITBI Canvas authenticated project and model contract', () => {
     });
     const tokenA = await seedSession(env, userA.id);
     const tokenB = await seedSession(env, userB.id);
+    // Asset-reference now updates nodes and connected input metadata atomically.
+    // Use the existing migrated SQLite fixture instead of expanding the SQL mock.
+    const {SqliteD1Database,applyAuthMigrations}=require('./helpers/sqlite-d1');
+    const DB=new SqliteD1Database();applyAuthMigrations(DB);
+    const seed=env.DB.state;
+    try {
+      for(const [table,rows] of [['users',seed.users],['sessions',seed.sessions],['ai_images',seed.aiImages]]) {
+        const columns=new Set((await DB.prepare(`PRAGMA table_info(${table})`).all()).results.map(row=>row.name));
+        for(const row of rows) {
+          const entries=Object.entries(row).filter(([key,value])=>columns.has(key)&&value!==undefined);
+          await DB.prepare(`INSERT INTO ${table} (${entries.map(([key])=>key).join(',')}) VALUES (${entries.map(()=>'?').join(',')})`).bind(...entries.map(([,value])=>value)).run();
+        }
+      }
+      env.DB=DB;
     const headersA = { Origin: 'https://bitbi.ai', Cookie: `bitbi_session=${tokenA}`, 'CF-Connecting-IP': '203.0.113.241' };
     const headersB = { Origin: 'https://bitbi.ai', Cookie: `bitbi_session=${tokenB}`, 'CF-Connecting-IP': '203.0.113.242' };
 
@@ -6403,12 +6417,14 @@ test.describe('BITBI Canvas authenticated project and model contract', () => {
     expect(deletedEdge.status).toBe(200);
     const deletedNode = await worker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}/nodes/${assetNodeId}`, 'DELETE', undefined, headersA), env, createExecutionContext().execCtx);
     expect(deletedNode.status).toBe(200);
-    expect(env.DB.state.aiImages.some((asset) => asset.id === assetA)).toBe(true);
+    expect(await DB.prepare('SELECT id FROM ai_images WHERE id=? AND user_id=?').bind(assetA,userA.id).first()).toEqual({id:assetA});
     const deletedProject = await worker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}`, 'DELETE', undefined, headersA), env, createExecutionContext().execCtx);
     expect(deletedProject.status).toBe(200);
     expect((await deletedProject.json()).data.assets_deleted).toBe(false);
     const afterDelete = await worker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}`, 'GET', undefined, headersA), env, createExecutionContext().execCtx);
     expect(afterDelete.status).toBe(404);
+    expect((await DB.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);
+    } finally { DB.close(); }
   });
 
   test('Canvas run requires an idempotency key before provider or credit execution', async () => {
@@ -15169,11 +15185,18 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       },
       idempotencyKey: 'member-seedance-standard-routed',
     });
-    expect(standardModel.status).toBe(200);
-    await expect(standardModel.json()).resolves.toMatchObject({
-      ok: true,
-      data: { model: { id: 'bytedance/seedance-2.0' } },
-    });
+    // Standard is Canvas-only in the approved area contract. A direct/stale
+    // Generation Lab request must stop before provider work or credit reservation.
+    expect(standardModel.status).toBe(400);
+    await expect(standardModel.json()).resolves.toMatchObject({ok:false,code:'model_area_unsupported'});
+    expect(calls).toHaveLength(0);expect(env.DB.state.memberAiUsageAttempts).toHaveLength(0);
+    const {modelAreaEnvironment}=await import('../workers/auth/src/lib/model-availability.js');
+    for(const [model,scope] of [['bytedance/seedance-2.0',modelAreaEnvironment(env,'canvas')],['bytedance/seedance-2.0-fast',env]]) {
+      const accepted=await postGenerateVideo({worker:authWorker,env:scope,token,includePixverseDefaults:false,
+        body:{model,duration:12,resolution:'720p',aspect_ratio:'16:9'},idempotencyKey:`valid-area-${model}`});
+      expect(accepted.status,JSON.stringify(await accepted.clone().json())).toBe(200);
+      await expect(accepted.json()).resolves.toMatchObject({ok:true,data:{model:{id:model}}});
+    }
 
     const unsupportedFields = [
       { seed: 42 },
@@ -15234,8 +15257,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       });
     }
 
-    expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatchObject({ modelId: 'bytedance/seedance-2.0' });
+    expect(calls.map(call=>call.modelId)).toEqual(['bytedance/seedance-2.0','bytedance/seedance-2.0-fast']);
   });
 
   test('member HappyHorse T2V rejects unsupported models, PixVerse-only fields, and invalid options', async () => {

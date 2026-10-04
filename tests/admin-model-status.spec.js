@@ -59,9 +59,17 @@ async function areaFixture(){
 test('area policy covers the complete offered catalog, keeps defaults, and saves independent pairs with conflict protection',async()=>{
  const m=await areas(),{DB,actor}=await areaFixture(),env={DB};
  try {
-  const catalog=m.areaCatalog();expect(catalog).toHaveLength(25);expect(new Set(catalog.map(v=>v.id)).size).toBe(25);
-  expect(catalog.filter(v=>v.areas.includes('generation'))).toHaveLength(16);expect(catalog.filter(v=>v.areas.includes('canvas'))).toHaveLength(24);
-  expect(catalog.filter(v=>v.areas.includes('main')).map(v=>v.id)).toEqual(['@cf/swiss-ai/apertus-v1.5-8b']);
+  // Independent, reviewed public fixture plus the single designated Main model.
+  // Exact identities/areas catch omissions, duplicates and substitutions that a count cannot.
+  const approved=require('./fixtures/model-availability.json');
+  const expected=[...Object.entries(approved.models).map(([id,flags])=>({id,areas:Object.keys(flags).sort()})),{id:'@cf/swiss-ai/apertus-v1.5-8b',areas:['main']}].sort((a,b)=>a.id.localeCompare(b.id));
+  const checkCatalog=rows=>expect(rows.map(({id,areas})=>({id,areas:[...areas].sort()})).sort((a,b)=>a.id.localeCompare(b.id))).toEqual(expected);
+  const catalog=m.areaCatalog();checkCatalog(catalog);
+  expect(()=>checkCatalog(catalog.slice(1))).toThrow();
+  expect(()=>checkCatalog([...catalog,catalog[0]])).toThrow();
+  expect(()=>checkCatalog([{...catalog[0],id:'unapproved/model'},...catalog.slice(1)])).toThrow();
+  expect(()=>checkCatalog(catalog.map(row=>row.id==='bytedance/seedance-2.0'?{...row,areas:['generation','canvas']}:row))).toThrow();
+  const pricingBefore=(await DB.prepare('SELECT * FROM model_pricing_changes ORDER BY revision').all()).results;
   const publicBefore=await m.publicModelAvailability(env);expect(require('./fixtures/model-availability.json')).toEqual(publicBefore);expect(Object.values(publicBefore.models).every(v=>Object.values(v).every(Boolean))).toBe(true);
   const save=(area,enabled,revision,modelId='minimax/h3')=>m.changeModelAvailability(env,actor,{modelId,area,enabled,revision});
   await Promise.all([save('generation',false,0),save('canvas',false,0)]);
@@ -69,7 +77,7 @@ test('area policy covers the complete offered catalog, keeps defaults, and saves
   await expect(save('generation',true,0)).rejects.toMatchObject({code:'model_availability_conflict'});
   await expect(save('main',true,0)).rejects.toMatchObject({code:'model_availability_invalid'});
   await expect(m.changeModelAvailability(env,actor,{modelId:'minimax/h3',area:'generation',enabled:true,revision:1,reason:'not needed'})).rejects.toMatchObject({status:400});
-  expect(await DB.prepare('SELECT COUNT(*) AS count FROM model_pricing_changes').first()).toEqual({count:0});
+  expect((await DB.prepare('SELECT * FROM model_pricing_changes ORDER BY revision').all()).results).toEqual(pricingBefore);
   expect((await m.readModelArea(env,'minimax/h3','generation')).history).toEqual([expect.objectContaining({actor:actor.id,enabled:false})]);
   expect(m.trustedModelArea(m.modelAreaEnvironment(env,'canvas'),'/api/ai/generate-video')).toBe('canvas');
   expect(m.trustedModelArea(env,'/api/ai/generate-video')).toBe('generation');expect(m.trustedModelArea(env,'/api/admin/ai/video')).toBe(null);
