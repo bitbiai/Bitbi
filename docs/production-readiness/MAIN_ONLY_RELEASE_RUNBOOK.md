@@ -809,6 +809,13 @@ Canvas coverage. No blanket replay of the previous 228 browser passes is needed.
 Decoded acceptance covers audible tails, missing/short/delayed/early audio, actual
 frame timestamps, mute/gain/fades, smooth off/on and preview/music agreement.
 The owner-chain/live receipts remain separate from synthetic fixtures.
+For the closed `d54db317` fixture correction, retain the tested AMD64 image, native
+API result and two passed EN cases. The original failed report is immutable;
+only the two DE music-specific button queries execute again. Existing local
+continuation/candidate/import checks bind checkpoint, corrected fixture, complete
+four-case discovery and image hashes, reject product/runtime drift, and require
+fresh changed-verifier checks. Never re-label the failed source or omit live
+owner-chain acceptance.
 
 The fixture-only continuation for `3e6f82ed` / `37189472421/1` retains its 218
 browser passes, four Linux native cases and tested processor image. The authenticated

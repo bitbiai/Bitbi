@@ -1,4 +1,4 @@
-import {smoothReceiptImageSource,SMOOTH_BROWSER_CONTINUATION} from './local-release-browser.mjs';
+import {smoothReceiptImageSource,isSmoothContinuation} from './local-release-browser.mjs';
 import os from 'node:os';
 import {verifyCanvasExportSchema} from './canvas-export-readiness.mjs';
 import {captureImageDeliveryRecovery,verifyImageDeliveryRecovery,verifyImageDeliveryEvidence} from './image-delivery-acceptance.mjs';
@@ -352,7 +352,7 @@ export async function verifyBackendReceipt(file=process.env.BACKEND_RELEASE_RECE
     const reuse=receipt.media?.reusedActivation?await resolveActiveMediaSource(c,{readCloudflare:readBackend}):null;
     if(receipt.media?.reusedActivation)verifyReusedMediaReceipt(receipt,c,reuse);
     else assert.equal(receipt.mediaSourceSha,c.sha,'Unproven cross-source media receipt');
-    verifyMediaEvidence(receipt,{sha:reuse?.sha||c.sha,...(reuse?{run:reuse.run,attempt:reuse.attempt}:mediaEvidenceRun()),...(receipt.media?.imageSourceSha===SMOOTH_BROWSER_CONTINUATION.source?{imageSha:smoothReceiptImageSource(receipt.media,reuse?.sha||c.sha)}:{}),lifecycle:true,previewBase:c.plan.changedFiles.includes('workers/auth/migrations/0097_canvas_preview_base.sql'),publicPreviews:c.plan.changedFiles.includes('workers/auth/migrations/0091_separate_thumbnail_processing.sql'),videoReferences:true,exportMusic:c.plan.changedFiles.some(f=>['workers/auth/migrations/0096_canvas_export_versions.sql','workers/auth/migrations/0097_canvas_preview_base.sql'].includes(f))});
+    verifyMediaEvidence(receipt,{sha:reuse?.sha||c.sha,...(reuse?{run:reuse.run,attempt:reuse.attempt}:mediaEvidenceRun()),...(isSmoothContinuation(receipt.media?.imageSourceSha)?{imageSha:smoothReceiptImageSource(receipt.media,reuse?.sha||c.sha)}:{}),lifecycle:true,previewBase:c.plan.changedFiles.includes('workers/auth/migrations/0097_canvas_preview_base.sql'),publicPreviews:c.plan.changedFiles.includes('workers/auth/migrations/0091_separate_thumbnail_processing.sql'),videoReferences:true,exportMusic:c.plan.changedFiles.some(f=>['workers/auth/migrations/0096_canvas_export_versions.sql','workers/auth/migrations/0097_canvas_preview_base.sql'].includes(f))});
     await mediaActive(receipt.media,backendEnv());
     if(c.plan.changedFiles.includes('workers/auth/migrations/0091_separate_thumbnail_processing.sql')) {
       const activation=receipt.smoke.find(s=>s.backend==='cloudflare')?.thumbnailActivation;

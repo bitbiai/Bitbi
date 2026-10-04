@@ -1,4 +1,4 @@
-import {SMOOTH_BROWSER_POLICY,SMOOTH_BROWSER_CONTINUATION,isSmoothContinuation,assertSmoothContinuationTree,verifySmoothBrowserReport,verifySmoothImageReuse,verifyImportedSmoothImage,restoreSmoothBrowserProof,passedBrowserCase} from './lib/local-release-browser.mjs';
+import {SMOOTH_BROWSER_POLICY,SMOOTH_BROWSER_CONTINUATION,AUDIO_FIT_CONTINUATION,smoothProfile,isSmoothContinuation,assertSmoothContinuationTree,verifySmoothBrowserReport,verifySmoothImageReuse,verifyImportedSmoothImage,restoreSmoothBrowserProof,passedBrowserCase} from './lib/local-release-browser.mjs';
 import {browserRows} from './lib/browser-fixture-repair.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -34,7 +34,7 @@ function testPermissionContinuation() {
     const bytes=fs.readFileSync(file),original=JSON.parse(bytes),actualHead=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
     const context={head:actualHead,base:original.base,planHash:validationPlan().digest,environment:original.environment,
       commands:selectedCommands(gitSelection(original.base,actualHead),{GITHUB_SHA:actualHead,CANDIDATE_BASE:original.base})};
-    assertPermissionContinuationTree(actualHead,undefined,{smooth:isSmoothContinuation(original.sha)});assert([PERMISSION_CONTINUATION.source,PERMISSION_CONTINUATION.tail,SMOOTH_BROWSER_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.progress,SMOOTH_BROWSER_CONTINUATION.accepted,SMOOTH_BROWSER_CONTINUATION.completed].includes(permissionContinuationPrefix(bytes,context).sha));
+    assertPermissionContinuationTree(actualHead,undefined,{smooth:isSmoothContinuation(original.sha),source:original.sha});assert([PERMISSION_CONTINUATION.source,PERMISSION_CONTINUATION.tail,AUDIO_FIT_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.progress,SMOOTH_BROWSER_CONTINUATION.accepted,SMOOTH_BROWSER_CONTINUATION.completed].includes(permissionContinuationPrefix(bytes,context).sha));
     for(const mutate of [r=>r.commands[0].exitCode=1,r=>r.commands[0].logHash='wrong',r=>r.commands.pop(),r=>r.status=r.status==='passed'?'failed':'passed']) {
       const wrong=structuredClone(original);mutate(wrong);assert.throws(()=>permissionContinuationPrefix(Buffer.from(JSON.stringify(wrong)),context));
     }
@@ -53,8 +53,8 @@ function testPermissionContinuation() {
 }
 
 
-function testSmoothContinuation() {
-  const p=SMOOTH_BROWSER_CONTINUATION,head='f'.repeat(40);
+function testSmoothContinuation(p=SMOOTH_BROWSER_CONTINUATION) {
+  const head='f'.repeat(40),audioFit=p===AUDIO_FIT_CONTINUATION;
   const staging=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-proof-inputs-'));
   try {
     const source=path.join(staging,'source'),target=path.join(staging,'target');fs.mkdirSync(path.join(source,'test-results/canvas-artifacts'),{recursive:true});fs.mkdirSync(path.join(source,'docs'));
@@ -64,31 +64,44 @@ function testSmoothContinuation() {
     assert(!fs.existsSync(path.join(target,'test-results/canvas-artifacts/error-context.md')));assert(fs.existsSync(path.join(target,'test-results/canvas-artifacts/result.json')));assert(fs.existsSync(path.join(target,'docs/UNKNOWN.md')));assert.equal(scanRepoForSecrets(target).length,0);
     fs.writeFileSync(path.join(target,'product.js'),'const token = '+JSON.stringify('Z'.repeat(40))+';');assert(scanRepoForSecrets(target).length>0,'Product secrets must still block after staging proof metadata');
   }finally{fs.rmSync(staging,{recursive:true,force:true});}
-  const read=(changed=Object.keys(p.specs),broken=false)=>args=>args[0]==='show'?broken?Buffer.from('invalid expectation'):execFileSync('git',['show',`${p.accepted}:${args[1].split(':')[1]}`]):Buffer.from(args[0]==='diff'?changed.join('\n'):'');
-  assertSmoothContinuationTree(head,read());
+  const reviewedFixture=file=>{
+    if(!audioFit)return execFileSync('git',['show',`${p.accepted}:${file}`]);
+    const before=execFileSync('git',['show',`${p.source}:${file}`],{encoding:'utf8'});
+    const old="name:de?'Gesamtes Video erstellen':'Create full video'";
+    assert.equal(before.split(old).length,2,'Reviewed repair changes exactly one button query');
+    // DE explicitly enabled music before clicking. Keep the exact role/name
+    // contract; require the existing music-specific button, not a broad match.
+    return Buffer.from(before.replace(old,"name:de?(fitAudio?'Gesamtes Video mit Hintergrundmusik erstellen':'Gesamtes Video erstellen'):'Create full video'"));
+  };
+  const read=(changed=Object.keys(p.specs),broken=false)=>args=>args[0]==='show'?broken?Buffer.from('invalid expectation'):reviewedFixture(args[1].split(':')[1]):Buffer.from(args[0]==='diff'?changed.join('\n'):'');
+  const verifyTree=reader=>assertSmoothContinuationTree(head,reader,{source:p.source});
+  verifyTree(read());
   // Closed historical evidence uses its pinned Git fixture, never today's
   // independently changed Canvas tests. A changed fixture still rejects.
   for(const file of Object.keys(p.specs)) {
     const current=fs.readFileSync(file);
-    if(sha256(current)!==p.specs[file])assert.throws(()=>assertSmoothContinuationTree(head,args=>args[0]==='show'&&args[1].endsWith(':'+file)?current:read()(args)),/Unreviewed/);
+    if(sha256(current)!==p.specs[file])assert.throws(()=>verifyTree(args=>args[0]==='show'&&args[1].endsWith(':'+file)?current:read()(args)),/Unreviewed/);
+    const original=execFileSync('git',['show',`${p.source}:${file}`]);
+    assert.throws(()=>verifyTree(args=>args[0]==='show'&&args[1].endsWith(':'+file)?original:read()(args)),/Unreviewed/);
   }
   for(const file of ['js/pages/canvas/full-video.js','services/homepage-ffmpeg-processor/canvas-seams.mjs','workers/auth/src/routes/canvas.js','package-lock.json','.github/workflows/static.yml'])
-    assert.throws(()=>assertSmoothContinuationTree(head,read([...Object.keys(p.specs),file])),/cannot inherit/);
-  assert.throws(()=>assertSmoothContinuationTree(head,read(undefined,true)),/Unreviewed/);
-  const dir='.local-release',file=path.join(dir,'reuse/smooth-browser.json');
-  if(fs.existsSync(file)) {
+    assert.throws(()=>verifyTree(read([...Object.keys(p.specs),file])),/cannot inherit/);
+  assert.throws(()=>verifyTree(read(undefined,true)),/Unreviewed/);
+  const dir='.local-release',file=path.join(dir,'reuse/smooth-browser.json'),checkpoint=path.join(dir,'reuse/test-results/permission-checkpoint.json');
+  if(fs.existsSync(file)&&fs.existsSync(checkpoint)&&smoothProfile(JSON.parse(fs.readFileSync(checkpoint)).sha)===p) {
     const bytes=fs.readFileSync(file);assert.equal(sha256(bytes),p.report);const previous=browserRows(JSON.parse(bytes));
     const discovery=browserRows(JSON.parse(fs.readFileSync(path.join(dir,'test-results/canvas-discovery.json'))),{discovery:true});
     const fresh=previous.filter(row=>!passedBrowserCase(row)).map(row=>({...row,expectedStatus:'passed',status:'expected',results:[{status:'passed',retry:0,error:false}]}));
-    const report={policy:SMOOTH_BROWSER_POLICY,sha:head,source:p.source,previous,discovery,fresh,counts:{required:228,reused:208,executed:20}};
+    const counts=audioFit?{required:4,reused:2,executed:2}:{required:228,reused:208,executed:20};
+    const report={policy:SMOOTH_BROWSER_POLICY,sha:head,source:p.source,previous,discovery,fresh,counts};
     assert.deepEqual(verifySmoothBrowserReport(report,head),report.counts);
-    const manifest={sha:head,selection:{auth:true,canvasText:true,canvasAudio:true}};
+    const manifest={sha:head,selection:{auth:true,canvasText:true,...(audioFit?{canvasAudioFit:true}:{canvasAudio:true})}};
     const proof=()=>candidateProof(manifest,{job:'browser-validation',readJson:name=>name.endsWith('canvas-discovery.json')?JSON.parse(fs.readFileSync(path.join(dir,'test-results/canvas-discovery.json'))):report});
-    assert.equal(proof().tests,228);
+    assert.equal(proof().tests,counts.required);
     for(const mutate of [r=>r.fresh.pop(),r=>r.fresh.push(r.fresh[0]),r=>r.fresh[0].results[0].status='failed',r=>r.fresh[0].results[0].retry=1,r=>r.previous[0].status='unexpected',r=>r.discovery.pop()]) {
       const original=structuredClone(report);mutate(report);assert.throws(proof);Object.assign(report,original);
     }
-    if(fs.existsSync(path.join(dir,'reuse/smooth-accepted.json'))) {
+    if(!audioFit&&fs.existsSync(path.join(dir,'reuse/smooth-accepted.json'))) {
       const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-browser-proof-'));
       try {fs.mkdirSync(path.join(tmp,'reuse'));fs.mkdirSync(path.join(tmp,'test-results'));fs.copyFileSync(path.join(dir,'reuse/smooth-accepted.json'),path.join(tmp,'reuse/smooth-accepted.json'));
         const rebound=restoreSmoothBrowserProof(tmp,{sha:head});restoreSmoothBrowserProof(tmp,{sha:head,verifyOnly:true});assert.equal(verifySmoothBrowserReport(rebound,head).required,228);
@@ -101,7 +114,7 @@ function testSmoothContinuation() {
     for(const mutate of [r=>r.sha=head,r=>r.image='sha256:'+'b'.repeat(64),r=>r.sourceFiles={},r=>r.localValidation.publicationSha='c'.repeat(40),r=>r.run='999',r=>r.tests.pop(),r=>r.localValidation.run='other']) {
       const bad=structuredClone(imported);mutate(bad);assert.throws(()=>verify(bad));
     }
-    console.log('Synthetic counterchecks only: 208 retained/20 required union; missing, failed, retry-only, forged source and changed image rejected through actual candidate/import verifiers.');
+    console.log(`Synthetic counterchecks only: ${counts.reused} retained/${counts.executed} required union; missing, failed, retry-only, forged source and changed image rejected through actual candidate/import verifiers.`);
   }
 }
 
@@ -523,3 +536,4 @@ await testLocalRepair();
 testImportRepair();
 testPermissionContinuation();
 testSmoothContinuation();
+testSmoothContinuation(AUDIO_FIT_CONTINUATION);

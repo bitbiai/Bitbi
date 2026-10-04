@@ -671,6 +671,17 @@ real processing, playback/download/save and truthful disclosure. Actual callers:
 existing target-image validation, `--suite canvas-audio-fit`, and the selected
 Canvas browser command. Source/attempt results and live owner-chain output belong
 in the private acceptance checkpoint; implementation alone is not a live repair.
+Local `d54db317` passed the target AMD64 decoded/timing/lifecycle checks, native
+API admission/completion checks and both EN browser cases. Both DE cases stopped
+at an exact button query: enabling background music intentionally changes its
+name to “Gesamtes Video mit Hintergrundmusik erstellen”. The fixture now requires
+that exact existing control and retains export, playback, preview and saved-byte
+assertions. The closed continuation pins the original failed report/checkpoint,
+reviewed one-line query and discovery, preserves its two genuine EN passes and
+runs only the two unresolved DE cases. Candidate/import countercontrols reject
+missing, failed, retried or changed cases and any product/image drift; unchanged
+processor/API proofs are retained with their original source identity. These
+fixture and local results alone do not establish successful live publication.
 
 The actual target-container 1280 × 720 sample used one CPU, about 23 seconds additional
 seam processing and 0.88 GB peak container memory (6 GB limit). These controlled

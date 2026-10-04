@@ -54,7 +54,7 @@ exports.smoothUi=async({page,expect,locale,mockSharedAuth,createCanvasApiMock,in
       const sound=inspector.locator('.canvas-sound');await sound.locator('summary').click();
       await sound.getByRole('checkbox',{name:'Musik als Hintergrund hinzufügen',exact:true}).check();
       await smooth.uncheck();await sequence.getByRole('radio',{name:'Diese Kette zusammenfügen',exact:true}).check();await expect(sequence.locator('li')).toHaveCount(4);}
-    await inspector.getByRole('button',{name:de?'Gesamtes Video erstellen':'Create full video',exact:true}).click();
+    await inspector.getByRole('button',{name:de?(fitAudio?'Gesamtes Video mit Hintergrundmusik erstellen':'Gesamtes Video erstellen'):'Create full video',exact:true}).click();
     await expect.poll(()=>writes.length).toBe(3);await rendering;
     const exported=writes[2].result.data.export;expect(exported.recipe.smoothJoins.enabled).toBe(!(fitAudio&&de));expect(exported.recipe.preview).toBeUndefined();
     await inspector.getByRole('button',{name:de?'Status aktualisieren':'Refresh status',exact:true}).click();

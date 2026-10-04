@@ -140,19 +140,36 @@ export const SMOOTH_BROWSER_CONTINUATION=Object.freeze({
   checkpoint:'6a13e066b667c7eb5479426d6470cf707153524b5e28f2ba1f0e342ed1a9b6f2',report:'2638a5c7f026e567fc769259b98b0870540d8f5c2f306a71c17752eb618244f2',rows:'51208eddcaf2efd3d4a9637a0787a497e98a990babd0b68f0f51f9b64e41c50c',discovery:'a963815b36f428532fbeed6d60328ea7157eef1b164019e4e756908438f5dc89',image:'6fadf1fb2110ca06ef256ba4f3992915f43bf7f51c5a5cd33dcff7bbdfa3c02e',
   specs:{'tests/canvas.spec.js':'b473f43fc2d88cf3da5bd9fb3c8da97c2cdde61ad4b8366bd2c86bb6cb624681','tests/helpers/canvas-music-preview.cjs':'af192385d85f174cb2256158023f5799099c3079475dd5c431c643c10c4a270f'},
 });
-export const isSmoothContinuation=sha=>[SMOOTH_BROWSER_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.progress,SMOOTH_BROWSER_CONTINUATION.accepted,SMOOTH_BROWSER_CONTINUATION.completed].includes(sha);
+// A second closed fixture repair uses the same report/union/image mechanism.
+// No product, runtime, policy or discovery change may inherit these passes.
+export const AUDIO_FIT_CONTINUATION=Object.freeze({
+  "source": "d54db31724403c61464f6d4a7f451d2aaaeab3e8",
+  "run": "d54db31724403c61464f6d4a7f451d2aaaeab3e8-06031e98-820d-45f7-bf77-498f2136e253",
+  "checkpoint": "702de03a6bb3c57f3865ccdd327812c9176972c843c05cf0a2535d00cbfe0b71",
+  "report": "6d927dd1588f3b6084104c7ece2e2c6b2e1c9b3b563a21a79034918923d9365b",
+  "rows": "264b4f39537cd32ed25be416ce7687e06abc137b5128c44dd63844e336334306",
+  "discovery": "52fa9da5cec7e31be9795d18e98448de748eeecc1f009ac54b6eb348649d223f",
+  "image": "01a44478774f378580865fa39814c672e4901b58ddcd20239bf17dad3fbf7e0e",
+  "manifest": "1fe61fa747fab3e0c907208b2fa010bc383c65bac215a7a83f2ebe30f1cdc9e0",
+  "proof": "930998afc3e7e012b0516cbef0b41f36fd687aa5b14d4404027377014b217552",
+  "specs": {
+    "tests/helpers/canvas-smooth-ui.cjs": "171686ddb6f4113df8e8c332509039afc8f2a708c70c4561b0eeacfeffcde544"
+  }
+});
+export const smoothProfile=source=>source===AUDIO_FIT_CONTINUATION.source?AUDIO_FIT_CONTINUATION:SMOOTH_BROWSER_CONTINUATION;
+export const isSmoothContinuation=sha=>[AUDIO_FIT_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.progress,SMOOTH_BROWSER_CONTINUATION.accepted,SMOOTH_BROWSER_CONTINUATION.completed].includes(sha);
 const smoothTooling=new Set(['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/lib/local-release-browser.mjs',
   'scripts/lib/local-release-transport.mjs','scripts/pages-candidate.mjs','scripts/test-local-release.mjs',
   'scripts/lib/media-publication.mjs','scripts/lib/backend-publication.mjs','scripts/test-media-activation-reuse.mjs',
   'docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md','docs/runbooks/REGRESSION_REGISTER.md']);
-export function assertSmoothContinuationTree(head,read=args=>execFileSync('git',args,{stdio:['ignore','pipe','pipe']})) {
-  const p=SMOOTH_BROWSER_CONTINUATION;read(['merge-base','--is-ancestor',p.source,head]);
+export function assertSmoothContinuationTree(head,read=args=>execFileSync('git',args,{stdio:['ignore','pipe','pipe']}),{source=SMOOTH_BROWSER_CONTINUATION.source}={}) {
+  const p=smoothProfile(source);read(['merge-base','--is-ancestor',p.source,head]);
   const changed=read(['diff','--name-only',p.source,head]).toString().trim().split('\n').filter(Boolean);
   assert(changed.every(file=>smoothTooling.has(file)||Object.hasOwn(p.specs,file)),'Changed product/workflow/environment cannot inherit smooth-join evidence');
   for(const [file,hash]of Object.entries(p.specs))assert.equal(sha256(read(['show',`${head}:${file}`])),hash,'Unreviewed browser fixture correction');
 }
 export function verifySmoothBrowserReport(report,sha) {
-  const p=SMOOTH_BROWSER_CONTINUATION;assert.equal(report.policy,SMOOTH_BROWSER_POLICY);assert.equal(report.sha,sha);
+  const p=smoothProfile(report.source);assert.equal(report.policy,SMOOTH_BROWSER_POLICY);assert.equal(report.sha,sha);
   if(report.reusedFrom){const {reusedFrom,...original}=report;original.sha=p.accepted;assert.deepEqual(reusedFrom,{sha:p.accepted,reportHash:p.acceptedReport});assert.equal(sha256(JSON.stringify(original)),p.acceptedReport);}
   assert.equal(report.source,p.source);assert.equal(sha256(JSON.stringify(report.previous)),p.rows,'Original failed browser results changed');
   assert.equal(sha256(JSON.stringify(report.discovery)),p.discovery,'Required browser discovery changed');
@@ -160,10 +177,12 @@ export function verifySmoothBrowserReport(report,sha) {
   const counts=verifyBrowserUnion(report.discovery,retained,report.fresh);assert.deepEqual(report.counts,counts);return counts;
 }
 export function runSmoothBrowserContinuation(env=process.env) {
-  const p=SMOOTH_BROWSER_CONTINUATION;assert.equal(env.GITHUB_JOB,'browser-validation');assert.equal(env.CI,'1');assertSmoothContinuationTree(env.GITHUB_SHA);
+  const source=JSON.parse(fs.readFileSync('.local-release/reuse/test-results/permission-checkpoint.json')).sha,p=smoothProfile(source);
+  assert.equal(env.GITHUB_JOB,'browser-validation');assert.equal(env.CI,'1');assertSmoothContinuationTree(env.GITHUB_SHA,undefined,{source});
   const raw=fs.readFileSync('.local-release/reuse/smooth-browser.json');assert.equal(sha256(raw),p.report);
   const previous=browserRows(JSON.parse(raw)),retained=new Map(previous.filter(passedBrowserCase).map(row=>[row.key,row]));
-  const base=['test:static','--','tests/canvas.spec.js','tests/oma2-q1-canvas.spec.js','--project=chromium','--project=webkit-canvas','--grep','Canvas|P13|@canvas-model-ui'];
+  const base=p===AUDIO_FIT_CONTINUATION?['test:static','--','tests/canvas.spec.js','--project=chromium','--project=webkit-canvas','--grep','Canvas audio fit']
+    :['test:static','--','tests/canvas.spec.js','tests/oma2-q1-canvas.spec.js','--project=chromium','--project=webkit-canvas','--grep','Canvas|P13|@canvas-model-ui'];
   const run=(name,args,discovery=false)=>{
     const file=path.resolve(`test-results/smooth-${name}.json`);fs.rmSync(file,{force:true});
     const child=spawnSync('npm',['run',...base,...args,`--reporter=${discovery?'json':'list,json'}`],{env:{...env,PLAYWRIGHT_JSON_OUTPUT_NAME:file},stdio:discovery?'pipe':'inherit',maxBuffer:16*1024*1024});
@@ -186,7 +205,7 @@ export function runSmoothBrowserContinuation(env=process.env) {
   console.log(JSON.stringify({...report.counts,originalFailuresPreserved:true}));
 }
 export function verifySmoothImageReuse(record,sha,{read}={}) {
-  const p=SMOOTH_BROWSER_CONTINUATION;assertSmoothContinuationTree(sha,read);
+  const p=smoothProfile(record.sha);assertSmoothContinuationTree(sha,read,{source:p.source});
   assert.equal(record.sha,p.source);assert.equal(record.run,p.run);assert.equal(record.attempt,'1');
   assert.equal(sha256(JSON.stringify(record)),p.image,'Retained image/test identity changed');return record.sha;
 }
@@ -200,7 +219,7 @@ export function verifyImportedSmoothImage(record,{sha,run,attempt},options) {
 }
 export function smoothReceiptImageSource(media,sha) {
   if(!media.imageSourceSha||media.imageSourceSha===sha)return sha;
-  assert.equal(media.imageSourceSha,SMOOTH_BROWSER_CONTINUATION.source);assertSmoothContinuationTree(sha);return media.imageSourceSha;
+  const p=smoothProfile(media.imageSourceSha);assert.equal(media.imageSourceSha,p.source);assertSmoothContinuationTree(sha,undefined,{source:p.source});return media.imageSourceSha;
 }
 
 export function restoreSmoothBrowserProof(directory,{sha,verifyOnly=false}) {
