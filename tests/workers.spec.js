@@ -15170,7 +15170,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
   });
 
   test('member Seedance routes standard and Fast models while rejecting unsupported fields and invalid Fast options', async () => {
-    const { authWorker, env, token, calls } = await createMemberVideoHarness({creditBalance:10000});
+    const { authWorker, env, token, calls } = await createMemberVideoHarness();
 
     const standardModel = await postGenerateVideo({
       worker: authWorker,
@@ -15191,8 +15191,11 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     await expect(standardModel.json()).resolves.toMatchObject({ok:false,code:'model_area_unsupported'});
     expect(calls).toHaveLength(0);expect(env.DB.state.memberAiUsageAttempts).toHaveLength(0);
     const {modelAreaEnvironment}=await import('../workers/auth/src/lib/model-availability.js');
-    for(const [model,scope] of [['bytedance/seedance-2.0',modelAreaEnvironment(env,'canvas')],['bytedance/seedance-2.0-fast',env]]) {
-      const accepted=await postGenerateVideo({worker:authWorker,env:scope,token,includePixverseDefaults:false,
+    // Valid routing uses its own session/limiter; malformed-input controls below
+    // must reach validation rather than exhaust the unchanged public rate limit.
+    const acceptedHarness=await createMemberVideoHarness({creditBalance:10000});
+    for(const [model,scope] of [['bytedance/seedance-2.0',modelAreaEnvironment(acceptedHarness.env,'canvas')],['bytedance/seedance-2.0-fast',acceptedHarness.env]]) {
+      const accepted=await postGenerateVideo({worker:authWorker,env:scope,token:acceptedHarness.token,includePixverseDefaults:false,
         body:{model,duration:12,resolution:'720p',aspect_ratio:'16:9'},idempotencyKey:`valid-area-${model.endsWith('fast')?'fast':'standard'}`});
       expect(accepted.status,JSON.stringify(await accepted.clone().json())).toBe(200);
       await expect(accepted.json()).resolves.toMatchObject({ok:true,data:{model:{id:model}}});
@@ -15257,7 +15260,8 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
       });
     }
 
-    expect(calls.map(call=>call.modelId)).toEqual(['bytedance/seedance-2.0','bytedance/seedance-2.0-fast']);
+    expect(calls).toHaveLength(0);
+    expect(acceptedHarness.calls.map(call=>call.modelId)).toEqual(['bytedance/seedance-2.0','bytedance/seedance-2.0-fast']);
   });
 
   test('member HappyHorse T2V rejects unsupported models, PixVerse-only fields, and invalid options', async () => {
