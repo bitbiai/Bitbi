@@ -8,11 +8,56 @@ import { selectCiTests } from './lib/ci-test-selection.mjs';
 import { validationPlan, selectedCommands, sha256 } from './lib/local-release-plan.mjs';
 import { environmentInputs, environmentKey, TOOL_PREFLIGHT } from './lib/local-release-environment.mjs';
 import { validateLocator, extractEvidence } from './lib/local-release-transport.mjs';
-import { verifyLocalEvidence, rebindLocalCandidate, verifyNativeLocalReports } from './lib/local-release-evidence.mjs';
+import { verifyLocalEvidence, rebindLocalCandidate, verifyNativeLocalReports, workerListResults, verifyWorkerUnion, assertLocalRepairTree, verifyLocalWorkerRepair, localWorkerContinuation } from './lib/local-release-evidence.mjs';
 import { prepareFrontend } from './lib/frontend-hosting.mjs';
 import { gitSelection, tree, MEDIA_POLICY, validateSource, verifyManifest, verifyProofs } from './pages-candidate.mjs';
 import { assertHostedBootstrapAllowed, assertLocalBootstrapAllowed } from '../tests/helpers/q2-runtime/linux-hosted.mjs';
 import { acquireLocalReleaseLock } from './local-release.mjs';
+
+async function testLocalRepair() {
+  const row=(id,status='passed')=>({id,file:'workers.spec.js',title:id,label:`tests/workers.spec.js:1:1 › ${id}`,results:[{status,retry:0,error:status!=='passed'}]});
+  const previous=[row('kept'),row('fixed','failed'),row('pending','failed')];
+  const fixture={previous,discovery:previous.map(({results,...identity})=>identity),progress:[row('fixed'),row('pending','failed')],corrected:[row('pending')]};
+  assert.deepEqual(verifyWorkerUnion(fixture),{originalPassed:1,progressPassed:1,correctedPassed:1,total:3});
+  for(const change of [f=>f.corrected.splice(0),f=>f.corrected[0].results[0].status='skipped',f=>f.corrected[0].results[0].retry=1,
+    f=>f.discovery.pop(),f=>f.discovery.push(f.discovery[0]),f=>f.discovery[0].title='different',f=>f.progress.push(f.previous[0]),
+    f=>f.previous[0].results[0].status='failed',f=>f.corrected.push(f.progress[0])]) {
+    const broken=structuredClone(fixture);change(broken);assert.throws(()=>verifyWorkerUnion(broken));
+  }
+  const log=previous.map((r,i)=>`  ${i?'✘':'✓'} ${i+1} ${r.label} (1ms)`).join('\n');
+  assert.equal(workerListResults(log,fixture.discovery).length,3);
+  assert.throws(()=>workerListResults(log.split('\n').slice(1).join('\n'),fixture.discovery));
+  assert.throws(()=>workerListResults(log.replace(' › pending',' › foreign'),fixture.discovery));
+  assert(localWorkerContinuation().endsWith('npm run test:homepage-ffmpeg-processor && npm run test:q2-runtime'));
+  // Genuine stored Linux reports are optional test inputs; never manufactured.
+  // The closed continuation itself always requires them at the actual verifier.
+  if(fs.existsSync('.local-release/reuse/checkpoint.json')) {
+    const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+    assertLocalRepairTree(head);
+    assert.equal(verifyLocalWorkerRepair('.local-release',head).result.total,1408);
+    const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-local-repair-'));
+    try {
+      fs.cpSync('.local-release/reuse',path.join(tmp,'reuse'),{recursive:true});
+      fs.mkdirSync(path.join(tmp,'test-results'));
+      fs.copyFileSync('.local-release/test-results/worker-discovery.json',path.join(tmp,'test-results/worker-discovery.json'));
+      for(const name of ['checkpoint.json','worker.log','last-run.json','original-discovery.json','progress.json','corrected.json','progress-receipt.json','corrected-receipt.json']) {
+        const file=path.join(tmp,'reuse',name),original=fs.readFileSync(file);
+        fs.unlinkSync(file);assert.throws(()=>verifyLocalWorkerRepair(tmp,head));
+        fs.writeFileSync(file,Buffer.concat([original,Buffer.from('changed')]));assert.throws(()=>verifyLocalWorkerRepair(tmp,head));fs.writeFileSync(file,original);
+      }
+      const gitEnv={...process.env,GIT_INDEX_FILE:path.join(tmp,'index')};
+      execFileSync('git',['read-tree','HEAD'],{env:gitEnv});
+      const blob=execFileSync('git',['hash-object','-w','--stdin'],{input:'changed product',encoding:'utf8'}).trim();
+      execFileSync('git',['update-index','--cacheinfo',`100644,${blob},frontend/index.mjs`],{env:gitEnv});
+      const tree=execFileSync('git',['write-tree'],{env:gitEnv,encoding:'utf8'}).trim();
+      const changed=execFileSync('git',['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit-tree',tree,'-p',head],{input:'Synthetic protected-tree countercheck\n',encoding:'utf8'}).trim();
+      assert.throws(()=>assertLocalRepairTree(changed),/Changed product/);
+    } finally {fs.rmSync(tmp,{recursive:true,force:true});}
+    console.log('Original 1404 + corrected 3 + corrected 1 Worker cases verified; 16 real artifact tamper/missing controls and changed-product Git countercheck rejected.');
+  }
+  console.log('Closed local continuation: complete case union, missing/duplicate/failed/retried/substituted controls passed; unexecuted FFmpeg/native tail remains required.');
+}
+if(process.argv.includes('--repair-only')) {await testLocalRepair();process.exit(0);}
 
 const workflow = yaml.parse(fs.readFileSync('.github/workflows/static.yml','utf8'));
 assert.deepEqual(Object.keys(workflow.jobs),['release-compatibility','reuse-candidate','deploy','recover-frontend']);
@@ -170,3 +215,5 @@ if(process.env.BITBI_LOCAL_RELEASE_CONTAINER==='1') {
     }finally{await browser.close();}
   }
 }
+
+await testLocalRepair();

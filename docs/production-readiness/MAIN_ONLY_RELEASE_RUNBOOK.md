@@ -53,8 +53,15 @@ before credential checks or preparation; a concurrent entry fails before any sui
 A dead process lock is recoverable without certifying its unfinished checkpoint. After diagnosing an
 interruption, use `npm run release:local -- --resume <directory>`: only exact matching
 source/base/toolchain/commands can retain passed commands. Changed source requires
-fresh affected acceptance; missing or changed outputs cannot inherit a pass. There
-is no hosted fallback, blind rerun, or retention of browser/database sessions.
+fresh affected acceptance; missing or changed outputs cannot inherit a pass. The
+closed `a918c749` migration continuation pins the original failed checkpoint/list
+report, exact corrected fixtures and subsequent 3+1 executed JSON results. It
+checks the complete 1,408-case discovery union, retains 1,404 unchanged passes,
+refreshes changed release checks and executes the previously unreached FFmpeg/
+native tail. Changed product, shared fixture, dependency or command inputs reject
+this exception; failed originals remain failed. Archive tools (`zip`, `unzip`)
+are checked before suites alongside the browser/media prerequisites. There is
+no hosted fallback, blind rerun, or retention of browser/database sessions.
 
 Evidence expires after seven days. The existing owner credential uploads a digest-bound
 archive as an unpublished draft asset, indexed by a nonproduction GitHub deployment
