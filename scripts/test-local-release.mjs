@@ -12,9 +12,22 @@ import { verifyLocalEvidence, rebindLocalCandidate, verifyNativeLocalReports, wo
 import { prepareFrontend } from './lib/frontend-hosting.mjs';
 import { gitSelection, tree, MEDIA_POLICY, validateSource, verifyManifest, verifyProofs } from './pages-candidate.mjs';
 import { assertHostedBootstrapAllowed, assertLocalBootstrapAllowed } from '../tests/helpers/q2-runtime/linux-hosted.mjs';
-import { acquireLocalReleaseLock } from './local-release.mjs';
+import { acquireLocalReleaseLock, prepareCandidateRestore } from './local-release.mjs';
 
 async function testLocalRepair() {
+  const restored=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-local-restore-'));
+  try {
+    fs.mkdirSync(path.join(restored,'candidate/site'),{recursive:true});fs.writeFileSync(path.join(restored,'candidate/site/index.html'),'tested');
+    fs.writeFileSync(path.join(restored,'candidate/manifest.json'),JSON.stringify({files:tree(path.join(restored,'candidate/site'))}));
+    prepareCandidateRestore(restored);
+    fs.cpSync(path.join(restored,'candidate/site'),path.join(restored,'_site'),{recursive:true});prepareCandidateRestore(restored);
+    assert(!fs.existsSync(path.join(restored,'_site')));assert.equal(fs.readFileSync(path.join(restored,'candidate/site/index.html'),'utf8'),'tested');
+    fs.cpSync(path.join(restored,'candidate/site'),path.join(restored,'_site'),{recursive:true});fs.writeFileSync(path.join(restored,'_site/index.html'),'changed');
+    assert.throws(()=>prepareCandidateRestore(restored),/changed candidate bytes/);assert(fs.existsSync(path.join(restored,'_site/index.html')));
+    fs.rmSync(path.join(restored,'_site'),{recursive:true});fs.symlinkSync(path.join(restored,'candidate/site'),path.join(restored,'_site'));
+    assert.throws(()=>prepareCandidateRestore(restored),/Unexpected candidate input/);
+  } finally {fs.rmSync(restored,{recursive:true,force:true});}
+
   const row=(id,status='passed')=>({id,file:'workers.spec.js',title:id,label:`tests/workers.spec.js:1:1 › ${id}`,results:[{status,retry:0,error:status!=='passed'}]});
   const previous=[row('kept'),row('fixed','failed'),row('pending','failed')];
   const fixture={previous,discovery:previous.map(({results,...identity})=>identity),progress:[row('fixed'),row('pending','failed')],corrected:[row('pending')]};
@@ -62,7 +75,7 @@ async function testLocalRepair() {
     } finally {fs.rmSync(tmp,{recursive:true,force:true});}
     console.log('Original 1404 + corrected 3 + corrected 1 Worker cases verified; 20 real artifact tamper/missing controls and changed-product Git countercheck rejected.');
   }
-  console.log('Closed local continuation: complete case union, missing/duplicate/failed/retried/substituted controls passed; unexecuted FFmpeg/native tail remains required.');
+  console.log('Closed local continuation: complete case union, missing/duplicate/failed/retried/substituted controls passed; passed processor/native reports remain required and the new browser job must execute.');
 }
 if(process.argv.includes('--repair-only')) {await testLocalRepair();process.exit(0);}
 

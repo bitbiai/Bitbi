@@ -60,7 +60,11 @@ checks the complete 1,408-case discovery union, retains 1,404 unchanged passes,
 refreshes changed release checks and completes the remaining native tail. The
 subsequent `ed7a7d6a` attempt retains passed FFmpeg and 25 launcher/staging checks;
 only its two repaired origin/counterexample cases execute again, followed by the
-actual native runtime. The unchanged selector also requires fresh Auth browser
+actual native runtime. `b1efd966` passed the two repaired guards and all 272 native
+checks; that exact native checkpoint/report is retained. Before another job
+restores the candidate, the adapter verifies both generated/stored byte trees
+and removes only the matching disposable `_site`; changed bytes or symlinks fail.
+The unchanged selector also requires fresh Auth browser
 acceptance after the Worker spec correction; no downstream proof is inferred. Changed product, shared fixture, dependency or command inputs reject
 this exception; failed originals remain failed. Archive tools (`zip`, `unzip`)
 are checked before suites alongside the browser/media prerequisites. There is

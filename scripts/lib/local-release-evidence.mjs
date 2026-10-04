@@ -61,6 +61,9 @@ export const LOCAL_WORKER_REPAIR = Object.freeze({
   corrected: '0e078f74eb85b73b7d5f413deb8f5291d8b1d3c5',
   correctedReport: '5492305521021af2ffaa243dbae5feb254f320fcc917728d22b6ce0f6edbfd9d',
   correctedReceipt: '44d0453864c2a5d7cc285c8a77ace471fbc0bb329afbe3dcf9f2bb81f742f05a',
+  nativeSource:'b1efd966923876520ec5b1a69e896203f7d56c12',
+  nativeCheckpoint:'c8f2f3b1f83106169d21ec0ab6bc405c5cafc430436c6205721588401b2f38c3',
+  nativeLog:'52e3de550b9f7ad24f78802f7afadcacd965c6b9248214ef23a97889f33250e7',
   tailSource:'ed7a7d6a6084b79aabcff903f7cc66698f8e0c86',
   tailCheckpoint:'38f1757fa3b5e8134c65b5c89f11cbcd06c8495461cd99b6b29a1395c797a29f',
   tailLog:'a4905f85e7c5c5a3c19f37a8c30479f35f5459c617ebd4e4d34ebae52e2ac114',
@@ -190,6 +193,12 @@ export function verifyNativeCaseUnion(before,after) {
 }
 export function verifyLocalReuse(directory,evidence) {
   const {original}=verifyLocalWorkerRepair(directory,evidence.sha);
+  const nativeBytes=fs.readFileSync(path.join(directory,'reuse/native-checkpoint.json'));
+  assert.equal(sha256(nativeBytes),LOCAL_WORKER_REPAIR.nativeCheckpoint);
+  const native=JSON.parse(nativeBytes);assert.equal(native.sha,LOCAL_WORKER_REPAIR.nativeSource);assert.equal(native.commands[42].exitCode,0);
+  assert.equal(evidence.commands[42].reusedFrom,native.sha);assert.equal(evidence.commands[42].logHash,LOCAL_WORKER_REPAIR.nativeLog);
+  assert.equal(evidence.commands[42].logHash,native.commands[42].logHash);assert.equal(evidence.commands[42].durationMs,native.commands[42].durationMs);
+  assert.deepEqual(native.environment.inputs,evidence.environment.inputs);
   verifyNativeCaseUnion(tapResults(fs.readFileSync(path.join(directory,'reuse/tail.log'),'utf8')),tapResults(fs.readFileSync(path.join(directory,evidence.commands[42].log),'utf8')));
   assert.equal(evidence.repair?.source,original.sha);assert.equal(evidence.repair?.checkpoint,LOCAL_WORKER_REPAIR.checkpoint);
   assert.equal(evidence.base,original.base);assert.equal(evidence.startedAt,original.startedAt);

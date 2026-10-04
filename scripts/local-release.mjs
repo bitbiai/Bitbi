@@ -15,6 +15,16 @@ const json = file => JSON.parse(fs.readFileSync(file));
 const save = (file, value) => fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n');
 const safeEnv = () => ({ PATH: process.env.PATH, HOME: os.homedir(), TMPDIR: os.tmpdir(), LANG: 'en_US.UTF-8' });
 
+export function prepareCandidateRestore(root='.') {
+  const site=path.join(root,'_site');
+  if(!fs.existsSync(site)){assert(!fs.lstatSync(site,{throwIfNoEntry:false}),'Dangling candidate input');return;}
+  assert(fs.lstatSync(site).isDirectory()&&!fs.lstatSync(site).isSymbolicLink(),'Unexpected candidate input');
+  const manifest=json(path.join(root,'candidate/manifest.json'));
+  assert.deepEqual(tree(site),manifest.files,'Previous job changed candidate bytes; refuse restore');
+  assert.deepEqual(tree(path.join(root,'candidate/site')),manifest.files,'Stored candidate changed');
+  fs.rmSync(site,{recursive:true}); // disposable generated output, never source
+}
+
 export function acquireLocalReleaseLock(directory=cacheRoot()) {
   fs.mkdirSync(directory,{recursive:true,mode:0o700});
   const file=path.join(directory,'active-release.json');
@@ -125,6 +135,16 @@ function runLocalRelease({ base, resume }) {
     copy(path.join(tails[0],'checkpoint.json'),'tail-checkpoint.json');copy(path.join(tails[0],'bundle/logs/42.log'),'tail.log');
     fs.cpSync(path.join(originalDirectory,'runtime'),path.join(directory,'runtime'),{recursive:true});
     state={...state,startedAt:prior.startedAt,repair:{source:prior.sha,checkpoint:LOCAL_WORKER_REPAIR.checkpoint},commands:prior.commands.map((row,index)=>LOCAL_REPAIR_REFRESH.has(index)?null:{...row,command:commands[index],reusedFrom:prior.sha})};
+    const nativeRuns=fs.readdirSync(path.join(cacheRoot(),'runs')).filter(name=>name.startsWith(LOCAL_WORKER_REPAIR.nativeSource+'-'))
+      .map(name=>path.join(cacheRoot(),'runs',name)).filter(dir=>sha256(fs.readFileSync(path.join(dir,'checkpoint.json')))===LOCAL_WORKER_REPAIR.nativeCheckpoint);
+    assert.equal(nativeRuns.length,1,'Missing/ambiguous passed native continuation');
+    const native=nativeRuns[0],completed=json(path.join(native,'checkpoint.json'));
+    copy(path.join(native,'checkpoint.json'),'native-checkpoint.json');
+    fs.copyFileSync(path.join(native,'bundle/logs/42.log'),path.join(bundle,'logs/42.log'));
+    fs.cpSync(path.join(native,'runtime'),path.join(directory,'runtime'),{recursive:true});
+    fs.cpSync(path.join(native,'runtime'),path.join(bundle,'runtime'),{recursive:true});
+    state.commands[42]={...completed.commands[42],command:commands[42],reusedFrom:completed.sha};
+
   }
   assert.equal(state.sha, sha); assert.equal(state.base, base); assert.equal(state.planHash, validationPlan().digest);
   assert.equal(state.environment.key, environment.key, 'Changed dependencies invalidate this resume');
@@ -217,7 +237,8 @@ function runLocalRelease({ base, resume }) {
         const args = ['exec', '--user', q2 ? '1001:1001' : '0:0', ...Object.entries({ ...command.env, GITHUB_JOB: command.job }).filter(([key]) => key !== 'GH_TOKEN').flatMap(([key,value]) => ['--env',`${key}=${value}`]), name];
         if (!q2) args.push('/usr/bin/setpriv','--reuid=1001','--regid=1001','--clear-groups','--bounding-set=-all','--inh-caps=-all','--ambient-caps=-all','--no-new-privs');
         const effective=state.repair&&index===42?localWorkerContinuation():state.repair&&index===18?'npm run test:local-release -- --repair-only':command.run;
-        args.push('bash','--noprofile','--norc','-euo','pipefail','-c',effective);
+        const execution=command.name==='Restore exact candidate static site'?'node scripts/local-release.mjs restore-boundary\n'+effective:effective;
+        args.push('bash','--noprofile','--norc','-euo','pipefail','-c',execution);
         result = spawnSync('docker', ['--context','colima-bitbi-release',...args], { env: safeEnv(), stdio: ['ignore',fd,fd], timeout: 60 * 60 * 1000 });
         }
       } finally { fs.closeSync(fd); }
@@ -277,6 +298,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   try {
     const args = process.argv.slice(2), command = args.shift();
     if (command === 'prepare') { assert.equal(args.length, 0); console.log(JSON.stringify(await withReleaseLock(()=>ensureEnvironment()))); }
+    else if (command === 'restore-boundary') {assert.equal(args.length,0);prepareCandidateRestore();}
     else if (command === 'verify-worker-repair') {assert.equal(args.length,1);console.log(JSON.stringify(verifyLocalWorkerRepair(path.resolve(args[0]),git(['rev-parse','HEAD'])).result));}
     else if (command === 'baseline') { assert.equal(args.length,0);console.log(await verifiedLocalBase()); }
     else if (command === 'import') {
