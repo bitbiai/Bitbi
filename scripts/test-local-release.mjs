@@ -5,16 +5,52 @@ import path from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { yaml } from '../node_modules/playwright-core/lib/utilsBundle.js';
 import { selectCiTests } from './lib/ci-test-selection.mjs';
-import { validationPlan, selectedCommands, sha256 } from './lib/local-release-plan.mjs';
-import { environmentInputs, environmentKey, TOOL_PREFLIGHT } from './lib/local-release-environment.mjs';
+import { validationPlan, selectedCommands, sha256, commandRuntimes, nativeBrowserKey } from './lib/local-release-plan.mjs';
+import { environmentInputs, environmentKey, TOOL_PREFLIGHT, toolchainPins } from './lib/local-release-environment.mjs';
 import { validateLocator, extractEvidence } from './lib/local-release-transport.mjs';
-import { verifyLocalEvidence, rebindLocalCandidate, verifyNativeLocalReports, workerListResults, verifyWorkerUnion, assertLocalRepairTree, verifyLocalWorkerRepair, localWorkerContinuation, tapResults, verifyNativeCaseUnion, NATIVE_REPAIRED_CASES } from './lib/local-release-evidence.mjs';
+import { verifyLocalEvidence, rebindLocalCandidate, verifyNativeLocalReports, workerListResults, verifyWorkerUnion, assertLocalRepairTree, verifyLocalWorkerRepair, localWorkerContinuation, tapResults, verifyNativeCaseUnion, NATIVE_REPAIRED_CASES, verifyNativeBrowserEnvironment } from './lib/local-release-evidence.mjs';
 import { prepareFrontend } from './lib/frontend-hosting.mjs';
 import { gitSelection, tree, MEDIA_POLICY, validateSource, verifyManifest, verifyProofs } from './pages-candidate.mjs';
 import { assertHostedBootstrapAllowed, assertLocalBootstrapAllowed } from '../tests/helpers/q2-runtime/linux-hosted.mjs';
 import { acquireLocalReleaseLock, prepareCandidateRestore } from './local-release.mjs';
 
+function testNativeRouting() {
+  const commands=selectedCommands(selectCiTests(['config/static-hosting.json']),{GITHUB_SHA:'a'.repeat(40),CANDIDATE_BASE:'b'.repeat(40)});
+  for(const command of commands) {
+    const parts=commandRuntimes(command);
+    assert.equal(parts.map(part=>part.run).join('\n').trim(),command.run.trim(),'Runtime routing changed or omitted a selected command');
+    if(command.job==='homepage-validation')assert.deepEqual(parts.map(part=>part.runtime),['linux']);
+    if(command.name==='Run full static browser regression')assert.deepEqual(parts.map(part=>part.runtime),['native-browser-v1','linux']);
+  }
+  const full=commands.find(command=>command.name==='Run full static browser regression');assert(full);
+  assert.throws(()=>commandRuntimes({...full,run:full.run+'\nnpm run extra-test'}));
+  assert.throws(()=>commandRuntimes({...full,run:full.run.replace('test:homepage-carousel','test:auth')}));
+  for(const [name,run,runtime]of [
+    ['Run selected homepage carousel tests','npm run test:homepage-carousel','linux'],
+    ['Run selected auth and admin tests','npm run test:auth','native-browser-v1'],
+    ['Run selected homepage core tests','npm run test:homepage-core','native-browser-v1'],
+    ['Confirm tested browser candidate bytes','node scripts/pages-candidate.mjs proof','linux'],
+  ])assert.deepEqual(commandRuntimes({job:'browser-validation',name,run}),[{runtime,run}]);
+  const inputs=Object.fromEntries(Object.entries(environmentInputs()).filter(([file])=>file.endsWith('package.json')||file.endsWith('package-lock.json')));
+  inputs['tests/fixtures/media/test-video.mp4']=sha256(fs.readFileSync('tests/fixtures/media/test-video.mp4'));
+  const pins=toolchainPins(),browsers=JSON.parse(fs.readFileSync('node_modules/playwright-core/browsers.json')).browsers;
+  const record={policy:'native-browser-v1',node:pins.node,playwright:pins.playwright,platform:'darwin/arm64',kernel:'27.0.0',inputs,
+    binaries:['chromium','chromium-headless-shell','webkit','ffmpeg','ffprobe'].map(name=>({name,hash:'a'.repeat(64)})),
+    capabilities:Object.fromEntries(['chromium','webkit'].map(name=>[name,{version:browsers.find(browser=>browser.name===name).browserVersion,h264Decoded:true}])),
+    mediaTools:{ffmpeg:'ffmpeg version 8.1.1',ffprobe:'ffprobe version 8.1.1'},verifiedAt:new Date().toISOString()};
+  record.key=nativeBrowserKey(record);verifyNativeBrowserEnvironment(record);
+  assert.throws(()=>verifyNativeBrowserEnvironment(null));
+  for(const change of [r=>r.capabilities.chromium.h264Decoded=false,r=>delete r.capabilities.webkit,r=>r.capabilities.webkit.version='old',
+    r=>r.inputs['package-lock.json']='changed',r=>r.inputs['tests/fixtures/media/test-video.mp4']='changed',r=>r.binaries.pop(),
+    r=>r.binaries[0].hash='changed',r=>r.key='changed',r=>r.platform='linux/arm64',r=>delete r.mediaTools.ffprobe,r=>r.verifiedAt='unknown']) {
+    const broken=structuredClone(record);change(broken);assert.throws(()=>verifyNativeBrowserEnvironment(broken));
+  }
+  console.log('Native browser routing preserves every selected command and the Linux carousel matrix; missing codec/tool/version/input evidence blocks acceptance.');
+}
+if(process.argv.includes('--native-only')) {testNativeRouting();process.exit(0);}
+
 async function testLocalRepair() {
+  testNativeRouting();
   const restored=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-local-restore-'));
   try {
     fs.mkdirSync(path.join(restored,'candidate/site'),{recursive:true});fs.writeFileSync(path.join(restored,'candidate/site/index.html'),'tested');

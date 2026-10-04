@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { LOCAL_POLICY, selectedCommands, validationPlan, sha256 } from './local-release-plan.mjs';
+import { LOCAL_POLICY, selectedCommands, validationPlan, sha256, commandRuntimes, nativeBrowserKey } from './local-release-plan.mjs';
 import { environmentInputs, environmentKey, toolchainPins } from './local-release-environment.mjs';
 import { gitSelection, tree, verifyManifest, verifyProofs, candidateProof, proofJobs, REPOSITORY } from '../pages-candidate.mjs';
 import { verifyFrontend } from './frontend-hosting.mjs';
@@ -19,6 +19,26 @@ export function localPolicyAt(sha) {
   if (!/^[a-f0-9]{40}$/.test(sha || '')) return false;
   try { return execFileSync('git', ['show', `${sha}:config/release-validation.yml`], { encoding: 'utf8', stdio: ['ignore','pipe','ignore'] }).includes('version: 1'); }
   catch { return false; }
+}
+export function verifyNativeBrowserEnvironment(record,root='.') {
+  assert(record,'Missing native user-media browser preparation');
+  assert.equal(record.policy,'native-browser-v1');assert.equal(record.platform,'darwin/arm64');
+  const pins=toolchainPins(root);
+  assert.equal(record.node,pins.node);assert.equal(record.playwright,pins.playwright);
+  assert.match(record.kernel,/^\d+\.\d+\.\d+$/);
+  const inputs=Object.fromEntries(Object.entries(environmentInputs(root)).filter(([file])=>file.endsWith('package.json')||file.endsWith('package-lock.json')));
+  inputs['tests/fixtures/media/test-video.mp4']=sha256(fs.readFileSync(path.join(root,'tests/fixtures/media/test-video.mp4')));
+  assert.deepEqual(record.inputs,inputs,'Changed native dependencies or decoder fixture');
+  assert.deepEqual(record.binaries.map(item=>item.name),['chromium','chromium-headless-shell','webkit','ffmpeg','ffprobe']);
+  for(const binary of record.binaries)assert.match(binary.hash,/^[a-f0-9]{64}$/);
+  assert.equal(record.key,nativeBrowserKey(record),'Changed native runtime identity');
+  const browsers=JSON.parse(fs.readFileSync(path.join(root,'node_modules/playwright-core/browsers.json'))).browsers;
+  for(const name of ['chromium','webkit']) {
+    assert.equal(record.capabilities?.[name]?.version,browsers.find(browser=>browser.name===name).browserVersion);
+    assert.equal(record.capabilities[name].h264Decoded,true,`Missing decoded user-media prerequisite: ${name}`);
+  }
+  for(const name of ['ffmpeg','ffprobe'])assert.match(record.mediaTools?.[name]||'',new RegExp(`^${name} version \\d+\\.`));
+  assert(Number.isFinite(Date.parse(record.verifiedAt)),'Missing native preparation timestamp');
 }
 export function verifyNativeLocalReports(directory, log, {preflight=false}={}) {
   const references=log.split('\n').flatMap(line=>{
@@ -75,7 +95,7 @@ export const LOCAL_WORKER_REPAIR = Object.freeze({
   },
 });
 export const LOCAL_REPAIR_REFRESH = new Set([0,3,4,13,18,32,33,35,42]);
-const repairTooling = new Set(['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs',
+const repairTooling = new Set(['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/lib/local-release-plan.mjs','scripts/test-local-release.mjs',
   'AGENTS.md','docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md','docs/runbooks/REGRESSION_REGISTER.md']);
 const gitBytes=(args)=>execFileSync('git',args,{stdio:['ignore','pipe','pipe'],maxBuffer:64*1024*1024});
 export function assertLocalRepairTree(head) {
@@ -253,11 +273,15 @@ export function verifyLocalEvidence(directory, expected, { now = Date.now(), sel
   else assert(evidence.commands.every(row=>!row.reusedFrom&&!row.continuation),'Unverified local evidence reuse');
   const env = { GITHUB_SHA: expected.sha, CANDIDATE_BASE: expected.base };
   const commands = selectedCommands(selection, env);
+  if(commands.some(command=>commandRuntimes(command).some(part=>part.runtime==='native-browser-v1')))
+    verifyNativeBrowserEnvironment(evidence.nativeBrowsers);
   assert.equal(evidence.commands.length, commands.length, 'Missing/extra local commands');
   for (const [index, command] of commands.entries()) {
     const result = evidence.commands[index];
     assert.deepEqual(result.command, command, `Changed local command ${command.name}`);
     assert.equal(result.exitCode, 0, `Local command failed: ${command.name}`);
+    const runtimes=commandRuntimes(command).map(part=>part.runtime);
+    if(runtimes.includes('native-browser-v1'))assert.deepEqual(result.runtimes,runtimes,'Missing/mismatched browser execution environment');
     assert(result.durationMs >= 0 && Number.isFinite(result.durationMs));
     assert.equal(result.log, `logs/${index}.log`);
     assert.equal(sha256(fs.readFileSync(path.join(directory, result.log))), result.logHash, 'Missing/changed execution log');

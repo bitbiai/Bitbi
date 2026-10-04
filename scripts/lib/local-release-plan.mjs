@@ -9,6 +9,24 @@ export const LOCAL_POLICY = 'development-mac-v1';
 export const PLAN_FILE = 'config/release-validation.yml';
 const require=createRequire(import.meta.url);
 export const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+// User-media suites need the codec-capable macOS Chromium/WebKit distribution.
+// The carousel's complete three-engine matrix and Linux functional job retain
+// the pinned Linux image. Split only the existing two-command full-browser step.
+export function commandRuntimes(command) {
+  if (command.job !== 'browser-validation' || !/\b(?:playwright|npm run test:)\b/.test(command.run))
+    return [{runtime:'linux',run:command.run}];
+  if (command.name === 'Run full static browser regression') {
+    const lines=command.run.trim().split('\n');
+    assert.equal(lines.length,2,'Full browser command changed; review runtime routing');
+    assert.match(lines[0],/ npm run test:static /);
+    assert.match(lines[1],/ npm run test:homepage-carousel /);
+    return [{runtime:'native-browser-v1',run:lines[0]},{runtime:'linux',run:lines[1]}];
+  }
+  return [{runtime:command.name==='Run selected homepage carousel tests'?'linux':'native-browser-v1',run:command.run}];
+}
+export function nativeBrowserKey({node,playwright,platform,kernel,inputs,binaries}) {
+  return sha256(JSON.stringify({policy:'native-browser-v1',node,playwright,platform,kernel,inputs,binaries}));
+}
 export function validationPlan(root = '.') {
   const bytes = fs.readFileSync(`${root}/${PLAN_FILE}`);
   const plan = require('../../node_modules/playwright-core/lib/utilsBundle.js').yaml.parse(bytes.toString());

@@ -94,4 +94,17 @@ async function assertWorkspaceModelHelp({page, section, expect, locale}) {
     await entry.locator('summary').click();
   }
 }
-module.exports = { assertHelpCatalog, assertWorkspaceModelHelp };
+function assertPublicModelNames(publicModelNames, expect) {
+    expect(publicModelNames).toContain('Seedance 2.0 Fast');
+    expect(publicModelNames).not.toContain('Seedance 2.0');
+    const assertPublicNames=names=>{
+      expect(new Set(names).size).toBe(names.length);
+      expect(names).toContain('Seedance 2.0 Fast');expect(names).toContain('FLUX.1 Schnell');
+      expect(names).not.toContain('Seedance 2.0');expect(names).not.toContain('FLUX.2 Dev');
+    };
+    assertPublicNames(publicModelNames);
+    expect(()=>assertPublicNames(publicModelNames.filter(name=>name!=='Seedance 2.0 Fast'))).toThrow();
+    expect(()=>assertPublicNames([...publicModelNames,'Seedance 2.0 Fast'])).toThrow();
+    expect(()=>assertPublicNames([...publicModelNames,'Seedance 2.0'])).toThrow();
+}
+module.exports = { assertHelpCatalog, assertWorkspaceModelHelp, assertPublicModelNames };

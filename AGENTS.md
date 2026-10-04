@@ -104,7 +104,7 @@ Do not invent commands/scripts that are not present in this repo.
 
 For an authorized release, commit the scoped candidate and use `npm run release:local`.
 It resolves the verified published base, runs selected checks in the persistent
-local Linux environment, uploads exact-source evidence, pushes main in the
+local Linux and native browser environments, uploads exact-source evidence, pushes main in the
 foreground and continues the existing protected `static.yml` path. `release:preflight`
 uses the same evidence/resume path without push or publication. Do not separately
 rerun its passed suites on the Mac or GitHub. See the [local validation procedure](docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md#portable-local-release-validation).

@@ -5,8 +5,8 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { ensureEnvironment, docker, PACKAGES, cacheRoot, TOOL_PREFLIGHT } from './lib/local-release-environment.mjs';
-import { LOCAL_POLICY, validationPlan, selectedCommands, sha256 } from './lib/local-release-plan.mjs';
+import { ensureEnvironment, docker, PACKAGES, cacheRoot, TOOL_PREFLIGHT, toolchainPins } from './lib/local-release-environment.mjs';
+import { LOCAL_POLICY, validationPlan, selectedCommands, sha256, commandRuntimes, nativeBrowserKey } from './lib/local-release-plan.mjs';
 import { gitSelection, tree, REPOSITORY, publishedBase } from './pages-candidate.mjs';
 import { verifyLocalEvidence, LOCAL_WORKER_REPAIR, LOCAL_REPAIR_REFRESH, assertLocalRepairTree, verifyLocalWorkerRepair, localWorkerContinuation } from './lib/local-release-evidence.mjs';
 
@@ -14,6 +14,66 @@ const git = (args, cwd = '.') => execFileSync('git', args, { cwd, encoding: 'utf
 const json = file => JSON.parse(fs.readFileSync(file));
 const save = (file, value) => fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n');
 const safeEnv = () => ({ PATH: process.env.PATH, HOME: os.homedir(), TMPDIR: os.tmpdir(), LANG: 'en_US.UTF-8' });
+
+export function ensureNativeBrowsers(root='.') {
+  assert.equal(process.platform,'darwin');assert.equal(process.arch,'arm64');
+  const pins=toolchainPins(root);assert.equal(process.version,pins.node,'Use the pinned Node runtime for native browser acceptance');
+  const started=Date.now(), packages={}, inputs={};
+  for(const dir of PACKAGES) {
+    const files=['package.json','package-lock.json'].map(name=>path.join(root,dir,name));
+    const hashes=files.map(file=>sha256(fs.readFileSync(file)));
+    files.forEach((file,index)=>{inputs[path.posix.join(dir,path.basename(file))]=hashes[index];});
+    const key=sha256(JSON.stringify({hashes,node:pins.node,platform:'darwin/arm64'}));
+    const target=path.join(cacheRoot(),'native-dependencies',key),ready=path.join(target,'ready.json');
+    if(!fs.existsSync(ready)) {
+      fs.mkdirSync(target,{recursive:true});
+      for(const file of files)fs.copyFileSync(file,path.join(target,path.basename(file)));
+      execFileSync('npm',['ci'],{cwd:target,env:{...safeEnv(),CI:'1',WRANGLER_SEND_METRICS:'false'},stdio:'inherit',timeout:300000});
+      execFileSync('npm',['ls','--depth=0'],{cwd:target,env:safeEnv(),stdio:'pipe'});
+      save(ready,{key,node:pins.node,hashes});
+    }
+    assert.deepEqual(json(ready),{key,node:pins.node,hashes});
+    assert(fs.existsSync(path.join(target,'node_modules')),'Native dependency cache missing; inspect before preparing it again');
+    packages[dir]=path.join(target,'node_modules');
+  }
+  const browserRoot=path.join(os.homedir(),'Library/Caches/ms-playwright');
+  const browserEnv={...safeEnv(),CI:'1',PLAYWRIGHT_BROWSERS_PATH:browserRoot,WRANGLER_SEND_METRICS:'false'};
+  const playwright=path.join(packages[''],'playwright/index.mjs');
+  assert.equal(json(path.join(packages[''],'playwright/package.json')).version,pins.playwright);
+  const versions=Object.fromEntries(json(path.join(packages[''],'playwright-core/browsers.json')).browsers.filter(b=>['chromium','webkit'].includes(b.name)).map(b=>[b.name,b.browserVersion]));
+  const inventory=`import{registry}from ${JSON.stringify(path.join(packages[''],'playwright-core/lib/server/registry/index.js'))};console.log(JSON.stringify(['chromium','chromium-headless-shell','webkit'].map(name=>({name,path:registry.findExecutable(name).executablePath()}))));`;
+  const locate=()=>JSON.parse(execFileSync(process.execPath,['--input-type=module','-e',inventory],{env:browserEnv,encoding:'utf8'}));
+  let executables=locate();
+  if(executables.some(item=>!fs.existsSync(item.path))) {
+    execFileSync(process.execPath,[path.join(packages[''],'playwright/cli.js'),'install','chromium','webkit'],{env:browserEnv,stdio:'inherit',timeout:300000});
+    executables=locate();
+  }
+  const mediaTools={};
+  for(const name of ['ffmpeg','ffprobe']) {
+    const executable=execFileSync('/bin/sh',['-c',`command -v ${name}`],{env:safeEnv(),encoding:'utf8'}).trim();
+    mediaTools[name]=execFileSync(executable,['-version'],{env:safeEnv(),encoding:'utf8',timeout:10000}).split('\n')[0];
+    executables.push({name,path:executable});
+  }
+  const binaries=executables.map(item=>({name:item.name,hash:sha256(fs.readFileSync(item.path))}));
+  inputs['tests/fixtures/media/test-video.mp4']=sha256(fs.readFileSync(path.join(root,'tests/fixtures/media/test-video.mp4')));
+  const identity={node:pins.node,playwright:pins.playwright,platform:'darwin/arm64',kernel:os.release(),inputs,binaries};
+  const key=nativeBrowserKey(identity);
+  const ready=path.join(cacheRoot(),'native-browser-ready.json');
+  let record=fs.existsSync(ready)?json(ready):null,reused=record?.key===key;
+  if(!reused) {
+    // These are user-media decoder prerequisites, not decorative Hero tests.
+    const fixture=fs.readFileSync(path.join(root,'tests/fixtures/media/test-video.mp4')).toString('base64');
+    const probe=`import{chromium,webkit}from ${JSON.stringify(playwright)};const output={};
+      for(const[name,engine]of Object.entries({chromium,webkit})){console.error('Native browser prerequisite: '+name);const browser=await engine.launch({timeout:10000});try{const page=await browser.newPage();await page.route('**/*',route=>route.abort());await page.setContent('<video muted playsinline></video>');
+        const decoded=await page.evaluate(async src=>{const video=document.querySelector('video');video.src=src;return await new Promise(resolve=>{const timer=setTimeout(()=>resolve(false),3000);video.onloadeddata=()=>{clearTimeout(timer);resolve(video.videoWidth>0&&video.videoHeight>0&&video.readyState>=2)};video.onerror=()=>{clearTimeout(timer);resolve(false)};video.load();});},'data:video/mp4;base64,${fixture}');
+        output[name]={version:browser.version(),h264Decoded:decoded};if(!decoded)throw Error(name+' cannot decode the required user-media fixture');}finally{await browser.close();}}
+      console.log(JSON.stringify(output));`;
+    const capabilities=JSON.parse(execFileSync(process.execPath,['--input-type=module'],{input:probe,env:browserEnv,encoding:'utf8',timeout:30000,stdio:['pipe','pipe','inherit']}));
+    for(const [name,version] of Object.entries(versions))assert.equal(capabilities[name].version,version);
+    record={policy:'native-browser-v1',key,...identity,capabilities,mediaTools,verifiedAt:new Date().toISOString()};save(ready,record);
+  }
+  return {...record,packages,browserRoot,reused,preparationMs:Date.now()-started};
+}
 
 export function prepareCandidateRestore(root='.') {
   const site=path.join(root,'_site');
@@ -105,15 +165,18 @@ function runLocalRelease({ base, resume }) {
   assert(/^[a-f0-9]{40}$/.test(base || ''), 'Supply the verified published --base SHA');
   git(['merge-base','--is-ancestor',base,sha]);
   const environment = ensureEnvironment(), selection = gitSelection(base, sha);
+  const commands = selectedCommands(selection, { GITHUB_SHA: sha, CANDIDATE_BASE: base });
+  const nativeBrowsers=commands.some(command=>commandRuntimes(command).some(part=>part.runtime==='native-browser-v1'))?ensureNativeBrowsers():null;
+  const nativeEvidence=nativeBrowsers?Object.fromEntries(Object.entries(nativeBrowsers).filter(([key])=>!['packages','browserRoot'].includes(key))):null;
   const originalDirectory=resume&&json(path.join(resume,'checkpoint.json')).sha!==sha?path.resolve(resume):null;
   if(originalDirectory)assertLocalRepairTree(sha);
   const directory = resume&&!originalDirectory ? path.resolve(resume) : path.join(cacheRoot(), 'runs', `${sha}-${randomUUID()}`);
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const work = path.join(directory, 'source'), bundle = path.join(directory, 'bundle'), checkpoint = path.join(directory, 'checkpoint.json');
-  const id = path.basename(directory), commands = selectedCommands(selection, { GITHUB_SHA: sha, CANDIDATE_BASE: base });
+  const id = path.basename(directory);
   let state = fs.existsSync(checkpoint) ? json(checkpoint) : { policy: LOCAL_POLICY, repository: REPOSITORY,
     id, sha, base, sourceTree: git(['rev-parse',`${sha}^{tree}`]), planHash: validationPlan().digest,
-    selection, environment, origin: 'development-mac', ci: true, startedAt: new Date().toISOString(), status: 'running', commands: [] };
+    selection, environment, ...(nativeEvidence?{nativeBrowsers:nativeEvidence}:{}), origin: 'development-mac', ci: true, startedAt: new Date().toISOString(), status: 'running', commands: [] };
   if(originalDirectory) {
     const prior=json(path.join(originalDirectory,'checkpoint.json'));
     assert.equal(prior.sha,LOCAL_WORKER_REPAIR.source,'Only the pinned failed migration incident permits changed-source continuation');
@@ -148,6 +211,7 @@ function runLocalRelease({ base, resume }) {
   }
   assert.equal(state.sha, sha); assert.equal(state.base, base); assert.equal(state.planHash, validationPlan().digest);
   assert.equal(state.environment.key, environment.key, 'Changed dependencies invalidate this resume');
+  if(nativeBrowsers)assert.equal(state.nativeBrowsers?.key,nativeBrowsers.key,'Changed native browser environment invalidates this resume');
   if(state.status==='passed') {
     verifyLocalEvidence(bundle,{sha,base});
     console.log(`Reusing completed local acceptance for the same ${sha}; no suite repeated.`);
@@ -231,18 +295,55 @@ function runLocalRelease({ base, resume }) {
             docker(['cp',path.join(work,'test-results/private-media-image'),`${name}:/workspace/test-results/`]);
           }
         } else {
+        for(const part of commandRuntimes(command)) {
+        if(part.runtime==='native-browser-v1') {
+          assert(nativeBrowsers,'Missing native browser preparation');
+          const nativeHome=path.join(directory,'native-home');
+          fs.mkdirSync(nativeHome,{recursive:true,mode:0o700});
+          // Linux ARM Chromium lacks H264. The existing Mac distribution at the
+          // same locked Playwright revision supplies the actual browser group.
+          for(const dir of PACKAGES) {
+            const modules=path.join(work,dir,'node_modules');
+            if(fs.existsSync(modules))assert(fs.lstatSync(modules).isSymbolicLink(),'Unexpected native dependency directory');
+            else fs.symlinkSync(nativeBrowsers.packages[dir],modules);
+          }
+          for(const item of ['candidate','_site']) {
+            fs.rmSync(path.join(work,item),{recursive:true,force:true});
+            docker(['cp',`${name}:/workspace/${item}`,path.join(work,item)]);
+          }
+          const nativeManifest=json(path.join(work,'candidate/manifest.json'));
+          assert.deepEqual(tree(path.join(work,'_site')),nativeManifest.files,'Native input differs from the candidate');
+          // Each fresh browser invocation has a fresh profile/server. Shared
+          // dependency installations are persistent, never browser/account state.
+          result=spawnSync('/bin/bash',['--noprofile','--norc','-euo','pipefail','-c',part.run],{cwd:work,
+            env:{...safeEnv(),...env,...command.env,HOME:nativeHome,GITHUB_JOB:command.job,
+              WRANGLER_SEND_METRICS:'false',npm_config_userconfig:path.join(nativeHome,'.npmrc'),
+              PLAYWRIGHT_BROWSERS_PATH:nativeBrowsers.browserRoot,BITBI_LOCAL_RELEASE_CONTAINER:'',
+              Q2_RUNTIME_ARTIFACTS:path.join(directory,'native-browser-runtime'),RUNNER_TOOL_CACHE:path.join(directory,'native-browser-tools'),npm_config_cache:path.join(cacheRoot(),'native-npm')},
+            stdio:['ignore',fd,fd],timeout:60*60*1000});
+          assert.equal(git(['status','--porcelain','--untracked-files=no'],work),'','Native tests modified committed inputs');
+          assert.deepEqual(json(path.join(work,'candidate/manifest.json')),nativeManifest,'Native tests changed candidate metadata');
+          assert.deepEqual(tree(path.join(work,'_site')),nativeManifest.files,'Native tests changed candidate bytes');
+          for(const item of ['test-results','candidate-proofs'])if(fs.existsSync(path.join(work,item))) {
+            docker(['exec',name,'mkdir','-p',`/workspace/${item}`]);docker(['cp',`${path.join(work,item)}/.`,`${name}:/workspace/${item}/`]);
+          }
+        } else {
         // Native Q2 alone needs the reviewed privileged bootstrap. All ordinary
         // test/build processes have an empty capability set and no-new-privs.
         const q2 = /test-q2-runtime|test:workers/.test(command.run);
         const args = ['exec', '--user', q2 ? '1001:1001' : '0:0', ...Object.entries({ ...command.env, GITHUB_JOB: command.job }).filter(([key]) => key !== 'GH_TOKEN').flatMap(([key,value]) => ['--env',`${key}=${value}`]), name];
         if (!q2) args.push('/usr/bin/setpriv','--reuid=1001','--regid=1001','--clear-groups','--bounding-set=-all','--inh-caps=-all','--ambient-caps=-all','--no-new-privs');
-        const effective=state.repair&&index===42?localWorkerContinuation():state.repair&&index===18?'npm run test:local-release -- --repair-only':command.run;
+        const effective=state.repair&&index===42?localWorkerContinuation():state.repair&&index===18?'npm run test:local-release -- --repair-only':part.run;
         const execution=command.name==='Restore exact candidate static site'?'node scripts/local-release.mjs restore-boundary\n'+effective:effective;
         args.push('bash','--noprofile','--norc','-euo','pipefail','-c',execution);
         result = spawnSync('docker', ['--context','colima-bitbi-release',...args], { env: safeEnv(), stdio: ['ignore',fd,fd], timeout: 60 * 60 * 1000 });
         }
+        if(result.status!==0)break;
+        }
+        }
       } finally { fs.closeSync(fd); }
       const record = { command, exitCode: result.status ?? -1, durationMs: Date.now() - started, log, logHash: sha256(fs.readFileSync(logFile)) };
+      record.runtimes=commandRuntimes(command).map(part=>part.runtime);
       if(state.repair&&index===42)record.continuation=localWorkerContinuation();
       if(state.repair&&index===18)record.supplement='npm run test:local-release -- --repair-only';
       state.commands[index] = record; state.status = record.exitCode === 0 ? 'running' : 'failed'; save(checkpoint, state);
@@ -300,6 +401,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     if (command === 'prepare') { assert.equal(args.length, 0); console.log(JSON.stringify(await withReleaseLock(()=>ensureEnvironment()))); }
     else if (command === 'restore-boundary') {assert.equal(args.length,0);prepareCandidateRestore();}
     else if (command === 'verify-worker-repair') {assert.equal(args.length,1);console.log(JSON.stringify(verifyLocalWorkerRepair(path.resolve(args[0]),git(['rev-parse','HEAD'])).result));}
+    else if (command === 'prepare-native') {assert.equal(args.length,0);console.log(JSON.stringify(await withReleaseLock(()=>ensureNativeBrowsers())));}
     else if (command === 'baseline') { assert.equal(args.length,0);console.log(await verifiedLocalBase()); }
     else if (command === 'import') {
       assert.equal(process.env.GITHUB_ACTIONS, 'true'); assert.equal(process.env.GITHUB_JOB, 'release-compatibility');

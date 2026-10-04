@@ -20,7 +20,8 @@ reject before testing/deploying; the protected candidate backend continuation re
 
 | Execution owner | Checks and reason |
 | --- | --- |
-| Development Mac, dedicated Linux VM | Existing release/security/dependency/quality/selection checks, static build, native frontend HTTP, selected Worker/FFmpeg/Q2 chain, selected homepage and browser matrices, import/link/metadata checks. Commands and conditions live in `config/release-validation.yml`. No decorative Hero automation. |
+| Development Mac, dedicated Linux VM | Existing release/security/dependency/quality/selection checks, static build, native frontend HTTP, selected Worker/FFmpeg/Q2 chain, Linux homepage and the complete carousel matrix, import/link/metadata checks. Commands and conditions live in `config/release-validation.yml`. No decorative Hero automation. |
+| Development Mac, native Chromium/WebKit | Existing selected core/Auth/Assets/static user-media browser commands at the locked Playwright version. Linux ARM Chromium cannot decode the required H.264 fixtures. Native preparation checks real decoding before suites and fingerprints Node, locks, OS, browsers and media tools. Full static retains its separate Linux carousel command, including Firefox. |
 | Existing GitHub release workflow | Independently verify authenticated local evidence, source tree, full-range selection, all required command/report hashes, current main/base, candidate bytes and committed secrets. These protect the remote publication boundary; they do not repeat local suites. |
 | Existing protected deploy/recovery jobs | Owner/environment review, shared write lock, actual backend prerequisites, final live/current-source checks, publication/readback and durable receipt. These require protected production credentials and authoritative live state. |
 | Scheduled Full / Memvid | Unchanged workflows, schedule, commands and operation. Full stays independent of per-release local acceptance. No extra dispatch is implied. CodeQL/Dependabot remain independent. |
@@ -30,14 +31,18 @@ reject before testing/deploying; the protected candidate backend continuation re
 context or the separate media profile. Pins: Node 22.23.1, official Playwright
 1.58.2 Noble image by digest; locked root/Auth/AI/Contact/media dependencies in
 separately cached installation layers. Linux ARM64 uses the same browser/runtime
-versions and CI settings; affected media images retain their actual Linux AMD64
+versions and CI settings, but browser launch alone does not prove codec support.
+The native browser dependency cache and official browser installations persist; each
+run gets a disposable home, profile and test server without credentials. A warm check
+reuses verified versions/binary hashes; changed inputs require preparation.
+Affected media images retain their actual Linux AMD64
 build/test target. The VM uses 6 CPUs/12 GiB; one run uses 4 CPUs/10 GiB and the
 existing one-worker browser defaults. Record architecture, not a claimed x64 run.
 
 Only `~/Library/Caches/bitbi-local-release` is shared with the VM; no personal home,
 SSH agent or Docker socket is shared with tests. Sources, browser sessions, services
 and data are disposable per exact candidate. Tests get no production/GitHub tokens.
-Normal processes drop all capabilities and disable privilege reacquisition. Q2 alone
+Ordinary Linux processes drop all capabilities and disable privilege reacquisition. Q2 alone
 uses the reviewed namespace/filesystem/drop-privilege bootstrap under the distinct
 `development-mac-v1` container origin, never forged `github-hosted` flags. Full keeps
 its existing hosted-origin guard. The preparer retains immutable tool/browser images
@@ -70,6 +75,19 @@ this exception; failed originals remain failed. Archive tools (`zip`, `unzip`)
 are checked before suites alongside the browser/media prerequisites. There is
 no hosted fallback, blind rerun, or retention of browser/database sessions.
 
+The `97e0ec95` Auth browser run retained 664 first-attempt passes, with 44 failures
+and one retry-only case still unresolved. Native Mac `a4d3f433` repaired 42/43
+non-Lab cases; `004ff2ec` repaired only the remaining authorized Admin locale fixture.
+Keep all 707 genuine passes and their original reports. A deterministic EN/DE
+control confirms a separate Lab pricing-await race: the second rejected UI submission
+clears the first submission's busy state. A two-line product fix passed both controls
+in a private candidate; it is not committed product acceptance or live evidence.
+Complete current discovery, a closed case-union proof and final affected candidate
+acceptance remain required; do not run the whole Auth suite again. Publication of
+that separate product fix requires the task-specific scope decision recorded in
+the local checkpoint. The new locale fixture also selects homepage acceptance;
+its required, unexecuted work cannot be labelled passed.
+
 Evidence expires after seven days. The existing owner credential uploads a digest-bound
 archive as an unpublished draft asset, indexed by a nonproduction GitHub deployment
 metadata record (`bitbi-local-validation`). It creates no public release/tag event,
@@ -86,7 +104,9 @@ missing prerequisites, failed/skipped commands, legacy wrapper rejection and syn
 browser-image launch. They do not certify product behavior by discovery alone. An
 exact local run records preparation and per-command timings; repeat only the short
 `release:local:prepare` readiness command to measure warm reuse. Initial image downloads
-and failed provisioning attempts are separate from warm readiness/test timing. Actual
+and failed provisioning attempts are separate from warm readiness/test timing.
+Observed 2026-10-04 warm readiness: Linux 211 ms, native browsers 241 ms; both
+reused matching installations. This is setup timing, not an end-to-end speedup. Actual
 acceptance/publication is established by that source's receipts and workflow results,
 not by this document or a successful upload.
 
