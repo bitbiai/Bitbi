@@ -817,8 +817,9 @@ Discovery/candidate checks reject missing, skipped, duplicated or failed cases.
 Existing audio/processor evidence is unaffected; this scope publishes only the
 frontend. Full keeps its independent Canvas coverage, whose actions now explicitly
 open the new settings disclosures.
-The closed `e9642235` fixture continuation retains its 14 Inspector passes and
-executes only six failed merge/mobile cases. It uses the candidate server's ranged
+The closed `e9642235` fixture continuation retains its 14 Inspector passes plus
+four corrected merge passes from `f5507cd3`; only two mobile icon cases remain.
+Mobile picker actions select the visible card through the existing deck tabs. It uses the candidate server's ranged
 `/api/plain/canvas-preview/video.mp4` transport and explicitly opens the mobile
 Graph before its keyboard action. Pin original failed report/checkpoint and reviewed
 fixture hashes; unchanged product/hosting bytes and all 20 case identities remain

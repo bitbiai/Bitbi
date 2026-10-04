@@ -1,4 +1,4 @@
-import {SMOOTH_BROWSER_POLICY,SMOOTH_BROWSER_CONTINUATION,AUDIO_FIT_CONTINUATION, INSPECTOR_CONTINUATION,smoothProfile,isSmoothContinuation,assertSmoothContinuationTree,verifySmoothBrowserReport,verifySmoothImageReuse,verifyImportedSmoothImage,restoreSmoothBrowserProof,passedBrowserCase} from './lib/local-release-browser.mjs';
+import {SMOOTH_BROWSER_POLICY,SMOOTH_BROWSER_CONTINUATION,AUDIO_FIT_CONTINUATION, INSPECTOR_CONTINUATION,smoothProfile,smoothRetained,isSmoothContinuation,assertSmoothContinuationTree,verifySmoothBrowserReport,verifySmoothImageReuse,verifyImportedSmoothImage,restoreSmoothBrowserProof,passedBrowserCase} from './lib/local-release-browser.mjs';
 import {browserRows} from './lib/browser-fixture-repair.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -72,7 +72,8 @@ function testSmoothContinuation(p=SMOOTH_BROWSER_CONTINUATION) {
         .replace("  const completed={id:id(12),status:'ready',storage:'canvas',asset:{id:id(13),file_url:video},preview_base:{file_url:video},", "  const media='/api/plain/canvas-preview/video.mp4'; // The candidate server's real ranged media fixture; tests/ is not published.\n  const completed={id:id(12),status:'ready',storage:'canvas',asset:{id:id(13),file_url:media},preview_base:{file_url:media},")
         .replace('  await result.evaluate(v=>v.play());','  await result.scrollIntoViewIfNeeded();await expect(result).toBeInViewport();\n  await result.evaluate(v=>v.play());')
         .replace("toHaveAttribute('href',video+'?download=1')","toHaveAttribute('href',media+'?download=1')")
-        .replace("  await select(2);const card=","  await select(2);if(locale==='de')await page.locator('#canvasGraphToggle').click();const card="));
+        .replace("  await select(2);const card=","  await select(2);if(locale==='de')await page.locator('#canvasGraphToggle').click();const card=")
+        .replace('    await page.locator(`#canvasAssetsGrid [data-asset-id="${picker.assets[index].id}"]`).click();', '    if(locale===\'de\')await page.locator(`#canvasAssetsOverlay [role="tab"][data-target-index="${index}"]`).click();\n    await page.locator(`#canvasAssetsGrid [data-asset-id="${picker.assets[index].id}"]`).click();'));
     }
     if(!audioFit)return execFileSync('git',['show',`${p.accepted}:${file}`]);
     const before=execFileSync('git',['show',`${p.source}:${file}`],{encoding:'utf8'});
@@ -100,14 +101,16 @@ function testSmoothContinuation(p=SMOOTH_BROWSER_CONTINUATION) {
   if(fs.existsSync(file)&&fs.existsSync(checkpoint)&&smoothProfile(JSON.parse(fs.readFileSync(checkpoint)).sha)===p) {
     const bytes=fs.readFileSync(file);assert.equal(sha256(bytes),p.report);const previous=browserRows(JSON.parse(bytes));
     const discovery=browserRows(JSON.parse(fs.readFileSync(path.join(dir,'test-results/canvas-discovery.json'))),{discovery:true});
-    const fresh=previous.filter(row=>!passedBrowserCase(row)).map(row=>({...row,expectedStatus:'passed',status:'expected',results:[{status:'passed',retry:0,error:false}]}));
+    const progress=p.browserProgress?{sha:p.browserProgress.sha,rows:browserRows(JSON.parse(fs.readFileSync(path.join(dir,'reuse/smooth-progress.json'))))}:undefined;
+    const retained=smoothRetained(previous,progress,p);
+    const fresh=previous.filter(row=>!retained.has(row.key)).map(row=>({...row,expectedStatus:'passed',status:'expected',results:[{status:'passed',retry:0,error:false}]}));
     const counts=inspector?p.counts:audioFit?{required:4,reused:2,executed:2}:{required:228,reused:208,executed:20};
-    const report={policy:SMOOTH_BROWSER_POLICY,sha:head,source:p.source,previous,discovery,fresh,counts};
+    const report={policy:SMOOTH_BROWSER_POLICY,sha:head,source:p.source,previous,...(progress?{progress}:{}),discovery,fresh,counts};
     assert.deepEqual(verifySmoothBrowserReport(report,head),report.counts);
     const manifest={sha:head,selection:{auth:true,canvasText:true,...(inspector?{canvasInspector:true}:audioFit?{canvasAudioFit:true}:{canvasAudio:true})}};
     const proof=()=>candidateProof(manifest,{job:'browser-validation',readJson:name=>name.endsWith('canvas-discovery.json')?JSON.parse(fs.readFileSync(path.join(dir,'test-results/canvas-discovery.json'))):report});
     assert.equal(proof().tests,counts.required);
-    for(const mutate of [r=>r.fresh.pop(),r=>r.fresh.push(r.fresh[0]),r=>r.fresh[0].results[0].status='failed',r=>r.fresh[0].results[0].retry=1,r=>r.previous.find(passedBrowserCase).status='unexpected',r=>r.discovery.pop()]) {
+    for(const mutate of [r=>r.fresh.pop(),r=>r.fresh.push(r.fresh[0]),r=>r.fresh[0].results[0].status='failed',r=>r.fresh[0].results[0].retry=1,r=>r.previous.find(passedBrowserCase).status='unexpected',r=>r.discovery.pop(),...(inspector?[r=>delete r.progress,r=>r.progress.rows.pop(),r=>r.progress.rows.find(passedBrowserCase).results[0].status='failed']:[])]) {
       const original=structuredClone(report);mutate(report);assert.throws(proof);Object.assign(report,original);
     }
     if(!inspector&&!audioFit&&fs.existsSync(path.join(dir,'reuse/smooth-accepted.json'))) {
@@ -117,7 +120,7 @@ function testSmoothContinuation(p=SMOOTH_BROWSER_CONTINUATION) {
         rebound.reusedFrom.sha=head;assert.throws(()=>verifySmoothBrowserReport(rebound,head));
       }finally{fs.rmSync(tmp,{recursive:true,force:true});}
     }
-    if(inspector){console.log('Inspector continuation counterchecks: 14 retained / 6 required; missing, failed, skipped, retried and altered source evidence rejected.');return;}
+    if(inspector){console.log('Inspector continuation counterchecks: 18 retained / 2 required; missing, failed, skipped, retried and altered source evidence rejected.');return;}
     const image=JSON.parse(fs.readFileSync(path.join(dir,'test-results/private-media-image/image.json')));assert.equal(verifySmoothImageReuse(image,head,{read:read()}),p.source);
     const imported={...image,run:'123',attempt:'1',localValidation:{policy:'development-mac-v1',publicationSha:head,run:image.run,attempt:image.attempt,evidence:'a'.repeat(64),recordHash:sha256(JSON.stringify(image))}};
     const verify=record=>verifyImportedSmoothImage(record,{sha:head,run:'123',attempt:'1'},{read:read()});assert.equal(verify(imported),p.source);

@@ -144,6 +144,7 @@ exports.icons = async options => {
   const picker=await options.prepareCanvasAssetPicker(page,{locale});
   for(const [index,kind] of [[0,'image'],[1,'video'],[2,'audio'],[3,'asset']]) {
     await page.locator('#canvasAssetChoose').click();await page.locator('#canvasAssetsFilter').selectOption(picker.folderId);
+    if(locale==='de')await page.locator(`#canvasAssetsOverlay [role="tab"][data-target-index="${index}"]`).click();
     await page.locator(`#canvasAssetsGrid [data-asset-id="${picker.assets[index].id}"]`).click();
     await page.locator('#canvasAssetsPickerApply').click();
     await expect(page.locator(`[data-node-id="${picker.nodeId}"] [data-media-icon]`)).toHaveAttribute('data-media-icon',kind);

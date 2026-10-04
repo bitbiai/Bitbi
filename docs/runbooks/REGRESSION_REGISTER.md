@@ -334,8 +334,9 @@ addressed an unpublished `tests/` URL instead of the existing candidate HTTP med
 fixture; two narrow-layout keyboard cases tried to move a node while the Graph was
 hidden by the Inspector. Correction uses `/api/plain/canvas-preview/video.mp4`,
 checks visible playback, and explicitly returns to Graph before ArrowRight. Retain
-14 genuine passes and require six fresh cases through the existing local browser
-continuation; preserve the failed report. `test-local-release.mjs` counterchecks
+14 original passes and four corrected merge passes from `f5507cd3`; the two
+remaining mobile icon cases must first select each visible card through the
+existing deck tabs. The local browser continuation preserves both failed reports. `test-local-release.mjs` counterchecks
 reject changed product inputs, missing cases, retries and forged provenance; the
 actual caller remains selected `tests/canvas.spec.js` in Chromium/WebKit, EN/DE.
 This is a fixture correction, not a production decoder or graph repair.

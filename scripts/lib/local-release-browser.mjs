@@ -169,11 +169,17 @@ export const INSPECTOR_CONTINUATION=Object.freeze({
   "last": 41,
   "counts": {
     "required": 20,
-    "reused": 14,
-    "executed": 6
+    "reused": 18,
+    "executed": 2
   },
+  "browserProgress": {
+  "sha": "f5507cd34f2cfd2b328bb07a8cec94e67af35cd8",
+  "run": "f5507cd34f2cfd2b328bb07a8cec94e67af35cd8-3087e41a-3f75-4ad0-ae43-b0397a4af1d1",
+  "report": "a5b50be1482c823514effb1804b3db11588b25118aa6700d182dbd43aa9bbd25",
+  "rows": "898fe678e97e31cec3565eeee91a6b56ccff5935638e0e3b71c36570998fbb12"
+},
   "specs": {
-    "tests/helpers/canvas-inspector-ui.cjs": "c2549f1c7ea526044f8d4d0d675370fbba8cfb546243dba940dc4cba7fea99ed"
+    "tests/helpers/canvas-inspector-ui.cjs": "756e203a8dea2523de451ed059fc53e744b3f2b5c1c8d773659b074ee6738965"
   }
 });
 export const smoothProfile=source=>source===INSPECTOR_CONTINUATION.source?INSPECTOR_CONTINUATION:source===AUDIO_FIT_CONTINUATION.source?AUDIO_FIT_CONTINUATION:SMOOTH_BROWSER_CONTINUATION;
@@ -193,14 +199,26 @@ export function verifySmoothBrowserReport(report,sha) {
   if(report.reusedFrom){const {reusedFrom,...original}=report;original.sha=p.accepted;assert.deepEqual(reusedFrom,{sha:p.accepted,reportHash:p.acceptedReport});assert.equal(sha256(JSON.stringify(original)),p.acceptedReport);}
   assert.equal(report.source,p.source);assert.equal(sha256(JSON.stringify(report.previous)),p.rows,'Original failed browser results changed');
   assert.equal(sha256(JSON.stringify(report.discovery)),p.discovery,'Required browser discovery changed');
-  const retained=new Map(report.previous.filter(passedBrowserCase).map(row=>[row.key,row]));
+  const retained=smoothRetained(report.previous,report.progress,p);
   const counts=verifyBrowserUnion(report.discovery,retained,report.fresh);assert.deepEqual(report.counts,counts);return counts;
+}
+export function smoothRetained(previous,progress,p) {
+  const retained=new Map(previous.filter(passedBrowserCase).map(row=>[row.key,row]));
+  if(p.browserProgress) {
+    assert.equal(progress?.sha,p.browserProgress.sha,'Missing progress source');
+    assert.equal(sha256(JSON.stringify(progress.rows)),p.browserProgress.rows,'Progress execution changed');
+    assert.deepEqual(sorted(progress.rows).map(identity),sorted(previous.filter(row=>!passedBrowserCase(row))).map(identity),'Progress must match exactly the previously unresolved cases');
+    for(const row of progress.rows.filter(passedBrowserCase))retained.set(row.key,row);
+  } else assert.equal(progress,undefined,'Unexpected browser progress');
+  return retained;
 }
 export function runSmoothBrowserContinuation(env=process.env) {
   const source=JSON.parse(fs.readFileSync('.local-release/reuse/test-results/permission-checkpoint.json')).sha,p=smoothProfile(source);
   assert.equal(env.GITHUB_JOB,'browser-validation');assert.equal(env.CI,'1');assertSmoothContinuationTree(env.GITHUB_SHA,undefined,{source});
   const raw=fs.readFileSync('.local-release/reuse/smooth-browser.json');assert.equal(sha256(raw),p.report);
-  const previous=browserRows(JSON.parse(raw)),retained=new Map(previous.filter(passedBrowserCase).map(row=>[row.key,row]));
+  let progress;
+  if(p.browserProgress){const bytes=fs.readFileSync('.local-release/reuse/smooth-progress.json');assert.equal(sha256(bytes),p.browserProgress.report);progress={sha:p.browserProgress.sha,rows:browserRows(JSON.parse(bytes))};}
+  const previous=browserRows(JSON.parse(raw)),retained=smoothRetained(previous,progress,p);
   const base=p===INSPECTOR_CONTINUATION?['test:static','--','tests/canvas.spec.js','--project=chromium','--project=webkit-canvas','--grep','Canvas Inspector']:p===AUDIO_FIT_CONTINUATION?['test:static','--','tests/canvas.spec.js','--project=chromium','--project=webkit-canvas','--grep','Canvas audio fit']
     :['test:static','--','tests/canvas.spec.js','tests/oma2-q1-canvas.spec.js','--project=chromium','--project=webkit-canvas','--grep','Canvas|P13|@canvas-model-ui'];
   const run=(name,args,discovery=false)=>{
@@ -220,7 +238,7 @@ export function runSmoothBrowserContinuation(env=process.env) {
   const selected=browserRows(run('selected-discovery',[...args,'--list'],true),{discovery:true});
   assert.deepEqual(selected,discovery.filter(row=>pending.has(row.key)));
   const fresh=browserRows(run('fresh',args));
-  const report={policy:SMOOTH_BROWSER_POLICY,sha:env.GITHUB_SHA,source:p.source,previous,discovery,fresh,counts:verifyBrowserUnion(discovery,retained,fresh)};
+  const report={policy:SMOOTH_BROWSER_POLICY,sha:env.GITHUB_SHA,source:p.source,previous,...(progress?{progress}:{}),discovery,fresh,counts:verifyBrowserUnion(discovery,retained,fresh)};
   verifySmoothBrowserReport(report,env.GITHUB_SHA);fs.writeFileSync('test-results/candidate-auth.json',JSON.stringify(report));
   console.log(JSON.stringify({...report.counts,originalFailuresPreserved:true}));
 }

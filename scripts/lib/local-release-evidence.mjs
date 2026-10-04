@@ -238,6 +238,8 @@ function verifyPermissionContinuation(directory,evidence,commands) {
     const raw=fs.readFileSync(path.join(directory,'reuse/smooth-browser.json'));assert.equal(sha256(raw),smoothProfile(original.sha).report);
     const report=JSON.parse(fs.readFileSync(path.join(directory,'test-results/candidate-auth.json')));
     assert.deepEqual(report.previous,browserRows(JSON.parse(raw)));
+    const progress=smoothProfile(original.sha).browserProgress;
+    if(progress){const bytes=fs.readFileSync(path.join(directory,'reuse/smooth-progress.json'));assert.equal(sha256(bytes),progress.report);assert.deepEqual(report.progress,{sha:progress.sha,rows:browserRows(JSON.parse(bytes))});}
     assert.deepEqual(report.fresh,browserRows(JSON.parse(fs.readFileSync(path.join(directory,'test-results/smooth-fresh.json')))));
     verifySmoothBrowserReport(report,evidence.sha);if(accepted||completed)restoreSmoothBrowserProof(directory,{sha:evidence.sha,verifyOnly:true});restoreCanvasHostingProof(directory,{verifyOnly:true});
   }
