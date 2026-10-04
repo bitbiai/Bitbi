@@ -191,7 +191,9 @@ export const CANVAS_STAGE_CASES=['default native runtime plan stages every actua
 export function canvasStageContinuation(command) {
   assert(command.includes('node scripts/test-q2-runtime.mjs --suite canvas-audio'));
   const prior='node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs';assert(command.includes(prior));
-  return command.replaceAll(prior,`node --test --test-name-pattern='^(${CANVAS_STAGE_CASES.join('|')})$' scripts/test-q2-runtime-launcher.mjs`);
+  // A callback keeps the regex's dollar/quote literal; String replacement text
+  // would interpret $' as the entire remaining shell program.
+  return command.replaceAll(prior,()=>`node --test --test-name-pattern='^(${CANVAS_STAGE_CASES.join('|')})$' scripts/test-q2-runtime-launcher.mjs`);
 }
 export const PERMISSION_REFRESH=new Set([0,2,3,4,7,12,17,28,29,33,34,35]);
 export function assertPermissionContinuationTree(head,read=gitBytes) {

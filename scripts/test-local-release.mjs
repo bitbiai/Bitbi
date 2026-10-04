@@ -44,6 +44,7 @@ function testPermissionContinuation() {
       const corrected=CANVAS_STAGE_CASES.map(title=>({title,status:'passed'}));verifyNativeCaseUnion(before,corrected,CANVAS_STAGE_CASES);
       for(const after of [[],corrected.slice(1),[...corrected,corrected[0]],corrected.map((r,i)=>i?r:{...r,status:'failed'})])assert.throws(()=>verifyNativeCaseUnion(before,after,CANVAS_STAGE_CASES));
       const command=context.commands[41].run;assert(canvasStageContinuation(command).includes('npx playwright test'));assert(canvasStageContinuation(command).includes('node scripts/test-q2-runtime.mjs --suite canvas-audio'));
+      const syntax=spawnSync('/bin/bash',['-n'],{input:canvasStageContinuation(command),encoding:'utf8'});assert.equal(syntax.status,0,syntax.stderr);
     }
   }
   console.log('Permission continuation: exact failed checkpoint/tree, immutable passes, changed scope/toolchain and forged-success controls passed.');
