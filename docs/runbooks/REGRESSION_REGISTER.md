@@ -642,6 +642,36 @@ below action buttons; existing Canvas tests inject metadata and verify the exact
 persisted fade and click/error-recovery outcome. No retry/time-limit/audio-threshold
 relaxation, provider generation or decorative Hero test is involved.
 
+Release `37189472421/1` at `3e6f82ed` passed all four Linux native cases and the
+seven required Linux image controls, then stopped with 218 browser passes and six
+failures before deployment. The new UI fixture encoded two unnecessary 80-second
+exports inside a 30-second case. Four eight-second clips preserve ordered pixels,
+loop/fade boundaries, both render modes, real ownership/versions and decoded gain
+without increasing the deadline. Preview seeks now wait for actual advancing
+playback after asynchronous source initialization; gain assertions require one
+paired decoded window within both bounds, rejecting stale unity, silence and
+wrong gain. Sufficient steady audio separates a gain observation from short-clip
+fade/end behavior, which remains covered by the processor controls.
+
+Separately, the existing Linux WebKit audition reproduced a stopped native source
+with its element screenshot during playback. Moving that artifact capture before
+playback passed two bounded EN/DE repetitions; all destination disconnect/reconnect,
+unity, limiter, seek/recovery and no-extra-write checks remain. No viewport resize
+was observed, and the underlying native snapshot interaction is not claimed fixed.
+The new export cases pass in Linux and native macOS WebKit; the DE seek correction
+also passed its bounded Linux repeat. No thresholds, retries or timeouts changed.
+
+The existing closed browser continuation authenticates archive/report/case hashes,
+requires the complete 224-case discovery and six fresh executions, and retains the
+218 unchanged passes. Its focused counterchecks reject missing media preparation,
+unknown product changes and incomplete/failed/retried proofs. Pre-push inspection
+also found that generic repair publication would look for the image in the new
+run and assume existing production smoke outputs. This fixture-only continuation
+now verifies/reuses the original tested image with its original source/run/attempt,
+records a separate activation identity, and requires fresh production smoke.
+Actual callers remain static.yml, the candidate verifier and protected media
+publication; final publication/live receipts belong in the task checkpoint.
+
 
 ### Private media dispatch and backend assignment (2026-09-19)
 Private exports/posters previously depended on the public 600-second dispatcher

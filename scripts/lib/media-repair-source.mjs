@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {api,collection,sourceAttempt,validateSource,gitSelection,isRequiredValidationRun,requiredJobs,REPOSITORY} from '../pages-candidate.mjs';
-import {CANVAS_MERGE_BROWSER_REPAIR,CANVAS_MERGE_BROWSER_REPAIR_FILES,SEEDANCE_BROWSER_REPAIR,SEEDANCE_BROWSER_REPAIR_FILES,BROWSER_REPAIR,OMNI_BROWSER_REPAIR,OMNI_BROWSER_REPAIR_FILES,BROWSER_REPAIR_ACCEPTANCE,BROWSER_REPAIR_FILES,assertBrowserRepairTrees,assertBrowserPublicationTree,assertCompletedBrowserRepair} from './browser-fixture-repair.mjs';
+import {CANVAS_AUDIO_BROWSER_REPAIR,CANVAS_AUDIO_BROWSER_REPAIR_FILES,CANVAS_MERGE_BROWSER_REPAIR,CANVAS_MERGE_BROWSER_REPAIR_FILES,SEEDANCE_BROWSER_REPAIR,SEEDANCE_BROWSER_REPAIR_FILES,BROWSER_REPAIR,OMNI_BROWSER_REPAIR,OMNI_BROWSER_REPAIR_FILES,BROWSER_REPAIR_ACCEPTANCE,BROWSER_REPAIR_FILES,assertBrowserRepairTrees,assertBrowserPublicationTree,assertCompletedBrowserRepair} from './browser-fixture-repair.mjs';
 export const MEDIA_REPAIR_FILES=new Set([
   'services/homepage-ffmpeg-processor/video-reference.mjs',
   'services/homepage-ffmpeg-processor/video-reference.test.mjs',
@@ -44,6 +44,11 @@ export function isModelAreaSchemaRepair(files) {
 const git=args=>execFileSync('git',args,{encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
 export function repairKind(files) {
   if(isModelAreaSchemaRepair(files))return 'tooling';
+  if(files.includes('tests/helpers/canvas-audio-ui.cjs')) {
+    assert([...CANVAS_AUDIO_BROWSER_REPAIR_FILES].filter(f=>!f.startsWith('docs/')).every(f=>files.includes(f)),'Incomplete reviewed Canvas audio browser fixture repair');
+    assert(files.every(f=>CANVAS_AUDIO_BROWSER_REPAIR_FILES.has(f)),'Changed input is outside Canvas audio browser fixture equivalence');
+    return 'browser-fixture';
+  }
   if(files.includes('tests/helpers/canvas-music-preview.cjs')) {
     assert(['tests/canvas.spec.js','scripts/lib/browser-fixture-repair.mjs','scripts/test-browser-fixture-repair.mjs','scripts/lib/media-repair-source.mjs'].every(f=>files.includes(f)),'Incomplete reviewed Canvas merge browser fixture repair');
     assert(files.every(f=>CANVAS_MERGE_BROWSER_REPAIR_FILES.has(f)),'Changed input is outside Canvas merge browser fixture equivalence');
@@ -103,14 +108,15 @@ export function repairDelta(source,head,base) {
 }
 export function repairSelection(full,files) {
   const kind=repairKind(files),media=kind==='media',browser=kind==='browser-fixture';
-  return {...full,policy:browser?BROWSER_REPAIR.policy:kind==='browser-publication'?'browser-fixture-publication-v1':media?'media-repair-v1':'release-tooling-repair-v1',docsOnly:false,memberModels:false,full:false,homepage:false,carousel:false,assets:false,auth:browser,browserRepair:browser,
-    adminRelease:false,memberAssets:false,publicMedia:false,modelStatus:false,canvasText:false,workspaceHelp:false,
+  return {...full,repairFiles:[...files],policy:browser?BROWSER_REPAIR.policy:kind==='browser-publication'?'browser-fixture-publication-v1':media?'media-repair-v1':'release-tooling-repair-v1',docsOnly:false,memberModels:false,full:false,homepage:false,carousel:false,assets:false,auth:browser,browserRepair:browser,
+    adminRelease:false,memberAssets:false,publicMedia:false,modelStatus:false,canvasText:false,canvasAudio:false,canvasCompletion:false,workspaceHelp:false,
     appearance:false,modelPricing:false,imageModels:false,workers:media,mediaLifecycle:media,runtime:media,static:true,mediaRepair:media,dependencies:false,workerDependencies:false,
     reasons:{...Object.fromEntries(Object.keys(full.reasons).map(k=>[k,[]])),workers:media?['Fresh processor Linux image, native D1/R2 smoke and SDK lifecycle']:[],auth:browser?['Execute the incident-specific repaired definitions and controls; complete any unexecuted command tail']:[],static:[browser?'Preserve authenticated unchanged source cases; require fresh repaired/control/tail browser execution':'Authenticated unchanged frontend source; no new browser execution claimed'],dependencies:[],workerDependencies:[]}};
 }
 export function assertRepairAcceptance(jobs,sha,files=['services/homepage-ffmpeg-processor/video-reference.mjs']) {
   const kind=repairKind(files),media=kind==='media',browser=kind==='browser-fixture';
   const requirements=requiredJobs({workers:media,mediaLifecycle:media,browserRepair:browser,files});
+  if(files.includes('tests/helpers/canvas-audio-ui.cjs'))requirements['browser-validation'].push('Install Canvas browser media tools');
   requirements['release-compatibility']=requirements['release-compatibility'].filter(s=>s!=='Record candidate build');
   requirements['release-compatibility'].push('Select tests from changed files');
   if(media)requirements['worker-validation'].push('Verify repaired native media smoke');
@@ -171,7 +177,7 @@ export async function discoverRepairSource(env=process.env,{verify=verifyRepairS
   }
   // This incident cannot silently fall back to the already completed broad
   // suite when its intended continuation has invalid files/evidence.
-  const intended=[CANVAS_MERGE_BROWSER_REPAIR,SEEDANCE_BROWSER_REPAIR,OMNI_BROWSER_REPAIR,BROWSER_REPAIR].find(incident=>{try {
+  const intended=[CANVAS_AUDIO_BROWSER_REPAIR,CANVAS_MERGE_BROWSER_REPAIR,SEEDANCE_BROWSER_REPAIR,OMNI_BROWSER_REPAIR,BROWSER_REPAIR].find(incident=>{try {
     // The source push itself executes its normal selected acceptance. Only a
     // later reviewed correction may enter this continuation.
     if(env.GITHUB_SHA===incident.sha)return false;

@@ -34,7 +34,9 @@ export function requiredJobs(selection) {
   if (selection.dependencies) jobs['release-compatibility'].push('Audit root dependencies');
   if (selection.workerDependencies) jobs['release-compatibility'].push('Validate worker package dependencies');
   if (selection.workers) jobs['worker-validation'] = selection.mediaLifecycle ? ['Run private media lifecycle tests'] : [...REQUIRED_JOBS['worker-validation']];
-  if (requiresPrivateMediaImage(selection.files||[])) {
+  // Retain the complete unpublished files for publication, while a verified
+  // continuation selects fresh jobs from its separately reviewed repair delta.
+  if (requiresPrivateMediaImage(selection.repairFiles||selection.files||[])) {
     if(!jobs['worker-validation'].includes('Run private media lifecycle tests'))jobs['worker-validation'].push('Run private media lifecycle tests');
     jobs['worker-validation'].push('Build and test private media Linux image','Preserve tested private media image');
   }

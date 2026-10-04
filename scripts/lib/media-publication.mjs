@@ -6,6 +6,7 @@ import {execFileSync} from 'node:child_process';
 import {api,collection} from '../pages-candidate.mjs';
 import {cloudflareRead,hash} from './frontend-hosting.mjs';
 import {verifyMediaImage} from '../private-media-image.mjs';
+import {CANVAS_AUDIO_BROWSER_REPAIR,assertBrowserRepairTrees} from './browser-fixture-repair.mjs';
 const run=(cmd,args,options={})=>{try{return execFileSync(cmd,args,{encoding:'utf8',stdio:['ignore','pipe','pipe'],timeout:600000,maxBuffer:8*1024*1024,...options});}catch{throw Error(`Private media ${path.basename(cmd)} operation failed; no frontend continuation`);}};
 const cli=path.resolve('workers/auth/node_modules/wrangler/bin/wrangler.js');
 const wrangler=args=>run(process.execPath,[cli,...args],{env:{...process.env,WRANGLER_SEND_METRICS:'false'}});
@@ -27,9 +28,10 @@ export function assertMediaAuthConfig(before,after) {
   assert.deepEqual(next,previous,'Unreviewed Auth configuration change');
   assert.deepEqual(after.services.filter(s=>s.binding==='PRIVATE_MEDIA_PROCESSOR'),[{binding:'PRIVATE_MEDIA_PROCESSOR',service:'bitbi-private-media'}]);
 }
-export function verifyMediaEvidence(receipt,{sha,run,attempt,lifecycle=false,publicPreviews=false,videoReferences=false,exportMusic=false,previewBase=false}) {
+export function verifyMediaEvidence(receipt,{sha,run,attempt,imageSha=sha,lifecycle=false,publicPreviews=false,videoReferences=false,exportMusic=false,previewBase=false}) {
   assert(receipt.media,'Missing media activation evidence');
   assert.equal(receipt.media.sha,sha);assert.equal(receipt.media.sourceRun,run);assert.equal(receipt.media.sourceAttempt,attempt);
+  if(imageSha!==sha||receipt.media.imageSourceSha!==undefined)assert.equal(receipt.media.imageSourceSha,imageSha,'Wrong tested media image source');
   assert(/^registry\.cloudflare\.com\/[a-f0-9]{32}\/bitbi-private-media@sha256:[a-f0-9]{64}$/.test(receipt.media.imageDigest),'Wrong image identity');
   assert(receipt.media.artifact?.id&&/^sha256:[a-f0-9]{64}$/.test(receipt.media.artifact.digest),'Missing CI image artifact');
   assert.deepEqual(receipt.smoke?.map(s=>s.backend).sort(),['cloudflare','github']);
@@ -139,15 +141,31 @@ export async function activateMedia(expected,{currentVersion,deploy,verify}) {
   // Still independently verify traffic, binding, limits and completed rollout.
   return verify();
 }
-export function mediaEvidenceRun(env=process.env) {return {run:env.REPAIR_SOURCE_SHA?env.GITHUB_RUN_ID:env.CANDIDATE_RUN,attempt:env.REPAIR_SOURCE_SHA?env.GITHUB_RUN_ATTEMPT:env.CANDIDATE_ATTEMPT};}
+export function mediaEvidenceRun(env=process.env,{verify=assertBrowserRepairTrees}={}) {
+  const source=CANVAS_AUDIO_BROWSER_REPAIR;
+  if(env.REPAIR_SOURCE_SHA===source.sha) {
+    assert.equal(env.REPAIR_SOURCE_RUN,source.run);assert.equal(env.REPAIR_SOURCE_ATTEMPT,source.attempt);
+    assert(/^[a-f0-9]{40}$/.test(env.GITHUB_SHA||'')&&env.GITHUB_SHA!==source.sha,'Missing fixture publication identity');
+    verify(source.sha,env.GITHUB_SHA);
+    return {run:source.run,attempt:source.attempt,imageSha:source.sha};
+  }
+  return {run:env.REPAIR_SOURCE_SHA?env.GITHUB_RUN_ID:env.CANDIDATE_RUN,attempt:env.REPAIR_SOURCE_SHA?env.GITHUB_RUN_ATTEMPT:env.CANDIDATE_ATTEMPT};
+}
+export function mediaFixtureSha(env=process.env,options) {
+  // This browser-only continuation has no previous production smoke fixture.
+  // Preserve its tested image, then execute the normal fresh deployment smoke.
+  if(env.REPAIR_SOURCE_SHA===CANVAS_AUDIO_BROWSER_REPAIR.sha){mediaEvidenceRun(env,options);return undefined;}
+  return env.REPAIR_SOURCE_SHA;
+}
 export async function publishMedia(c,secretFile,{reuse,listArtifacts=collection,fetchArtifact=fetch,command=run,verifyActive=mediaActive}={}) {
-  const source=reuse||mediaEvidenceRun(),sha=reuse?.sha||c.sha;
+  const source=reuse||mediaEvidenceRun(),sha=reuse?.sha||source.imageSha||c.sha;
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-media-release-'));
   try {
     const name=`private-media-image-${sha}-${source.run}-${source.attempt}`;
     const candidates=(await listArtifacts(`actions/runs/${source.run}/artifacts`,'artifacts')).filter(a=>a.name===name);
     assert.equal(candidates.length,1,'Missing exact tested media image');const a=candidates[0];
     assert(!a.expired&&Date.parse(a.expires_at)>Date.now()&&a.workflow_run.head_sha===sha,'Expired/wrong media image');
+    assert.equal(String(a.workflow_run.id),String(source.run),'Wrong media image run');
     if(reuse)assert.deepEqual({id:a.id,digest:a.digest},reuse.artifact,'Original media artifact changed');
     const response=await fetchArtifact(`https://api.github.com/repos/bitbiai/Bitbi/actions/artifacts/${a.id}/zip`,{headers:{Authorization:`Bearer ${process.env.GH_TOKEN}`},signal:AbortSignal.timeout(120000)});assert(response.ok,'Image artifact unavailable');
     const bytes=Buffer.from(await response.arrayBuffer());assert.equal(`sha256:${hash(bytes)}`,a.digest,'Image archive identity mismatch');
@@ -180,7 +198,7 @@ with zipfile.ZipFile(p/'image.zip') as z:
     config.main=path.resolve('workers/media/src/index.js');config.vars.SOURCE_SHA=c.sha;config.vars.CLOUDFLARE_ACCOUNT_ID=process.env.CLOUDFLARE_ACCOUNT_ID;
     config.containers[0].image=imageDigest;delete config.containers[0].image_build_context;
     const file=path.join(dir,'wrangler.json');fs.writeFileSync(file,JSON.stringify(config));
-    const expected={sha:c.sha,imageDigest,image:record.image,artifact:{id:a.id,digest:a.digest},sourceRun:record.run,sourceAttempt:record.attempt};
+    const expected={sha:c.sha,imageSourceSha:record.sha,imageDigest,image:record.image,artifact:{id:a.id,digest:a.digest},sourceRun:record.run,sourceAttempt:record.attempt};
     const currentVersion=await currentMediaVersion();
     return await activateMedia(expected,{currentVersion,
       deploy:()=>wrangler(['deploy','--config',file,'--secrets-file',secretFile,'--message',`bitbi-media:${c.sha}:${imageDigest}`]),
@@ -217,6 +235,7 @@ const recordSmokeDiagnostic=diagnostic=>{
 };
 export async function mediaSmoke(c,secret,media,{record=recordSmokeDiagnostic,now=Date.now,pause=ms=>new Promise(resolve=>setTimeout(resolve,ms)),request:fetchRequest=fetch}={}) {
   const smokeSha=media.sha||c.sha;
+  const fixtureSha=mediaFixtureSha();
   assert(/^[a-f0-9]{40}$/.test(smokeSha||''),'Missing exact smoke media source');
   const fixture=fs.readFileSync('tests/fixtures/media/canvas-end-frame.mp4').toString('base64'),referenceFixture=fs.readFileSync('tests/fixtures/media/h3-overrun.mp4').toString('base64'),results=[];
   const fail=(body,status,code,terminal=false,lastCode)=>{
@@ -228,7 +247,7 @@ export async function mediaSmoke(c,secret,media,{record=recordSmokeDiagnostic,no
   };
   const request=async(body,timeoutMs=30000)=>{
     let r,b;
-    try {r=await fetchRequest('https://bitbi.ai/api/internal/homepage/hero-videos/private-media/smoke',{method:'POST',headers:{Authorization:`Bearer ${secret}`,'Content-Type':'application/json'},body:JSON.stringify({...body,sha:smokeSha,...(process.env.REPAIR_SOURCE_SHA?{fixtureSha:process.env.REPAIR_SOURCE_SHA}:{})}),redirect:'error',signal:AbortSignal.timeout(timeoutMs)});}
+    try {r=await fetchRequest('https://bitbi.ai/api/internal/homepage/hero-videos/private-media/smoke',{method:'POST',headers:{Authorization:`Bearer ${secret}`,'Content-Type':'application/json'},body:JSON.stringify({...body,sha:smokeSha,...(fixtureSha?{fixtureSha}:{})}),redirect:'error',signal:AbortSignal.timeout(timeoutMs)});}
     catch {fail(body,null,'media_smoke_transport_failed');}
     try {b=await r.json();}catch {fail(body,r.status,'media_smoke_response_invalid');}
     if(!r.ok||b?.ok!==true)fail(body,r.status,b?.code);
@@ -262,7 +281,7 @@ export async function mediaSmoke(c,secret,media,{record=recordSmokeDiagnostic,no
       }
     }
   }
-  if(process.env.REPAIR_SOURCE_SHA)await request({action:'retry-reference',backend:'cloudflare'});
+  if(fixtureSha)await request({action:'retry-reference',backend:'cloudflare'});
   else for(const backend of ['github','cloudflare'])await request({action:'start',backend,fixture,referenceFixture});
   lifecycle.running=await waitMediaState(media.application,'running');
   // This is the protected deployment's own finite job completion check, not
@@ -282,7 +301,7 @@ export async function mediaSmoke(c,secret,media,{record=recordSmokeDiagnostic,no
             const probe=JSON.parse(run('ffprobe',['-v','error','-show_streams','-of','json',file]));assert(probe.streams.some(s=>s.codec_type==='video'&&s.width>0&&s.height>0));
           }
         }
-        if(backend==='cloudflare'&&!process.env.REPAIR_SOURCE_SHA) {
+        if(backend==='cloudflare'&&!fixtureSha) {
           const file=path.join(dir,'0-video');
           const samples=run('ffmpeg',['-v','error','-i',file,'-vn','-ac','1','-ar','48000','-f','f32le','-'],{encoding:null});
           assert(samples.length>=1920*4,'Music soundtrack missing');
@@ -309,7 +328,7 @@ export async function mediaSmoke(c,secret,media,{record=recordSmokeDiagnostic,no
         lifecycle.stoppedAfter=await waitMediaState(media.application,'stopped');
       }
       const digests=items=>items.map(o=>({videoDigest:o.videoDigest,posterDigest:o.posterDigest}));
-      results.push({backend,sha:smokeSha,...(exportMusic?{exportMusic}:{}),...(process.env.REPAIR_SOURCE_SHA?{fixtureSha:process.env.REPAIR_SOURCE_SHA,reusedOutputs:true,referenceRecoveryRequested:backend==='cloudflare'}:{}),completedMs:Date.now()-started,outputs:digests(result.outputs),publicPreviews:digests(result.publicPreviews),videoReference:{videoDigest:result.videoReference.videoDigest,originalDigest:result.videoReference.originalDigest,metadata:result.videoReference.metadata}});pending.delete(backend);
+      results.push({backend,sha:smokeSha,...(exportMusic?{exportMusic}:{}),...(fixtureSha?{fixtureSha,reusedOutputs:true,referenceRecoveryRequested:backend==='cloudflare'}:{}),completedMs:Date.now()-started,outputs:digests(result.outputs),publicPreviews:digests(result.publicPreviews),videoReference:{videoDigest:result.videoReference.videoDigest,originalDigest:result.videoReference.originalDigest,metadata:result.videoReference.metadata}});pending.delete(backend);
     }
     if(pending.size)await new Promise(resolve=>setTimeout(resolve,5000));
   }

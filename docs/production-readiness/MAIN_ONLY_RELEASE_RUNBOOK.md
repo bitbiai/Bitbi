@@ -589,3 +589,13 @@ existing processor test. FFmpeg/ffprobe preparation also precedes actual browser
 callers in static, Full and UI-fast. No duplicate Full or unrelated platform suite
 is required for this task. Native fixtures remain synthetic provider acceptance;
 actual D1/R2, decoded playback/export and live readback are separate evidence.
+
+The fixture-only continuation for `3e6f82ed` / `37189472421/1` retains its 218
+browser passes, four Linux native cases and tested processor image. Execute the
+six originally failed cases against the original candidate; require all 224 case
+identities and exact reviewed fixture hashes. `test-browser-fixture-repair.mjs
+--canvas-audio` rejects missing setup, failed/retried/replaced cases and changed
+product inputs. Media publication downloads the original authenticated image and
+retains its image source SHA independently of the new activation SHA. It must run
+fresh production smoke: a browser repair does not imply an older production smoke
+fixture exists. Do not rebuild the unchanged image or relabel the failed run.

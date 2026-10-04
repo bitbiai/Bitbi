@@ -84,10 +84,14 @@ module.exports=({expect,mockSharedAuth,createCanvasApiMock},locale)=>async({page
     }
     return reading;
   },{original,calibration});
+  // Capture the layout before starting the native decoded-signal observation.
+  // WebKit's element snapshot during playback can stop the media source; that
+  // automation-only capture is not a user interaction or an audio assertion.
+  await block.screenshot({path:info.outputPath(`canvas-audition-${locale}.png`)});
+  try {
   await expect(start()).toBeEnabled();await start().focus();await page.keyboard.press('Enter');await expect(pause()).toBeVisible();
   await expect(sound.getByRole('status',{name:locale==='de'?'Musikvorschau':'Music preview',exact:true})).toHaveText(locale==='de'?'Vorschau · noch nicht übernommen':'Preview · not exported');
   await expect(pause()).toBeFocused();
-  await block.screenshot({path:info.outputPath(`canvas-audition-${locale}.png`)});
   await expect.poll(()=>video.evaluate(v=>v.currentTime)).toBeGreaterThan(.3);
   expect(await video.evaluate(v=>v.videoWidth)).toBeGreaterThan(0);
   await expect(video).toHaveJSProperty('volume',1);
@@ -175,6 +179,9 @@ module.exports=({expect,mockSharedAuth,createCanvasApiMock},locale)=>async({page
   }
   await sound.getByRole('button',{name:locale==='de'?'Zurück zum erstellten Video':'Return to completed video'}).click();await expect(video).toHaveAttribute('src',completed.asset.file_url);
   expect(writes).toHaveLength(2);
+  } catch(error) {
+    await info.attach('audition-failure-state',{contentType:'application/json',body:JSON.stringify({reading:await meter().catch(()=>null),state:await page.evaluate(()=>({events:window.auditionLifecycle,trace:window.auditionTrace,contexts:window.auditionContexts.map(({context})=>({state:context.state,time:context.currentTime})),videos:[...document.querySelectorAll('video')].map(v=>({src:v.getAttribute('src'),time:v.currentTime,duration:v.duration,ready:v.readyState,seeking:v.seeking,paused:v.paused,muted:v.muted,volume:v.volume,error:v.error?.code,rect:{top:v.getBoundingClientRect().top,bottom:v.getBoundingClientRect().bottom}}))}))})});throw error;
+  }
 };
 module.exports.measureDecodedSignal=measureDecodedSignal;
 module.exports.preservesOriginalSignal=preservesOriginalSignal;

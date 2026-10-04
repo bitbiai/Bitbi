@@ -3,6 +3,7 @@ import {BROWSER_REPAIR,BROWSER_REPAIR_ACCEPTANCE,BROWSER_REPAIR_FILES,BROWSER_RE
 import {repairKind,repairSelection,assertRepairAcceptance} from './lib/media-repair-source.mjs';
 import {requiredJobs} from './pages-candidate.mjs';
 
+if(process.argv.includes('--canvas-audio')){await canvasAudioCounterchecks();process.exit(0);}
 if(process.argv.includes('--canvas-merge')){await canvasMergeCounterchecks();process.exit(0);}
 
 const nav='cold workspace exposes grouped tasks and each group can collapse independently';
@@ -140,6 +141,7 @@ console.log('Seedance browser repair: 258 unchanged + 59 fresh; exact fixture-on
 const seedanceTimeout=structuredClone(seedanceEvidence);seedanceTimeout.previous[258].results[0].status='timedOut';assert.equal(verifyBrowserCaseCoverage(seedanceTimeout,seedance.sha).freshPassed,59);seedanceTimeout.scoped[0].results[0].status='timedOut';assert.throws(()=>verifyBrowserCaseCoverage(seedanceTimeout,seedance.sha));
 
 await canvasMergeCounterchecks();
+await canvasAudioCounterchecks();
 async function canvasMergeCounterchecks() {
   const {CANVAS_MERGE_BROWSER_REPAIR:incident,CANVAS_MERGE_BROWSER_REPAIR_FILES:files,CANVAS_MERGE_BROWSER_REPAIR_CASES:cases}=await import('./lib/browser-fixture-repair.mjs');
   const pass=(key,file='ordinary.spec.js',title=key,project='chromium')=>({key,file,title,project,expectedStatus:'passed',status:'expected',results:[{status:'passed',retry:0,error:false}]});
@@ -167,4 +169,57 @@ async function canvasMergeCounterchecks() {
   for(const mutate of [a=>a.id++,a=>a.digest='sha256:'+'0'.repeat(64),a=>a.expired=true,a=>a.workflow_run.head_sha='0'.repeat(40)]){const bad=structuredClone(artifact);mutate(bad);assert.throws(()=>assertBrowserReportArtifact([bad],incident.sha));}
   assert.throws(()=>assertBrowserReportArtifact([artifact,artifact],incident.sha));assert.throws(()=>assertBrowserSourceIdentity({...incident,attempt:'2'}));
   console.log('Canvas merge continuation: 322 retained + exactly 5 failed cases; missing/failed/retried/tampered proofs and changed product inputs reject (synthetic counterchecks).');
+}
+
+async function canvasAudioCounterchecks() {
+  const {CANVAS_AUDIO_BROWSER_REPAIR:incident,CANVAS_AUDIO_BROWSER_REPAIR_FILES:files,CANVAS_AUDIO_BROWSER_REPAIR_CASES:cases}=await import('./lib/browser-fixture-repair.mjs');
+  const pass=(key,file='ordinary.spec.js',title=key,project='chromium')=>({key,file,title,project,expectedStatus:'passed',status:'expected',results:[{status:'passed',retry:0,error:false}]});
+  const identity=({key,file,title,project})=>({key,file,title,project});
+  const fresh=['chromium','webkit-canvas'].flatMap(project=>cases.filter(([,title,projects=['chromium','webkit-canvas']])=>projects.includes(project)).map(([file,title],i)=>pass(project+'-audio-'+i,file,title,project)));
+  const previous=[...Array.from({length:218},(_,i)=>pass('unchanged-audio-'+i)),...fresh.map(row=>({...structuredClone(row),status:'unexpected',results:[{status:'timedOut',retry:0,error:true}]}))];
+  const evidence={previous,discovery:previous.map(identity),scoped:fresh,carouselDiscovery:[],carousel:[]};
+  const coverage=verifyBrowserCaseCoverage(evidence,incident.sha);assert.equal(coverage.reusedPassed,218);assert.equal(coverage.freshPassed,6);
+  for(const mutate of [
+    e=>e.previous.pop(),e=>e.discovery.pop(),e=>e.discovery.push(e.discovery[0]),e=>e.scoped.pop(),e=>e.scoped.push(e.scoped[0]),
+    e=>e.scoped[0].results[0].status='failed',e=>e.scoped[0].results[0].retry=1,e=>e.scoped[0].status='flaky',e=>e.scoped[0].expectedStatus='skipped',
+    e=>e.scoped[0].results[0].error=true,e=>e.scoped[0].title='substituted',e=>e.previous[0].status='unexpected',
+    e=>e.previous[0].results[0].status='failed',e=>e.discovery[0].project='foreign',e=>e.scoped.push(pass('unrequested')),
+    e=>e.carousel.push(pass('unrequested')),e=>e.carouselDiscovery.push(identity(pass('unrequested'))),
+  ]){const bad=structuredClone(evidence);mutate(bad);assert.throws(()=>verifyBrowserCaseCoverage(bad,incident.sha));}
+  assert.throws(()=>verifyBrowserRepairCoverage(evidence,incident.sha),/Original failed case evidence changed/);
+  assert.equal(repairKind([...files]),'browser-fixture');
+  for(const file of [...files].filter(f=>!f.startsWith('docs/')))assert.throws(()=>repairKind([...files].filter(f=>f!==file)));
+  for(const file of ['js/pages/canvas/main.js','workers/auth/src/index.js','services/homepage-ffmpeg-processor/canvas-full-video.mjs','playwright.config.js','.github/workflows/static.yml','package-lock.json'])assert.throws(()=>repairKind([...files,file]));
+  // Original publication changed the processor; only this reviewed repair delta
+  // belongs to fresh-job selection. Keeping original files reselects its image.
+  const selection=repairSelection({canvasAudio:true,reasons:{auth:[],static:[]},files:['services/homepage-ffmpeg-processor/canvas-full-video.mjs',...files]},[...files]);
+  assert(selection.files.includes('services/homepage-ffmpeg-processor/canvas-full-video.mjs'));
+  assert.deepEqual(selection.repairFiles,[...files]);
+  assert.equal(selection.browserRepair,true);for(const key of ['full','workers','mediaLifecycle','homepage','carousel','canvasAudio'])assert.equal(selection[key],false);
+  assert.deepEqual(requiredJobs(selection)['browser-validation'],['Run repaired browser acceptance','Confirm tested browser candidate bytes']);
+  const artifact={id:incident.artifact,name:incident.artifactName,digest:`sha256:${incident.archiveHash}`,expired:false,expires_at:new Date(Date.now()+86400000).toISOString(),workflow_run:{id:Number(incident.run),head_sha:incident.sha}};
+  assertBrowserReportArtifact([artifact],incident.sha);assertBrowserSourceIdentity(incident);
+  for(const mutate of [a=>a.id++,a=>a.digest='sha256:'+'0'.repeat(64),a=>a.expired=true,a=>a.workflow_run.head_sha='0'.repeat(40)]){const bad=structuredClone(artifact);mutate(bad);assert.throws(()=>assertBrowserReportArtifact([bad],incident.sha));}
+  assert.throws(()=>assertBrowserReportArtifact([artifact,artifact],incident.sha));assert.throws(()=>assertBrowserSourceIdentity({...incident,attempt:'2'}));
+  const original={head_sha:incident.sha,status:'completed',conclusion:'failure',steps:[['Install Canvas browser media tools','success'],['Install browsers for selected frontend tests','success'],['Download candidate build','success'],['Restore exact candidate static site','success'],['Run selected auth and admin tests','failure'],['Confirm tested browser candidate bytes','skipped']].map(([name,conclusion])=>({name,status:'completed',conclusion}))};
+  assertOriginalBrowserJob(original);
+  for(const mutate of [j=>j.steps.shift(),j=>j.steps[0].conclusion='skipped',j=>j.steps.push(j.steps.shift())]){const bad=structuredClone(original);mutate(bad);assert.throws(()=>assertOriginalBrowserJob(bad));}
+  const required=requiredJobs(selection);required['release-compatibility']=required['release-compatibility'].filter(s=>s!=='Record candidate build');required['release-compatibility'].push('Select tests from changed files','Validate static website references');required['browser-validation'].push('Install Canvas browser media tools');
+  const jobs=Object.entries(required).map(([name,steps])=>({name,head_sha:'a'.repeat(40),status:'completed',conclusion:'success',steps:steps.map(name=>({name,status:'completed',conclusion:'success'}))}));
+  assertRepairAcceptance(jobs,'a'.repeat(40),[...files]);
+  for(const name of required['browser-validation']){const bad=structuredClone(jobs);bad.find(j=>j.name==='browser-validation').steps=bad.find(j=>j.name==='browser-validation').steps.filter(s=>s.name!==name);assert.throws(()=>assertRepairAcceptance(bad,'a'.repeat(40),[...files]));}
+  const {mediaEvidenceRun,mediaFixtureSha,verifyMediaEvidence}=await import('./lib/media-publication.mjs');
+  const env={REPAIR_SOURCE_SHA:incident.sha,REPAIR_SOURCE_RUN:incident.run,REPAIR_SOURCE_ATTEMPT:incident.attempt,GITHUB_SHA:'b'.repeat(40),GITHUB_RUN_ID:'new-run',GITHUB_RUN_ATTEMPT:'1',CANDIDATE_RUN:incident.run,CANDIDATE_ATTEMPT:incident.attempt};
+  const options={verify:(source,head)=>{assert.equal(source,incident.sha);assert.equal(head,env.GITHUB_SHA);}};
+  const image=mediaEvidenceRun(env,options);assert.deepEqual(image,{run:incident.run,attempt:incident.attempt,imageSha:incident.sha});
+  assert.equal(mediaFixtureSha(env,options),undefined,'First publication requires fresh production smoke, not nonexistent prior fixtures');
+  assert.equal(mediaFixtureSha({REPAIR_SOURCE_SHA:'legacy'}),'legacy');
+  assert.deepEqual(mediaEvidenceRun({CANDIDATE_RUN:'ordinary',CANDIDATE_ATTEMPT:'2'}),{run:'ordinary',attempt:'2'});
+  for(const change of [{REPAIR_SOURCE_RUN:'wrong'},{REPAIR_SOURCE_ATTEMPT:'2'},{GITHUB_SHA:incident.sha},{GITHUB_SHA:undefined}])assert.throws(()=>mediaEvidenceRun({...env,...change},options));
+  assert.throws(()=>mediaEvidenceRun(env,{verify:()=>{throw Error('Changed image/product inputs');}}));
+  const media={sha:env.GITHUB_SHA,imageSourceSha:incident.sha,sourceRun:incident.run,sourceAttempt:incident.attempt,imageDigest:'registry.cloudflare.com/'+'c'.repeat(32)+'/bitbi-private-media@sha256:'+'d'.repeat(64),artifact:{id:1,digest:'sha256:'+'e'.repeat(64)}};
+  const receipt={media,smoke:['github','cloudflare'].map(backend=>({backend,sha:env.GITHUB_SHA,completedMs:1,outputs:Array.from({length:3},()=>({videoDigest:'a'.repeat(64),posterDigest:'b'.repeat(64)}))}))};
+  verifyMediaEvidence(receipt,{sha:env.GITHUB_SHA,...image});
+  for(const change of [{imageSourceSha:env.GITHUB_SHA},{imageSourceSha:undefined},{sourceRun:env.GITHUB_RUN_ID},{sourceAttempt:'2'}])assert.throws(()=>verifyMediaEvidence({...receipt,media:{...media,...change}},{sha:env.GITHUB_SHA,...image}));
+  console.log('Canvas audio continuation: 218 retained + exactly 6 failed cases; missing/failed/retried/tampered proofs and changed product inputs reject (synthetic counterchecks).');
 }

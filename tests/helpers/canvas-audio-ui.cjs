@@ -1,15 +1,23 @@
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),{spawnSync}=require('node:child_process');
 const {SqliteD1Database,applyAuthMigrations}=require('./sqlite-d1.js');
 const {createAuthTestEnv}=require('./auth-worker-harness.js');
+const withinGain=(a,min,max)=>a.input>.05&&a.original/a.input>min&&a.original/a.input<max;
 exports.audioUi=async({page,expect,locale,browserName,mockSharedAuth,createCanvasApiMock,info})=>{
+  // The paired-window oracle accepts intended gain, but rejects the stale unity
+  // window that passed the former lower-bound-only synchronization, and silence.
+  expect(withinGain({input:.1,original:.03},.24,.36)).toBe(true);
+  for(const a of [{input:.1,original:.1},{input:0,original:0},{input:.1,original:.02},{input:.1,original:.04}])expect(withinGain(a,.24,.36)).toBe(false);
   const {canvasAudioFixture}=await import('./canvas-audio-control.mjs');
   const {processCanvasExports}=await import('../../services/homepage-ffmpeg-processor/canvas-full-video.mjs');
   const DB=new SqliteD1Database();applyAuthMigrations(DB);
   const media=name=>fs.readFileSync(path.join(__dirname,'../fixtures/media',name)).toString('base64');
-  const fixtureDir=fs.mkdtempSync(path.join(os.tmpdir(),'canvas-audio-ui-')),importFile=path.join(fixtureDir,'import.mp4');
+  const fixtureDir=fs.mkdtempSync(path.join(os.tmpdir(),'canvas-audio-ui-')),importFile=path.join(fixtureDir,'import.mp4'),baseFile=path.join(fixtureDir,'base.mp4');
   const command=args=>{const result=spawnSync('ffmpeg',['-v','error','-nostdin',...args],{maxBuffer:40_000_000});expect(result.status,String(result.stderr)).toBe(0);return result.stdout;};
-  command(['-i',path.join(__dirname,'../fixtures/media/canvas-preview.mp4'),'-vf','negate','-c:v','libx264','-threads','1','-pix_fmt','yuv420p','-c:a','copy',importFile]);
-  const f=await canvasAudioFixture({...createAuthTestEnv(),DB},{videoBase64:media('canvas-preview.mp4'),importVideoBase64:fs.readFileSync(importFile).toString('base64'),musicBase64:media('member-music.mp3'),imageBase64:media('h3-frame.png')});
+  // Four eight-second segments still cross music loops and all fade boundaries,
+  // without encoding two unnecessary eighty-second files inside a UI test.
+  command(['-i',path.join(__dirname,'../fixtures/media/canvas-preview.mp4'),'-t','8','-c:v','libx264','-threads','1','-pix_fmt','yuv420p','-c:a','aac',baseFile]);
+  command(['-i',baseFile,'-vf','negate','-c:v','libx264','-threads','1','-pix_fmt','yuv420p','-c:a','copy',importFile]);
+  const f=await canvasAudioFixture({...createAuthTestEnv(),DB},{videoBase64:fs.readFileSync(baseFile).toString('base64'),importVideoBase64:fs.readFileSync(importFile).toString('base64'),musicBase64:media('member-music.mp3'),imageBase64:media('h3-frame.png')});
   const de=locale==='de',errors=[],consoleErrors=[],exports=[];let rendering=Promise.resolve();
   await page.setViewportSize({width:de?390:1440,height:900});await mockSharedAuth(page);createCanvasApiMock(page);
   await page.addInitScript(()=>{
@@ -66,8 +74,7 @@ exports.audioUi=async({page,expect,locale,browserName,mockSharedAuth,createCanva
     await expect(sound.getByRole('spinbutton',{name:de?'Originalton: Lautstärke (%)':'Original audio: Volume (%)'})).toHaveValue('30');
     if(browserName==='webkit') {
       await nodeVideo().evaluate(v=>{void v.play().catch(error=>{if(error.name!=='AbortError')throw error;});});await expect.poll(async()=>(await signal()).input).toBeGreaterThan(.05);
-      await expect.poll(async()=>{const a=await signal();return a.original/a.input;}).toBeGreaterThan(.24);
-      expect((await signal()).original/(await signal()).input).toBeLessThan(.36);
+      await expect.poll(async()=>withinGain(await signal(),.24,.36)).toBe(true);
       await originalOn().uncheck();await expect.poll(async()=>(await signal()).original).toBeLessThan(.005);
       await originalOn().check();await expect.poll(async()=>(await signal()).original).toBeGreaterThan(.02);
       await nodeVideo().evaluate(v=>v.pause());
@@ -91,32 +98,37 @@ exports.audioUi=async({page,expect,locale,browserName,mockSharedAuth,createCanva
       const file=path.join(fixtureDir,`export-${enabled}.mp4`);
       fs.writeFileSync(file,Buffer.from(await (await f.request(`/api/ai/text-assets/${exports.at(-1).id}/file`)).arrayBuffer()));
       const pixel=(file,time)=>[...command(['-ss',String(time),'-i',file,'-frames:v','1','-vf','crop=2:2:80:44','-f','rawvideo','-pix_fmt','rgb24','-'])];
-      for(const [index,time] of [5,25,45,65].entries()){
-        const actual=pixel(file,time),source=pixel(index%2?importFile:path.join(__dirname,'../fixtures/media/canvas-preview.mp4'),5);
+      for(const [index,time] of [3,11,19,27].entries()){
+        const actual=pixel(file,time),source=pixel(index%2?importFile:baseFile,3);
         expect(Math.max(...actual.map((v,i)=>Math.abs(v-source[i])))).toBeLessThan(15);
       }
       const pcm=command(['-i',file,'-map','0:a:0','-ac','1','-ar','48000','-f','f32le','-']);
       const amplitude=(hz,time)=>{const offset=Math.round(time*48000),n=4800;let re=0,im=0,w=0;for(let i=0;i<n;i++){const a=.5-.5*Math.cos(2*Math.PI*i/(n-1)),v=pcm.readFloatLE((offset+i)*4);re+=a*v*Math.cos(2*Math.PI*hz*i/48000);im+=a*v*Math.sin(2*Math.PI*hz*i/48000);w+=a;}return 2*Math.hypot(re,im)/w;};
-      const unity=amplitude(1000,5);expect(unity).toBeGreaterThan(.05);
-      expect(amplitude(1000,25)/unity).toBeCloseTo(.3,1);expect(amplitude(1000,65)/unity).toBeCloseTo(.6,1);
-      expect(amplitude(1000,60.2)/unity).toBeLessThan(.2);
-      if(enabled){for(const time of [5,25,65])expect(amplitude(440,time)).toBeGreaterThan(.04);expect(amplitude(440,.1)/amplitude(440,5)).toBeLessThan(.12);}
-      else expect(amplitude(440,25)).toBeLessThan(.002);
+      const unity=amplitude(1000,3);expect(unity).toBeGreaterThan(.05);
+      expect(amplitude(1000,11)/unity).toBeCloseTo(.3,1);expect(amplitude(1000,27)/unity).toBeCloseTo(.6,1);
+      expect(amplitude(1000,24.2)/unity).toBeLessThan(.2);
+      if(enabled){for(const time of [3,11,27])expect(amplitude(440,time)).toBeGreaterThan(.04);expect(amplitude(440,.1)/amplitude(440,3)).toBeLessThan(.12);}
+      else expect(amplitude(440,11)).toBeLessThan(.002);
       // Fixture raster is 160×90 with SAR 9:16: WebKit exposes its 90×90
       // display size. The unchanged crop preserves that aspect ratio.
       if(browserName==='webkit'){await result.evaluate(v=>v.play());await expect.poll(()=>result.evaluate(v=>v.currentTime)).toBeGreaterThan(.3);expect(await result.evaluate(v=>[v.videoWidth,v.videoHeight])).toEqual([90,90]);await result.evaluate(v=>v.pause());}
       if(browserName==='webkit'&&!enabled){
+        const beforePreview=await result.evaluate(v=>v.currentTime);
         await sound.getByRole('button',{name:de?'Toneinstellungen vorhören':'Preview sound settings',exact:true}).click();
-        await result.evaluate(v=>{v.currentTime=21;});
-        await expect.poll(async()=>{const a=await signal();return a.original/a.input;}).toBeGreaterThan(.24);
-        expect((await signal()).original/(await signal()).input).toBeLessThan(.36);
-        await result.evaluate(v=>{v.currentTime=62;});
-        await expect.poll(async()=>{const a=await signal();return a.original/a.input;}).toBeGreaterThan(.52);
-        expect((await signal()).original/(await signal()).input).toBeLessThan(.68);
-        await result.evaluate(v=>{v.currentTime=60;v.playbackRate=.1;});
-        await expect.poll(async()=>{const a=await signal();return a.time>=60&&a.time<60.6&&a.original/a.input<.3;}).toBe(true);
-        await result.evaluate(v=>{v.playbackRate=1;v.currentTime=65;});
+        await expect.poll(()=>result.evaluate(v=>({time:v.currentTime,ready:!v.paused&&!v.seeking}))).toMatchObject({ready:true});
+        await expect.poll(()=>result.evaluate(v=>v.currentTime)).toBeGreaterThan(beforePreview+.1);
+        await result.evaluate(v=>{v.currentTime=10;});
+        // Wait for one paired decoded window after the seek; the old segment's
+        // unity window must not satisfy just the lower half of the gain bound.
+        await expect.poll(async()=>withinGain(await signal(),.24,.36)).toBe(true);
+        await result.evaluate(v=>{v.currentTime=27;});
+        await expect.poll(async()=>withinGain(await signal(),.52,.68)).toBe(true);
+        await result.evaluate(v=>{v.currentTime=24;v.playbackRate=.1;});
+        await expect.poll(async()=>{const a=await signal();return a.time>=24&&a.time<24.6&&a.original/a.input<.3;}).toBe(true);
+        await result.evaluate(v=>{v.pause();v.playbackRate=1;v.currentTime=26;});
         await originalOn().uncheck();await musicOn().check();
+        expect(await result.evaluate(v=>v.paused)).toBe(true);
+        await sound.getByRole('button',{name:de?'Vorschau mit Musik':'Preview with music',exact:true}).click();
         await expect.poll(async()=>(await signal()).music).toBeGreaterThan(.035);
         await expect.poll(async()=>(await signal()).original).toBeLessThan(.005);
         await originalOn().check();await musicOn().uncheck();
@@ -132,7 +144,7 @@ exports.audioUi=async({page,expect,locale,browserName,mockSharedAuth,createCanva
     if(browserName==='webkit'){
       await nodeVideo().evaluate(v=>{void v.play().catch(error=>{if(error.name!=='AbortError')throw error;});});
       await expect.poll(async()=>(await signal()).input).toBeGreaterThan(.05);
-      await nodeVideo().evaluate(v=>{v.currentTime=5;});
+      await nodeVideo().evaluate(v=>{v.currentTime=3.5;});
       await expect.poll(async()=>(await signal()).music).toBeGreaterThan(.035);
       await originalOn().uncheck();await expect.poll(async()=>(await signal()).original).toBeLessThan(.005);
       expect((await signal()).music).toBeGreaterThan(.035);await nodeVideo().evaluate(v=>v.pause());await originalOn().check();
