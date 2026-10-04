@@ -11,6 +11,8 @@ import { nowIso } from '../lib/tokens.js';
 import { canvasExportRecipe, exportHead, ownedExportSource, saveCanvasExport } from '../lib/canvas-export-recipes.js';
 import { reclaimCanvasMedia } from '../lib/canvas-media-storage.js';
 import { readCanvasPreviewBase, storeCanvasPreviewBase } from '../lib/canvas-preview-base.js';
+import {smoothJoinSettings,seamPreviewSettings,validSeamResult} from '../../../../js/shared/canvas-smooth-joins.mjs';
+import {sha256Hex} from '../lib/tokens.js';
 
 const base='/api/internal/homepage/hero-videos/canvas-exports/jobs';
 const reply=(data,status=200)=>json({ok:true,data},{status,headers:{'Cache-Control':'no-store'}});
@@ -21,7 +23,14 @@ export async function canvasExport(ctx,userId,projectId,runId) {
   if(!project) throw canvasProcessingError('project_not_found','Project not found.',404);
   const previewId=new URL(ctx.request.url).searchParams.get('previewBase');
   if(ctx.method==='GET' && previewId!==null)return readCanvasPreviewBase(ctx,userId,projectId,runId,previewId);
-  const rows=await ctx.env.DB.prepare(`SELECT * FROM canvas_video_processing WHERE user_id=? AND project_id=? AND ${subject.column}=? AND kind='concat' ORDER BY created_at DESC LIMIT 1`).bind(userId,projectId,subject.id).all();
+  const comparisonId=new URL(ctx.request.url).searchParams.get('seamPreview');
+  if(ctx.method==='GET'&&comparisonId!==null) {
+    const row=await ctx.env.DB.prepare(`SELECT * FROM canvas_video_processing WHERE id=? AND user_id=? AND project_id=? AND ${subject.column}=? AND json_extract(recipe_json,'$.preview') IS NOT NULL`)
+      .bind(comparisonId,userId,projectId,subject.id).first();
+    if(!row)throw canvasProcessingError('canvas_preview_unavailable','Preview unavailable.',404);
+    return reply({preview:publicCanvasProcessing(row)});
+  }
+  const rows=await ctx.env.DB.prepare(`SELECT * FROM canvas_video_processing WHERE user_id=? AND project_id=? AND ${subject.column}=? AND kind='concat' AND json_extract(recipe_json,'$.preview') IS NULL ORDER BY created_at DESC LIMIT 1`).bind(userId,projectId,subject.id).all();
   let task=rows.results?.[0];
   const head=await exportHead(ctx.env,userId,runId);
   const result=async selected=>{
@@ -43,31 +52,52 @@ export async function canvasExport(ctx,userId,projectId,runId) {
     return reply(await saveCanvasExport(ctx.env,userId,projectId,runId,parsed.body.saveExportId));
   }
   if(Object.hasOwn(parsed.body,'backgroundMusic')) {
-    if(Object.keys(parsed.body).some(k=>!['backgroundMusic','orderedClips','mergeMode'].includes(k)))throw canvasProcessingError('unsupported_option');
+    if(Object.keys(parsed.body).some(k=>!['backgroundMusic','orderedClips','mergeMode','smoothJoins','preview'].includes(k)))throw canvasProcessingError('unsupported_option');
+    const smooth=smoothJoinSettings(parsed.body.smoothJoins);
     const requestKey=ctx.request.headers.get('Idempotency-Key');
     if(!/^[a-zA-Z0-9_-]{16,100}$/.test(requestKey||''))throw canvasProcessingError('canvas_export_key_required');
     const explicit=Object.hasOwn(parsed.body,'orderedClips');
     if(parsed.body.mergeMode!==undefined && (!explicit || parsed.body.mergeMode!=='chain'))throw canvasProcessingError('unsupported_option');
-    const existing=await ctx.env.DB.prepare('SELECT * FROM canvas_video_processing WHERE id=? AND user_id=?')
-      .bind(await canvasExportId(userId,projectId,runId,requestKey),userId).first();
+    const requestId=await canvasExportId(userId,projectId,runId,requestKey);
+    const existing=await ctx.env.DB.prepare('SELECT * FROM canvas_video_processing WHERE (id=? OR id=(SELECT job_id FROM canvas_preview_requests WHERE request_id=?)) AND user_id=?')
+      .bind(requestId,requestId,userId).first();
     if(existing) {
       const recipe=JSON.parse(existing.recipe_json||'null');
       const ordered=recipe?.videos.map(canvasClipIdentity);
-      if(![1,2,3].includes(recipe?.version)||JSON.stringify(recipe.backgroundMusic)!==JSON.stringify(exportMusicSettings(parsed.body.backgroundMusic))
+      if(![1,2,3,4].includes(recipe?.version)||JSON.stringify(recipe.backgroundMusic)!==JSON.stringify(exportMusicSettings(parsed.body.backgroundMusic))
+        ||(recipe.smoothJoins?.enabled??false)!==smooth.enabled||JSON.stringify(recipe.preview||null)!==JSON.stringify(seamPreviewSettings(parsed.body.preview,recipe.videos.length))
         ||recipe.mergeMode!==parsed.body.mergeMode||explicit!==(recipe.sequence==='explicit')||explicit&&JSON.stringify(parsed.body.orderedClips)!==JSON.stringify(ordered))
         throw canvasProcessingError('canvas_export_idempotency_conflict');
       // A lost response, including one spanning deployment, observes the same
       // immutable job. Never turn a replay into a second render.
-      return reply(await result(existing),202);
+      return reply(recipe.preview?{preview:publicCanvasProcessing(existing)}:await result(existing),202);
     }
     const view=await canvasMergeView(ctx.env,userId,projectId,runId);
     if(!explicit && view.chain.error)throw canvasProcessingError(view.chain.error);
     const mode=parsed.body.mergeMode || (explicit?'manual':'chain');
     const {videos,admission}=await canvasVideoSelection(ctx.env,userId,projectId,runId,
       explicit?parsed.body.orderedClips:view.chain.clips.map(canvasClipIdentity),mode,view);
-    const recipe=await canvasExportRecipe(ctx.env,userId,projectId,runId,videos,parsed.body.backgroundMusic,explicit);
+    const recipe=await canvasExportRecipe(ctx.env,userId,projectId,runId,videos,parsed.body.backgroundMusic,explicit,smooth.enabled,parsed.body.preview);
     if(parsed.body.mergeMode)recipe.mergeMode=parsed.body.mergeMode;
-    task=await enqueueCanvasProcessing(ctx.env,{userId,projectId,runId,kind:'concat',recipe,requestKey,admission,sources:[...videos,...(recipe.music?[recipe.music]:[])]});
+    let key=requestKey;
+    if(recipe.preview) {
+      // Recipe includes versions/order/audio/music/mode/policy. Never reuse a
+      // comparison solely because the node or asset identifier is unchanged.
+      const cached=await ctx.env.DB.prepare(`SELECT p.* FROM canvas_video_processing p JOIN canvas_export_versions v ON v.id=p.id
+        WHERE p.user_id=? AND p.project_id=? AND p.${subject.column}=? AND p.recipe_json=? AND v.state='canvas' AND v.retired=0
+        AND p.status<>'failed' ORDER BY p.created_at DESC LIMIT 1`).bind(userId,projectId,subject.id,JSON.stringify(recipe)).first();
+      if(cached) {
+        await ctx.env.DB.prepare('INSERT OR IGNORE INTO canvas_preview_requests(request_id,job_id) VALUES(?,?)').bind(requestId,cached.id).run();
+        const alias=await ctx.env.DB.prepare('SELECT job_id FROM canvas_preview_requests WHERE request_id=?').bind(requestId).first();
+        if(alias?.job_id!==cached.id)throw canvasProcessingError('canvas_export_idempotency_conflict');
+        return reply({preview:publicCanvasProcessing(cached)},202);
+      }
+      const previous=await ctx.env.DB.prepare(`SELECT id FROM canvas_video_processing WHERE user_id=? AND project_id=? AND ${subject.column}=? AND recipe_json=? ORDER BY created_at DESC LIMIT 1`)
+        .bind(userId,projectId,subject.id,JSON.stringify(recipe)).first();
+      key='seam-'+await sha256Hex(JSON.stringify([recipe,previous?.id||null]));
+    }
+    task=await enqueueCanvasProcessing(ctx.env,{userId,projectId,runId,kind:'concat',recipe,requestKey:key,requestAlias:recipe.preview?requestId:null,admission,sources:[...videos,...(recipe.music?[recipe.music]:[])]});
+    if(recipe.preview)return reply({preview:publicCanvasProcessing(task)},202);
     return reply(await result(task),202);
   }
   if(Object.keys(parsed.body).length) throw canvasProcessingError('unsupported_option');
@@ -117,7 +147,7 @@ export async function handleCanvasExportProcessor(ctx) {
   if(!backend) return json({ok:false,code:'processor_auth_failed'},{status:403});
   try {
     if(ctx.pathname===base+'/claim') {
-      if(ctx.method==='GET') return reply({protocol:1,recipeProtocol:4,previewBase:1});
+      if(ctx.method==='GET') return reply({protocol:1,recipeProtocol:5,previewBase:1});
       // route-policy: internal.canvas-export.claim
       if (!(method === 'POST')) return null;
       const parsed=await readJsonBodyOrResponse(ctx.request,{maxBytes:BODY_LIMITS.homepageHeroProcessorJson});
@@ -129,6 +159,8 @@ export async function handleCanvasExportProcessor(ctx) {
         originalAudio:row.recipe_json?JSON.parse(row.recipe_json).videos.map(clip=>clip.originalAudio||{enabled:true,gain:1,fadeIn:0,fadeOut:0}):null,
         spatialPolicy:row.recipe_json?JSON.parse(row.recipe_json).spatialPolicy||'legacy-pad-v1':'legacy-pad-v1',
         backgroundMusic:row.recipe_json?JSON.parse(row.recipe_json).backgroundMusic:null,
+        smoothJoins:row.recipe_json?JSON.parse(row.recipe_json).smoothJoins:null,
+        preview:row.recipe_json?JSON.parse(row.recipe_json).preview:null,
         sources:JSON.parse(row.sources_json).map((s,i)=>({url:`${base}/${row.id}/source/${i}`,size:s.size,kind:s.kind||'video'})),
         completion:{url:`${base}/${row.id}/complete`,failure_url:`${base}/${row.id}/fail`}}))});
     }
@@ -161,9 +193,10 @@ export async function handleCanvasExportProcessor(ctx) {
       if(!(duration>0 && duration<=CANVAS_VIDEO_LIMITS.durationSeconds && Number.isInteger(width) && width>0 && width<=4096 && Number.isInteger(height) && height>0 && height<=4096)) throw canvasProcessingError('canvas_export_metadata_invalid');
       const bytes=new Uint8Array(await file.arrayBuffer());
       if(String.fromCharCode(...bytes.slice(4,8))!=='ftyp') throw canvasProcessingError('canvas_export_file_invalid');
-      if(JSON.parse(job.recipe_json||'null')?.version===3) {
+      const recipe=JSON.parse(job.recipe_json||'null');
+      if(recipe?.version>=3) {
         let timeline;try{timeline=JSON.parse(form.get('audioTimeline'));}catch{throw canvasProcessingError('canvas_audio_timeline_invalid');}
-        const count=JSON.parse(job.recipe_json).videos.length;
+        const count=recipe.preview?2:recipe.videos.length;
         let end=0;
         if(!Array.isArray(timeline)||timeline.length!==count)throw canvasProcessingError('canvas_audio_timeline_invalid');
         for(const clip of timeline) {
@@ -178,6 +211,12 @@ export async function handleCanvasExportProcessor(ctx) {
       if(new URL(ctx.request.url).searchParams.get('part')==='preview-base') {
         await storeCanvasPreviewBase(ctx.env,job,bytes);
         return reply({base_stored:true});
+      }
+      if(recipe?.version===4) {
+        let report;try{report=JSON.parse(form.get('seamResult'));}catch{throw canvasProcessingError('canvas_seam_result_invalid');}
+        if(!validSeamResult(report,{enabled:recipe.smoothJoins.enabled,preview:recipe.preview,count:recipe.videos.length}))throw canvasProcessingError('canvas_seam_result_invalid');
+        await ctx.env.DB.prepare("UPDATE canvas_video_processing SET seam_result_json=? WHERE id=? AND processing_token=? AND status='processing' AND locked_until>?")
+          .bind(JSON.stringify(report),job.id,token,nowIso()).run();
       }
       const asset=await saveGeneratedVideoAsset(ctx.env,{userId:job.user_id,title:'Canvas full video',videoBytes:bytes,mimeType:'video/mp4',
         processingClaim:{id:job.id,token},payload:{duration,width,height,canvas_export:job.id}});

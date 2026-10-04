@@ -15,7 +15,7 @@ export function verifyMediaImage(record,{sha,run,attempt,archive}) {
   assert.deepEqual(record.sourceFiles,mediaImageInputs(),'Media build inputs changed');
   assert.equal(record.platform,'linux/amd64');assert(record.ffmpeg&&record.ffprobe);
   assert(/^sha256:[a-f0-9]{64}$/.test(record.image));assert.equal(record.archiveDigest,hash(fs.readFileSync(archive)));
-  assert.deepEqual(record.tests,['two-five-clips','copy-normalize-audio','background-music-decoded','per-clip-audio-decoded','private-drain-poster','container-process-restart','h3-video-reference']);
+  assert.deepEqual(record.tests,['two-five-clips','copy-normalize-audio','background-music-decoded','per-clip-audio-decoded','smooth-joins-decoded','private-drain-poster','container-process-restart','h3-video-reference']);
 }
 export function buildMediaImage() {
   const sha=process.env.GITHUB_SHA||execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();assert(/^[a-f0-9]{40}$/.test(sha));
@@ -24,13 +24,13 @@ export function buildMediaImage() {
   const image=JSON.parse(docker(['image','inspect',tag]))[0];assert.equal(image.Architecture,'amd64');assert.equal(image.Os,'linux');
   const command=['run','--rm','--network','none','--env','MEMBER_GENERATION_POSTERS_ONLY=1','--platform','linux/amd64','--read-only','--cpus','1','--memory','6g','--tmpfs','/tmp:rw,size=2g'];
   const versions={};for(const bin of ['ffmpeg','ffprobe'])versions[bin]=docker([...command,tag,bin,'-version']).split('\n')[0];
-  const tests=['canvas-full-video.test.mjs','private-media-runner.test.mjs','video-reference.test.mjs'];
+  const tests=['canvas-full-video.test.mjs','canvas-seams.test.mjs','private-media-runner.test.mjs','video-reference.test.mjs'];
   const mounts=tests.flatMap(file=>['--mount',`type=bind,source=${path.resolve('services/homepage-ffmpeg-processor',file)},target=/app/${file},readonly`]);
   for(const file of ['workers/auth/src/lib/h3-reference-metadata.js','tests/fixtures/media/h3-overrun.mp4'])mounts.push('--mount',`type=bind,source=${path.resolve(file)},target=/${file},readonly`);
   const output=docker([...command,...mounts,tag,'node','--input-type=module','-e',"await (await import('./canvas-full-video.test.mjs')).testCanvasConcatenation(); await (await import('./private-media-runner.test.mjs')).testPrivateMediaRunner(); await (await import('./private-media-runner.test.mjs')).testContainerLifecycle(); await (await import('./video-reference.test.mjs')).testVideoReferences();"]);
   fs.writeFileSync(`${dir}/test.log`,output);docker(['save','--output',`${dir}/image.tar`,tag]);
   const record={sha,sourceFiles:mediaImageInputs(),dirty:Boolean(execFileSync('git',['status','--porcelain','--','services/homepage-ffmpeg-processor','workers/media'],{encoding:'utf8'}).trim()),run:process.env.GITHUB_RUN_ID||'local',attempt:process.env.GITHUB_RUN_ATTEMPT||'local',platform:'linux/amd64',image:image.Id,tag,...versions,
-    tests:['two-five-clips','copy-normalize-audio','background-music-decoded','per-clip-audio-decoded','private-drain-poster','container-process-restart','h3-video-reference'],archiveDigest:hash(fs.readFileSync(`${dir}/image.tar`))};
+    tests:['two-five-clips','copy-normalize-audio','background-music-decoded','per-clip-audio-decoded','smooth-joins-decoded','private-drain-poster','container-process-restart','h3-video-reference'],archiveDigest:hash(fs.readFileSync(`${dir}/image.tar`))};
   fs.writeFileSync(`${dir}/image.json`,JSON.stringify(record,null,2)+'\n');console.log(JSON.stringify(record));
   return record;
 }

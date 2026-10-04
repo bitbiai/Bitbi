@@ -36,6 +36,7 @@ const SHARED_WORKER_FILE_MAP = new Map([
   ['js/shared/website-assistant-context.mjs', ['auth']],
   ['js/shared/canvas-export.mjs', ['auth']],
   ['js/shared/canvas-audio.mjs', ['auth']],
+  ['js/shared/canvas-smooth-joins.mjs', ['auth']],
   ["js/shared/appearance-contract.js", ["auth"]],
   ["js/shared/model-pricing-catalog.mjs", ["auth"]],
   ["js/shared/model-tariff.mjs", ["auth", "ai"]],
@@ -846,6 +847,13 @@ export function isCanvasCompletionRouteChange(sources) {
 // Canvas media controls reuse the existing native and browser callers. Model,
 // provider, pricing, billing and unknown neighboring changes retain broader coverage.
 const CANVAS_AUDIO_FILES = new Set([
+  'js/shared/canvas-smooth-joins.mjs', 'js/pages/canvas/smooth-joins.js',
+  'services/homepage-ffmpeg-processor/canvas-seams.mjs',
+  'services/homepage-ffmpeg-processor/canvas-seams.test.mjs',
+  'services/homepage-ffmpeg-processor/Dockerfile',
+  'workers/auth/migrations/0101_canvas_smooth_join_previews.sql',
+  'tests/helpers/canvas-smooth-control.mjs', 'tests/helpers/canvas-smooth-ui.cjs',
+  'scripts/private-media-image.mjs',
   'js/shared/omni-reference-upload.js',
   'config/release-compat.json',
   'config/website-assistant-sources.json',
@@ -1049,11 +1057,11 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     return selection;
   }
 
-  if (!forceFull && changedFiles.some(file=>['js/shared/canvas-audio.mjs','js/pages/canvas/audio-controls.js','tests/helpers/canvas-audio-control.mjs'].includes(file))
+  if (!forceFull && changedFiles.some(file=>['js/shared/canvas-audio.mjs','js/shared/canvas-smooth-joins.mjs','js/pages/canvas/audio-controls.js','tests/helpers/canvas-audio-control.mjs'].includes(file))
       && changedFiles.every(file=>isDocumentation(file)||CANVAS_AUDIO_FILES.has(file)||RELEASE_TOOLING_FILES.has(file))) {
     selection.policy='canvas-audio-v1';selection.canvasText=selection.canvasAudio=true;
     selection.workers=selection.auth=selection.static=selection.runtime=true;
-    selection.reasons.workers.push('Native Canvas asset/audio admission, populated migration and existing export/recovery/ownership lifecycle; actual Linux FFmpeg image with decoded audio controls');
+    selection.reasons.workers.push('Native Canvas asset/audio admission, populated migration and existing export/recovery/ownership lifecycle; actual Linux FFmpeg image with decoded audio controls, video-clock timing and conservative seam reconstruction');
     selection.reasons.auth.push('Existing Canvas suites in Chromium/WebKit, including real Worker/media integration, typed references, persistence and measured audio; no unrelated Admin/pricing or paid generation');
     return selection;
   }

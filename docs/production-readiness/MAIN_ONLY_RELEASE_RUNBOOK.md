@@ -708,17 +708,39 @@ Asset Reference capabilities come from owned media metadata. Imported videos use
 strand export service. Image/music references stay outside video timelines;
 replacement revalidates saved input roles and clears obsolete prepared frames.
 Per-node original-audio settings and independent background-music fades persist
-with the project. Recipe v3 snapshots them in cache/job identity; processor protocol
-4 retains the clean concatenation, applies original envelopes once, then music.
-Audio timelines record measured clip durations. Center-crop normalization is unchanged.
+with the project. New recipe v4 / processor protocol 5 also snapshots the OFF-default
+Smooth joins setting and its policy. The video clock owns new clip boundaries:
+inaudible codec overhang cannot extend the last picture; meaningful audio beyond
+the picture rejects visibly rather than being cut. One continuous soundtrack avoids
+per-clip AAC priming offsets. Center-crop normalization is unchanged. Accepted v1–v3
+jobs retain their original timing and recovery contract.
+
+Smooth joins reconstructs an eight-frame inner interval from motion anchors on
+both sides, without a dissolve, time removal or whole-video interpolation. It requires
+coherent motion, a boundary defect and an independently checked decoded improvement.
+A pause without a compensating jump, good joins, uncertain motion, cuts and short
+clips remain unchanged. The deterministic budget covers the first eight joins,
+20–60 fps and up to 1920 × 1080 pixels. The result states the improved/unchanged count;
+a decode/compositor failure cannot become a successful fallback. Turning the setting
+OFF restores ordinary new exports; it never changes an accepted job or saved file.
+
+Compare join explicitly renders at most three seconds using the same crop, motion
+policy, absolute audio/music envelopes and source versions as the full export.
+Private comparisons use the existing jobs/quota/reclamation path, do not replace the
+full export head, and cannot be saved as a full export. Cache identity includes
+ordered sources, versions, mode, sound and policy; durable request aliases preserve
+the accepted comparison after a lost reply and later edits. Navigation and settings
+changes invalidate the displayed comparison without silently starting another render.
 Older exports remain playable/downloadable; changed original audio needs a newly
 rendered timeline for audition, not guessed segment timing.
 
-Forward migration `0100_canvas_asset_audio_exports.sql` preserves populated jobs,
-export versions/heads and quota while admitting real node subjects. Publish the
-schema and tested processor before dependent Auth/frontend. Recovery preserves
+Forward migrations `0100_canvas_asset_audio_exports.sql` and
+`0101_canvas_smooth_join_previews.sql` preserve populated jobs, export versions/heads
+and quota while admitting real node subjects and private comparisons. Publish the
+schema and tested processor before dependent Auth/frontend. The processor negotiates
+its claim capability with the serving Auth version during this ordered rollout. Recovery preserves
 this additive contract and intentionally retained exports: no downmigration,
-original-media deletion or regeneration. Old processor protocols cannot claim v3;
+original-media deletion or regeneration. Older processor protocols cannot claim recipes beyond their capability;
 accepted failed jobs retry their immutable recipe even after graph edits.
 
 The closed `canvas-audio-v1` policy selects native `--suite canvas-audio` (populated
@@ -726,8 +748,16 @@ migration, real asset inputs, immutable admission/retry and existing export life
 and the complete existing Canvas/Q1 Chromium/WebKit collection. Unknown provider,
 billing or neighboring runtime inputs restore ordinary impact. Discovery and
 candidate proof use the same scope; missing/failed cases fail publication. The
-changed private-media image must include `per-clip-audio-decoded` evidence from its
-existing processor test. FFmpeg/ffprobe preparation also precedes actual browser
+changed private-media image must include `per-clip-audio-decoded` and
+`smooth-joins-decoded` evidence from its existing processor test. This checks decoded
+hold/jump reduction, unchanged good/still/intentional-pause/cut controls, actual output
+replacement (including a deliberately broken compositor), video timestamps, silent
+versus meaningful audio overhang, and preview/export envelope agreement. Native D1
+checks persistence, strict settings, private reads, snapshot/cache replay and schema;
+EN/DE Chromium/WebKit uses the actual Worker and FFmpeg for comparison, playback,
+download and Save. Required discovery rejects a removed comparison case. The existing
+release-plan guard compares the declared latest migration with the actual protected
+publication allowlist and rejects unknown migrations. FFmpeg/ffprobe preparation also precedes actual browser
 callers in static, Full and UI-fast. No duplicate Full or unrelated platform suite
 is required for this task. Native fixtures remain synthetic provider acceptance;
 actual D1/R2, decoded playback/export and live readback are separate evidence.

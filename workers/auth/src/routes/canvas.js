@@ -151,6 +151,7 @@ function normalizeJsonObject(value, { field, maxBytes = MAX_NODE_JSON_BYTES } = 
   if (field === 'config') {
     if (object.originalAudio !== undefined) originalAudioSettings(object.originalAudio);
     if (object.backgroundMusic !== undefined) exportMusicSettings(object.backgroundMusic);
+    if (object.smoothJoins !== undefined && typeof object.smoothJoins !== 'boolean')throw Object.assign(new Error('canvas_smooth_settings'),{code:'canvas_smooth_settings',status:400});
   }
   try {
     encoded = JSON.stringify(object);

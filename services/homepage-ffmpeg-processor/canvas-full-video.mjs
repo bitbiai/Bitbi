@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { writeFile, readFile, stat, mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
+import {smoothVideoSeams,SEAM_POLICY} from './canvas-seams.mjs';
 
 const failure=code=>Object.assign(new Error(code),{code});
 export function processingTimeout(deadline,now=Date.now()) {
@@ -33,7 +34,7 @@ export async function inspectClip(file,{ffprobe='ffprobe',run=mediaCommand}={}) 
   const duration=Math.max(Number(data.format.duration)||0,...data.streams.map(s=>Number(s.duration)||0));
   if(!(duration>0 && duration<=600 && v.width>0 && v.height>0 && v.width<=4096 && v.height<=4096)) throw failure('canvas_media_limits');
   const fingerprint=JSON.stringify(data.streams.map(s=>Object.fromEntries(['codec_type','codec_name','codec_tag_string','profile','level','width','height','pix_fmt','sample_aspect_ratio','time_base','r_frame_rate','sample_rate','channels','channel_layout','extradata_hash'].map(k=>[k,s[k]??null]))));
-  return {video:v,audio:a,duration,fingerprint};
+  return {video:v,audio:a,duration,videoDuration:Number(v.duration)||duration,fingerprint};
 }
 
 function displayGeometry(video) {
@@ -58,39 +59,68 @@ function displayGeometry(video) {
   return {width:swapped?video.height:video.width,height:swapped?video.width:video.height,sar:`${n/g}/${d/g}`,transformed};
 }
 
-export async function concatenateClips(files,dir,{ffmpeg='ffmpeg',ffprobe='ffprobe',run=mediaCommand,spatialPolicy='center-crop-v1',limits={durationSeconds:600,outputBytes:80000000}}={}) {
+export async function concatenateClips(files,dir,{ffmpeg='ffmpeg',ffprobe='ffprobe',run=mediaCommand,spatialPolicy='center-crop-v1',videoClock=false,smooth=false,previewSeam=null,limits={durationSeconds:600,outputBytes:80000000}}={}) {
   if(files.length<2 || files.some(f=>path.dirname(f)!==dir)) throw failure('canvas_sources_invalid');
   if(!['center-crop-v1','legacy-pad-v1'].includes(spatialPolicy))throw failure('canvas_spatial_policy_unsupported');
   const clips=[];for(const file of files) clips.push(await inspectClip(file,{ffprobe,run}));
-  const duration=clips.reduce((s,c)=>s+c.duration,0);
-  if(duration>limits.durationSeconds) throw failure('canvas_duration_limit');
+  const fps=Math.max(...clips.map(c=>{const [n,d]=String(c.video.r_frame_rate).split('/').map(Number);return d?n/d:30;}));
+  if(!Number.isFinite(fps) || fps>60 || fps<=0) throw failure('canvas_frame_rate_unsupported');
+  if(videoClock)for(let i=0;i<clips.length;i++) {
+    const c=clips[i],tail=Number(c.audio?.duration)-c.videoDuration;
+    if(tail>1/48000) {
+      // A longer container duration alone is not permission to discard sound.
+      // Decode the overhang. Only digital silence / inaudible codec residue may
+      // be removed; meaningful audio requires a corrected source, never a hold.
+      const probe=path.join(dir,`tail-${i}.f32`);
+      await run(ffmpeg,['-y','-v','error','-nostdin','-ss',String(c.videoDuration),'-i',files[i],'-map','0:a:0','-vn','-t',String(tail),'-ar','48000','-ac','1','-f','f32le',probe],{cwd:dir});
+      const pcm=await readFile(probe);await rm(probe);let peak=0,energy=0;
+      for(let n=0;n+3<pcm.length;n+=4) {
+        const value=pcm.readFloatLE(n);if(!Number.isFinite(value))throw failure('canvas_audio_tail_exceeds_video');
+        peak=Math.max(peak,Math.abs(value));energy+=value*value;
+      }
+      // AAC's decoded ringing after a silent fade can peak near -66 dBFS
+      // while its tail RMS is below -86 dBFS. Both ceilings are required;
+      // a quiet continuous signal still rejects. These are not playback gains.
+      if(peak>.001||Math.sqrt(energy/(pcm.length/4||1))>.0001)throw failure('canvas_audio_tail_exceeds_video');
+    }
+    c.duration=Math.ceil(c.videoDuration*fps-0.0001)/fps;
+  }
+  const totalDuration=clips.reduce((s,c)=>s+c.duration,0);
+  let selected=files.map((file,i)=>({file,index:i,offset:0,duration:clips[i].duration})),previewOffset=0;
+  if(previewSeam!==null) {
+    if(!Number.isInteger(previewSeam)||previewSeam<0||previewSeam>=files.length-1)throw failure('canvas_seam_index_invalid');
+    const left=clips[previewSeam],right=clips[previewSeam+1],window=Math.ceil(1.5*fps)/fps,offset=Math.max(0,left.duration-window);
+    selected=[{file:files[previewSeam],index:previewSeam,offset,duration:left.duration-offset},{file:files[previewSeam+1],index:previewSeam+1,offset:0,duration:Math.min(window,right.duration)}];
+    previewOffset=clips.slice(0,previewSeam).reduce((s,c)=>s+c.duration,0)+offset;
+  }
+  const duration=selected.reduce((s,c)=>s+c.duration,0);
+  if(totalDuration>limits.durationSeconds) throw failure('canvas_duration_limit');
   const crop=spatialPolicy==='center-crop-v1',geometry=crop?clips.map(c=>displayGeometry(c.video)):[];
   if(crop && geometry.some(g=>g.sar!==geometry[0].sar))throw failure('canvas_sample_aspect_ratio_unsupported');
   const width=crop?Math.floor(Math.min(...geometry.map(g=>g.width))/2)*2:Math.ceil(Math.max(...clips.map(c=>c.video.width))/2)*2;
   const height=crop?Math.floor(Math.min(...geometry.map(g=>g.height))/2)*2:Math.ceil(Math.max(...clips.map(c=>c.video.height))/2)*2;
   if(width<2||height<2)throw failure('canvas_media_limits');
-  const compatible=clips.every(c=>c.fingerprint===clips[0].fingerprint) && clips.every(c=>c.video.codec_name==='h264' && (!c.audio || c.audio.codec_name==='aac'))
+  const compatible=!smooth && previewSeam===null && clips.every(c=>c.fingerprint===clips[0].fingerprint) && clips.every(c=>c.video.codec_name==='h264' && (!c.audio || c.audio.codec_name==='aac'))
+    &&(!videoClock || clips.every(c=>Math.abs(c.duration-c.videoDuration)<.0001 && (!c.audio || Math.abs(Number(c.audio.duration)-c.duration)<.0001)))
     &&(!crop||geometry.every(g=>!g.transformed&&g.width===width&&g.height===height));
   const hasAudio=clips.some(c=>c.audio);
   let inputs=files;
   if(!compatible) {
-    const fps=Math.max(...clips.map(c=>{const [n,d]=String(c.video.r_frame_rate).split('/').map(Number);return d?n/d:30;}));
-    if(!Number.isFinite(fps) || fps>60 || fps<=0) throw failure('canvas_frame_rate_unsupported');
     inputs=[];let temporaryBytes=0;
-    for(let i=0;i<files.length;i++) {
-      const c=clips[i],output=path.join(dir,`normalized-${i}.mp4`);
-      const args=['-y','-v','error','-nostdin','-protocol_whitelist','file,pipe','-i',files[i]];
-      if(hasAudio && !c.audio) args.push('-f','lavfi','-i','anullsrc=r=48000:cl=stereo');
+    for(let i=0;i<selected.length;i++) {
+      const selection=selected[i],c=clips[selection.index],output=path.join(dir,`normalized-${i}.mp4`);
+      const args=['-y','-v','error','-nostdin','-protocol_whitelist','file,pipe',...(selection.offset?['-ss',String(selection.offset)]:[]),'-i',selection.file];
+      if(!videoClock && hasAudio && !c.audio) args.push('-f','lavfi','-i','anullsrc=r=48000:cl=stereo');
       args.push('-map','0:v:0');
-      if(hasAudio) args.push('-map',c.audio?'0:a:0':'1:a:0','-af','aresample=48000,apad','-c:a','aac','-b:a','192k','-ac','2');
+      if(!videoClock && hasAudio) args.push('-map',c.audio?'0:a:0':'1:a:0','-af','aresample=48000,apad','-c:a','aac','-b:a','192k','-ac','2');
       // FFmpeg applies display rotation before this filter. Full chroma before
       // the exact crop keeps an odd origin from being rounded to a chroma grid.
       // Equal non-square SAR is retained; incompatible SAR cannot be reconciled
       // without forbidden spatial resampling, so admission above rejects it.
       const spatial=crop?`format=yuv444p,crop=${width}:${height}:floor((iw-ow)/2):floor((ih-oh)/2):exact=1,setsar=${geometry[0].sar}:max=65535`
         :`scale=${width}:${height}:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1`;
-      args.push('-vf',`${spatial},fps=${fps},tpad=stop_mode=clone:stop_duration=${c.duration}`,
-        '-t',String(c.duration),'-c:v','libx264','-preset','veryfast','-crf','18','-pix_fmt','yuv420p','-threads','2','-fs',String(limits.outputBytes+1),'-movflags','+faststart',output);
+      args.push('-vf',`${spatial},setpts=PTS-STARTPTS,fps=${fps}:start_time=0${videoClock?'':`,tpad=stop_mode=clone:stop_duration=${c.duration}`}`,
+        '-t',String(selection.duration),'-c:v','libx264','-preset','veryfast','-crf','18','-pix_fmt','yuv420p','-threads','2','-fs',String(limits.outputBytes+1),'-movflags','+faststart',output);
       await run(ffmpeg,args,{cwd:dir});temporaryBytes+=(await stat(output)).size;
       if(temporaryBytes>400000000 || (await stat(output)).size>limits.outputBytes)throw failure('canvas_temporary_size_limit');
       inputs.push(output);
@@ -99,9 +129,27 @@ export async function concatenateClips(files,dir,{ffmpeg='ffmpeg',ffprobe='ffpro
   const list=path.join(dir,'clips.ffconcat');
   // Filenames are processor-created integers, never client strings or URLs.
   if(inputs.some(f=>!/^[a-z0-9-]+\.mp4$/.test(path.basename(f)))) throw failure('canvas_source_name_invalid');
-  await writeFile(list,inputs.map(f=>`file '${path.basename(f)}'`).join('\n')+'\n');
+  await writeFile(list,inputs.map((f,i)=>`file '${path.basename(f)}'${videoClock?'\nduration '+selected[i].duration:''}`).join('\n')+'\n');
   const output=path.join(dir,'full-video.mp4');
-  await run(ffmpeg,['-y','-v','error','-nostdin','-protocol_whitelist','file,pipe','-f','concat','-safe','1','-i',list,'-map','0:v:0',...(hasAudio?['-map','0:a:0']:[]),'-c','copy','-movflags','+faststart',output],{cwd:dir});
+  const joined=videoClock&&hasAudio?path.join(dir,'joined-video.mp4'):output;
+  await run(ffmpeg,['-y','-v','error','-nostdin',...(videoClock?['-copyts']:[]),'-protocol_whitelist','file,pipe','-f','concat','-safe','1','-i',list,'-map','0:v:0',...(!videoClock&&hasAudio?['-map','0:a:0']:[]),'-c','copy','-movflags','+faststart',joined],{cwd:dir});
+  if(videoClock&&hasAudio) {
+    // AAC priming packets must not advance each next clip's video PTS. Decode
+    // source sound once onto the SAME video clock, then encode one soundtrack.
+    // This also preserves silent clips without cloning terminal video frames.
+    const args=['-y','-v','error','-nostdin','-i',joined],filters=[];
+    let input=1;
+    selected.forEach((s,i)=>{
+      if(clips[s.index].audio) {
+        args.push(...(s.offset?['-ss',String(s.offset)]:[]),'-i',s.file);
+        filters.push(`[${input++}:a:0]aresample=48000,aformat=channel_layouts=stereo,asetpts=PTS-STARTPTS,apad,atrim=duration=${s.duration}[a${i}]`);
+      }else filters.push(`anullsrc=r=48000:cl=stereo,atrim=duration=${s.duration}[a${i}]`);
+    });
+    filters.push(selected.map((_,i)=>`[a${i}]`).join('')+`concat=n=${selected.length}:v=0:a=1[audio]`);
+    args.push('-filter_complex',filters.join(';'),'-map','0:v:0','-map','[audio]','-c:v','copy','-c:a','aac','-b:a','192k','-ar','48000','-ac','2',
+      '-t',String(duration),'-fs',String(limits.outputBytes+1),'-movflags','+faststart',output);
+    await run(ffmpeg,args,{cwd:dir});await rm(joined);
+  }
   if((await stat(output)).size>limits.outputBytes) throw failure('canvas_output_size_limit');
   const result=await inspectClip(output,{ffprobe,run});
   // Encoded packet duration rounding is permitted, missing clips/audio is not.
@@ -109,10 +157,11 @@ export async function concatenateClips(files,dir,{ffmpeg='ffmpeg',ffprobe='ffpro
   const timeline=[];let start=0;
   for(let i=0;i<inputs.length;i++) {
     const info=compatible?clips[i]:await inspectClip(inputs[i],{ffprobe,run});
-    const duration=i===inputs.length-1?result.duration-start:info.duration;
+    const duration=videoClock?selected[i].duration:i===inputs.length-1?result.duration-start:info.duration;
     timeline.push({start,duration});start+=duration;
   }
-  return {output,duration:result.duration,width:result.video.width,height:result.video.height,mode:compatible?'copy':'normalized',timeline};
+  return {output,duration:videoClock?duration:result.duration,width:result.video.width,height:result.video.height,mode:compatible?'copy':'normalized',timeline,fps,
+    sourceWindows:selected.map(s=>({index:s.index,offset:s.offset,duration:clips[s.index].duration})),previewOffset,totalDuration,clock:videoClock?'video':'legacy'};
 }
 
 function audioSettings(value,duration) {
@@ -128,16 +177,18 @@ const modifiedAudio=s=>s && (s.enabled===false || s.gain!==1 || s.fadeIn>0 || s.
 // once, sample-by-sample, to that soundtrack; never re-encode spatial pixels.
 export async function applyOriginalAudio(base,settings,dir,{ffmpeg='ffmpeg',ffprobe='ffprobe',run=mediaCommand,limits={outputBytes:80000000}}={}) {
   if(!settings)return base;
-  if(!Array.isArray(settings)||settings.length!==base.timeline.length)throw failure('canvas_audio_settings');
-  const effective=settings.map((s,i)=>audioSettings(s,base.timeline[i].duration));
+  if(!Array.isArray(settings))throw failure('canvas_audio_settings');
+  const windows=base.sourceWindows||base.timeline.map((s,index)=>({...s,index,offset:0}));
+  if(windows.some(s=>!settings[s.index]))throw failure('canvas_audio_settings');
+  const effective=windows.map(s=>audioSettings(settings[s.index],s.duration));
   if(!effective.some(modifiedAudio))return base;
   const clip=await inspectClip(base.output,{ffprobe,run});
   if(!clip.audio)return base; // An audio-less original remains playable and silent.
   let expression='0';
   for(let i=effective.length-1;i>=0;i--) {
-    const s=effective[i],{start,duration}=base.timeline[i],end=start+duration;
+    const s=effective[i],{start,duration}=base.timeline[i],end=start+duration,sourceStart=start-windows[i].offset,sourceEnd=sourceStart+windows[i].duration;
     const gain=s.enabled?s.gain:0;
-    const envelope=`${gain}*min(1,min(${s.fadeIn?`max(0,(t-${start})/${s.fadeIn})`:'1'},${s.fadeOut?`max(0,(${end}-t)/${s.fadeOut})`:'1'}))`;
+    const envelope=`${gain}*min(1,min(${s.fadeIn?`max(0,(t-${sourceStart})/${s.fadeIn})`:'1'},${s.fadeOut?`max(0,(${sourceEnd}-t)/${s.fadeOut})`:'1'}))`;
     expression=`if(lt(t,${end}),${envelope},${expression})`;
   }
   const output=path.join(dir,'full-video-audio.mp4');
@@ -147,7 +198,7 @@ export async function applyOriginalAudio(base,settings,dir,{ffmpeg='ffmpeg',ffpr
   if((await stat(output)).size>limits.outputBytes)throw failure('canvas_output_size_limit');
   const result=await inspectClip(output,{ffprobe,run});
   if(!result.audio||Math.abs(result.duration-base.duration)>.05)throw failure('canvas_output_incomplete');
-  return {...base,output,duration:result.duration,mode:base.mode+'+audio'};
+  return {...base,output,duration:base.clock==='video'?base.duration:result.duration,mode:base.mode+'+audio'};
 }
 
 // Decode once, then overlap only the music's loop boundary (10 ms). The first
@@ -177,14 +228,15 @@ export async function mixBackgroundMusic(base,music,gain,dir,{ffmpeg='ffmpeg',ff
   if(typeof gain!=='number' || !Number.isFinite(gain) || gain<0 || gain>1)throw failure('canvas_music_gain_invalid');
   if(gain===0)return base; // Exact original soundtrack, with no extra encode.
   const clip=await inspectClip(base.output,{ffprobe,run});
-  const duration=Number(clip.video.duration)||base.duration,frames=Math.round(duration*48000);
-  const fades=audioSettings({gain,fadeIn,fadeOut},duration);
-  const fadeFilter=(fades.fadeIn?`,afade=t=in:st=0:d=${fades.fadeIn}:curve=tri`:'')+(fades.fadeOut?`,afade=t=out:st=${duration-fades.fadeOut}:d=${fades.fadeOut}:curve=tri`:'');
+  const duration=base.clock==='video'?base.duration:Number(clip.video.duration)||base.duration,offset=base.previewOffset||0,frames=Math.round((offset+duration)*48000);
+  const fullDuration=base.clock==='video'?base.totalDuration||duration:duration,fades=audioSettings({gain,fadeIn,fadeOut},fullDuration);
+  const fadeFilter=offset?`,aeval=exprs='val(0)*min(1,min(${fades.fadeIn?`(t+${offset})/${fades.fadeIn}`:'1'},${fades.fadeOut?`(${fullDuration-offset}-t)/${fades.fadeOut}`:'1'}))|val(1)*min(1,min(${fades.fadeIn?`(t+${offset})/${fades.fadeIn}`:'1'},${fades.fadeOut?`(${fullDuration-offset}-t)/${fades.fadeOut}`:'1'}))'`
+    :(fades.fadeIn?`,afade=t=in:st=0:d=${fades.fadeIn}:curve=tri`:'')+(fades.fadeOut?`,afade=t=out:st=${fullDuration-fades.fadeOut}:d=${fades.fadeOut}:curve=tri`:'');
   const decoded=path.join(dir,'music-source.f32'),bed=path.join(dir,'music-bed.f32'),output=path.join(dir,'full-video-music.mp4');
   await run(ffmpeg,['-y','-v','error','-nostdin','-protocol_whitelist','file,pipe','-i',music,'-map','0:a:0','-vn','-t','600','-ac','2','-ar','48000','-f','f32le',decoded],{cwd:dir});
   const bytes=(await stat(decoded)).size;
   if(!bytes || bytes>600*48000*8)throw failure('canvas_music_invalid');
-  await writeFile(bed,loopMusicPcm(await readFile(decoded),frames));
+  await writeFile(bed,loopMusicPcm(await readFile(decoded),frames).subarray(Math.round(offset*48000)*8));
   const args=['-y','-v','error','-nostdin','-protocol_whitelist','file,pipe','-i',base.output,'-f','f32le','-ar','48000','-ac','2','-i',bed];
   const original=clip.audio?'[0:a:0]aresample=48000,apad,atrim=duration='+duration+'[original];':'anullsrc=r=48000:cl=stereo,atrim=duration='+duration+'[original];';
   args.push('-filter_complex',`${original}[1:a:0]volume=${gain}${fadeFilter}[music];[original][music]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95:level=false:latency=true[audio]`,
@@ -193,7 +245,7 @@ export async function mixBackgroundMusic(base,music,gain,dir,{ffmpeg='ffmpeg',ff
   if((await stat(output)).size>limits.outputBytes)throw failure('canvas_output_size_limit');
   const result=await inspectClip(output,{ffprobe,run});
   if(!result.audio || Math.abs(result.duration-duration)>0.05)throw failure('canvas_output_incomplete');
-  return {...base,output,duration:result.duration,mode:base.mode+'+music'};
+  return {...base,output,duration:base.clock==='video'?base.duration:result.duration,mode:base.mode+'+music'};
 }
 
 export async function processCanvasExports({requestJson,authHeaders,baseUrl,limit,dryRun=false,ffmpeg='ffmpeg',ffprobe='ffprobe',fetchImpl=fetch}) {
@@ -202,7 +254,8 @@ export async function processCanvasExports({requestJson,authHeaders,baseUrl,limi
   const protocol=await json(base+'/claim');
   if(protocol?.data?.protocol!==1) throw failure('canvas_processor_protocol');
   if(dryRun) return; // A dry run must not acquire a processing lease.
-  const jobs=(await json(base+'/claim',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({protocol:1,recipeProtocol:4,limit:Math.min(1,limit)})})).data.jobs;
+  const capability=Number.isInteger(protocol.data.recipeProtocol)?Math.min(5,protocol.data.recipeProtocol):4;
+  const jobs=(await json(base+'/claim',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({protocol:1,recipeProtocol:capability,limit:Math.min(1,limit)})})).data.jobs;
   for(const job of jobs) {
     const deadline=Date.now()+12*60_000;
     const boundedRun=(cmd,args,options={})=>{const remaining=deadline-Date.now();if(remaining<=0)throw failure('canvas_processing_deadline');return mediaCommand(cmd,args,{...options,timeout:remaining});};
@@ -224,23 +277,34 @@ export async function processCanvasExports({requestJson,authHeaders,baseUrl,limi
         const file=path.join(dir,isMusic?'music-input.bin':`clip-${i}.mp4`);await writeFile(file,Buffer.concat(chunks));
         if(isMusic)music=file;else files.push(file);
       }
-      let result=await concatenateClips(files,dir,{ffmpeg,ffprobe,limits:job.limits,run:boundedRun,spatialPolicy:job.spatialPolicy||'legacy-pad-v1'});
+      if(job.recipeVersion===4 && (job.smoothJoins?.policy!==SEAM_POLICY||typeof job.smoothJoins.enabled!=='boolean'))throw failure('canvas_seam_policy_invalid');
+      const options={ffmpeg,ffprobe,limits:job.limits,run:boundedRun};
+      let result=await concatenateClips(files,dir,{...options,spatialPolicy:job.spatialPolicy||'legacy-pad-v1',videoClock:job.recipeVersion===4,
+        smooth:job.smoothJoins?.enabled===true,previewSeam:job.preview?.seamIndex??null});
+      const withAudio=async input=>{
+        let output=await applyOriginalAudio(input,job.originalAudio,dir,options);
+        if(job.backgroundMusic?.enabled) {
+          if(!music)throw failure('canvas_music_unavailable');
+          output=await mixBackgroundMusic(output,music,job.backgroundMusic.gain,dir,{...options,...job.backgroundMusic});
+        }else if(music)throw failure('canvas_music_settings');
+        return output;
+      };
+      const uploadBase=async input=>{
+        const clean=new FormData();clean.set('video',new Blob([await readFile(input.output)],{type:'video/mp4'}),'clean-base.mp4');
+        for(const key of ['duration','width','height'])clean.set(key,String(input[key]));
+        if(job.recipeVersion>=3)clean.set('audioTimeline',JSON.stringify(input.timeline));
+        await json(`${base}/${job.id}/complete?part=preview-base`,{method:'POST',headers,body:clean,signal:AbortSignal.timeout(processingTimeout(deadline))});
+      };
+      if(job.preview)await uploadBase(await withAudio(result));
+      if(job.smoothJoins?.enabled)result=await smoothVideoSeams(result,dir,{...options,...(job.preview?{originalSeamIndex:job.preview.seamIndex}:{})});
       // Reuse this job's already-created clean base. Never another render/job.
       // Separate bounded upload keeps the existing completion body limit intact.
-      if(protocol.data.previewBase===1 && (job.backgroundMusic?.enabled && job.backgroundMusic.gain>0 || job.originalAudio?.some(modifiedAudio))) {
-        const clean=new FormData();clean.set('video',new Blob([await readFile(result.output)],{type:'video/mp4'}),'clean-base.mp4');
-        for(const key of ['duration','width','height'])clean.set(key,String(result[key]));
-        if(job.recipeVersion===3)clean.set('audioTimeline',JSON.stringify(result.timeline));
-        await json(`${base}/${job.id}/complete?part=preview-base`,{method:'POST',headers,body:clean,signal:AbortSignal.timeout(processingTimeout(deadline))});
-      }
-      result=await applyOriginalAudio(result,job.originalAudio,dir,{ffmpeg,ffprobe,limits:job.limits,run:boundedRun});
-      if(job.backgroundMusic?.enabled) {
-        if(!music)throw failure('canvas_music_unavailable');
-        result=await mixBackgroundMusic(result,music,job.backgroundMusic.gain,dir,{ffmpeg,ffprobe,limits:job.limits,run:boundedRun,...job.backgroundMusic});
-      } else if(music)throw failure('canvas_music_settings');
+      if(!job.preview && protocol.data.previewBase===1 && (job.backgroundMusic?.enabled && job.backgroundMusic.gain>0 || job.originalAudio?.some(modifiedAudio)))await uploadBase(result);
+      result=await withAudio(result);
       const form=new FormData();form.set('video',new Blob([await readFile(result.output)],{type:'video/mp4'}),'full-video.mp4');
       for(const key of ['duration','width','height'])form.set(key,String(result[key]));
-      if(job.recipeVersion===3)form.set('audioTimeline',JSON.stringify(result.timeline));
+      if(job.recipeVersion>=3)form.set('audioTimeline',JSON.stringify(result.timeline));
+      if(job.recipeVersion===4)form.set('seamResult',JSON.stringify(result.seams?{policy:SEAM_POLICY,improved:result.seams.improved,seams:result.seams.seams}:{policy:SEAM_POLICY,improved:0,seams:[]}));
       await json(`${base}/${job.id}/complete`,{method:'POST',headers,body:form,signal:AbortSignal.timeout(processingTimeout(deadline))});
       console.log(JSON.stringify({phase:'canvas_full_video',status:'stored',mode:result.mode}));
     } catch(error) {

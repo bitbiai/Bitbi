@@ -1,6 +1,7 @@
 import { exportMusicSettings, isExportMusic, canvasExportSubject, canvasNodeMediaKind } from '../../../../js/shared/canvas-export.mjs';
 import { sha256Hex, nowIso } from './tokens.js';
 import { ownedCanvasVideo } from './canvas-video-input.js';
+import {smoothJoinSettings,seamPreviewSettings} from '../../../../js/shared/canvas-smooth-joins.mjs';
 
 const fail = code => { throw Object.assign(new Error(code), {code,status:409}); };
 export async function validateExportEdge(env,userId,projectId,sourceId,targetId,config) {
@@ -43,13 +44,15 @@ export async function connectedExportMusic(env,userId,projectId,runId,selectedId
   const asset=await ownedCanvasMusic(env,userId,assetId);
   return {kind:'music',assetId:asset.id,version:asset.version,size:asset.size};
 }
-export async function canvasExportRecipe(env,userId,projectId,runId,videos,settings,explicit=false) {
+export async function canvasExportRecipe(env,userId,projectId,runId,videos,settings,explicit=false,smooth=false,preview) {
   const backgroundMusic=exportMusicSettings(settings);
   const music=backgroundMusic.enabled?await connectedExportMusic(env,userId,projectId,runId,backgroundMusic.musicAssetId):null;
   if(backgroundMusic.enabled && !music)fail('canvas_music_unavailable');
   const sources=[...videos,...(music?[music]:[])];
   if(sources.reduce((total,s)=>total+s.size,0)>400_000_000)fail('canvas_chain_size');
-  return {version:3,spatialPolicy:'center-crop-v1',...(explicit?{sequence:'explicit'}:{}),videos,music,backgroundMusic};
+  const smoothJoins=smoothJoinSettings(smooth),comparison=seamPreviewSettings(preview,videos.length);
+  if(comparison&&!smoothJoins.enabled)fail('canvas_smooth_settings');
+  return {version:4,spatialPolicy:'center-crop-v1',timingPolicy:'video-clock-v1',smoothJoins,...(comparison?{preview:comparison}:{}),...(explicit?{sequence:'explicit'}:{}),videos,music,backgroundMusic};
 }
 export async function exportHead(env,userId,runId) {
   const subject=canvasExportSubject(runId);
@@ -64,7 +67,7 @@ export async function saveCanvasExport(env,userId,projectId,runId,id) {
   await env.DB.prepare(`UPDATE canvas_export_versions SET state='saved',saved_at=?
     WHERE id=? AND user_id=? AND project_id=? AND ${subject.column}=? AND state='canvas'
     AND EXISTS(SELECT 1 FROM ai_text_assets a WHERE a.id=canvas_export_versions.id AND a.user_id=?)
-    AND EXISTS(SELECT 1 FROM canvas_video_processing p WHERE p.id=canvas_export_versions.id AND p.asset_id=p.id)
+    AND EXISTS(SELECT 1 FROM canvas_video_processing p WHERE p.id=canvas_export_versions.id AND p.asset_id=p.id AND json_extract(p.recipe_json,'$.preview') IS NULL)
     AND EXISTS(SELECT 1 FROM canvas_projects p WHERE p.id=canvas_export_versions.project_id AND p.deleted_at IS NULL)`)
     .bind(nowIso(),id,userId,projectId,subject.id,userId).run();
   const row=await env.DB.prepare(`SELECT id FROM canvas_export_versions WHERE id=? AND user_id=? AND project_id=? AND ${subject.column}=? AND state='saved'`)

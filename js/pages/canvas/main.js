@@ -421,7 +421,8 @@ function renderOutput(node) {
             backgroundMusic:node.config?.backgroundMusic,tracks:music.filter(track=>track.kind==='audio_asset'&&track.assetId),
             onChange:values=>scheduleNode(settingsNode,{config:{...settingsNode.config,...values}})});
         renderCanvasFullVideo({ section, output, projectId: store.state.project.id, german: isGerman, signal: inspectorAbort.signal, video,
-            music, settings:node.config?.backgroundMusic,sound,
+            music, sound,readSmooth:()=>settingsNode.config?.smoothJoins===true,
+            writeSmooth:value=>scheduleNode(settingsNode,{config:{...settingsNode.config,smoothJoins:value}}),
             flush:()=>nodeSave.flush(),
             getGraph:()=>({projectId:store.state.project?.id,nodes:store.state.nodes,edges:store.state.edges,models:store.state.models}) });
     } else if (output.kind === 'audio' && output.asset?.file_url) {

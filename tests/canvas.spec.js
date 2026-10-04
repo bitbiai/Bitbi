@@ -9,6 +9,9 @@ for (const locale of ['en', 'de']) test(`Canvas completion metadata ${locale}: q
 for (const locale of ['en', 'de']) test(`Canvas asset audio ${locale}: typed references, persistent controls and real export`, async ({ page, browserName }, info) => {
   await require('./helpers/canvas-audio-ui.cjs').audioUi({page,expect,locale,browserName,mockSharedAuth,createCanvasApiMock,info});
 });
+for (const locale of ['en','de']) test(`Canvas smooth joins ${locale}: persistent choice, real comparison and saved export`,async({page},info)=>{
+  await require('./helpers/canvas-smooth-ui.cjs').smoothUi({page,expect,locale,mockSharedAuth,createCanvasApiMock,info});
+});
 
 for (const locale of ['en','de']) test(`Canvas legacy audio ${locale}: changed originals require a new timeline without replacing saved media`,async({page},info)=>{
   await page.setViewportSize({width:locale==='de'?390:1440,height:900});await mockSharedAuth(page);

@@ -1163,4 +1163,9 @@ console.log('Seedance: real durable Worker/native and workspace/pricing callers 
  for(const key of ['homepage','carousel','dependencies','full'])assert.equal(selected[key],false);
  for(const file of ['workers/auth/src/lib/billing.js','workers/ai/src/routes/video-task.js','workers/auth/src/lib/member-generation-jobs.js','unknown.js'])assert.notEqual(selectCiTests([...files,file]).canvasAudio,true);
  assert.notEqual(selectCiTests(files,{forceFull:true}).canvasAudio,true);
+ const smooth=['js/shared/canvas-smooth-joins.mjs','js/pages/canvas/smooth-joins.js','services/homepage-ffmpeg-processor/canvas-seams.mjs',
+   'services/homepage-ffmpeg-processor/canvas-seams.test.mjs','services/homepage-ffmpeg-processor/Dockerfile','scripts/private-media-image.mjs',
+   'workers/auth/migrations/0101_canvas_smooth_join_previews.sql','tests/helpers/canvas-smooth-control.mjs','tests/helpers/canvas-smooth-ui.cjs'];
+ const smoothed=selectCiTests([...files,...smooth]);assert.equal(smoothed.canvasAudio,true);assert.equal(requiresPrivateMediaImage(smooth),true);
+ assert.notEqual(selectCiTests([...smooth,'workers/auth/src/lib/member-generation-jobs.js']).canvasAudio,true);
 }

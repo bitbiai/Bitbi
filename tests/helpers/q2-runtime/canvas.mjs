@@ -29,6 +29,14 @@ export async function runCanvasAudioTests(f, {prepared=false}={}) {
       await verifyCanvasExportSchema(sql=>f.rows(sql));
     });
   }
+  await f.test('canvas_smooth_persistence_preview_cache_policy_and_private_completion',async()=>{
+    const response=await f.control('/canvas-smooth',{
+      videoBase64:fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4',import.meta.url)).toString('base64'),
+      imageBase64:fs.readFileSync(new URL('../../fixtures/media/h3-frame.png',import.meta.url)).toString('base64'),
+      musicBase64:fs.readFileSync(new URL('../../fixtures/media/member-music.mp3',import.meta.url)).toString('base64'),
+    });
+    assert.equal(response.status,200,await response.clone().text());f.metrics.push(await response.json());
+  });
   await f.test('canvas_audio_imported_identity_independent_settings_and_snapshot_admission',async()=>{
     const response=await f.control('/canvas-audio',{
       videoBase64:fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4',import.meta.url)).toString('base64'),

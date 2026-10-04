@@ -29,6 +29,7 @@ export function verifyCanvasAudioDiscovery(actual, standard=actual) {
   for(const project of projects) {
     for(const file of files)assert(actual.some(row=>row.project===project&&row.file===file),'Missing retained Canvas suite');
     for(const locale of ['en','de'])assert.equal(actual.filter(row=>row.project===project&&row.file==='canvas.spec.js'&&row.title===`Canvas asset audio ${locale}: typed references, persistent controls and real export`).length,1,'Missing required typed-asset/audio integration');
+    for(const locale of ['en','de'])assert.equal(actual.filter(row=>row.project===project&&row.file==='canvas.spec.js'&&row.title===`Canvas smooth joins ${locale}: persistent choice, real comparison and saved export`).length,1,'Missing required seam comparison/export integration');
   }
   for(const row of actual)assert.equal(row.expectedStatus,'passed','Selected Canvas audio case must execute');
 }

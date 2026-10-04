@@ -219,5 +219,12 @@
   .canvas-audio-row input[type="number"] { width: 100%; min-width: 0; min-height: 40px; padding-inline: 6px; }
   .canvas-sound :focus-visible { outline: 2px solid var(--accent-color, #7dd5cd); outline-offset: 3px; }
   .canvas-asset-type { font-weight: 600; }
+  .canvas-smooth-joins { display: grid; gap: 8px; margin-block: 12px; padding: 12px; border: 1px solid var(--canvas-line); border-radius: 8px; }
+  .canvas-smooth-joins > label:first-child { display: flex; align-items: center; gap: 10px; min-height: 44px; font-weight: 600; cursor: pointer; }
+  .canvas-smooth-joins input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent-color, #7dd5cd); }
+  .canvas-smooth-joins p { margin: 0; }
+  .canvas-smooth-joins [role="group"] { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .canvas-smooth-joins [aria-pressed="true"] { border-color: var(--accent-color, #7dd5cd); font-weight: 700; }
+  .canvas-smooth-joins :focus-visible { outline: 2px solid var(--accent-color, #7dd5cd); outline-offset: 3px; }
   @media (prefers-reduced-motion: reduce) { .canvas-spinner { animation-duration: 1.8s; } }
 }

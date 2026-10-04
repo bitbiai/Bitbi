@@ -95,6 +95,8 @@ try {
   assert.equal(audioRun.status,0,audioRun.stderr);
   const audioReport=JSON.parse(fs.readFileSync(audioOutput)),audioCases=flattenHomepageDiscovery(audioReport);
   verifyCanvasAudioDiscovery(audioCases,standard);
+  const missingSmooth=audioCases.filter(row=>!row.title.startsWith('Canvas smooth joins de:'));
+  assert.throws(()=>verifyCanvasAudioDiscovery(missingSmooth,missingSmooth),/Missing required seam comparison/, 'Deleting the case itself must not erase required acceptance');
   assert.throws(()=>verifyCanvasAudioDiscovery(audioCases.slice(1),standard));
   assert.throws(()=>verifyCanvasAudioDiscovery([...audioCases,audioCases[0]],standard));
   assert.throws(()=>verifyCanvasAudioDiscovery(audioCases.map((row,i)=>i?row:{...row,expectedStatus:'skipped'}),standard));

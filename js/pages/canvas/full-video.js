@@ -2,8 +2,10 @@ import { clipSequence } from './merge-clips.js?v=__ASSET_VERSION__';
 import { canvasApi } from './api.js?v=__ASSET_VERSION__';
 import { createMusicPreview } from './music-preview.js?v=__ASSET_VERSION__';
 import { hasAudioEffects } from '../../shared/canvas-audio.mjs?v=__ASSET_VERSION__';
+import {smoothJoinControls} from './smooth-joins.js?v=__ASSET_VERSION__';
+import {smoothJoinResultText} from '../../shared/canvas-smooth-joins.mjs?v=__ASSET_VERSION__';
 
-export function renderCanvasFullVideo({section,output,projectId,german,signal,video,music=[],settings,sound,flush=async()=>true,getGraph}) {
+export function renderCanvasFullVideo({section,output,projectId,german,signal,video,music=[],sound,readSmooth=()=>false,writeSmooth=()=>{},flush=async()=>true,getGraph}) {
     const anchor=output.runId || (output.nodeId?{nodeId:output.nodeId}:null);
     if (!anchor) return;
     const copy=german?{
@@ -16,7 +18,7 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
     const auditionCopy=german?{start:'Vorschau mit Musik',pause:'Vorschau pausieren',label:'Vorschau · noch nicht übernommen',create:'Gesamtes Video mit Hintergrundmusik erstellen',back:'Zurück zum erstellten Video',missing:'Musikvorschau nicht verfügbar: Für diese Version fehlt das vollständige Video ohne Hintergrundmusik. Das erstellte Video bleibt verfügbar.',error:'Die Musikvorschau konnte nicht abgespielt werden. Das erstellte Video bleibt verfügbar.',loading:'Musikvorschau wird geladen.',track:'Hintergrundmusik',choose:'Musik auswählen'}:{start:'Preview with music',pause:'Pause preview',label:'Preview · not exported',create:'Create full video with background music',back:'Return to completed video',missing:'Music preview unavailable: this version has no complete video without background music. The completed video remains available.',error:'Music preview could not play. The completed video remains available.',loading:'Loading music preview.',track:'Background music',choose:'Choose music'};
     const controls=document.createElement('div'),message=document.createElement('p'),preview=document.createElement('div');
     message.setAttribute('role','status');message.setAttribute('aria-label',german?'Exportstatus':'Export status');block.append(controls,message,preview);
-    let selected={...sound.music};
+    let selected={...sound.music},joins;
     const tracks=music.filter(m=>m.kind==='audio_asset'&&m.assetId);
     const chosen=()=>selected.musicAssetId?tracks.find(m=>m.assetId===selected.musicAssetId):(music.length===1?tracks[0]:null);
     let audition=null,auditionState='idle',completed=null,previewMode=false;
@@ -58,17 +60,21 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
     returnButton.addEventListener('click',restore,{signal});
     sound.details.addEventListener('canvas:sound-change',()=>{
         const previous=selected;selected={...sound.music};audition?.setGain(selected.enabled?selected.gain:0);
+        joins?.sync();
         if(needsAudioTimeline()){if(previewMode)restore();else updateButtons();return;}
         audition?.setAudio({music:selected,timeline:previewTimeline()});
         if(previewMode && (auditionState==='loading'||!resultVideo?.paused) && selected.enabled && (!previous.enabled || previous.musicAssetId!==selected.musicAssetId))startPreview();else updateButtons();
     },{signal});
     const createButton=document.createElement('button');createButton.type='button';createButton.className='canvas-button canvas-button--primary';createButton.textContent=copy.create;createButton.hidden=true;
     let sequenceBlocked=true;
-    const sequence=clipSequence(controls,anchor,german,signal,()=>{createButton.disabled=sequenceBlocked||!sequence.valid;},getGraph);controls.append(createButton);
+    const sequence=clipSequence(controls,anchor,german,signal,()=>{createButton.disabled=sequenceBlocked||!sequence.valid;joins?.sync();},getGraph);
+    joins=smoothJoinControls({parent:controls,german,signal,projectId,anchor,read:readSmooth,write:writeSmooth,flush,sequence,settings:()=>({...selected}),getGraph,pause:()=>{video.pause();resultVideo?.pause();audition?.pause();}});
+    video.addEventListener('play',()=>joins.pause(),{signal});
+    controls.append(createButton);
     createButton.addEventListener('click',()=>void update(true),{signal});
     sound.previewControls.append(previewButton,returnButton,previewStatus,previewNote);updateButtons();
     const posterStatus=document.createElement('p');posterStatus.className='canvas-muted';section.append(posterStatus);
-    let timer,reads=0,busy=false,resultVideo=null,previous=null,posterRetry=null,requestKey=null,requestSettings=null,requestSequence,requestMode;
+    let timer,reads=0,busy=false,resultVideo=null,previous=null,posterRetry=null,requestKey=null,requestSettings=null,requestSequence,requestMode,requestSmooth;
     const originalId=output.assetId||output.asset?.id;
     signal.addEventListener('abort',()=>{clearTimeout(timer);resultVideo?.pause();},{once:true});
     async function update(create=false) {
@@ -80,14 +86,15 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
             if(!await flush()){message.textContent=copy.savingFailed;busy=false;createButton.disabled=false;return;}
             if(signal.aborted)return;
             if(!sequence.valid){busy=false;message.textContent=copy.unavailable;return;}
-            if(!requestKey){requestKey=crypto.randomUUID();requestSettings={...selected};requestSequence=sequence.value;requestMode=sequence.mode;}
+            if(!requestKey){requestKey=crypto.randomUUID();requestSettings={...selected};requestSequence=sequence.value;requestMode=sequence.mode;requestSmooth=joins.enabled;}
         }
         sequence.lock(true);
-        const result=await canvasApi.fullVideo(projectId,anchor,create,signal,{backgroundMusic:requestSettings||selected,...(requestSequence?{orderedClips:requestSequence,...(requestMode==='chain'?{mergeMode:'chain'}:{})}:{})},requestKey);
+        const result=await canvasApi.fullVideo(projectId,anchor,create,signal,{backgroundMusic:requestSettings||selected,smoothJoins:requestSmooth??joins.enabled,...(requestSequence?{orderedClips:requestSequence,...(requestMode==='chain'?{mergeMode:'chain'}:{})}:{})},requestKey);
         if(signal.aborted)return;
         busy=false;
-        if(create && (result.ok || (result.status>=400 && result.status<500))){requestKey=null;requestSettings=null;requestSequence=undefined;requestMode=undefined;}
+        if(create && (result.ok || (result.status>=400 && result.status<500))){requestKey=null;requestSettings=null;requestSequence=undefined;requestMode=undefined;requestSmooth=undefined;}
         sequence.lock(Boolean(requestKey));
+        joins.lock(Boolean(requestKey));
         createButton.disabled=!sequence.valid;
         const status=result.data?.export;
         if(result.ok)sequence.update(result.data);
@@ -101,6 +108,8 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
             message.textContent=`${changed?(german?'Eine ausgewählte Ausgabe wurde gelöscht oder ersetzt. Status aktualisieren und Clips erneut auswählen.':'A selected output was deleted or replaced. Refresh status and choose the clips again.'):copy.unavailable} (${result.code})`;
         } else if(result.data.eligible || status || result.data.current) {
             message.textContent=status?(copy[status.status]||copy.failed):'';
+            if(status?.seam_result)message.textContent+=' '+smoothJoinResultText(status.seam_result,german);
+            if(status?.error_code==='canvas_audio_tail_exceeds_video')message.textContent+=' '+(german?'Die Tonspur eines Clips reicht über sein Bildende hinaus. Die Quelle muss passend zugeschnitten werden; Ton wird nicht automatisch abgeschnitten.':'A clip has sound beyond its last video frame. Correct the source duration; sound is never trimmed automatically.');
             createButton.hidden=false;createButton.textContent=status?copy.again:copy.create;
             createButton.disabled=['queued','processing'].includes(status?.status);
             const current=result.data.current||status;
@@ -115,8 +124,8 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
                     resultVideo.style.aspectRatio='16 / 9';resultVideo.style.display='block';
                     resultVideo.addEventListener('loadedmetadata',()=>sound.setExportDuration(resultVideo.duration),{signal});
                     audition=createMusicPreview({video:resultVideo,signal,onState:state=>{auditionState=state;previewStatus.textContent=state==='loading'?auditionCopy.loading:state==='error'?auditionCopy.error:previewMode?auditionCopy.label:'';updateButtons();}});
-                    resultVideo.addEventListener('play',()=>video.pause(),{signal});
-                    video.addEventListener('play',()=>{if(previewMode)audition.pause();resultVideo.pause();},{signal});
+                    resultVideo.addEventListener('play',()=>{video.pause();joins.pause();},{signal});
+                    video.addEventListener('play',()=>{if(previewMode)audition.pause();resultVideo.pause();joins.pause();},{signal});
                 }
                 if(!previewMode && resultVideo.getAttribute('src')!==current.asset.file_url){resultVideo.src=current.asset.file_url;resultVideo.removeAttribute('poster');}
                 if(current.asset.poster_url)resultVideo.poster=current.asset.poster_url;

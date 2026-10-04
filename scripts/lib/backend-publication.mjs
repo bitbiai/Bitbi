@@ -381,7 +381,7 @@ export async function advanceBackend({sha,pending,activeVersion,assertCurrent,ap
 }
 
 export function assertSupportedBackendMigrations(pending) {
-  const allowed=['0088_add_canvas_video_processing.sql','0089_add_private_media_services.sql','0090_add_canvas_private_outputs.sql','0091_separate_thumbnail_processing.sql','0092_pin_video_source_inputs.sql','0093_add_private_video_references.sql','0094_model_pricing.sql','0095_retained_image_delivery.sql','0096_canvas_export_versions.sql','0097_canvas_preview_base.sql','0098_model_area_availability.sql','0099_seedance_25_custom_tariffs.sql','0100_canvas_asset_audio_exports.sql'];
+  const allowed=['0088_add_canvas_video_processing.sql','0089_add_private_media_services.sql','0090_add_canvas_private_outputs.sql','0091_separate_thumbnail_processing.sql','0092_pin_video_source_inputs.sql','0093_add_private_video_references.sql','0094_model_pricing.sql','0095_retained_image_delivery.sql','0096_canvas_export_versions.sql','0097_canvas_preview_base.sql','0098_model_area_availability.sql','0099_seedance_25_custom_tariffs.sql','0100_canvas_asset_audio_exports.sql','0101_canvas_smooth_join_previews.sql'];
   assert(pending.every(f=>allowed.includes(f)),`Unexpected pending migrations: ${pending.filter(f=>!allowed.includes(f)).map(f=>String(f).replace(/[^a-zA-Z0-9_.-]/g,'').slice(0,100)).join(', ')}`);
 }
 export function assertModelAreaSchemaResume(version,sha,env=process.env) {

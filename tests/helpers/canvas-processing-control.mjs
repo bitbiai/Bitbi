@@ -226,7 +226,7 @@ async function selectionCases({env,owner,other,project,runs,sources,request,payl
   }
   await db.prepare('UPDATE canvas_runs SET input_json=? WHERE id=?').bind(JSON.stringify(reference),run).run();
   const created=(await payload(await post(orderedClips))).export;
-  check(created.recipe.version===3 && created.recipe.spatialPolicy==='center-crop-v1' && created.recipe.sequence==='explicit','New recipe pins center-crop policy and explicit intent');
+  check(created.recipe.version===4 && created.recipe.spatialPolicy==='center-crop-v1' && created.recipe.sequence==='explicit','New recipe pins center-crop policy and explicit intent');
   check(JSON.stringify(created.recipe.videos.map(s=>s.runId))===JSON.stringify([runs[0],run]),'Explicit clip order reaches immutable recipe');
   check((await payload(await post(orderedClips))).export.id===created.id,'Lost-response replay does not enqueue another render');
   check((await post([...orderedClips].reverse())).status===409,'Replay cannot silently reorder');
@@ -235,7 +235,7 @@ async function selectionCases({env,owner,other,project,runs,sources,request,payl
   check((await post(orderedClips,'new-after-delete-key')).status===409,'Fresh job cannot reuse the deleted node');
   await db.prepare('UPDATE canvas_nodes SET deleted_at=NULL WHERE id=(SELECT node_id FROM canvas_runs WHERE id=?)').bind(runs[0]).run();
   check((await payload(await request(internal+'/claim','POST',{protocol:1,recipeProtocol:2,limit:3},{container:true}))).jobs.length===0,'Old processor cannot claim a new crop recipe');
-  const job=(await payload(await request(internal+'/claim','POST',{protocol:1,recipeProtocol:4,limit:1},{container:true}))).jobs[0];
+  const job=(await payload(await request(internal+'/claim','POST',{protocol:1,recipeProtocol:5,limit:1},{container:true}))).jobs[0];
   check(job.id===created.id && job.spatialPolicy==='center-crop-v1' && job.sources.length===2,'Actual processor admission carries exact new policy');
   check((await db.prepare('SELECT input_json FROM canvas_runs WHERE id=?').bind(run).first()).input_json===JSON.stringify(reference),'Explicit export never rewrites provenance');
   const legacyRecipe={version:1,videos:created.recipe.videos,music:null,backgroundMusic};
@@ -246,13 +246,13 @@ async function selectionCases({env,owner,other,project,runs,sources,request,payl
   check(old.id===legacy.id && old.spatialPolicy==='legacy-pad-v1','Old queued recipe remains claimable under old capability');
   const automatic=(await payload(await request(url,'POST',{backgroundMusic,orderedClips,mergeMode:'chain'},{key:'current-chain-key-1'}))).export;
   check(automatic.id!==created.id && automatic.recipe.mergeMode==='chain','Explicit chain intent creates its own immutable version');
-  const automaticJob=(await payload(await request(internal+'/claim','POST',{protocol:1,recipeProtocol:4,limit:1},{container:true}))).jobs[0];
+  const automaticJob=(await payload(await request(internal+'/claim','POST',{protocol:1,recipeProtocol:5,limit:1},{container:true}))).jobs[0];
   check(automaticJob.id===automatic.id && automaticJob.sources.length===2 && automaticJob.spatialPolicy==='center-crop-v1','Automatic and manual modes use the same real processor admission');
   await db.prepare('UPDATE canvas_video_processing SET attempt_count=7 WHERE id=?').bind(automaticJob.id).run();
   await payload(await request(automaticJob.completion.failure_url,'POST',{code:'canvas_synthetic_retry'},{container:true,token:automaticJob.claim}));
   await payload(await request(job.completion.failure_url,'POST',{code:'canvas_synthetic_retry'},{container:true,token:job.claim}));
   await db.prepare("UPDATE canvas_video_processing SET next_attempt_at='2000-01-01' WHERE id=?").bind(job.id).run();
-  const retry=(await payload(await request(internal+'/claim','POST',{protocol:1,recipeProtocol:4,limit:1},{container:true}))).jobs[0];
+  const retry=(await payload(await request(internal+'/claim','POST',{protocol:1,recipeProtocol:5,limit:1},{container:true}))).jobs[0];
   check(retry.id===job.id&&retry.claim!==job.claim&&retry.spatialPolicy==='center-crop-v1','Processing retry preserves crop recipe and replaces lease');
   check((await request(job.sources[0].url,'GET',null,{container:true,token:job.claim})).status===409,'Prior crop lease cannot read after retry');
   for(const ended of [retry,old]){
@@ -264,7 +264,7 @@ async function selectionCases({env,owner,other,project,runs,sources,request,payl
 }
 
 async function recipeCases({env,owner,other,project,node,run,request,payload,form:legacyForm,fixture}) {
-  const form=()=>{const body=legacyForm();body.set('audioTimeline',JSON.stringify(Array.from({length:4},(_,i)=>({start:i*1.25,duration:1.25}))));return body;};
+  const form=()=>{const body=legacyForm();body.set('audioTimeline',JSON.stringify(Array.from({length:4},(_,i)=>({start:i*1.25,duration:1.25}))));body.set('seamResult',JSON.stringify({policy:'motion-anchors-v1',improved:0,seams:[]}));return body;};
   const db=env.DB,now=new Date().toISOString(),musicNode=(await sha256Hex('export-music-node')).slice(0,32),edge=(await sha256Hex('export-music-edge')).slice(0,32);
   const wav=new Uint8Array(46),view=new DataView(wav.buffer);
   for(const [offset,text] of [[0,'RIFF'],[8,'WAVE'],[12,'fmt '],[36,'data']])for(let i=0;i<text.length;i++)wav[offset+i]=text.charCodeAt(i);
@@ -294,7 +294,7 @@ async function recipeCases({env,owner,other,project,node,run,request,payload,for
   check((await payload(await submit(0.5,'recipe-first-key-1'))).export.id===a.id,'Duplicate recipe key reused');
   check((await submit(0.8,'recipe-first-key-1')).status===409,'Key cannot change recipe');
   check((await payload(await request(internal+'/claim','POST',{protocol:1,limit:3},{container:true}))).jobs.length===0,'Old container cannot consume a music recipe');
-  const claim=async()=> (await payload(await request(internal+'/claim','POST',{protocol:1,recipeProtocol:4,limit:1},{container:true}))).jobs[0];
+  const claim=async()=> (await payload(await request(internal+'/claim','POST',{protocol:1,recipeProtocol:5,limit:1},{container:true}))).jobs[0];
   const finish=async(job,{retainBase=true}={})=>{
     if(retainBase && job.backgroundMusic?.gain>0)await payload(await request(job.completion.url+'?part=preview-base','POST',form(),{token:job.claim,container:true}));
     await payload(await request(job.completion.url,'POST',form(),{token:job.claim,container:true}));

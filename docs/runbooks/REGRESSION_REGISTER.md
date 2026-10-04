@@ -642,6 +642,23 @@ below action buttons; existing Canvas tests inject metadata and verify the exact
 persisted fade and click/error-recovery outcome. No retry/time-limit/audio-threshold
 relaxation, provider generation or decorative Hero test is involved.
 
+2026-10-04 smooth-join extension (base `a52bda33`, implementation acceptance):
+controlled AMD64 FFmpeg 5.1.9 sources confirmed that maximum audio/container duration
+plus terminal-frame padding extended two one-second pictures to about 2.72 seconds.
+New v4 exports use the video clock, reject meaningful excess audio and allow only
+measured inaudible codec residue. Continuous audio encoding also removes the observed
+per-clip AAC priming offset. Optional motion reconstruction is separate from these
+normal-join corrections. A generated patch did not prove replacement: an independent
+subject-position check caught a frame-indexed overlay that left output unchanged.
+Frame-derived time bounds and final decoded-patch validation now reject that failure;
+`canvas-seams.test.mjs` deliberately disables the compositor to check the rejection.
+The same existing processor-image, native Canvas audio and EN/DE browser callers cover
+private comparison caching/replay, original/music envelopes, persistence and export.
+The actual target-container 1280 × 720 sample used one CPU, about 23 seconds additional
+seam processing and 0.88 GB peak container memory (6 GB limit). These controlled
+measurements are not production or arbitrary-content quality claims; final source,
+release receipts and live output are recorded in the task acceptance checkpoint.
+
 Release `37189472421/1` at `3e6f82ed` passed all four Linux native cases and the
 seven required Linux image controls, then stopped with 218 browser passes and six
 failures before deployment. The new UI fixture encoded two unnecessary 80-second

@@ -3,6 +3,7 @@ import {mkdtemp,rm,readFile,writeFile,chmod} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
+import {testSmoothJoins} from './canvas-seams.test.mjs';
 import {concatenateClips,mediaCommand,inspectClip,processingTimeout,processCanvasExports,mixBackgroundMusic,loopMusicPcm} from './canvas-full-video.mjs';
 
 export async function testMediaCommandDiagnostics() {
@@ -35,6 +36,16 @@ export async function testCanvasConcatenation() {
   assert.equal(processingTimeout(720000,0),120000);
   assert.equal(processingTimeout(720000,719000),1000);
   assert.throws(()=>processingTimeout(720000,720000),/canvas_processing_deadline/);
+  for(const advertised of [undefined,4,5]) {
+    let claims=0;
+    await processCanvasExports({baseUrl:'https://processor.invalid',limit:1,authHeaders:()=>({}),
+      requestJson:async(url,init={})=>{
+        if(!init.method)return {data:{protocol:1,...(advertised===undefined?{}:{recipeProtocol:advertised})}};
+        assert.equal(JSON.parse(init.body).recipeProtocol,advertised??4,'New media also serves the previous Auth during ordered rollout');
+        claims++;return {data:{jobs:[]}};
+      }});
+    assert.equal(claims,1);
+  }
   const dir=await mkdtemp(path.join(tmpdir(),'canvas-concat-test-'));
   try {
     const files=[],colors=['red','green','blue','yellow','magenta'];
@@ -51,8 +62,8 @@ export async function testCanvasConcatenation() {
     const transport={baseUrl:'https://processor.invalid',limit:3,authHeaders:extra=>({Authorization:'Bearer synthetic',...extra}),
       requestJson:async(url,init={})=>{
         calls.push([url,init.method||'GET']);assert(init.signal);
-        if(url===prefix+'/claim' && !init.method)return {data:{protocol:1,previewBase:1}};
-        if(url===prefix+'/claim'){assert.equal(JSON.parse(init.body).limit,1);assert.equal(JSON.parse(init.body).recipeProtocol,4);return {data:{jobs:[{id,claim,limits:{sourceBytes:400000000,outputBytes:80000000,durationSeconds:600},backgroundMusic:musicRecipe?{enabled:true,gain:0.5}:undefined,sources:bytes.map((b,i)=>({url:`${prefix}/${id}/source/${i}`,size:b.length,kind:i===2?'music':'video'}))}]}};}
+        if(url===prefix+'/claim' && !init.method)return {data:{protocol:1,recipeProtocol:5,previewBase:1}};
+        if(url===prefix+'/claim'){assert.equal(JSON.parse(init.body).limit,1);assert.equal(JSON.parse(init.body).recipeProtocol,5);return {data:{jobs:[{id,claim,limits:{sourceBytes:400000000,outputBytes:80000000,durationSeconds:600},backgroundMusic:musicRecipe?{enabled:true,gain:0.5}:undefined,sources:bytes.map((b,i)=>({url:`${prefix}/${id}/source/${i}`,size:b.length,kind:i===2?'music':'video'}))}]}};}
         if(url===`${prefix}/${id}/complete?part=preview-base`) {
           assert.equal(init.headers['X-BITBI-Canvas-Claim'],claim);
           assert.deepEqual(Buffer.from(await init.body.get('video').arrayBuffer()),await readFile(pair.output),'Preserve the byte-identical clean concatenation before mixing');
@@ -85,6 +96,7 @@ export async function testCanvasConcatenation() {
     await testBackgroundMusic(full,dir);
     await testCenterCrop();
     await testCanvasAudioControls();
+    await testSmoothJoins();
     await assert.rejects(concatenateClips(files,dir,{limits:{durationSeconds:1,outputBytes:80000000}}),/canvas_duration_limit/);
     await assert.rejects(concatenateClips(files.slice(0,1),dir),/canvas_sources_invalid/);
     assert((await readFile(full.output)).byteLength>1000);
