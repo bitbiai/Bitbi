@@ -11432,6 +11432,8 @@ test.describe('Assets Manager (authenticated)', () => {
   test('homepage hero-linked models list omits unreleased internal models from the public overlay', async ({
     page,
   }) => {
+    // Public model controls require the authoritative availability response.
+    await mockPublicAppearance(page);
     const response = await page.goto('/');
     expect(response.status()).toBe(200);
 
@@ -11455,6 +11457,15 @@ test.describe('Assets Manager (authenticated)', () => {
     ));
     expect(publicModelNames).toContain('Seedance 2.0 Fast');
     expect(publicModelNames).not.toContain('Seedance 2.0');
+    const assertPublicNames=names=>{
+      expect(new Set(names).size).toBe(names.length);
+      expect(names).toContain('Seedance 2.0 Fast');expect(names).toContain('FLUX.1 Schnell');
+      expect(names).not.toContain('Seedance 2.0');expect(names).not.toContain('FLUX.2 Dev');
+    };
+    assertPublicNames(publicModelNames);
+    expect(()=>assertPublicNames(publicModelNames.filter(name=>name!=='Seedance 2.0 Fast'))).toThrow();
+    expect(()=>assertPublicNames([...publicModelNames,'Seedance 2.0 Fast'])).toThrow();
+    expect(()=>assertPublicNames([...publicModelNames,'Seedance 2.0'])).toThrow();
     const happyHorseCard = overlay.locator('.models-overlay__card').filter({ hasText: 'HappyHorse 1.0 T2V' });
     await expect(happyHorseCard.locator('.models-overlay__status')).toHaveText('LIVE');
     const grokImagineVideoCard = overlay.locator('.models-overlay__card').filter({ has: page.getByText('Grok Imagine Video', { exact: true }) });

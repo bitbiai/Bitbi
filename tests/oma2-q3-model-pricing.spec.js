@@ -139,8 +139,10 @@ for(const [locale,width]of [['en',1440],['de',390]])test.describe(`${locale} pri
   await dialog.locator('input[step="0.00000001"]').fill('7.25');await expect(dialog.locator('.model-pricing__preview')).toContainText('37');
   await dialog.getByRole('button',{name:locale==='de'?'Abbrechen':'Cancel',exact:true}).click();await expect(dialog).toHaveCount(0);expect(f.calls.filter(c=>c.method==='PATCH')).toHaveLength(0);
   await row.click();await expect(dialog.locator('.model-pricing__breakdown')).toContainText('262');await dialog.locator('input[step="0.00000001"]').fill('7.25');
+  const beforeSave=await f.tariff.getModelTariff(f.env);
   await dialog.getByRole('button',{name:locale==='de'?'Tarif speichern':'Save tariff',exact:true}).click();await expect(dialog).toHaveCount(0);await expect(row).toContainText('37');
-  expect(f.calls.filter(c=>c.method==='PATCH')[0].body).toMatchObject({revision:(await f.tariff.getModelTariff(f.env)).revision,action:'save',modelId:'minimax/h3',settings:{resolution:'768P'},rates:{second:7.25}});
+  expect(f.calls.filter(c=>c.method==='PATCH')[0].body).toMatchObject({revision:beforeSave.revision,action:'save',modelId:'minimax/h3',settings:{resolution:'768P'},rates:{second:7.25}});
+  expect((await f.tariff.getModelTariff(f.env)).revision).toBe(beforeSave.revision+1);
   await page.reload();await expect(root(page).locator('.model-pricing__row').first()).toBeVisible();if(locale==='de')await root(page).getByLabel('Pricing language').selectOption('de');
   await root(page).getByRole('searchbox').fill('MiniMax H3');await root(page).locator('.model-pricing__row').click();await expect(dialog.locator('.model-pricing__breakdown')).toContainText('37');
   await dialog.locator('[name=resolution]').selectOption('2K');await expect(dialog.locator('.model-pricing__breakdown')).toContainText('426');await expect(dialog.locator('.model-pricing__breakdown')).not.toContainText('37');

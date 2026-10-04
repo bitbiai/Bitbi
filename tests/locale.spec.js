@@ -2,6 +2,7 @@ const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
+const { mockPublicAppearance } = require('./helpers/appearance');
 
 async function loadLocaleRouting() {
   return import(pathToFileURL(path.join(__dirname, '..', 'js/shared/locale-routing.mjs')).href);
@@ -1134,6 +1135,7 @@ test.describe('Bilingual locale pages', () => {
   });
 
   test('Models overlay localizes desktop triggers on English and German homepages', async ({ page }) => {
+    await mockPublicAppearance(page);
     await seedCookieConsent(page);
     await page.setViewportSize({ width: 1280, height: 900 });
 
@@ -1193,6 +1195,7 @@ test.describe('Bilingual locale pages', () => {
   });
 
   test('Models overlay localizes mobile menu triggers and closes the mobile panel', async ({ page }) => {
+    await mockPublicAppearance(page);
     await seedCookieConsent(page);
     await page.setViewportSize({ width: 390, height: 844 });
 
@@ -1288,6 +1291,7 @@ test.describe('Bilingual locale pages', () => {
   });
 
   test('shared subpage mobile Models entry follows the active locale', async ({ page }) => {
+    await mockPublicAppearance(page);
     await seedCookieConsent(page);
     await page.setViewportSize({ width: 390, height: 844 });
 
@@ -1596,6 +1600,7 @@ test.describe('Bilingual locale pages', () => {
   });
 
   test('Admin stays English-only and is not exposed as a German localized page', async ({ page }) => {
+    await mockPublicAppearance(page);
     expect(fs.existsSync(path.join(__dirname, '..', 'de/admin/index.html'))).toBe(false);
 
     const adminHtml = repoFile('admin/index.html');

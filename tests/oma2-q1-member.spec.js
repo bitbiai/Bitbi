@@ -274,9 +274,25 @@ for (const locale of ['en', 'de']) {
           const ui = controls(page, surface);
           await ui.model.selectOption(MODELS[0]);
           await ui.prompt.fill('Alpha red forest');
-          await ui.generate.click();
-          await ui.generate.dispatchEvent('click');
-          await ui.prompt.press('Control+Enter');
+          if (surface === 'lab') {
+            // Hold the real pricing boundary so both clicks enter before it resolves.
+            // A second generation must not clear the first operation's busy state.
+            const pricing = gate(); let reads = 0;
+            await page.route('**/api/model-pricing', async route => {
+              reads++; await pricing.promise;
+              return json(route, {ok:true,revision:0,rules:{},availability:require('./fixtures/model-availability.json')});
+            });
+            await ui.generate.click();
+            await expect.poll(() => reads).toBe(1);
+            await ui.generate.dispatchEvent('click');
+            await ui.prompt.press('Control+Enter');
+            await settleResponse(page, response => response.url().endsWith('/api/model-pricing'), pricing.release);
+            await page.unroute('**/api/model-pricing');
+          } else {
+            await ui.generate.click();
+            await ui.generate.dispatchEvent('click');
+            await ui.prompt.press('Control+Enter');
+          }
           await expect.poll(() => state.generates.length).toBe(1);
           await expect(ui.generate).toBeDisabled();
           await settleResponse(page, (response) => response.url().endsWith('/api/ai/generate-image'), held.release);

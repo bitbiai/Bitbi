@@ -68,7 +68,12 @@ test('model status pending request is cancelled on leave and cannot restore old 
 for(const width of [1280,390])test(`area switches save server state with keyboard, reload and independent areas at ${width}`,async({page,baseURL},info)=>{
  await page.setViewportSize({width,height:900});const f=await setup(page,baseURL);await open(page);
  const view=page.getByRole('region',{name:'Model availability'});
- await expect(view.locator('[data-availability-model]')).toHaveCount(25);await expect(view.locator('[data-area="main"]')).toHaveCount(1);
+ // Approved catalog fixture is independent of the server catalog renderer.
+ const expected=Object.keys(require('./fixtures/model-availability.json').models).concat('@cf/swiss-ai/apertus-v1.5-8b').sort();
+ const assertCatalog=ids=>{expect(new Set(ids).size).toBe(ids.length);expect([...ids].sort()).toEqual(expected);};
+ await expect(view.locator('[data-availability-model]')).toHaveCount(expected.length);
+ const ids=await view.locator('[data-availability-model]').evaluateAll(nodes=>nodes.map(node=>node.dataset.availabilityModel));assertCatalog(ids);
+ for(const broken of [ids.slice(1),[...ids,ids[0]],['unknown-model',...ids.slice(1)]])expect(()=>assertCatalog(broken)).toThrow();await expect(view.locator('[data-area="main"]')).toHaveCount(1);
  const row=view.locator('[data-availability-model="minimax/h3"]'),gen=row.locator('[data-area="generation"]'),canvas=row.locator('[data-area="canvas"]');
  await gen.focus();await page.keyboard.press('Space');await expect(gen).toHaveAttribute('aria-checked','false');await expect(view.getByRole('status')).toContainText('Saved.');await expect(canvas).toHaveAttribute('aria-checked','true');
  expect(f.calls.filter(c=>c.method==='PATCH')[0].body).toEqual({modelId:'minimax/h3',area:'generation',enabled:false,revision:0});
