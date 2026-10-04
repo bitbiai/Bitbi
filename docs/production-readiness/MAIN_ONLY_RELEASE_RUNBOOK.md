@@ -128,7 +128,13 @@ metadata before executing the failed hosting check and all unexecuted media/nati
 browser work. The pinned failed checkpoint, exact corrected assertion, unchanged
 product/workflow/dependencies and command list are enforced; no failed result is
 relabelled. Existing `test:local-release` counterchecks reject changed inputs,
-forged passes, altered logs/checkpoints and missing evidence.
+forged passes, altered logs/checkpoints and missing evidence. The subsequent
+`c5f7535c` run passed hosting and 25/27 launcher cases: stage the new smooth control
+and represent its two schema guards in the existing fixture. Its continuation
+executes only those two failed launcher cases, then the unexecuted native/media/
+browser tail. A pinned frontend manifest/proof plus byte comparison permits only
+cache-token rebinding; actual runtime code, asset membership or content changes
+invalidate the retained HTTP proof.
 The closed `e637dce9` continuation permits only the exact reviewed workflow delta,
 pins its passed source evidence/manifest/contract log, and permits only generated
 cache-version changes in the candidate. Original source identities remain intact.

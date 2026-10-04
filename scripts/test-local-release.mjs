@@ -16,7 +16,7 @@ import { gitSelection, tree, MEDIA_POLICY, validateSource, verifyManifest, verif
 import { assertHostedBootstrapAllowed, assertLocalBootstrapAllowed } from '../tests/helpers/q2-runtime/linux-hosted.mjs';
 import { acquireLocalReleaseLock, prepareCandidateRestore } from './local-release.mjs';
 import { LOCAL_IMPORT_REPAIR, assertImportRepairWorkflow, localRepairCommand, verifyImportRepairEvidence } from './lib/local-release-evidence.mjs';
-import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,assertPermissionContinuationTree,permissionContinuationPrefix} from './lib/local-release-evidence.mjs';
+import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,assertPermissionContinuationTree,permissionContinuationPrefix,CANVAS_STAGE_CASES,canvasStageContinuation} from './lib/local-release-evidence.mjs';
 
 function testPermissionContinuation() {
   const head='f'.repeat(40),corrected=fs.readFileSync('scripts/test-frontend-review.mjs');
@@ -32,12 +32,18 @@ function testPermissionContinuation() {
     const bytes=fs.readFileSync(file),original=JSON.parse(bytes),actualHead=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
     const context={head:actualHead,base:original.base,planHash:validationPlan().digest,environment:original.environment,
       commands:selectedCommands(gitSelection(original.base,actualHead),{GITHUB_SHA:actualHead,CANDIDATE_BASE:original.base})};
-    assertPermissionContinuationTree(actualHead);assert.equal(permissionContinuationPrefix(bytes,context).sha,PERMISSION_CONTINUATION.source);
-    for(const mutate of [r=>r.commands[36].exitCode=0,r=>r.commands[0].logHash='wrong',r=>r.commands.pop(),r=>r.status='passed']) {
+    assertPermissionContinuationTree(actualHead);assert([PERMISSION_CONTINUATION.source,PERMISSION_CONTINUATION.tail].includes(permissionContinuationPrefix(bytes,context).sha));
+    for(const mutate of [r=>r.commands.at(-1).exitCode=0,r=>r.commands[0].logHash='wrong',r=>r.commands.pop(),r=>r.status='passed']) {
       const wrong=structuredClone(original);mutate(wrong);assert.throws(()=>permissionContinuationPrefix(Buffer.from(JSON.stringify(wrong)),context));
     }
     for(const mutate of [c=>c.base='b'.repeat(40),c=>c.planHash='changed',c=>c.environment.key='changed',c=>c.commands[18].run='skip']) {
       const wrong=structuredClone(context);mutate(wrong);assert.throws(()=>permissionContinuationPrefix(bytes,wrong));
+    }
+    if(original.sha===PERMISSION_CONTINUATION.tail) {
+      const before=tapResults(fs.readFileSync('.local-release/reuse/stage-failed.log','utf8'));
+      const corrected=CANVAS_STAGE_CASES.map(title=>({title,status:'passed'}));verifyNativeCaseUnion(before,corrected,CANVAS_STAGE_CASES);
+      for(const after of [[],corrected.slice(1),[...corrected,corrected[0]],corrected.map((r,i)=>i?r:{...r,status:'failed'})])assert.throws(()=>verifyNativeCaseUnion(before,after,CANVAS_STAGE_CASES));
+      const command=context.commands[41].run;assert(canvasStageContinuation(command).includes('npx playwright test'));assert(canvasStageContinuation(command).includes('node scripts/test-q2-runtime.mjs --suite canvas-audio'));
     }
   }
   console.log('Permission continuation: exact failed checkpoint/tree, immutable passes, changed scope/toolchain and forged-success controls passed.');

@@ -411,7 +411,7 @@ test('default native runtime plan stages every actual suite and control input', 
     'tests/helpers/q4-subscription-payloads.cjs', 'tests/helpers/canvas-video-control.mjs', 'tests/helpers/canvas-music-control.mjs',
     'tests/helpers/elevenlabs-member-control.mjs', 'tests/helpers/canvas-contributors-control.mjs', 'workers/ai/src/routes/music.js',
     'tests/website-assistant-runtime.mjs', 'tests/helpers/website-assistant-policy.mjs',
-    'js/shared/flux-2-max-identity.mjs',
+    'js/shared/flux-2-max-identity.mjs', 'tests/helpers/canvas-smooth-control.mjs',
   ]) {
     assert.ok(imports.includes(filename), `Actual resolved graph includes ${filename}`);
     assert.throws(() => checkClosure(plan.filter(item => !coveredBy(filename, [item]))), /Every resolved repository import/,
@@ -487,7 +487,7 @@ test('Canvas reference fixture reads the staged bytes from a non-repository cwd'
     const reached = new Error('fixture read reached');
     const f = {
       migrations: [],
-      rows: async sql => sql.includes('sqlite_schema') ? Array.from({length:sql.includes('canvas_preview_base_fence')?3:sql.includes('canvas_audio_timeline_immutable')?1:7},()=>({name:'synthetic-guard'})) : [],
+      rows: async sql => sql.includes('sqlite_schema') ? Array.from({length:sql.includes('canvas_preview_base_fence')?3:sql.includes('canvas_audio_timeline_immutable')?1:sql.includes('canvas_seam_result_immutable')?2:7},()=>({name:'synthetic-guard'})) : [],
       scalar: async sql => {
         assert.equal(sql, 'SELECT revision AS value FROM model_pricing_state WHERE id=1');
         return 7;

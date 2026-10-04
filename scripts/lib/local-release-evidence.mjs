@@ -182,39 +182,68 @@ export const PERMISSION_CONTINUATION=Object.freeze({
   source:'e4ca9f58705166dfacfaf0851d2f9e550523b784',
   checkpoint:'bb41b8fbd37f02ad1577a201c14797742a5b0fb9c080ec094665a82f291d217a',
   review:'043124e8a6424338b71d3f8e40a053050173d39897eb7216c760159eaa9f0f01',
+  tail:'c5f7535cc5169aa5517cfb222ac1e2619cf322df',tailCheckpoint:'28a18e79412e421ccd45bcca49d5099a35c61c0040698411c82d6952524489ac',
+  tailLog:'25ca0e1b60ecf644630e7dabb19ae078b0ab869e3d63ffb6270cae3a642abf1f',
+  manifest:'17888ff6905d96e22e351413df20df733950812efe6659ec1134650a902517b9',
+  proof:'7ecb38a572c271104cb4fb6457b0aa0229d7a68a2642474ce9bf215c6d121457',
 });
+export const CANVAS_STAGE_CASES=['default native runtime plan stages every actual suite and control input','Canvas reference fixture reads the staged bytes from a non-repository cwd'];
+export function canvasStageContinuation(command) {
+  assert(command.includes('node scripts/test-q2-runtime.mjs --suite canvas-audio'));
+  const prior='node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs';assert(command.includes(prior));
+  return command.replaceAll(prior,`node --test --test-name-pattern='^(${CANVAS_STAGE_CASES.join('|')})$' scripts/test-q2-runtime-launcher.mjs`);
+}
 export const PERMISSION_REFRESH=new Set([0,2,3,4,7,12,17,28,29,33,34,35]);
 export function assertPermissionContinuationTree(head,read=gitBytes) {
   const p=PERMISSION_CONTINUATION;
   read(['merge-base','--is-ancestor',p.source,head]);
   const allowed=new Set(['scripts/test-frontend-review.mjs','scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs',
-    'docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md','docs/runbooks/REGRESSION_REGISTER.md']);
+    'docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md','docs/runbooks/REGRESSION_REGISTER.md','tests/helpers/q2-runtime/linux-hosted.mjs','scripts/test-q2-runtime-launcher.mjs']);
   const files=read(['diff','--name-only',p.source,head]).toString().trim().split('\n').filter(Boolean);
   assert(files.length&&files.every(file=>allowed.has(file)),'Permission continuation changed product, workflow, scope or dependency inputs');
   assert.equal(sha256(read(['show',`${head}:scripts/test-frontend-review.mjs`])),p.review,'Unreviewed hosting permission assertion');
+  for(const [file,hash] of Object.entries({'tests/helpers/q2-runtime/linux-hosted.mjs':'b251234f00c50e3519287cf584ca742515075f42ce3ba5e15fbaa30ab5af4efb','scripts/test-q2-runtime-launcher.mjs':'b6eb66ffccad62b1fc2b35e236e43c15d2f7f892df6547b2b935aef0df5212e8'}))
+    if(files.includes(file))assert.equal(sha256(read(['show',`${head}:${file}`])),hash,'Unreviewed isolated-stage correction');
 }
 export function permissionContinuationPrefix(bytes,{head,base,planHash,environment,commands}) {
   const p=PERMISSION_CONTINUATION;
-  assert.equal(sha256(bytes),p.checkpoint,'Changed original failed permission checkpoint');
   const original=JSON.parse(bytes);
-  assert.equal(original.sha,p.source);assert.equal(original.status,'failed');assert.equal(original.commands.length,37);
-  assert(original.commands.slice(0,36).every(row=>row.exitCode===0));assert.equal(original.commands[36].exitCode,1);
-  assert.equal(original.commands[36].command.name,'Check frontend hosting package');
+  const tail=original.sha===p.tail,last=tail?41:36;
+  assert.equal(sha256(bytes),tail?p.tailCheckpoint:p.checkpoint,'Changed original failed permission checkpoint');
+  assert.equal(original.sha,tail?p.tail:p.source);assert.equal(original.status,'failed');assert.equal(original.commands.length,last+1);
+  assert(original.commands.slice(0,last).every(row=>row.exitCode===0));assert.equal(original.commands[last].exitCode,1);
+  assert.equal(original.commands[last].command.name,tail?'Run worker route tests':'Check frontend hosting package');
   assert.equal(original.base,base);assert.equal(original.planHash,planHash);assert.equal(original.environment.key,environment.key);
-  for(const [i,row] of original.commands.entries())assert.deepEqual(JSON.parse(JSON.stringify(row.command).replaceAll(p.source,head)),commands[i],'Changed selected command');
+  for(const [i,row] of original.commands.entries())assert.deepEqual(JSON.parse(JSON.stringify(row.command).replaceAll(original.sha,head)),commands[i],'Changed selected command');
   return original;
 }
 function verifyPermissionContinuation(directory,evidence,commands) {
   const p=PERMISSION_CONTINUATION;assertPermissionContinuationTree(evidence.sha);
-  assert.deepEqual(evidence.permissionContinuation,{source:p.source,checkpoint:p.checkpoint});assert(!evidence.repair);
+  const tail=evidence.permissionContinuation.source===p.tail;
+  assert.deepEqual(evidence.permissionContinuation,{source:tail?p.tail:p.source,checkpoint:tail?p.tailCheckpoint:p.checkpoint});assert(!evidence.repair);
   const original=permissionContinuationPrefix(fs.readFileSync(path.join(directory,'reuse/permission-checkpoint.json')),{...evidence,head:evidence.sha,commands});
   for(const [i,row] of evidence.commands.entries()) {
-    if(i<36&&!PERMISSION_REFRESH.has(i)) {
-      assert.equal(row.reusedFrom,p.source);
+    if(i<(tail?41:36)&&!PERMISSION_REFRESH.has(i)) {
+      assert.equal(row.reusedFrom,original.commands[i].reusedFrom||original.sha);
       assert.deepEqual({...row,command:original.commands[i].command,reusedFrom:undefined},{...original.commands[i],reusedFrom:undefined},'Changed retained passing execution');
       assert.equal(sha256(fs.readFileSync(path.join(directory,row.log))),original.commands[i].logHash);
-    }else assert(!row.reusedFrom&&!row.continuation,'Affected or unexecuted command cannot inherit a pass');
+    }else assert(!row.reusedFrom&&(!row.continuation||tail&&i===41),'Affected or unexecuted command cannot inherit a pass');
   }
+  if(tail) {
+    const before=fs.readFileSync(path.join(directory,'reuse/stage-failed.log'),'utf8');assert.equal(sha256(before),p.tailLog);
+    assert.equal(evidence.commands[41].continuation,canvasStageContinuation(commands[41].run));
+    verifyNativeCaseUnion(tapResults(before),tapResults(fs.readFileSync(path.join(directory,'logs/41.log'),'utf8')),CANVAS_STAGE_CASES);
+    restoreCanvasHostingProof(directory,{verifyOnly:true});
+  }
+}
+export function restoreCanvasHostingProof(directory,{verifyOnly=false}={}) {
+  const p=PERMISSION_CONTINUATION,read=(file,hash)=>{const bytes=fs.readFileSync(path.join(directory,'reuse',file));assert.equal(sha256(bytes),hash);return JSON.parse(bytes);};
+  const original=read('hosting-manifest.json',p.manifest),oldProof=read('hosting-proof.json',p.proof);
+  const manifest=JSON.parse(fs.readFileSync(path.join(directory,'candidate/manifest.json')));
+  verifyMigrationCandidateBytes(directory,original,manifest,{allowLabGuard:false});assert.deepEqual(manifest.hosting,original.hosting);
+  const proof={...oldProof,manifestHash:sha256(JSON.stringify(manifest)),reusedFrom:{sha:p.tail,manifestHash:oldProof.manifestHash}};
+  if(verifyOnly)assert.deepEqual(JSON.parse(fs.readFileSync(path.join(directory,'candidate/proof-frontend-runtime.json'))),proof);
+  else fs.writeFileSync(path.join(directory,'candidate/proof-frontend-runtime.json'),JSON.stringify(proof));
 }
 export function assertLocalRepairTree(head) {
   const p=LOCAL_WORKER_REPAIR;
@@ -324,11 +353,11 @@ export const NATIVE_REPAIRED_CASES=['existing Worker gates retain native suite, 
 export function tapResults(log) {
   return log.split('\n').flatMap(line=>{const match=line.match(/^(ok|not ok) \d+ - (.*?)(?: # (SKIP|TODO).*)?$/);return match?[{title:match[2],status:match[3]?'skipped':match[1]==='ok'?'passed':'failed'}]:[];});
 }
-export function verifyNativeCaseUnion(before,after) {
+export function verifyNativeCaseUnion(before,after,required=NATIVE_REPAIRED_CASES) {
   assert.equal(before.length,27);assert.equal(new Set(before.map(row=>row.title)).size,27);
-  assert.deepEqual(before.filter(row=>row.status!=='passed').map(row=>row.title),NATIVE_REPAIRED_CASES);
+  assert.deepEqual(before.filter(row=>row.status!=='passed').map(row=>row.title),required);
   const executed=after.filter(row=>row.status!=='skipped');
-  assert.deepEqual(executed.map(row=>row.title),NATIVE_REPAIRED_CASES);
+  assert.deepEqual(executed.map(row=>row.title),required);
   assert(executed.every(row=>row.status==='passed'),'Corrected launcher contract failed');
   assert(after.every(row=>before.some(old=>old.title===row.title)),'Foreign launcher test result');
   assert.equal(new Set(after.map(row=>row.title)).size,after.length,'Duplicate launcher result');
