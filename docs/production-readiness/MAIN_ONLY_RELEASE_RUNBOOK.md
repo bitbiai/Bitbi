@@ -98,6 +98,13 @@ retain exact membership and missing/duplicate/substitution countercontrols. Only
 those 20 cases and the two unresolved Lab cases require fresh browser execution.
 Source/candidate comparison permits only the reviewed guard and generated cache
 version tokens; the frontend Worker/runtime/configuration must remain identical.
+The local import verifier resolves asset-size checks against the actual bundled
+candidate root. Native frontend proofs wait for process/stream closure before
+hashing the persisted log. The initial 28 passing HTTP checks retain their exact
+original proof and full log, including its one late response line; the closed
+continuation verifies both rather than relabelling or rerunning them. Missing
+bundle files, changed logs and incorrect late-output attribution fail executable
+controls, including an actual child-process drain check.
 
 Evidence expires after seven days. The existing owner credential uploads a digest-bound
 archive as an unpublished draft asset, indexed by a nonproduction GitHub deployment

@@ -2,15 +2,15 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync, execFileSync } from 'node:child_process';
+import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { yaml } from '../node_modules/playwright-core/lib/utilsBundle.js';
 import { selectCiTests } from './lib/ci-test-selection.mjs';
 import { validationPlan, selectedCommands, sha256, commandRuntimes, nativeBrowserKey } from './lib/local-release-plan.mjs';
 import { environmentInputs, environmentKey, TOOL_PREFLIGHT, toolchainPins } from './lib/local-release-environment.mjs';
 import { validateLocator, extractEvidence } from './lib/local-release-transport.mjs';
-import { verifyLocalEvidence, rebindLocalCandidate, verifyNativeLocalReports, workerListResults, verifyWorkerUnion, assertLocalRepairTree, verifyLocalWorkerRepair, localWorkerContinuation, tapResults, verifyNativeCaseUnion, NATIVE_REPAIRED_CASES, verifyNativeBrowserEnvironment, verifyMigrationCandidateBytes, LOCAL_HOMEPAGE_REPORTS, verifyRetainedHomepageReports } from './lib/local-release-evidence.mjs';
+import { verifyLocalEvidence, rebindLocalCandidate, verifyNativeLocalReports, workerListResults, verifyWorkerUnion, assertLocalRepairTree, verifyLocalWorkerRepair, localWorkerContinuation, tapResults, verifyNativeCaseUnion, NATIVE_REPAIRED_CASES, verifyNativeBrowserEnvironment, verifyMigrationCandidateBytes, LOCAL_HOMEPAGE_REPORTS, verifyRetainedHomepageReports, verifyRetainedFrontendLog } from './lib/local-release-evidence.mjs';
 import {readMigrationBrowserPool,migrationBrowserPool,verifyBrowserUnion,verifyMigrationBrowserReport,BROWSER_ORIGINS,LOCAL_BROWSER_POLICY} from './lib/local-release-browser.mjs';
-import { prepareFrontend } from './lib/frontend-hosting.mjs';
+import { prepareFrontend, verifyFrontend, stopFrontendRuntime } from './lib/frontend-hosting.mjs';
 import { gitSelection, tree, MEDIA_POLICY, validateSource, verifyManifest, verifyProofs } from './pages-candidate.mjs';
 import { assertHostedBootstrapAllowed, assertLocalBootstrapAllowed } from '../tests/helpers/q2-runtime/linux-hosted.mjs';
 import { acquireLocalReleaseLock, prepareCandidateRestore } from './local-release.mjs';
@@ -94,6 +94,13 @@ function testBrowserContinuation() {
 if(process.argv.includes('--browser-only')) {testBrowserContinuation();process.exit(0);}
 
 async function testLocalRepair() {
+  let output='';
+  const child=spawn(process.execPath,['-e',"process.on('SIGTERM',()=>process.stdout.write('last-response\\n',()=>process.exit(0)));console.log('ready');setInterval(()=>{},1000)"],{stdio:['ignore','pipe','pipe']});
+  try {
+    await new Promise((resolve,reject)=>{child.on('error',reject);child.stdout.on('data',bytes=>{output+=bytes; if(output.includes('ready'))resolve();});});
+    await stopFrontendRuntime(child);assert(output.endsWith('last-response\n'),'Proof must wait for final diagnostic bytes');
+  }finally{if(child.exitCode===null)child.kill('SIGKILL');}
+
   testNativeRouting();
   testBrowserContinuation();
   const restored=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-local-restore-'));
@@ -136,6 +143,15 @@ async function testLocalRepair() {
     const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
     assertLocalRepairTree(head);
     verifyRetainedHomepageReports('.local-release');
+    const manifest=JSON.parse(fs.readFileSync('.local-release/candidate/manifest.json'));
+    const mapped=relative=>tree(path.join('.local-release',relative));
+    verifyFrontend(manifest,mapped,{siteDirectory:'.local-release/candidate/site'});
+    assert.throws(()=>verifyFrontend(manifest,mapped,{siteDirectory:'.local-release/missing-site'}));
+    const log=fs.readFileSync('.local-release/test-results/frontend-runtime.log','utf8');
+    const proof=JSON.parse(fs.readFileSync('.local-release/reuse/proof-frontend-runtime.json'));
+    verifyRetainedFrontendLog(log,proof);
+    assert.throws(()=>verifyRetainedFrontendLog(log+'changed',proof));
+    assert.throws(()=>verifyRetainedFrontendLog(log,{...proof,tests:29}));
     const reports=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-homepage-reports-'));
     try {
       fs.mkdirSync(path.join(reports,'test-results'));

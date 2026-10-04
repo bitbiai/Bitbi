@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { hash, readJson, hostingPolicy, cloudflarePublishedBase, wrangler, verifyFrontend, validateActivation, verifyDomains, prepareFrontend, cutoverRecovery, materializeFrontendConfig } from './lib/frontend-hosting.mjs';
+import { stopFrontendRuntime, hash, readJson, hostingPolicy, cloudflarePublishedBase, wrangler, verifyFrontend, validateActivation, verifyDomains, prepareFrontend, cutoverRecovery, materializeFrontendConfig } from './lib/frontend-hosting.mjs';
 import { tree } from './pages-candidate.mjs';
 import worker from '../frontend/index.mjs';
 import { publishFrontend } from './frontend-release.mjs';
@@ -111,7 +111,7 @@ try {
  const asset='/js/pages/admin/newsfeed.js?v=unchanged-token';const a=await get(asset);assert.equal(a.status,200);assert.match(a.headers.get('content-type'),/javascript/);assert.equal(hash(Buffer.from(await a.arrayBuffer())),manifest.files['js/pages/admin/newsfeed.js']);assert(a.headers.get('etag'));
  const head=await get(asset,{method:'HEAD'});assert.equal(head.status,200);assert.equal((await head.text()).length,0);
  const cached=await get(asset,{headers:{'If-None-Match':head.headers.get('etag')}});assert.equal(cached.status,304);
- const stopped=once(child,'exit');child.kill('SIGTERM');await stopped;
+ await stopFrontendRuntime(child);
  // Wrangler rewrites ordinary Host headers. Use its supported local upstream
  // URL override to exercise real request.hostname handling without DNS/network.
  await start(['--local-upstream','www.bitbi.ai','--upstream-protocol','https']);
@@ -120,6 +120,8 @@ try {
  }
  assert(log.includes('frontend_not_found'),'Real local Worker did not emit the safe missing-document code');
  verifyFrontend(manifest,tree);assert.deepEqual(tree('candidate/site'),manifest.files);
+ // Drain both output streams before hashing the exact persisted runtime log.
+ await stopFrontendRuntime(child);child=null;
  fs.writeFileSync('candidate/proof-frontend-runtime.json',JSON.stringify({job:'frontend-runtime',status:'passed',manifestHash:hash(JSON.stringify(manifest)),reportHash:hash(JSON.stringify({tests,log})),tests}));
  console.log(`Local Wrangler Static Assets: ${tests} routing/byte/header checks passed; dry-run passed; no upload.`);
 } finally {

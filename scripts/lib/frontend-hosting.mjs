@@ -3,6 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { once } from 'node:events';
+export async function stopFrontendRuntime(child) {
+  const drained=once(child,'close');child.kill('SIGTERM');await drained;
+}
 export const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 export const readJson = file => JSON.parse(fs.readFileSync(file, 'utf8'));
 export function hostingPolicy() {
@@ -52,7 +56,7 @@ export function prepareFrontend(manifest, tree) {
     configHash:hash(fs.readFileSync('frontend/wrangler.jsonc')),
     lockHash:hash(fs.readFileSync(`${policy.wranglerPackage}/package-lock.json`))};
 }
-export function verifyFrontend(manifest, tree) {
+export function verifyFrontend(manifest, tree, { siteDirectory = 'candidate/site' } = {}) {
   assert(manifest.hosting,'Missing frontend package identity'); const p=hostingPolicy();
   assert.equal(manifest.hosting.provider,p.provider,'Hosting target changed');
   assert.equal(manifest.hosting.worker,p.worker); assert.equal(manifest.hosting.wrangler,p.wranglerVersion);
@@ -61,7 +65,7 @@ export function verifyFrontend(manifest, tree) {
   assert.equal(hash(fs.readFileSync('frontend/wrangler.jsonc')),manifest.hosting.configHash);
   assert.equal(hash(fs.readFileSync(`${p.wranglerPackage}/package-lock.json`)),manifest.hosting.lockHash);
   assert.deepEqual(tree('candidate/site'),manifest.files,'Actual upload asset tree differs from candidate');
-  assertPublicAssets(manifest.files,'candidate/site');
+  assertPublicAssets(manifest.files,siteDirectory);
 }
 export function validateActivation({receipt,deployment,version}, expected) {
   for(const key of ['sha','run','attempt','packageDigest','worker','account'])assert.equal(receipt[key],expected[key],`Hosting receipt ${key} mismatch`);

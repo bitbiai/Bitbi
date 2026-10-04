@@ -91,10 +91,13 @@ export const LOCAL_WORKER_REPAIR = Object.freeze({
   coreCheckpoint:'53903614dccdce7864296187c108921ad2e034cd7c43a91da56a007dc8e69cc6',
   functionalReport:'8b23a73b88974644b54bf4306d3fd56e2cafc8b1c9eb12edfec76f19560f3685',
   functionalDiscovery:'8127969d0a51d7a513c17bf679c05bd06dd5a14470e241def4e8a78371c0a959',
+  frontendLog:'05b095f36934fdc0c876ed9b8f4a5142c03b4b9e4a0fc176da7912b0bda5e786',
   tailSource:'ed7a7d6a6084b79aabcff903f7cc66698f8e0c86',
   tailCheckpoint:'38f1757fa3b5e8134c65b5c89f11cbcd06c8495461cd99b6b29a1395c797a29f',
   tailLog:'a4905f85e7c5c5a3c19f37a8c30479f35f5459c617ebd4e4d34ebae52e2ac114',
   specs: {
+    'scripts/test-frontend-hosting.mjs':'b55a18f11e17cb3846098dd81ee2940e0d616458b90a8297615c08e8c10bbf30',
+    'scripts/lib/frontend-hosting.mjs':'c007308e23e210302fd1d2c6e864fb6cb032445cfb9a66f3b3d7924b6d7180fe',
     'tests/smoke.spec.js':'9163a19228e9cc1deec52ba824b07f3c0d95b1a73fa844fc9f394db82422ebe4',
     'js/pages/generate-lab/main.js':'ab851f5fb287503f137aecd324e6eb0b77fa92aa2b83a0e6bd863365df5a3267',
     'tests/auth-admin.spec.js':'53f92668d3233a8581d564ba4c2b0a5050d483b50bd4ede259e61d7bd1d65948',
@@ -118,6 +121,14 @@ export function verifyRetainedHomepageReports(directory) {
     sha256(fs.readFileSync(path.join(directory,'test-results',name))),
     LOCAL_WORKER_REPAIR[index===0?'functionalReport':'functionalDiscovery'],
     `Missing/changed retained homepage report: ${name}`);
+}
+export function verifyRetainedFrontendLog(log,proof) {
+  assert.equal(sha256(log),LOCAL_WORKER_REPAIR.frontendLog,'Changed original runtime log');
+  // The original proof preceded the final already-asserted HTTP response log.
+  // Preserve both immutable records, including that exact late diagnostic.
+  assert.equal(log.slice(3023),'[wrangler:info] GET /api/me 301 Moved Permanently (2ms)\n');
+  assert.equal(proof.tests,28);
+  assert.equal(proof.reportHash,sha256(JSON.stringify({tests:28,log:log.slice(0,3023)})));
 }
 const repairTooling = new Set(['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/lib/local-release-plan.mjs','scripts/test-local-release.mjs',
   'scripts/lib/local-release-browser.mjs','scripts/pages-candidate.mjs','scripts/lib/ci-test-selection.mjs',
@@ -352,7 +363,7 @@ export function verifyLocalEvidence(directory, expected, { now = Date.now(), sel
   const manifest = JSON.parse(fs.readFileSync(path.join(directory, 'candidate/manifest.json')));
   assert.equal(manifest.schema, 2, 'Local source manifest must retain its original identity');
   verifyManifest(manifest, { ...expected, selection, run: evidence.id, attempt: '1' }, path.join(directory, 'candidate/site'));
-  verifyFrontend(manifest, relative => tree(path.join(directory, relative)));
+  verifyFrontend(manifest, relative => tree(path.join(directory, relative)), {siteDirectory:path.join(directory,'candidate/site')});
   const proofs = fs.readdirSync(path.join(directory, 'candidate')).filter(file => /^proof-.*\.json$/.test(file)).map(file => JSON.parse(fs.readFileSync(path.join(directory, 'candidate', file))));
   verifyProofs(manifest, proofs);
   assert.equal(proofs.length, proofJobs(selection).length + 1, 'Duplicate/extra local proofs');
@@ -373,7 +384,8 @@ export function verifyLocalEvidence(directory, expected, { now = Date.now(), sel
   const runtimeLog=fs.readFileSync(path.join(directory,'test-results/frontend-runtime.log'),'utf8');
   assert(runtimeLog.length>0,'Missing native frontend runtime evidence');
   const native=proofs.find(proof=>proof.job==='frontend-runtime');
-  assert.equal(native.reportHash,sha256(JSON.stringify({tests:native.tests,log:runtimeLog})),'Changed native frontend runtime report');
+  if(evidence.repair)verifyRetainedFrontendLog(runtimeLog,native);
+  else assert.equal(native.reportHash,sha256(JSON.stringify({tests:native.tests,log:runtimeLog})),'Changed native frontend runtime report');
   assert.deepEqual(tree(path.join(directory, 'candidate')), evidence.candidateFiles, 'Changed local candidate/proofs');
   return { evidence, manifest, proofs, digest: sha256(fs.readFileSync(path.join(directory, 'evidence.json'))) };
 }
