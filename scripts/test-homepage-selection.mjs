@@ -66,7 +66,7 @@ try {
   const lines = workflow.split('\n').map(line => line.trim());
   const allDiscovery = lines.filter(line => line.includes('PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/canvas-discovery.json npm run test:static'));
   const allExecution = lines.filter(line => line.includes('PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:static') && line.includes('tests/canvas.spec.js'));
-  assert.equal(allDiscovery.length, 3); assert.equal(allExecution.length, 3);
+  assert.equal(allDiscovery.length, 4); assert.equal(allExecution.length, 4);
   const focused = allDiscovery.find(line => line.includes("--grep 'Canvas completion metadata'"));
   assert(focused);
   assert.equal(focused.split(' npm ')[1].replace(' --list --reporter=json', ''),
