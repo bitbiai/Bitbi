@@ -10,7 +10,7 @@ import { environmentInputs, environmentKey, toolchainPins } from './local-releas
 import { gitSelection, tree, verifyManifest, verifyProofs, candidateProof, proofJobs, REPOSITORY } from '../pages-candidate.mjs';
 import { verifyFrontend } from './frontend-hosting.mjs';
 import { browserRows } from './browser-fixture-repair.mjs';
-import { LOCAL_BROWSER_POLICY, readMigrationBrowserPool, SMOOTH_BROWSER_POLICY, SMOOTH_BROWSER_CONTINUATION, AUDIO_FIT_CONTINUATION, smoothProfile, isSmoothContinuation, assertSmoothContinuationTree, verifySmoothBrowserReport, restoreSmoothBrowserProof } from './local-release-browser.mjs';
+import { LOCAL_BROWSER_POLICY, readMigrationBrowserPool, SMOOTH_BROWSER_POLICY, SMOOTH_BROWSER_CONTINUATION, AUDIO_FIT_CONTINUATION, INSPECTOR_CONTINUATION, smoothProfile, isSmoothContinuation, assertSmoothContinuationTree, verifySmoothBrowserReport, restoreSmoothBrowserProof } from './local-release-browser.mjs';
 
 export const LOCAL_REQUIRED_JOBS = { 'release-compatibility': [
   'Preflight complete static release plan', 'Select tests from changed files',
@@ -197,7 +197,7 @@ export function canvasStageContinuation(command) {
 }
 export const PERMISSION_REFRESH=new Set([0,2,3,4,7,12,17,28,29,33,34,35]);
 export const SMOOTH_REFRESH=new Set([...PERMISSION_REFRESH,14,44]);
-export const permissionRefresh=sha=>sha===AUDIO_FIT_CONTINUATION.source?new Set([0,2,3,4,7,12,14,17,29,33,34,35,44]):sha===SMOOTH_BROWSER_CONTINUATION.completed?new Set([0,2,3,4,7,12,14,17,29,33,34,35,44,46]):sha===SMOOTH_BROWSER_CONTINUATION.accepted?new Set([0,2,3,4,12,17,33,34,35,44]):sha===SMOOTH_BROWSER_CONTINUATION.progress?new Set([0,2,3,4,12,14,17,29,33,34,35,44]):isSmoothContinuation(sha)?SMOOTH_REFRESH:PERMISSION_REFRESH;
+export const permissionRefresh=sha=>sha===INSPECTOR_CONTINUATION.source?new Set([0,2,3,4,7,12,14,17,23,29,33,34,35,40,41]):sha===AUDIO_FIT_CONTINUATION.source?new Set([0,2,3,4,7,12,14,17,29,33,34,35,44]):sha===SMOOTH_BROWSER_CONTINUATION.completed?new Set([0,2,3,4,7,12,14,17,29,33,34,35,44,46]):sha===SMOOTH_BROWSER_CONTINUATION.accepted?new Set([0,2,3,4,12,17,33,34,35,44]):sha===SMOOTH_BROWSER_CONTINUATION.progress?new Set([0,2,3,4,12,14,17,29,33,34,35,44]):isSmoothContinuation(sha)?SMOOTH_REFRESH:PERMISSION_REFRESH;
 export function assertPermissionContinuationTree(head,read=gitBytes,{smooth=false,source}={}) {
   if(smooth){assertSmoothContinuationTree(head,read,{source});return;}
   const p=PERMISSION_CONTINUATION;
@@ -213,7 +213,7 @@ export function assertPermissionContinuationTree(head,read=gitBytes,{smooth=fals
 export function permissionContinuationPrefix(bytes,{head,base,planHash,environment,commands}) {
   const p=PERMISSION_CONTINUATION;
   const original=JSON.parse(bytes);
-  const completed=original.sha===SMOOTH_BROWSER_CONTINUATION.completed,accepted=original.sha===SMOOTH_BROWSER_CONTINUATION.accepted,progress=original.sha===SMOOTH_BROWSER_CONTINUATION.progress,smooth=isSmoothContinuation(original.sha),tail=original.sha===p.tail,last=completed?47:accepted?46:progress?29:smooth?45:tail?41:36;
+  const completed=original.sha===SMOOTH_BROWSER_CONTINUATION.completed,accepted=original.sha===SMOOTH_BROWSER_CONTINUATION.accepted,progress=original.sha===SMOOTH_BROWSER_CONTINUATION.progress,smooth=isSmoothContinuation(original.sha),tail=original.sha===p.tail,last=completed?47:accepted?46:progress?29:smooth?(smoothProfile(original.sha).last??45):tail?41:36;
   assert.equal(sha256(bytes),completed?SMOOTH_BROWSER_CONTINUATION.completedCheckpoint:accepted?SMOOTH_BROWSER_CONTINUATION.acceptedCheckpoint:progress?SMOOTH_BROWSER_CONTINUATION.progressCheckpoint:smooth?smoothProfile(original.sha).checkpoint:tail?p.tailCheckpoint:p.checkpoint,'Changed original failed permission checkpoint');
   assert.equal(original.sha,completed?SMOOTH_BROWSER_CONTINUATION.completed:accepted?SMOOTH_BROWSER_CONTINUATION.accepted:progress?SMOOTH_BROWSER_CONTINUATION.progress:smooth?smoothProfile(original.sha).source:tail?p.tail:p.source);assert.equal(original.status,completed?'passed':'failed');assert.equal(original.commands.length,completed?47:progress?46:last+1);
   assert(original.commands.slice(0,last).every(row=>row.exitCode===0));if(!completed)assert.equal(original.commands[last].exitCode,1);
@@ -228,7 +228,7 @@ function verifyPermissionContinuation(directory,evidence,commands) {
   assert.deepEqual(evidence.permissionContinuation,{source:completed?SMOOTH_BROWSER_CONTINUATION.completed:accepted?SMOOTH_BROWSER_CONTINUATION.accepted:progress?SMOOTH_BROWSER_CONTINUATION.progress:smooth?smoothProfile(evidence.permissionContinuation.source).source:tail?p.tail:p.source,checkpoint:completed?SMOOTH_BROWSER_CONTINUATION.completedCheckpoint:accepted?SMOOTH_BROWSER_CONTINUATION.acceptedCheckpoint:progress?SMOOTH_BROWSER_CONTINUATION.progressCheckpoint:smooth?smoothProfile(evidence.permissionContinuation.source).checkpoint:tail?p.tailCheckpoint:p.checkpoint});assert(!evidence.repair);
   const original=permissionContinuationPrefix(fs.readFileSync(path.join(directory,'reuse/test-results/permission-checkpoint.json')),{...evidence,head:evidence.sha,commands});
   for(const [i,row] of evidence.commands.entries()) {
-    if(i<(completed?47:accepted?46:smooth?45:tail?41:36)&&original.commands[i]?.exitCode===0&&!permissionRefresh(original.sha).has(i)) {
+    if(i<(completed?47:accepted?46:smooth?(smoothProfile(original.sha).last??45):tail?41:36)&&original.commands[i]?.exitCode===0&&!permissionRefresh(original.sha).has(i)) {
       assert.equal(row.reusedFrom,original.commands[i].reusedFrom||original.sha);
       assert.deepEqual({...row,command:original.commands[i].command,reusedFrom:undefined},{...original.commands[i],reusedFrom:undefined},'Changed retained passing execution');
       assert.equal(sha256(fs.readFileSync(path.join(directory,row.log))),original.commands[i].logHash);
@@ -251,7 +251,7 @@ function verifyPermissionContinuation(directory,evidence,commands) {
 export function restoreCanvasHostingProof(directory,{verifyOnly=false}={}) {
   const checkpoint=path.join(directory,'reuse/test-results/permission-checkpoint.json');
   const source=fs.existsSync(checkpoint)?JSON.parse(fs.readFileSync(checkpoint)).sha:null;
-  const p=source===AUDIO_FIT_CONTINUATION.source?{...AUDIO_FIT_CONTINUATION,tail:source}:PERMISSION_CONTINUATION,read=(file,hash)=>{const bytes=fs.readFileSync(path.join(directory,'reuse',file));assert.equal(sha256(bytes),hash);return JSON.parse(bytes);};
+  const p=[AUDIO_FIT_CONTINUATION.source,INSPECTOR_CONTINUATION.source].includes(source)?{...smoothProfile(source),tail:source}:PERMISSION_CONTINUATION,read=(file,hash)=>{const bytes=fs.readFileSync(path.join(directory,'reuse',file));assert.equal(sha256(bytes),hash);return JSON.parse(bytes);};
   const original=read('hosting-manifest.json',p.manifest),oldProof=read('hosting-proof.json',p.proof);
   const manifest=JSON.parse(fs.readFileSync(path.join(directory,'candidate/manifest.json')));
   verifyMigrationCandidateBytes(directory,original,manifest,{allowLabGuard:false});assert.deepEqual(manifest.hosting,original.hosting);

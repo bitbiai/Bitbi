@@ -156,8 +156,28 @@ export const AUDIO_FIT_CONTINUATION=Object.freeze({
     "tests/helpers/canvas-smooth-ui.cjs": "171686ddb6f4113df8e8c332509039afc8f2a708c70c4561b0eeacfeffcde544"
   }
 });
-export const smoothProfile=source=>source===AUDIO_FIT_CONTINUATION.source?AUDIO_FIT_CONTINUATION:SMOOTH_BROWSER_CONTINUATION;
-export const isSmoothContinuation=sha=>[AUDIO_FIT_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.progress,SMOOTH_BROWSER_CONTINUATION.accepted,SMOOTH_BROWSER_CONTINUATION.completed].includes(sha);
+// Same closed continuation for the Inspector fixture HTTP/focus correction.
+export const INSPECTOR_CONTINUATION=Object.freeze({
+  "source": "e9642235763d10bece8aa967abdd570eabab4e0d",
+  "run": "e9642235763d10bece8aa967abdd570eabab4e0d-7ed2e01b-d9ec-40c0-a0c7-89383d248a8e",
+  "checkpoint": "710195012babdfaaaa06f229579dc2551e8e2ea2240e6f1ea2b4fa9d29376f9b",
+  "report": "9b50432147bc18a7381e325e00e69d29e678914f78cb971d628c5f7a670a37b7",
+  "rows": "877fdd450ae4684ff3b08b7f8e018827fd457a04d0e7a235d02370bd344d9448",
+  "discovery": "8d40b239cde1becbb0a98b90dec9123e5a03bb4354bb58844bd49434004a3938",
+  "manifest": "7b95854c08e5c977dabd0279bc32a915fdb46374ce0595e7dd9b7b8339d7e652",
+  "proof": "cb5f6448e46fb11a4bfb76162a5e3794906d24b12c46545a499a66ab031c8f5b",
+  "last": 41,
+  "counts": {
+    "required": 20,
+    "reused": 14,
+    "executed": 6
+  },
+  "specs": {
+    "tests/helpers/canvas-inspector-ui.cjs": "c2549f1c7ea526044f8d4d0d675370fbba8cfb546243dba940dc4cba7fea99ed"
+  }
+});
+export const smoothProfile=source=>source===INSPECTOR_CONTINUATION.source?INSPECTOR_CONTINUATION:source===AUDIO_FIT_CONTINUATION.source?AUDIO_FIT_CONTINUATION:SMOOTH_BROWSER_CONTINUATION;
+export const isSmoothContinuation=sha=>[INSPECTOR_CONTINUATION.source,AUDIO_FIT_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.progress,SMOOTH_BROWSER_CONTINUATION.accepted,SMOOTH_BROWSER_CONTINUATION.completed].includes(sha);
 const smoothTooling=new Set(['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/lib/local-release-browser.mjs',
   'scripts/lib/local-release-transport.mjs','scripts/pages-candidate.mjs','scripts/test-local-release.mjs',
   'scripts/lib/media-publication.mjs','scripts/lib/backend-publication.mjs','scripts/test-media-activation-reuse.mjs',
@@ -181,7 +201,7 @@ export function runSmoothBrowserContinuation(env=process.env) {
   assert.equal(env.GITHUB_JOB,'browser-validation');assert.equal(env.CI,'1');assertSmoothContinuationTree(env.GITHUB_SHA,undefined,{source});
   const raw=fs.readFileSync('.local-release/reuse/smooth-browser.json');assert.equal(sha256(raw),p.report);
   const previous=browserRows(JSON.parse(raw)),retained=new Map(previous.filter(passedBrowserCase).map(row=>[row.key,row]));
-  const base=p===AUDIO_FIT_CONTINUATION?['test:static','--','tests/canvas.spec.js','--project=chromium','--project=webkit-canvas','--grep','Canvas audio fit']
+  const base=p===INSPECTOR_CONTINUATION?['test:static','--','tests/canvas.spec.js','--project=chromium','--project=webkit-canvas','--grep','Canvas Inspector']:p===AUDIO_FIT_CONTINUATION?['test:static','--','tests/canvas.spec.js','--project=chromium','--project=webkit-canvas','--grep','Canvas audio fit']
     :['test:static','--','tests/canvas.spec.js','tests/oma2-q1-canvas.spec.js','--project=chromium','--project=webkit-canvas','--grep','Canvas|P13|@canvas-model-ui'];
   const run=(name,args,discovery=false)=>{
     const file=path.resolve(`test-results/smooth-${name}.json`);fs.rmSync(file,{force:true});

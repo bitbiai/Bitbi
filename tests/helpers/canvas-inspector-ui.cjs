@@ -86,7 +86,8 @@ exports.merge = async options => {
   state.edges=[{id:id(5),project_id:project,source_node_id:id(2),target_node_id:id(3),config:{}}];
   const graph=JSON.stringify(state.edges),posts=[];let phase='ready';
   const clips=state.nodes.map(node=>({nodeId:node.id,runId:node.output.runId,assetId:node.output.assetId,version:node.output.sourceVersion,modelId:node.model_id,createdAt:now}));
-  const completed={id:id(12),status:'ready',storage:'canvas',asset:{id:id(13),file_url:video},preview_base:{file_url:video},recipe:{videos:clips},audio_timeline:[]};
+  const media='/api/plain/canvas-preview/video.mp4'; // The candidate server's real ranged media fixture; tests/ is not published.
+  const completed={id:id(12),status:'ready',storage:'canvas',asset:{id:id(13),file_url:media},preview_base:{file_url:media},recipe:{videos:clips},audio_timeline:[]};
   await page.route('**/full-video',route=>{
     if(route.request().method()==='POST')posts.push(route.request().postDataJSON());
     return route.fulfill({json:{ok:true,data:{eligible:true,availableClips:clips,current:completed,export:{...completed,status:phase}}}});
@@ -110,8 +111,9 @@ exports.merge = async options => {
   await expect(inspector.getByRole('status',{name:de?'Exportstatus':'Export status',exact:true})).toContainText(de?'fehlgeschlagen':'failed');
   await expect(settings).toHaveJSProperty('open',false);await create.click();await expect.poll(()=>posts.length).toBe(1);
   expect(posts[0].orderedClips.map(clip=>clip.runId)).toEqual([id(9),id(8)]);expect(posts[0].smoothJoins).toBe(true);
+  await result.scrollIntoViewIfNeeded();await expect(result).toBeInViewport();
   await result.evaluate(v=>v.play());await expect.poll(()=>result.evaluate(v=>v.currentTime)).toBeGreaterThan(.1);await result.evaluate(v=>v.pause());
-  await expect(inspector.getByRole('link',{name:de?'Gesamtvideo herunterladen':'Download full video'})).toHaveAttribute('href',video+'?download=1');
+  await expect(inspector.getByRole('link',{name:de?'Gesamtvideo herunterladen':'Download full video'})).toHaveAttribute('href',media+'?download=1');
   await inspector.getByRole('button',{name:de?'Gesamtvideo in Assets speichern':'Save full video to Assets',exact:true}).click();await expect.poll(()=>posts.length).toBe(2);expect(posts[1].saveExportId).toBe(completed.id);
   expect(JSON.stringify(state.edges)).toBe(graph);expect(state.requests.filter(r=>r.pathname.endsWith('/run'))).toEqual([]);expect(errors).toEqual([]);
   await inspector.screenshot({path:info.outputPath(`merge-${locale}.png`)});
@@ -136,7 +138,7 @@ exports.icons = async options => {
     await page.reload();await expect(page.locator(`[data-node-id="${id(5)}"] [data-media-icon]`)).toHaveAttribute('data-media-icon',kind);
     expect(await measure()).toEqual(before);
   }
-  await select(2);const card=page.locator(`[data-node-id="${id(2)}"]`);await card.press('ArrowRight');await expect.poll(()=>state.nodes[0].x).toBe(60);
+  await select(2);if(locale==='de')await page.locator('#canvasGraphToggle').click();const card=page.locator(`[data-node-id="${id(2)}"]`);await card.press('ArrowRight');await expect.poll(()=>state.nodes[0].x).toBe(60);
   expect(errors).toEqual([]);expect(state.requests.filter(r=>r.pathname.endsWith('/run'))).toEqual([]);
   // Also exercise the existing picker/assignment API without a page reload.
   const picker=await options.prepareCanvasAssetPicker(page,{locale});
