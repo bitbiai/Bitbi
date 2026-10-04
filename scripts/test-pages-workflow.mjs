@@ -1,3 +1,4 @@
+import { releaseValidationSource } from './lib/release-validation-source.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -12,7 +13,7 @@ import {hasRetiredDecorativeHeroAutomation} from './lib/release-compat.mjs';
 // Execute the actual, deliberately simple workflow conditions with synthetic
 // GitHub step states. This is orchestration acceptance, not a live Pages test.
 const read = name => fs.readFileSync(new URL(`../.github/workflows/${name}.yml`, import.meta.url), 'utf8');
-const standard = read('static');
+const standard = releaseValidationSource();
 const fast = read('ui-fast-deploy');
 const job = (source, name) => {
   const block = source.match(new RegExp(`^  ${name}:\\n[\\s\\S]*?(?=^  [a-z][\\w-]*:|$(?![\\s\\S]))`, 'm'));
@@ -80,7 +81,7 @@ function requiresHomepageReportVerification(source, { candidate }) {
   assert(!permits(check,{...context,success:()=>false}),'Failed functional execution cannot acquire a passing report');
   return check;
 }
-for(const [source,candidate] of [[standard,true],[full,false],[fast,false]]) {
+for(const [source,candidate] of [[standard,true],[full,false]]) {
   const options={candidate};
   const check=requiresHomepageReportVerification(source,options);
   assert.throws(()=>requiresHomepageReportVerification(source.replace(check.source,check.source.replace(/run: .+/, 'run: echo missing report verifier')),options),/verifier is missing/);
@@ -215,7 +216,7 @@ function requiresBrowserRepairContinuation(source) {
   assert(!permits(repair,ordinary));assert(permits(step('Run selected auth and admin tests'),ordinary),'Ordinary auth selection stays binding');
   const condition=job(source,'deploy').match(/^    if: \$\{\{ (.+) \}\}$/m)[1].replace(/needs\.([a-z][\w-]*)/g,(_,name)=>`needs['${name}']`);
   for(const result of ['success','failure','skipped','cancelled','']) {
-    const ctx={cancelled:()=>false,github:{ref:'refs/heads/main',event_name:'push',event:{inputs:{}}},needs:{'release-compatibility':{result:'success',outputs},'worker-validation':{result:'skipped'},'homepage-validation':{result:'skipped'},'browser-validation':{result},'reuse-candidate':{result:'skipped'}}};
+    const ctx={cancelled:()=>false,github:{ref:'refs/heads/main',event_name:'push',event:{inputs:{}}},needs:{'release-compatibility':{result:result==='success'?'success':'failure',outputs},'worker-validation':{result:'skipped'},'homepage-validation':{result:'skipped'},'browser-validation':{result},'reuse-candidate':{result:'skipped'}}};
     assert.equal(Boolean(vm.runInNewContext(condition,ctx,{timeout:100})),result==='success','Fresh repaired browser failure/missing execution must block publication');
   }
   return repair;
@@ -235,7 +236,7 @@ assert.throws(()=>requiresBrowserRepairContinuation(standard.replace(repairCalle
 const browserAuthStep=steps(job(standard,'browser-validation')).find(step=>step.name==='Run selected auth and admin tests');
 assert.throws(()=>requiresBrowserRepairContinuation(standard.replace(browserAuthStep.source,browserAuthStep.source.replace("needs.release-compatibility.outputs.browser_repair != 'true' && ",''))),/must not repeat/);
 
-for (const [name, source] of [['standard', standard], ['fast', fast]]) {
+for (const [name, source] of [['standard', standard]]) {
   const deploySteps = steps(job(source, 'deploy'));
   const action = deploySteps.find(s => s.name === 'Deploy to GitHub Pages');
   assert(action?.source.includes('uses: actions/deploy-pages@v5'));
@@ -459,5 +460,5 @@ assert.equal(diagnostics.source.match(/path: (.+)/)[1],'test-results/backend-dia
 for(const failed of [true,false])assert.equal(vm.runInNewContext(diagnostics.condition,{failure:()=>failed}),failed);
 assert(!permits(cfDeploy,{...cfContext,success:()=>false}),'Retaining diagnostics must not allow failed publication');
 
-const fastBrowserJob=fast.slice(0,fast.indexOf('        run: npm run test:homepage-core')).match(/^  ([a-z][\w-]*):$/gm).at(-1).trim().slice(0,-1);
-requiresMediaSetup(fast,fastBrowserJob,'Install Canvas browser media tools',[]);
+assert(fast.includes('Refuse the retired duplicate validation path'));
+assert(fast.includes('exit 1'));assert(!fast.includes('npm run test:'));

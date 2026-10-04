@@ -273,7 +273,12 @@ export function validateToolchainFiles(repoRoot) {
     issues.push('package.json engines.npm must be ">=10".');
   }
 
-  const workflow = fs.readFileSync(workflowPath, "utf8");
+  let workflow = fs.readFileSync(workflowPath, "utf8");
+  if (workflow.includes('node scripts/local-release.mjs import')) {
+    const commands = path.join(repoRoot, 'config/release-validation.yml');
+    if (!fs.existsSync(commands)) issues.push('Missing local release command contract.');
+    else workflow += '\n' + fs.readFileSync(commands, 'utf8');
+  }
   if (!/node-version:\s*22\b/.test(workflow)) {
     issues.push("Static workflow must use Node 22.");
   }

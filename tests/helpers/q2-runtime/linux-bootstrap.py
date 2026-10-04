@@ -232,9 +232,23 @@ def copy_reports(output, session_fd, uid, gid, bootstrap_report):
 
 def main():
     require(sys.platform == "linux" and os.geteuid() == 0, "Fixed bootstrap requires hosted Linux sudo")
-    for key, value in {"GITHUB_ACTIONS": "true", "RUNNER_ENVIRONMENT": "github-hosted", "RUNNER_OS": "Linux",
-                       "Q2_RUNTIME_ALLOW_HOSTED_BOOTSTRAP": "1"}.items():
-        require(os.environ.get(key) == value, "Hosted bootstrap context/opt-in missing")
+    local = os.environ.get("BITBI_LOCAL_RELEASE_CONTAINER") == "1"
+    context = {"GITHUB_ACTIONS": "true", "RUNNER_ENVIRONMENT": "github-hosted", "RUNNER_OS": "Linux",
+               "Q2_RUNTIME_ALLOW_HOSTED_BOOTSTRAP": "1"}
+    if local:
+        require(not any(os.environ.get(key) for key in context), "Mixed local/hosted identity")
+        # Check the provisioned boundary again at the privileged entry. The
+        # caller's opt-in alone never authorizes an arbitrary local Linux host.
+        marker = Path("/etc/bitbi-local-release.json")
+        info = marker.lstat()
+        require(stat.S_ISREG(info.st_mode) and info.st_uid == 0 and info.st_mode & 0o222 == 0,
+                "Invalid local provisioner marker")
+        require(json.loads(marker.read_text()) == {"policy": "development-mac-v1", "boundary": "disposable-container"}
+                and Path("/.dockerenv").is_file(), "Local bootstrap requires the provisioned disposable container")
+        context = {"BITBI_LOCAL_RELEASE_CONTAINER": "1"}
+    else:
+        for key, value in context.items():
+            require(os.environ.get(key) == value, "Hosted bootstrap context/opt-in missing")
     if len(sys.argv) == 3 and sys.argv[1] == "--inner":
         inner(sys.argv[2])
         return
@@ -273,8 +287,7 @@ def main():
                   "parent_namespaces": {n: os.readlink("/proc/self/ns/" + n) for n in ["net", "mnt", "pid", "ipc"]}}
         config_file = private / "config.json"
         config_file.write_text(json.dumps(config))
-        environment = dict(SAFE_ENV, GITHUB_ACTIONS="true", RUNNER_ENVIRONMENT="github-hosted", RUNNER_OS="Linux",
-                           Q2_RUNTIME_ALLOW_HOSTED_BOOTSTRAP="1")
+        environment = dict(SAFE_ENV, **context)
         report["phase"] = "isolated_execution"
         result = subprocess.run([regular_system_file("/usr/bin/unshare"), "--net", "--mount", "--pid", "--ipc",
                                  "--fork", "--kill-child=SIGKILL", "--", regular_system_file("/usr/bin/python3"),

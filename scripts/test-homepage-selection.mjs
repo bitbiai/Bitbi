@@ -1,3 +1,4 @@
+import { releaseValidationSource } from './lib/release-validation-source.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -11,7 +12,7 @@ import { validateHomepageRuntime } from './check-homepage-runtime.mjs';
 
 const require = createRequire(import.meta.url);
 const root = fileURLToPath(new URL('../', import.meta.url));
-const read = (name) => fs.readFileSync(path.join(root, name), 'utf8');
+const read = (name) => name === '.github/workflows/static.yml' ? releaseValidationSource(root) : fs.readFileSync(path.join(root, name), 'utf8');
 const fixture = (file, project, index) => ({ file, project, title: `case ${index}`, expectedStatus: 'passed', tags: [] });
 const coreFixtures = [...HOMEPAGE_CORE_FILES.map(file => fixture(file, 'chromium', 0)),
   ...HOMEPAGE_CORE_WEBKIT_FILES.map(file => fixture(file, 'webkit-canvas', 0)),
@@ -268,7 +269,7 @@ function verifyBrowserInstall(install, owner, authBrowsers) {
     ]);
   }
 }
-for (const workflow of ['static.yml', 'full-regression.yml', 'ui-fast-deploy.yml']) {
+for (const workflow of ['static.yml', 'full-regression.yml']) {
   const text = read(`.github/workflows/${workflow}`);
   if (workflow !== 'full-regression.yml') {
     const caller = job(text, workflow === 'static.yml' ? 'browser-validation' : 'deploy');
@@ -313,8 +314,11 @@ for (const workflow of ['static.yml', 'full-regression.yml', 'ui-fast-deploy.yml
   assert.ok(text.includes('npm run test:homepage-carousel'));
   if (workflow !== 'ui-fast-deploy.yml') assert.ok(text.includes('npm run test:static'));
   else assert.ok(text.includes('npm run test:homepage-core'));
-  if (workflow !== 'full-regression.yml') {
+  if (workflow === 'ui-fast-deploy.yml') {
     assert.match(job(text, 'deploy'), /needs: \[[^\]]*homepage-validation/);
+  } else if(workflow==='static.yml') {
+    assert.match(job(text,'deploy'),/needs: \[release-compatibility, reuse-candidate\]/);
+    assert(fs.readFileSync(path.join(root,'.github/workflows/static.yml'),'utf8').includes('node scripts/local-release.mjs import'));
   } else assert.ok(!text.includes('actions/deploy-pages'));
 }
 console.log('Homepage selection, no-zero, preserved commands and mandatory early workflow gates passed.');

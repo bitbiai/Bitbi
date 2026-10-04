@@ -70,6 +70,20 @@ export function assertHostedBootstrapAllowed(env, { platform, uid, gid }) {
   assert.ok(Number.isInteger(gid) && gid > 0 && gid !== 65534, 'Launcher must use the ordinary runner GID');
 }
 
+// The development Mac uses a disposable container in its dedicated Linux VM.
+// This is a distinct execution origin, never a forged github-hosted identity.
+export function assertLocalBootstrapAllowed(env, { platform, uid, gid, marker, container }) {
+  assert.equal(platform, 'linux');
+  assert.equal(env.BITBI_LOCAL_RELEASE_CONTAINER, '1');
+  assert(!env.GITHUB_ACTIONS && !env.RUNNER_ENVIRONMENT && !env.Q2_RUNTIME_ALLOW_HOSTED_BOOTSTRAP,
+    'Local and hosted bootstrap contexts must not be mixed');
+  assert.equal(container, true, 'Local bootstrap requires a disposable container');
+  assert.equal(marker?.policy, 'development-mac-v1');
+  assert.equal(marker?.boundary, 'disposable-container');
+  assert(Number.isInteger(uid) && uid > 0 && uid !== 65534);
+  assert(Number.isInteger(gid) && gid > 0 && gid !== 65534);
+}
+
 export function stageInputPlan() {
   return [
     'package.json', 'package-lock.json', 'node_modules',
@@ -237,7 +251,13 @@ function systemToolVersions() {
 }
 
 export async function runHostedLinux(options) {
-  assertHostedBootstrapAllowed(process.env, { platform: process.platform, uid: process.getuid(), gid: process.getgid() });
+  const local = process.env.BITBI_LOCAL_RELEASE_CONTAINER === '1';
+  const identity = { platform: process.platform, uid: process.getuid(), gid: process.getgid() };
+  if (local) {
+    const file = '/etc/bitbi-local-release.json', stat = fs.lstatSync(file);
+    assert(stat.isFile() && stat.uid === 0 && (stat.mode & 0o222) === 0, 'Local provisioner marker must be root-owned and read-only');
+    assertLocalBootstrapAllowed(process.env, { ...identity, marker: JSON.parse(fs.readFileSync(file)), container: fs.existsSync('/.dockerenv') });
+  } else assertHostedBootstrapAllowed(process.env, identity);
   assert.equal(Number(process.versions.node.split('.')[0]), 22, 'Use the repository Node22 toolchain');
   const parent = resolveArtifactParent(root, options.artifacts || path.join(os.tmpdir(), 'bitbi-q2-runtime-evidence'));
   fs.mkdirSync(parent, { recursive: true, mode: 0o700 });
@@ -268,7 +288,7 @@ export async function runHostedLinux(options) {
     staged = stageRuntimeInputs(root, workspace);
     const bootstrap = path.join(workspace, 'tests/helpers/q2-runtime/linux-bootstrap.py');
     const args = ['-n', '/usr/bin/env', '-i', 'PATH=/usr/bin:/bin', 'LANG=C',
-      'GITHUB_ACTIONS=true', 'RUNNER_ENVIRONMENT=github-hosted', 'RUNNER_OS=Linux', 'Q2_RUNTIME_ALLOW_HOSTED_BOOTSTRAP=1',
+      ...(local ? ['BITBI_LOCAL_RELEASE_CONTAINER=1'] : ['GITHUB_ACTIONS=true', 'RUNNER_ENVIRONMENT=github-hosted', 'RUNNER_OS=Linux', 'Q2_RUNTIME_ALLOW_HOSTED_BOOTSTRAP=1']),
       '/usr/bin/python3', '-I', '-S', bootstrap, '--session', session, '--node-sha256', nodeStaging.sha256,
       '--uid', String(process.getuid()), '--gid', String(process.getgid()), '--mode', options.preflight ? 'preflight' : 'runtime'];
     if (options.suite) args.push('--suite', options.suite);
@@ -296,7 +316,7 @@ export async function runHostedLinux(options) {
     for (const name of ['ImageOS', 'ImageVersion', 'RUNNER_ARCH', 'GITHUB_RUN_ID', 'GITHUB_SHA']) {
       if (process.env[name] && /^[A-Za-z0-9._-]{1,100}$/.test(process.env[name])) hostedImage[name] = process.env[name];
     }
-    const report = { mode: options.preflight ? 'preflight' : 'runtime', status, failure: failure?.message || null, staged, hostedImage, systemTools, nodeSource, nodeStaging,
+    const report = { origin: local ? 'development-mac-v1' : 'github-hosted', mode: options.preflight ? 'preflight' : 'runtime', status, failure: failure?.message || null, staged, hostedImage, systemTools, nodeSource, nodeStaging,
       hostUnixListenerPositiveControl: true,
       configuredBoundary: { namespaces: ['net', 'mount', 'pid', 'ipc'], userNamespace: false,
         bootstrapInterpreter: '/usr/bin/python3 -I -S', fixedSystemTools: ['/usr/bin/unshare', '/usr/bin/mount', '/usr/bin/setpriv'],

@@ -1,3 +1,4 @@
+import { releaseValidationSource } from './lib/release-validation-source.mjs';
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -111,7 +112,7 @@ try {
   }
   assert.notEqual(selection([...files,'tests/oma2-q1-member.spec.js']).policy,'workspace-presentation-v1','Multipurpose member spec requires source-bound changed test coverage');
   assert(selection(files,{forceFull:true}).full);
-  const workflow=fs.readFileSync(path.join(repoRoot,'.github/workflows/static.yml'),'utf8');
+  const workflow=releaseValidationSource(repoRoot);
   assert(workflow.includes('CI_MEMBER_ASSETS: ${{ needs.release-compatibility.outputs.member_assets }}'));
   assert(workflow.includes('if [ "$CI_MEMBER_ASSETS" = \'true\' ]; then'));
   assert(workflow.includes('Q2_RUNTIME_ARTIFACTS="$Q2_RUNTIME_ARTIFACTS/member-generation" node scripts/test-q2-runtime.mjs --suite member-generation || exit $?'));
@@ -148,7 +149,7 @@ try {
   assert(result.canvasText && result.workers && result.auth && result.static);
   assert(!result.full && !result.carousel);
   for(const file of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billing.js','js/shared/unknown.js','package-lock.json'])assert(!selection([...flux,file],{memberTestSources}).canvasText,file);
-  const workflow=fs.readFileSync(path.join(repoRoot,'.github/workflows/static.yml'),'utf8');
+  const workflow=releaseValidationSource(repoRoot);
   assert(workflow.includes("--grep 'durable member generation: flux-|default FLUX Schnell|Canvas"));
   assert(workflow.includes('tests/smoke.spec.js tests/oma2-q1-member.spec.js tests/oma2-q3-model-pricing.spec.js --project=chromium --project=webkit-canvas --project=webkit-pricing'));
 }
@@ -506,7 +507,7 @@ for (const file of [
 }
 
 {
-  const workflow = fs.readFileSync(path.join(repoRoot, ".github/workflows/static.yml"), "utf8");
+  const workflow = releaseValidationSource(repoRoot);
   assert(workflow.includes("node scripts/select-ci-tests.mjs"));
   assert(workflow.includes("needs.release-compatibility.outputs.workers == 'true'"));
   assert(workflow.includes("needs.release-compatibility.outputs.homepage == 'true'"));
@@ -517,22 +518,18 @@ for (const file of [
   assert(workflow.includes("npm run test:static -- --config playwright.assets.config.js"));
   assert(workflow.includes("npm run test:homepage-carousel"));
   assert(workflow.includes("steps.static_safety.outputs.static_deploy_required == 'true'"));
-  assert(workflow.includes("npm run check:worker-dependency-audits -- --install"));
+  assert(workflow.includes("npm run check:worker-dependency-audits"));
   const fullWorkflow = fs.readFileSync(path.join(repoRoot, ".github/workflows/full-regression.yml"), "utf8");
   assert(fullWorkflow.includes("npm run check:worker-dependency-audits -- --install"));
 }
 
 {
   const workflow = fs.readFileSync(path.join(repoRoot, ".github/workflows/ui-fast-deploy.yml"), "utf8");
-  assert(workflow.includes("node scripts/select-ci-tests.mjs"));
-  assert(workflow.includes("needs.guard.outputs.carousel == 'true'"));
-  assert(workflow.includes("needs.guard.outputs.member_models == 'true'"));
-  assert(workflow.includes("npm run test:homepage-core"));
-  assert(workflow.includes("npm run test:homepage-carousel"));
-  assert(workflow.includes("Run focused member model exposure tests"));
-  assert(!workflow.includes("npm run test:static"));
-  assert(!workflow.includes("npm run test:workers"));
-  assert(!workflow.includes("npm run release:preflight"));
+  assert(workflow.includes('Refuse the retired duplicate validation path'));
+  assert(workflow.includes('exit 1'));
+  assert(!workflow.includes('npm run test:'));
+  assert(!workflow.includes('actions/deploy-pages'));
+
 }
 
 {
@@ -990,7 +987,7 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
  const result=selection(files);assert(result.canvasText&&result.workers&&result.auth&&result.assets&&result.runtime);
  assert(!result.full);assert.equal(requiresPrivateMediaImage(files),false);
  for(const extra of ['workers/auth/src/lib/billing.js','workers/auth/src/lib/session.js','workers/ai/src/index.js','unknown.js'])assert.notEqual(selection([...files,extra]).canvasText,true);
- const workflow=fs.readFileSync('.github/workflows/static.yml','utf8');
+ const workflow=releaseValidationSource();
  for(const proof of ['tests/q2-member-music.spec.js','canvas-music-worker.json','canvas-music-adapter.json'])assert(workflow.includes(proof));
  const opusRepair=[...files,'tests/canvas.spec.js','tests/helpers/homepage-media-server.mjs'];
  const repaired=selection(opusRepair);assert(repaired.canvasText&&repaired.assets&&repaired.auth&&repaired.workers);
@@ -1123,7 +1120,7 @@ for(const file of ['workers/auth/src/lib/session.js','workers/auth/src/lib/billi
 const omniDelta = ['workers/auth/src/routes/canvas.js','js/shared/gemini-omni-contract.mjs','js/shared/gemini-omni-pricing.mjs','workers/auth/src/lib/gemini-omni-readiness.js','workers/auth/src/lib/gemini-omni-media.js','workers/auth/src/routes/ai/reference-video-upload.js','js/shared/omni-reference-upload.js','js/pages/admin/gemini-omni-controls.js','js/pages/admin/model-status.js','js/shared/model-pricing-client.js','js/shared/models-overlay.js','tests/q2-gemini-omni.spec.js','tests/helpers/omni-model-controls.cjs','tests/model-pricing-runtime.mjs'];
 assert.equal(selection(omniDelta).canvasText,true);
 for (const neighbor of ['workers/auth/src/lib/session.js','workers/ai/src/routes/unknown.js','workers/ai/wrangler.jsonc'])assert.notEqual(selection([...omniDelta,neighbor]).canvasText,true,neighbor);
-const omniWorkflow=fs.readFileSync(path.join(repoRoot,'.github/workflows/static.yml'),'utf8');
+const omniWorkflow=releaseValidationSource(repoRoot);
 assert(omniWorkflow.includes('tests/q2-gemini-omni.spec.js'));
 assert(omniWorkflow.includes('Q2_RUNTIME_ARTIFACTS="$Q2_RUNTIME_ARTIFACTS/model-pricing" node scripts/test-q2-runtime.mjs --suite model-pricing'));
 assert(omniWorkflow.includes('tests/oma2-q3-model-pricing.spec.js --project=chromium --project=webkit-canvas --project=webkit-pricing'));

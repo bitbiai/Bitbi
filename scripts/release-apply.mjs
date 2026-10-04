@@ -16,6 +16,7 @@ try {
     process.exit(0);
   }
   const options = parseReleaseCliArgs(process.argv.slice(2));
+  if(options.execute)throw Error('Use npm run release:local. The protected candidate continuation applies backend prerequisites without repeating local suites.');
   if (options.help) {
     console.log(formatReleaseUsage("npm run release:apply --"));
     process.exit(0);

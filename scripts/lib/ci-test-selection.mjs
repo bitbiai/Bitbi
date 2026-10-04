@@ -578,6 +578,11 @@ const WORKER_TEST_PREFIXES = [
 // These exact release-only inputs are exercised by the always-required release
 // contract tests and native static-host runtime check. Unknown automation is broad.
 const RELEASE_TOOLING_FILES = new Set([
+  'config/release-validation.yml', 'scripts/local-release.mjs', 'scripts/local-release.Dockerfile', 'scripts/release-preflight.mjs',
+  'scripts/lib/local-release-plan.mjs', 'scripts/lib/local-release-environment.mjs',
+  'scripts/lib/local-release-evidence.mjs', 'scripts/lib/local-release-transport.mjs',
+  'scripts/lib/release-validation-source.mjs', 'scripts/test-local-release.mjs',
+  'scripts/lib/quality-gates.mjs', 'scripts/lib/release-compat.mjs',
   '.github/workflows/static.yml', '.github/workflows/ui-fast-deploy.yml',
   'scripts/lib/ci-test-selection.mjs', 'scripts/select-ci-tests.mjs',
   'scripts/test-ci-test-selection.mjs', 'scripts/test-release-compat.mjs', 'scripts/pages-candidate.mjs',

@@ -1,6 +1,7 @@
 import { repairDelta, repairKind } from './lib/media-repair-source.mjs';
 import { assertBrowserSourceIdentity, assertBrowserReportArtifact, assertOriginalBrowserJob, verifyBrowserRepairProof, runBrowserRepair } from './lib/browser-fixture-repair.mjs';
 import { hostingPolicy, prepareFrontend, verifyFrontend, cloudflarePublishedBase } from './lib/frontend-hosting.mjs';
+import { LOCAL_REQUIRED_JOBS, localPolicyAt } from './lib/local-release-evidence.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { selectCiTests, requiresPrivateMediaImage, memberSpecSources, canvasCompletionRouteSources } from './lib/ci-test-selection.mjs';
@@ -58,8 +59,8 @@ export function proofJobs(selection) {
 // the change itself selects full acceptance. Normal static failures still block.
 export function isRequiredValidationRun(run, selection) {
   return run.path === '.github/workflows/static.yml'
-    || run.path === '.github/workflows/ui-fast-deploy.yml'
-    || (run.path === '.github/workflows/full-regression.yml' && (!selection || selection.full));
+    || (!localPolicyAt(run.head_sha) && run.path === '.github/workflows/ui-fast-deploy.yml')
+    || (!localPolicyAt(run.head_sha) && run.path === '.github/workflows/full-regression.yml' && (!selection || selection.full));
 }
 export function gitSelection(base, sha) {
   assert(/^[a-f0-9]{40}$/.test(base || ''), 'Missing exact release base');
@@ -81,7 +82,7 @@ export function validatePublishedDeployment(deployment,status,run,job) {
   assert(job.steps?.some(s=>s.name==='Deploy to GitHub Pages'&&s.status==='completed'&&s.conclusion==='success'),'No successful Pages write');
   return deployment.sha;
 }
-async function publishedBase() {
+export async function publishedBase() {
   const policy=fs.existsSync('config/static-hosting.json')?hostingPolicy():null;
   if(policy?.provider==='cloudflare') {
     const hosted=await cloudflarePublishedBase(api,policy);
@@ -122,7 +123,12 @@ export function tree(directory) {
   visit(directory); assert(Object.keys(files).length>0,'Empty static candidate'); return files;
 }
 export function verifyManifest(manifest, expected, site, { allowPartial = false } = {}) {
-  assert([1,2].includes(manifest.schema)); assert.equal(manifest.repository,REPOSITORY);
+  assert([1,2,3].includes(manifest.schema)); assert.equal(manifest.repository,REPOSITORY);
+  if (manifest.schema === 3) {
+    assert.equal(manifest.localValidation?.policy, 'development-mac-v1');
+    assert(/^[a-f0-9]{64}$/.test(manifest.localValidation.digest || ''));
+    assert(Number.isSafeInteger(manifest.localValidation.receipt) && manifest.localValidation.receipt > 0);
+  }
   for(const field of ['sha','base','run','attempt']) assert.equal(String(manifest[field]),String(expected[field]),`Candidate ${field} mismatch`);
   assert.equal(manifest.mediaPolicy,MEDIA_POLICY,'Different media acceptance policy');
   if (manifest.schema===1) {
@@ -199,7 +205,8 @@ export function validateSource({run,jobs,artifacts,laterRuns,mainSha}, expected,
       assert(jobs.filter(j=>j.name!=='deploy').every(j=>['success','skipped'].includes(j.conclusion)),'Source validation failed');
     }
   }
-  for(const [name,steps] of Object.entries(requiredJobs(expected.selection))) {
+  const local = localPolicyAt(expected.sha);
+  for(const [name,steps] of Object.entries(local ? LOCAL_REQUIRED_JOBS : requiredJobs(expected.selection))) {
     const found=jobs.filter(j=>j.name===name); assert.equal(found.length,1,`Missing/duplicate suite ${name}`);
     const j=found[0]; assert.equal(j.head_sha,expected.sha); assert.equal(j.status,'completed');
     if(browserRepair&&name==='browser-validation') {
@@ -222,7 +229,7 @@ export function validateSource({run,jobs,artifacts,laterRuns,mainSha}, expected,
     assert.equal(later.conclusion,'success','Later candidate failure blocks reuse');
   }
   const suffix=`${expected.sha}-${expected.run}-${expected.attempt}`;
-  const names=[`pages-candidate-${suffix}`,...proofJobs(expected.selection).filter(job=>!(browserRepair&&job==='browser-validation')).map(job=>`pages-proof-${job}-${suffix}`)];
+  const names=[`pages-candidate-${suffix}`,...(local ? [] : proofJobs(expected.selection).filter(job=>!(browserRepair&&job==='browser-validation')).map(job=>`pages-proof-${job}-${suffix}`))];
   return names.map(name=>{
     const found=artifacts.filter(a=>a.name===name); assert.equal(found.length,1,`Missing/ambiguous artifact ${name}`);
     const a=found[0];assert.equal(a.expired,false,'Expired candidate artifact');assert(a.size_in_bytes>0);
@@ -235,6 +242,10 @@ export function verifyProofs(manifest,proofs) {
     const p=proofs.find(p=>p.job===job); assert(p,`Missing tested build proof ${job}`);
     assert.equal(p.manifestHash,digest(JSON.stringify(manifest)),'Different OS build inputs');
     assert.equal(p.status,'passed');assert(p.reportHash&&p.tests>0,'No executed browser report');
+    if(manifest.schema===3) {
+      assert.equal(p.localValidation?.evidence,manifest.localValidation.digest,'Missing local proof origin');
+      assert.equal(p.localValidation.originalManifestHash,manifest.localValidation.manifestHash,'Changed local manifest identity');
+    }
     if(p.browserRepair)verifyBrowserRepairProof(p,manifest);
   }
 }
@@ -320,6 +331,41 @@ export function verifyAssetReport(report, discovery) {
   verifyAdminReport(report, discovery, [['cards',['assets-manager-focused.spec.js']],['jobs',['oma2-q1-member.spec.js']],['actions',['auth-admin.spec.js']],['canvas',['canvas.spec.js','oma2-q1-canvas.spec.js']]]);
 }
 
+export function candidateProof(manifest, { job, reportFile, readJson = file => JSON.parse(fs.readFileSync(file)) }) {
+  const names=job==='browser-validation'
+    ? (manifest.selection.adminRelease ? ['admin-release'] : manifest.selection.full ? ['static','carousel'] : ['homepage','carousel','assets','auth'].filter(key=>manifest.selection[key])).map(key=>`test-results/candidate-${key}.json`)
+    : [reportFile];
+  const reports=names.map(name=>readJson(name));
+  for(const report of reports) {
+    const broad = job === 'browser-validation';
+    assert(Array.isArray(report.errors || []) && (report.errors || []).length === 0, 'Browser execution reported errors');
+    assert(['expected','unexpected','flaky'].every(key => Number.isInteger(report.stats?.[key]) && report.stats[key] >= 0), 'Malformed browser statistics');
+    assert((report.stats.expected + (broad ? report.stats.flaky : 0))>0&&report.stats.unexpected===0&&(broad||report.stats.flaky===0),'Browser acceptance missing or failed');
+    let executed=0;
+    const visit=suite=>{for(const spec of suite.specs||[])for(const test of spec.tests||[]) {
+    const final = test.results?.at(-1);
+    assert(!['failed','timedOut','interrupted'].includes(final?.status),'Failed browser result');
+    assert(!final?.error && (final?.errors || []).length === 0, 'Browser result contains an execution error');
+    if (!broad) assert(test.results?.length === 1 && (final.retry ?? 0) === 0, 'Homepage case missing or retried');
+    if(final?.status==='passed')executed++;
+    }(suite.suites||[]).forEach(visit);};(report.suites||[]).forEach(visit);
+    assert(executed>0,'No executed cases');
+    if (!broad) assert.equal(executed, report.stats.expected, 'Inconsistent homepage execution statistics');
+  }
+  const report=reports[0];
+  if(job==='homepage-validation')
+    verifyHomepageReport(report, readJson('test-results/homepage-discovery.json'));
+  if (manifest.selection?.assets && !manifest.selection.full && job === 'browser-validation') verifyAssetReport(reports[names.indexOf('test-results/candidate-assets.json')], readJson('test-results/assets-discovery.json'));
+  if (manifest.selection?.canvasText) verifyCanvasCandidateReports(names, reports, readJson('test-results/canvas-discovery.json'), manifest.selection);
+  if (manifest.selection?.appearance && !manifest.selection?.modelPricing) verifyAppearanceCandidateReports(names, reports, readJson('test-results/appearance-discovery.json'));
+  if (manifest.selection?.modelPricing) verifyModelPricingReport(report, readJson('test-results/model-pricing-discovery.json'), manifest.selection);
+  if (manifest.selection?.modelStatus) verifyModelStatusReport(report, readJson('test-results/model-status-discovery.json'), manifest.selection);
+  if (manifest.selection?.workspaceHelp) verifyWorkspaceHelpReport(report, readJson('test-results/workspace-discovery.json'));
+  if (manifest.selection?.publicMedia) verifyPublicMediaReport(report, readJson('test-results/public-media-discovery.json'));
+  if (manifest.selection?.adminRelease) verifyAdminReport(report, readJson('test-results/admin-discovery.json'));
+  return {job,status:'passed',manifestHash:digest(JSON.stringify(manifest)),reportHash:digest(JSON.stringify(reports)),tests:reports.reduce((n,r)=>n+r.stats.expected+r.stats.flaky,0)};
+}
+
 export async function api(endpoint) {
   assert(process.env.GH_TOKEN,'Missing read-only Actions token');
   const response=await fetch(`https://api.github.com/repos/${REPOSITORY}/${endpoint}`,{headers:{Authorization:`Bearer ${process.env.GH_TOKEN}`,Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'},signal:AbortSignal.timeout(20000)});
@@ -386,38 +432,8 @@ async function main(command) {
       verifyBrowserRepairProof(proof,manifest,{publicationSha:process.env.GITHUB_SHA,run:process.env.GITHUB_RUN_ID,attempt:process.env.GITHUB_RUN_ATTEMPT});
       fs.mkdirSync('candidate-proofs',{recursive:true});fs.writeFileSync('candidate-proofs/proof-browser-validation.json',JSON.stringify(proof));return;
     }
-    const names=process.env.GITHUB_JOB==='browser-validation'
-      ? (manifest.selection.adminRelease ? ['admin-release'] : manifest.selection.full ? ['static','carousel'] : ['homepage','carousel','assets','auth'].filter(key=>manifest.selection[key])).map(key=>`test-results/candidate-${key}.json`)
-      : [process.env.CANDIDATE_REPORT];
-    const reports=names.map(name=>JSON.parse(fs.readFileSync(name)));
-    for(const report of reports) {
-      const broad = process.env.GITHUB_JOB === 'browser-validation';
-      assert(Array.isArray(report.errors || []) && (report.errors || []).length === 0, 'Browser execution reported errors');
-      assert(['expected','unexpected','flaky'].every(key => Number.isInteger(report.stats?.[key]) && report.stats[key] >= 0), 'Malformed browser statistics');
-      assert((report.stats.expected + (broad ? report.stats.flaky : 0))>0&&report.stats.unexpected===0&&(broad||report.stats.flaky===0),'Browser acceptance missing or failed');
-      let executed=0;
-      const visit=suite=>{for(const spec of suite.specs||[])for(const test of spec.tests||[]) {
-        const final = test.results?.at(-1);
-        assert(!['failed','timedOut','interrupted'].includes(final?.status),'Failed browser result');
-        assert(!final?.error && (final?.errors || []).length === 0, 'Browser result contains an execution error');
-        if (!broad) assert(test.results?.length === 1 && (final.retry ?? 0) === 0, 'Homepage case missing or retried');
-        if(final?.status==='passed')executed++;
-      }(suite.suites||[]).forEach(visit);};(report.suites||[]).forEach(visit);
-      assert(executed>0,'No executed cases');
-      if (!broad) assert.equal(executed, report.stats.expected, 'Inconsistent homepage execution statistics');
-    }
-    const report=reports[0];
-    if(process.env.GITHUB_JOB==='homepage-validation')
-      verifyHomepageReport(report, JSON.parse(fs.readFileSync('test-results/homepage-discovery.json')));
-    if (manifest.selection?.assets && !manifest.selection.full && process.env.GITHUB_JOB === 'browser-validation') verifyAssetReport(reports[names.indexOf('test-results/candidate-assets.json')], JSON.parse(fs.readFileSync('test-results/assets-discovery.json')));
-    if (manifest.selection?.canvasText) verifyCanvasCandidateReports(names, reports, JSON.parse(fs.readFileSync('test-results/canvas-discovery.json')), manifest.selection);
-    if (manifest.selection?.appearance && !manifest.selection?.modelPricing) verifyAppearanceCandidateReports(names, reports, JSON.parse(fs.readFileSync('test-results/appearance-discovery.json')));
-    if (manifest.selection?.modelPricing) verifyModelPricingReport(report, JSON.parse(fs.readFileSync('test-results/model-pricing-discovery.json')), manifest.selection);
-    if (manifest.selection?.modelStatus) verifyModelStatusReport(report, JSON.parse(fs.readFileSync('test-results/model-status-discovery.json')), manifest.selection);
-    if (manifest.selection?.workspaceHelp) verifyWorkspaceHelpReport(report, JSON.parse(fs.readFileSync('test-results/workspace-discovery.json')));
-    if (manifest.selection?.publicMedia) verifyPublicMediaReport(report, JSON.parse(fs.readFileSync('test-results/public-media-discovery.json')));
-    if (manifest.selection?.adminRelease) verifyAdminReport(report, JSON.parse(fs.readFileSync('test-results/admin-discovery.json')));
-    fs.mkdirSync('candidate-proofs',{recursive:true});fs.writeFileSync(`candidate-proofs/proof-${process.env.GITHUB_JOB}.json`,JSON.stringify({job:process.env.GITHUB_JOB,status:'passed',manifestHash:hash,reportHash:digest(JSON.stringify(reports)),tests:reports.reduce((n,r)=>n+r.stats.expected+r.stats.flaky,0)}));return;
+    const proof=candidateProof(manifest,{job:process.env.GITHUB_JOB,reportFile:process.env.CANDIDATE_REPORT});
+    fs.mkdirSync('candidate-proofs',{recursive:true});fs.writeFileSync(`candidate-proofs/proof-${process.env.GITHUB_JOB}.json`,JSON.stringify(proof));return;
   }
   if(command==='publish') {
     const proofs=fs.readdirSync(dir).filter(f=>f.startsWith('proof-')&&f.endsWith('.json')).map(f=>JSON.parse(fs.readFileSync(path.join(dir,f))));verifyProofs(manifest,proofs);

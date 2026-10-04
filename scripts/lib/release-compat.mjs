@@ -1354,7 +1354,8 @@ export function loadReleaseCompatibilityContext(repoRoot) {
     aiIndexSource: fs.readFileSync(path.join(repoRoot, "workers/ai/src/index.js"), "utf8"),
     aiCallerPolicySource: sourceFiles["workers/ai/src/lib/caller-policy.js"] || "",
     sourceFiles,
-    workflowSource: fs.readFileSync(
+    workflowSource: (fs.existsSync(path.join(repoRoot, 'config/release-validation.yml'))
+      ? fs.readFileSync(path.join(repoRoot, 'config/release-validation.yml'), 'utf8') + '\n' : '') + fs.readFileSync(
       path.join(repoRoot, ".github/workflows/static.yml"),
       "utf8"
     ),

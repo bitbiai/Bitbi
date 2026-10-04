@@ -112,7 +112,10 @@
     "release:preflight": "node scripts/release-preflight.mjs",
     "release:apply": "node scripts/release-apply.mjs",
     "test:frontend-hosting": "node scripts/test-frontend-hosting.mjs",
-    "test:website-assistant": "node scripts/check-website-assistant-knowledge.mjs && node scripts/check-website-assistant-contract.mjs && node --test tests/website-assistant*.test.mjs"
+    "test:website-assistant": "node scripts/check-website-assistant-knowledge.mjs && node scripts/check-website-assistant-contract.mjs && node --test tests/website-assistant*.test.mjs",
+    "release:local": "node scripts/local-release.mjs release",
+    "release:local:prepare": "node scripts/local-release.mjs prepare",
+    "test:local-release": "node scripts/test-local-release.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",

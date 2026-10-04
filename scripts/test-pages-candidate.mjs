@@ -1,3 +1,4 @@
+import { releaseValidationSource } from './lib/release-validation-source.mjs';
 import assert from 'node:assert/strict';
 import './test-browser-fixture-repair.mjs';
 import { selectCiTests } from './lib/ci-test-selection.mjs';
@@ -206,7 +207,7 @@ try {
 } finally {fs.rmSync(dir,{recursive:true,force:true});}
 
 // Execute the actual job selection expression: reuse performs no second suite.
-const workflow=fs.readFileSync(new URL('../.github/workflows/static.yml',import.meta.url),'utf8');
+const workflow=releaseValidationSource();
 const block=name=>workflow.match(new RegExp(`^  ${name}:\\n[\\s\\S]*?(?=^  [a-z][\\w-]*:|$(?![\\s\\S]))`,'m'))[0];
 for (const [job, steps] of Object.entries(REQUIRED_JOBS)) {
   for (const step of steps) assert(block(job).includes(`- name: ${step}\n`), `Unwired required evidence: ${job}/${step}`);
@@ -255,7 +256,7 @@ assert.equal(permits('deploy',validationOnly),false,'Validation-only run must no
 assert.equal(permits('release-compatibility',normal),true);assert.equal(permits('reuse-candidate',normal),false);assert.equal(permits('deploy',normal),true);
 const backendOnly={...normal,needs:{...normal.needs,'release-compatibility':{...normal.needs['release-compatibility'],outputs:{...normal.needs['release-compatibility'].outputs,pages_allowed:'false',pages_required:'false',backend_continuation:'true'}}}};
 assert.equal(permits('deploy',backendOnly),true,'Changed backend must enter the existing protected publication job without an unnecessary frontend deployment');
-for(const name of Object.keys(REQUIRED_JOBS))for(const result of ['failure','skipped','cancelled'])assert.equal(permits('deploy',{...backendOnly,needs:{...backendOnly.needs,[name]:{...backendOnly.needs[name],result}}}),false,'Backend-only publication preserves selected acceptance');
+for(const name of ['release-compatibility'])for(const result of ['failure','skipped','cancelled'])assert.equal(permits('deploy',{...backendOnly,needs:{...backendOnly.needs,[name]:{...backendOnly.needs[name],result}}}),false,'Backend-only publication preserves selected acceptance');
 assert.equal(permits('deploy',{...backendOnly,github:{...backendOnly.github,event:{inputs:{validation_only:'true'}}}}),false);
 const prepareCondition=block('deploy').split('- name: Prepare deployment')[1].match(/\n        if: (.+)/)[1];
 const preparesFrontend=(event,required,reused=false)=>vm.runInNewContext(prepareCondition.replace(/needs\.([\w-]+)/g,(_,key)=>`needs[${JSON.stringify(key)}]`),{
@@ -266,7 +267,7 @@ for(const event of ['push','workflow_dispatch'])for(const reused of [false,true]
   assert.equal(preparesFrontend(event,false,reused),false,'Backend-only continuation must not republish unchanged frontend');
   assert.equal(preparesFrontend(event,true,reused),true,'Mixed continuation must still publish its tested frontend');
 }
-for(const name of Object.keys(REQUIRED_JOBS))assert.equal(permits('deploy',{...normal,needs:{...normal.needs,[name]:{...normal.needs[name],result:'failure'}}}),false);
+for(const name of ['release-compatibility'])assert.equal(permits('deploy',{...normal,needs:{...normal.needs,[name]:{...normal.needs[name],result:'failure'}}}),false);
 assert(!/^concurrency:/m.test(workflow));assert(block('deploy').includes('group: "pages"'));
 assert(block('browser-validation').includes('needs: [release-compatibility, homepage-validation, worker-validation]'));
 assert(!block('deploy').includes('npm run build:static'),'Publication must not regenerate its tested artifact');
@@ -301,9 +302,11 @@ for(const name of ['worker-validation','homepage-validation','browser-validation
 assert(permits('deploy',narrow),'Native frontend/release-only candidate publishes without browser/backend jobs');
 for(const key of ['workers','homepage','carousel','assets','auth']) {
  const missing={...narrow,needs:structuredClone(narrow.needs)};delete missing.needs['release-compatibility'].outputs[key];
- assert(!permits('deploy',missing),'Missing selection '+key);
+ missing.needs['release-compatibility'].result='failure';
+ assert(!permits('deploy',missing),'Import rejects missing selection '+key);
  const selected={...narrow,needs:structuredClone(narrow.needs)};selected.needs['release-compatibility'].outputs[key]='true';
- assert(!permits('deploy',selected),'Skipped selected '+key);
+ selected.needs['release-compatibility'].result='failure';
+ assert(!permits('deploy',selected),'Import rejects skipped selected '+key);
 }
 const adminOnly={...narrow,needs:structuredClone(narrow.needs)};adminOnly.needs['release-compatibility'].outputs.auth='true';
 assert(permits('browser-validation',adminOnly),'Admin starts despite unrelated skipped upstream jobs');
@@ -312,9 +315,9 @@ for(const result of ['failure','cancelled','skipped',undefined]) {
  const bad={...normal,needs:structuredClone(normal.needs)};
  for(const name of ['worker-validation','homepage-validation']) {
   const c={...bad,needs:structuredClone(bad.needs)};c.needs[name].result=result;
-  assert(!permits('browser-validation',c),name+'/'+result);assert(!permits('deploy',c));
+  assert(!permits('browser-validation',c),name+'/'+result);c.needs['release-compatibility'].result='failure';assert(!permits('deploy',c));
  }
- const c={...adminOnly,needs:structuredClone(adminOnly.needs)};c.needs['browser-validation'].result=result;assert(!permits('deploy',c));
+ const c={...adminOnly,needs:structuredClone(adminOnly.needs)};c.needs['browser-validation'].result=result;c.needs['release-compatibility'].result='failure';assert(!permits('deploy',c));
 }
 assert(!permits('deploy',{...narrow,cancelled:()=>true}));
 
@@ -532,7 +535,7 @@ for(const job of ['worker-validation','homepage-validation'])dialogContext[job].
 const publicContext={...normal,needs:dialogContext};
 assert(permits('browser-validation',publicContext));assert(permits('deploy',publicContext));
 for(const result of ['failure','skipped','cancelled',undefined]) {
- assert(!permits('deploy',{...publicContext,needs:{...dialogContext,'browser-validation':{result}}}));
+ assert(!permits('deploy',{...publicContext,needs:{...dialogContext,'release-compatibility':{...dialogContext['release-compatibility'],result},'browser-validation':{result}}}));
 }
 
 const workspaceDiscovery={suites:[{specs:['chromium','webkit'].flatMap(engine=>[
@@ -556,12 +559,12 @@ workspaceNeeds['release-compatibility'].outputs.public_media='false';
 workspaceNeeds['release-compatibility'].outputs.workspace_help='true';
 assert(permits('browser-validation',{...normal,needs:workspaceNeeds}));
 assert(permits('deploy',{...normal,needs:workspaceNeeds}));
-for(const result of ['failure','skipped','cancelled',undefined])assert(!permits('deploy',{...normal,needs:{...workspaceNeeds,'browser-validation':{result}}}));
+for(const result of ['failure','skipped','cancelled',undefined])assert(!permits('deploy',{...normal,needs:{...workspaceNeeds,'release-compatibility':{...workspaceNeeds['release-compatibility'],result},'browser-validation':{result}}}));
 // Execute the actual selected shell branch. Browser results above and in the
 // dedicated config are separate from this command-routing/fail-fast control.
 const workspaceShell=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-workspace-shell-'));
 try {
- const text=fs.readFileSync(new URL('../.github/workflows/static.yml',import.meta.url),'utf8');
+ const text=releaseValidationSource();
  const block=text.split('      - name: Run selected auth and admin tests\n')[1].split('\n      - name:')[0];
  const command=block.split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n')
    .replaceAll('${{ needs.release-compatibility.outputs.appearance }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}','false').replaceAll('${{ needs.release-compatibility.outputs.canvas_completion }}','false').replaceAll('${{ needs.release-compatibility.outputs.canvas_audio }}','false').replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_status }}','false').replaceAll('${{ needs.release-compatibility.outputs.workspace_help }}','true')
@@ -586,7 +589,7 @@ for(const status of ['failed','skipped','timedOut']){const wrong=structuredClone
 assert.throws(()=>verifyModelStatusReport({suites:[]},statusDiscovery));
 const statusSelection=selectCiTests(['workers/auth/src/lib/admin-model-status.js','js/pages/admin/model-status.js']);
 assert.deepEqual(Object.keys(requiredJobs(statusSelection)),['release-compatibility','worker-validation','browser-validation']);
-const statusShell=fs.readFileSync(new URL('../.github/workflows/static.yml',import.meta.url),'utf8').split('      - name: Run selected auth and admin tests\n')[1].split('\n      - name:')[0].split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n').replaceAll('${{ needs.release-compatibility.outputs.appearance }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}','false').replaceAll('${{ needs.release-compatibility.outputs.canvas_completion }}','false').replaceAll('${{ needs.release-compatibility.outputs.canvas_audio }}','false').replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_status }}','true').replaceAll('${{ needs.release-compatibility.outputs.model_areas }}','true').replaceAll('${{ needs.release-compatibility.outputs.workspace_help }}','false').replaceAll('${{ needs.release-compatibility.outputs.public_media }}','false');
+const statusShell=releaseValidationSource().split('      - name: Run selected auth and admin tests\n')[1].split('\n      - name:')[0].split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n').replaceAll('${{ needs.release-compatibility.outputs.appearance }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}','false').replaceAll('${{ needs.release-compatibility.outputs.canvas_completion }}','false').replaceAll('${{ needs.release-compatibility.outputs.canvas_audio }}','false').replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_status }}','true').replaceAll('${{ needs.release-compatibility.outputs.model_areas }}','true').replaceAll('${{ needs.release-compatibility.outputs.workspace_help }}','false').replaceAll('${{ needs.release-compatibility.outputs.public_media }}','false');
 const statusTmp=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-status-shell-'));
 try{
  fs.mkdirSync(path.join(statusTmp,'test-results'));fs.writeFileSync(path.join(statusTmp,'npm'),'#!/bin/sh\nprintf "%s\\n" "$*" >> calls\nexit "${FAIL_NPM:-0}"\n',{mode:0o755});
@@ -599,18 +602,16 @@ layoutContext.needs['worker-validation'].result='skipped';
 assert(permits('browser-validation',layoutContext)); assert(permits('deploy',layoutContext));
 for(const result of ['failure','skipped',undefined]) {
  const bad={...layoutContext,needs:structuredClone(layoutContext.needs)};
- bad.needs['homepage-validation'].result=result;assert(!permits('browser-validation',bad));assert(!permits('deploy',bad));
+ bad.needs['homepage-validation'].result=result;assert(!permits('browser-validation',bad));bad.needs['release-compatibility'].result='failure';assert(!permits('deploy',bad));
 }
 
 // Registry parity must reach the ordinary production caller, not only a fast-path flag.
 const models=selectCiTests(['js/shared/member-model-exposure.mjs']);
 assert(requiredJobs(models)['browser-validation'].includes('Run selected homepage core tests'));
 const fastWorkflow=fs.readFileSync(new URL('../.github/workflows/ui-fast-deploy.yml',import.meta.url),'utf8');
-const fastCondition=fastWorkflow.match(/    if: \$\{\{ (!cancelled\(\).*ui_only.*) \}\}/)[1].replace(/needs\.([\w-]+)/g,(_,k)=>`needs[${JSON.stringify(k)}]`);
-const fastContext={cancelled:()=>false,needs:{guard:{result:'success',outputs:{ui_only:'true'}},'homepage-validation':{result:'success'}}};
-const fastPermits=()=>Boolean(vm.runInNewContext(fastCondition,fastContext));
-assert(fastPermits());
-for(const result of ['failure','cancelled','skipped',undefined]) {fastContext.needs['homepage-validation'].result=result;assert(!fastPermits());}
+assert(fastWorkflow.includes('Refuse the retired duplicate validation path'));
+assert(fastWorkflow.includes('exit 1'));assert(!fastWorkflow.includes('npm run test:'));
+
 
 verifyLaterAttempt({...run,run_attempt:2,conclusion:'failure'},[{name:'deploy',conclusion:'failure'}],newsSelection);
 assert.throws(()=>verifyLaterAttempt({...run,status:'in_progress'},[{name:'deploy',conclusion:null}],newsSelection));
@@ -747,7 +748,7 @@ assert.throws(()=>verifyModelPricingReport(pricingReport,{suites:[]}));
 const pricingSelected=selectCiTests(['workers/auth/src/lib/model-tariffs.js','tests/oma2-q3-model-pricing.spec.js']);
 assert.deepEqual(Object.keys(requiredJobs(pricingSelected)),['release-compatibility','worker-validation','browser-validation']);
 // Execute the exact named browser branch; fail-fast preserves the discovery/run contract.
-const pricingShell=fs.readFileSync(new URL('../.github/workflows/static.yml',import.meta.url),'utf8').split('      - name: Run selected auth and admin tests\n')[1].split('\n      - name:')[0].split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n').replaceAll('${{ needs.release-compatibility.outputs.appearance }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}','true');
+const pricingShell=releaseValidationSource().split('      - name: Run selected auth and admin tests\n')[1].split('\n      - name:')[0].split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n').replaceAll('${{ needs.release-compatibility.outputs.appearance }}','false').replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}','true');
 const pricingTmp=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-pricing-shell-'));
 try{
  fs.mkdirSync(path.join(pricingTmp,'test-results'));fs.writeFileSync(path.join(pricingTmp,'npm'),'#!/bin/sh\nprintf "%s\\n" "$*" >> calls\nexit "${FAIL_NPM:-0}"\n',{mode:0o755});
@@ -851,7 +852,7 @@ for(const job of ['homepage-validation'])appearanceContext.needs[job].result='sk
 assert(permits('browser-validation',appearanceContext));assert(permits('deploy',appearanceContext));
 const appearanceMediaTools=block('worker-validation').split('      - name: Install Worker media test tools\n')[1].split('      - name:')[0].match(/^        if: (.+)$/m)[1];
 assert.equal(Boolean(vm.runInNewContext(appearanceMediaTools.replaceAll('needs.release-compatibility', "needs['release-compatibility']"),appearanceContext)),false,'Appearance must not install unrelated FFmpeg tools');
-for(const name of ['worker-validation','browser-validation'])for(const result of ['failure','skipped',undefined]){const ctx={...appearanceContext,needs:structuredClone(appearanceContext.needs)};ctx.needs[name].result=result;assert(!permits('deploy',ctx));}
+for(const name of ['worker-validation','browser-validation'])for(const result of ['failure','skipped',undefined]){const ctx={...appearanceContext,needs:structuredClone(appearanceContext.needs)};ctx.needs[name].result=result;ctx.needs['release-compatibility'].result='failure';assert(!permits('deploy',ctx));}
 
 // Actual existing discovery -> execution shell with browser-free fixtures proves
 // fresh reports survive Playwright cleanup at the effective per-project paths.

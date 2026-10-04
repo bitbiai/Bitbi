@@ -100,6 +100,17 @@ Do not invent commands/scripts that are not present in this repo.
 
 ---
 
+## Local release validation
+
+For an authorized release, commit the scoped candidate and use `npm run release:local`.
+It resolves the verified published base, runs selected checks in the persistent
+local Linux environment, uploads exact-source evidence, pushes main in the
+foreground and continues the existing protected `static.yml` path. `release:preflight`
+uses the same evidence/resume path without push or publication. Do not separately
+rerun its passed suites on the Mac or GitHub. See the [local validation procedure](docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md#portable-local-release-validation).
+Scheduled Full and Memvid remain independent; do not dispatch Full for each release.
+This entry point grants no additional publication, credential or paid-call authority.
+
 ## Git workflow and completion
 
 - Requested implementation tasks normally finish with task-related changes committed and pushed directly to `origin/main`; no separate commit/push approval is needed. Explicit audit-only, read-only, local-only, draft, or no-push instructions override this default.

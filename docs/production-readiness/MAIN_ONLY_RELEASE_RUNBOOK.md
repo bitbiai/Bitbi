@@ -5,6 +5,76 @@ The broader operator readiness checklist below retains its original scope.
 
 Status: **release procedure, not authorization**. Only the current assignment authorizes its scoped operations. This runbook does not itself approve production readiness, live billing, remote migrations, paid calls, settings/secret changes or rollback.
 
+## Portable local release validation
+
+Owner instruction, 2026-10-04: move equivalently portable release checks to the
+development Mac without reducing coverage. The normal authorized command is
+`npm run release:local`, after committing the intended inputs on main. It reads
+the verified live baseline using existing protected credentials, selects the
+complete unpublished range, validates locally, uploads evidence, pushes in the
+foreground and starts/reuses the existing `static.yml` continuation once.
+`npm run release:preflight` performs the same local acceptance without publication;
+a later `release:local` reuses its exact successful receipt. Do not run both suites
+or an additional Full dispatch. Direct legacy `release-apply --execute` and Fast UI
+reject before testing/deploying; the protected candidate backend continuation remains.
+
+| Execution owner | Checks and reason |
+| --- | --- |
+| Development Mac, dedicated Linux VM | Existing release/security/dependency/quality/selection checks, static build, native frontend HTTP, selected Worker/FFmpeg/Q2 chain, selected homepage and browser matrices, import/link/metadata checks. Commands and conditions live in `config/release-validation.yml`. No decorative Hero automation. |
+| Existing GitHub release workflow | Independently verify authenticated local evidence, source tree, full-range selection, all required command/report hashes, current main/base, candidate bytes and committed secrets. These protect the remote publication boundary; they do not repeat local suites. |
+| Existing protected deploy/recovery jobs | Owner/environment review, shared write lock, actual backend prerequisites, final live/current-source checks, publication/readback and durable receipt. These require protected production credentials and authoritative live state. |
+| Scheduled Full / Memvid | Unchanged workflows, schedule, commands and operation. Full stays independent of per-release local acceptance. No extra dispatch is implied. CodeQL/Dependabot remain independent. |
+
+`npm run release:local:prepare` provisions or verifies Colima profile
+`bitbi-release` / Docker context `colima-bitbi-release`, without changing the global
+context or the separate media profile. Pins: Node 22.23.1, official Playwright
+1.58.2 Noble image by digest; locked root/Auth/AI/Contact/media dependencies in
+separately cached installation layers. Linux ARM64 uses the same browser/runtime
+versions and CI settings; affected media images retain their actual Linux AMD64
+build/test target. The VM uses 6 CPUs/12 GiB; one run uses 4 CPUs/10 GiB and the
+existing one-worker browser defaults. Record architecture, not a claimed x64 run.
+
+Only `~/Library/Caches/bitbi-local-release` is shared with the VM; no personal home,
+SSH agent or Docker socket is shared with tests. Sources, browser sessions, services
+and data are disposable per exact candidate. Tests get no production/GitHub tokens.
+Normal processes drop all capabilities and disable privilege reacquisition. Q2 alone
+uses the reviewed namespace/filesystem/drop-privilege bootstrap under the distinct
+`development-mac-v1` container origin, never forged `github-hosted` flags. Full keeps
+its existing hosted-origin guard. The preparer retains immutable tool/browser images
+and validated installations across reboots; changed lock/tool/image/platform inputs
+invalidate only affected cached layers. It does not redownload browsers each run.
+
+After reboot the ordinary command starts the existing VM. To stop it when idle:
+`colima stop --profile bitbi-release`. If preparation reports an unsafe mount, stop
+that profile and start it with `--activate=false --ssh-agent=false --mount
+/Users/bitbi/Library/Caches/bitbi-local-release:w`; do not expand host access. Preserve
+`runs/<sha>-<id>/checkpoint.json`, logs and failed attempts. After diagnosing an
+interruption, use `npm run release:local -- --resume <directory>`: only exact matching
+source/base/toolchain/commands can retain passed commands. Changed source requires
+fresh affected acceptance; missing or changed outputs cannot inherit a pass. There
+is no hosted fallback, blind rerun, or retention of browser/database sessions.
+
+Evidence expires after seven days. The existing owner credential uploads a digest-bound
+archive as an unpublished draft asset, indexed by a nonproduction GitHub deployment
+metadata record (`bitbi-local-validation`). It creates no public release/tag event,
+new token, production activation or new workflow. GitHub consumes it with its existing
+read permissions. The schema-3 candidate envelope retains the original local manifest,
+reports and proof identity; the Actions run/attempt identifies the import, not invented
+hosted execution. Missing access/evidence, stale source, failed or incomplete commands,
+changed reports/candidate bytes and unsupported setup all block release. Retain the
+local checkpoint and transport IDs for reconciliation; never overwrite unknown uploads.
+
+Focused controls live in `test:local-release`, existing candidate/workflow/selection
+and launcher guards. They exercise real Git/file/report boundaries, invalid transport,
+missing prerequisites, failed/skipped commands, legacy wrapper rejection and synthetic
+browser-image launch. They do not certify product behavior by discovery alone. An
+exact local run records preparation and per-command timings; repeat only the short
+`release:local:prepare` readiness command to measure warm reuse. Initial image downloads
+and failed provisioning attempts are separate from warm readiness/test timing. Actual
+acceptance/publication is established by that source's receipts and workflow results,
+not by this document or a successful upload.
+
+
 ## Purpose
 
 Delivery uses `main` and the existing protected release path; no separate staging environment is mandatory. Verify the task commit, affected prerequisites, tested candidate and required live evidence. Preserve unrelated working drafts; they do not belong in the task commit or candidate.
@@ -92,14 +162,14 @@ it does not authorize new production operations, paid calls or protection change
    Check discovered cases, runtime prerequisites and downstream jobs. Discovery,
    helper mocks and a green prefix of an `&&` chain are not complete acceptance.
    After shared native fixture/schema changes, run the complete small staging/
-   launcher guard from that caller before push. `release:preflight` schedules it
-   early and stops on failure; a passing named-test subset does not certify its
+   launcher guard from that caller before push. The shared local release contract
+   schedules it and stops on failure; a passing named-test subset does not certify its
    siblings. Git-tree-dependent checks run on the committed SHA, and static
    currentness/build checks use final inputs. Reuse unchanged product evidence;
    this requirement does not mandate another broad local regression.
-3. For full Worker acceptance, install locked root/Auth dependencies and execute
-   `bash scripts/setup-media-tools.sh` on Ubuntu; it installs and executes both
-   FFmpeg and ffprobe. Run `node scripts/test-q2-runtime.mjs --preflight` before
+3. For full Worker acceptance, use the pinned local root/Auth installations and
+   execute both FFmpeg and ffprobe before tests. Scheduled Full retains its
+   `bash scripts/setup-media-tools.sh` Ubuntu preparation. Run `node scripts/test-q2-runtime.mjs --preflight` before
    expensive Worker cases. `npm run test:workers` must finish the media-tool check,
    Q4 selection, Playwright routes, real `test:homepage-ffmpeg-processor` 2/5-clip
    exports, then staging/launcher self-tests and native `test:q2-runtime`. A local
@@ -107,9 +177,9 @@ it does not authorize new production operations, paid calls or protection change
    jobs keep their actual selected callers; do not require this chain for every edit.
 4. Browser repairs run the existing selected collection on the built candidate.
    `test:homepage-core` executes audio-player, canvas, oma2-q1-canvas, locale and smoke
-   in Chromium/`webkit-canvas`; static.yml restores `_site` via `STATIC_TEST_ROOT`
-   and retains `candidate-homepage.json` plus browser artifacts. Full selection in
-   static.yml runs `test:static` and retains `candidate-static.json`, including the
+   in Chromium/`webkit-canvas`; the local command contract restores `_site` via `STATIC_TEST_ROOT`
+   and retains `candidate-homepage.json` plus browser artifacts. Full release selection in
+   the local contract runs `test:static` and retains `candidate-static.json`, including the
    core scope. Focused EN/DE and broken-case checks precede the selected collection;
    they do not replace it. Full's
    downstream browser job runs `npm run test:static` after

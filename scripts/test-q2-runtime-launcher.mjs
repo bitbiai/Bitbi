@@ -1,3 +1,4 @@
+import { releaseValidationSource } from './lib/release-validation-source.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -14,7 +15,7 @@ import { canonicalInterfaces, canonicalRoutes, networkFieldDiff, assertHostedCom
 import { assertIsolatedBoundary } from '../tests/helpers/q2-runtime/linux-isolation-contract.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const read = name => fs.readFileSync(path.join(root, name), 'utf8');
+const read = name => name === '.github/workflows/static.yml' ? releaseValidationSource(root) : fs.readFileSync(path.join(root, name), 'utf8');
 
 // These are orchestration regressions, not Linux namespace acceptance. The real
 // hosted job must separately emit kernel/UID/network/native-runtime evidence.
