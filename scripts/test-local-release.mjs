@@ -1,4 +1,4 @@
-import {SMOOTH_BROWSER_POLICY,SMOOTH_BROWSER_CONTINUATION,isSmoothContinuation,assertSmoothContinuationTree,verifySmoothBrowserReport,verifySmoothImageReuse,verifyImportedSmoothImage,passedBrowserCase} from './lib/local-release-browser.mjs';
+import {SMOOTH_BROWSER_POLICY,SMOOTH_BROWSER_CONTINUATION,isSmoothContinuation,assertSmoothContinuationTree,verifySmoothBrowserReport,verifySmoothImageReuse,verifyImportedSmoothImage,restoreSmoothBrowserProof,passedBrowserCase} from './lib/local-release-browser.mjs';
 import {browserRows} from './lib/browser-fixture-repair.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -34,7 +34,7 @@ function testPermissionContinuation() {
     const bytes=fs.readFileSync(file),original=JSON.parse(bytes),actualHead=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
     const context={head:actualHead,base:original.base,planHash:validationPlan().digest,environment:original.environment,
       commands:selectedCommands(gitSelection(original.base,actualHead),{GITHUB_SHA:actualHead,CANDIDATE_BASE:original.base})};
-    assertPermissionContinuationTree(actualHead,undefined,{smooth:isSmoothContinuation(original.sha)});assert([PERMISSION_CONTINUATION.source,PERMISSION_CONTINUATION.tail,SMOOTH_BROWSER_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.progress].includes(permissionContinuationPrefix(bytes,context).sha));
+    assertPermissionContinuationTree(actualHead,undefined,{smooth:isSmoothContinuation(original.sha)});assert([PERMISSION_CONTINUATION.source,PERMISSION_CONTINUATION.tail,SMOOTH_BROWSER_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.progress,SMOOTH_BROWSER_CONTINUATION.accepted].includes(permissionContinuationPrefix(bytes,context).sha));
     for(const mutate of [r=>r.commands.find(row=>row&&row.exitCode!==0).exitCode=0,r=>r.commands[0].logHash='wrong',r=>r.commands.pop(),r=>r.status='passed']) {
       const wrong=structuredClone(original);mutate(wrong);assert.throws(()=>permissionContinuationPrefix(Buffer.from(JSON.stringify(wrong)),context));
     }
@@ -74,11 +74,18 @@ function testSmoothContinuation() {
     const fresh=previous.filter(row=>!passedBrowserCase(row)).map(row=>({...row,expectedStatus:'passed',status:'expected',results:[{status:'passed',retry:0,error:false}]}));
     const report={policy:SMOOTH_BROWSER_POLICY,sha:head,source:p.source,previous,discovery,fresh,counts:{required:228,reused:208,executed:20}};
     assert.deepEqual(verifySmoothBrowserReport(report,head),report.counts);
-    const manifest={sha:head,selection:{auth:true,canvasAudio:true}};
+    const manifest={sha:head,selection:{auth:true,canvasText:true,canvasAudio:true}};
     const proof=()=>candidateProof(manifest,{job:'browser-validation',readJson:name=>name.endsWith('canvas-discovery.json')?JSON.parse(fs.readFileSync(path.join(dir,'test-results/canvas-discovery.json'))):report});
     assert.equal(proof().tests,228);
     for(const mutate of [r=>r.fresh.pop(),r=>r.fresh.push(r.fresh[0]),r=>r.fresh[0].results[0].status='failed',r=>r.fresh[0].results[0].retry=1,r=>r.previous[0].status='unexpected',r=>r.discovery.pop()]) {
       const original=structuredClone(report);mutate(report);assert.throws(proof);Object.assign(report,original);
+    }
+    if(fs.existsSync(path.join(dir,'reuse/smooth-accepted.json'))) {
+      const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-browser-proof-'));
+      try {fs.mkdirSync(path.join(tmp,'reuse'));fs.mkdirSync(path.join(tmp,'test-results'));fs.copyFileSync(path.join(dir,'reuse/smooth-accepted.json'),path.join(tmp,'reuse/smooth-accepted.json'));
+        const rebound=restoreSmoothBrowserProof(tmp,{sha:head});restoreSmoothBrowserProof(tmp,{sha:head,verifyOnly:true});assert.equal(verifySmoothBrowserReport(rebound,head).required,228);
+        rebound.reusedFrom.sha=head;assert.throws(()=>verifySmoothBrowserReport(rebound,head));
+      }finally{fs.rmSync(tmp,{recursive:true,force:true});}
     }
     const image=JSON.parse(fs.readFileSync(path.join(dir,'test-results/private-media-image/image.json')));assert.equal(verifySmoothImageReuse(image,head,{read:read()}),p.source);
     const imported={...image,run:'123',attempt:'1',localValidation:{policy:'development-mac-v1',publicationSha:head,run:image.run,attempt:image.attempt,evidence:'a'.repeat(64),recordHash:sha256(JSON.stringify(image))}};

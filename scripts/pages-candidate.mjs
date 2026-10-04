@@ -284,7 +284,10 @@ export function verifyCanvasCandidateReports(names, reports, discovery, selectio
   assert.equal(names.filter(value => value === name).length, 1, 'Exactly one Canvas auth report required');
   if (selection.canvasAudio) {
     verifyCanvasAudioDiscovery(flattenHomepageDiscovery(discovery));
-    verifyAdminReport(reports[names.indexOf(name)], discovery, CANVAS_AUDIO_SCOPES, canvasReleaseProject);
+    const report=reports[names.indexOf(name)];
+    if(report.policy===SMOOTH_BROWSER_POLICY) {
+      assert.deepEqual(report.discovery,browserRows(discovery,{discovery:true}));verifySmoothBrowserReport(report,report.sha);
+    } else verifyAdminReport(report, discovery, CANVAS_AUDIO_SCOPES, canvasReleaseProject);
   } else if (selection.canvasCompletion) {
     verifyCanvasCompletionDiscovery(flattenHomepageDiscovery(discovery));
     verifyAdminReport(reports[names.indexOf(name)], discovery, [['canvas', ['canvas.spec.js']]], canvasReleaseProject);

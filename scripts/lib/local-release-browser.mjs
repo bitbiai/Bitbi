@@ -133,12 +133,13 @@ export function runMigrationBrowserContinuation(scope,env=process.env) {
 export const SMOOTH_BROWSER_POLICY='local-canvas-smooth-continuation-v1';
 export const SMOOTH_BROWSER_CONTINUATION=Object.freeze({
   source:'a286659009951d8c862a4921ad049b65c9cc4b35',
+  accepted:'8fa6359ea254ddd32adc86768e7585388131ff84',acceptedCheckpoint:'c0c61042c6fa100b5a820f979d9837d4347971ff305625604ae62c2c3e8c4666',acceptedReport:'19be3e7b4f9ff1dc91778ec25f5ce215eb2c4ca9f70569cf249a7aafd59b64e5',
   progress:'0d161a2812837db56e1b0da972ca3a4b0f6a5f96',progressCheckpoint:'70e6681c57c6ebbdaa78a2cff59cc79b6360ee64a2e41819111747bc32d7ca52',
   run:'a286659009951d8c862a4921ad049b65c9cc4b35-d0412998-3e94-425c-a142-041dffe70d19',
   checkpoint:'6a13e066b667c7eb5479426d6470cf707153524b5e28f2ba1f0e342ed1a9b6f2',report:'2638a5c7f026e567fc769259b98b0870540d8f5c2f306a71c17752eb618244f2',rows:'51208eddcaf2efd3d4a9637a0787a497e98a990babd0b68f0f51f9b64e41c50c',discovery:'a963815b36f428532fbeed6d60328ea7157eef1b164019e4e756908438f5dc89',image:'6fadf1fb2110ca06ef256ba4f3992915f43bf7f51c5a5cd33dcff7bbdfa3c02e',
   specs:{'tests/canvas.spec.js':'b473f43fc2d88cf3da5bd9fb3c8da97c2cdde61ad4b8366bd2c86bb6cb624681','tests/helpers/canvas-music-preview.cjs':'af192385d85f174cb2256158023f5799099c3079475dd5c431c643c10c4a270f'},
 });
-export const isSmoothContinuation=sha=>[SMOOTH_BROWSER_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.progress].includes(sha);
+export const isSmoothContinuation=sha=>[SMOOTH_BROWSER_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.progress,SMOOTH_BROWSER_CONTINUATION.accepted].includes(sha);
 const smoothTooling=new Set(['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/lib/local-release-browser.mjs',
   'scripts/lib/local-release-transport.mjs','scripts/pages-candidate.mjs','scripts/test-local-release.mjs',
   'scripts/lib/media-publication.mjs','scripts/lib/backend-publication.mjs',
@@ -151,6 +152,7 @@ export function assertSmoothContinuationTree(head,read=args=>execFileSync('git',
 }
 export function verifySmoothBrowserReport(report,sha) {
   const p=SMOOTH_BROWSER_CONTINUATION;assert.equal(report.policy,SMOOTH_BROWSER_POLICY);assert.equal(report.sha,sha);
+  if(report.reusedFrom){const {reusedFrom,...original}=report;original.sha=p.accepted;assert.deepEqual(reusedFrom,{sha:p.accepted,reportHash:p.acceptedReport});assert.equal(sha256(JSON.stringify(original)),p.acceptedReport);}
   assert.equal(report.source,p.source);assert.equal(sha256(JSON.stringify(report.previous)),p.rows,'Original failed browser results changed');
   assert.equal(sha256(JSON.stringify(report.discovery)),p.discovery,'Required browser discovery changed');
   const retained=new Map(report.previous.filter(passedBrowserCase).map(row=>[row.key,row]));
@@ -198,4 +200,13 @@ export function verifyImportedSmoothImage(record,{sha,run,attempt},options) {
 export function smoothReceiptImageSource(media,sha) {
   if(!media.imageSourceSha||media.imageSourceSha===sha)return sha;
   assert.equal(media.imageSourceSha,SMOOTH_BROWSER_CONTINUATION.source);assertSmoothContinuationTree(sha);return media.imageSourceSha;
+}
+
+export function restoreSmoothBrowserProof(directory,{sha,verifyOnly=false}) {
+  const p=SMOOTH_BROWSER_CONTINUATION,bytes=fs.readFileSync(path.join(directory,'reuse/smooth-accepted.json'));
+  assert.equal(sha256(bytes),p.acceptedReport);const original=JSON.parse(bytes);verifySmoothBrowserReport(original,p.accepted);
+  const report={...original,sha,reusedFrom:{sha:p.accepted,reportHash:p.acceptedReport}};verifySmoothBrowserReport(report,sha);
+  const file=path.join(directory,'test-results/candidate-auth.json');
+  if(verifyOnly)assert.deepEqual(JSON.parse(fs.readFileSync(file)),report);else fs.writeFileSync(file,JSON.stringify(report));
+  return report;
 }
