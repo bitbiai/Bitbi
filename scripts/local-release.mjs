@@ -203,8 +203,8 @@ function runLocalRelease({ base, resume }) {
       fs.rmSync(path.join(reuse,'permission-checkpoint.json'),{force:true});
       fs.writeFileSync(path.join(reuse,'test-results/permission-checkpoint.json'),bytes);
       if(!fs.existsSync(path.join(reuse,'smooth-browser.json')))fs.copyFileSync(path.join(originalDirectory,'source/test-results/candidate-auth.json'),path.join(reuse,'smooth-browser.json'));
-      const progress=smoothProfile(prior.sha).browserProgress;
-      if(progress){const bytes=fs.readFileSync(path.join(cacheRoot(),'runs',progress.run,'source/test-results/smooth-fresh.json'));assert.equal(sha256(bytes),progress.report);fs.writeFileSync(path.join(reuse,'smooth-progress.json'),bytes);}
+      for(const [profile,file] of [[smoothProfile(prior.sha).browserProgress,'smooth-progress.json'],[smoothProfile(prior.sha).browserAccepted,'smooth-accepted-cases.json']])
+        if(profile){const bytes=fs.readFileSync(path.join(cacheRoot(),'runs',profile.run,'source/test-results/smooth-fresh.json'));assert.equal(sha256(bytes),profile.report);fs.writeFileSync(path.join(reuse,file),bytes);}
       if(accepted)fs.copyFileSync(path.join(originalDirectory,'source/test-results/candidate-auth.json'),path.join(reuse,'smooth-accepted.json'));
       for(const item of ['runtime','test-results'])fs.cpSync(path.join(originalDirectory,'source',item==='runtime'?'../runtime':item),path.join(bundle,item),{recursive:true});
       fs.cpSync(path.join(originalDirectory,'runtime'),path.join(directory,'runtime'),{recursive:true});

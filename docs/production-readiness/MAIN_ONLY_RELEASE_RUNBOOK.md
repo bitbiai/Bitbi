@@ -818,7 +818,9 @@ Existing audio/processor evidence is unaffected; this scope publishes only the
 frontend. Full keeps its independent Canvas coverage, whose actions now explicitly
 open the new settings disclosures.
 The closed `e9642235` fixture continuation retains its 14 Inspector passes plus
-four corrected merge passes from `f5507cd3`; only two mobile icon cases remain.
+four corrected merge passes from `f5507cd3` and two mobile passes from `23576af2`.
+The final Sound-test disclosure correction retains all 20 passes; only complete
+discovery and affected verifier/build contracts execute again.
 Mobile picker actions select the visible card through the existing deck tabs. It uses the candidate server's ranged
 `/api/plain/canvas-preview/video.mp4` transport and explicitly opens the mobile
 Graph before its keyboard action. Pin original failed report/checkpoint and reviewed

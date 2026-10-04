@@ -66,6 +66,7 @@ function testSmoothContinuation(p=SMOOTH_BROWSER_CONTINUATION) {
   }finally{fs.rmSync(staging,{recursive:true,force:true});}
   const reviewedFixture=file=>{
     if(inspector) {
+      if(file==='tests/canvas.spec.js')return Buffer.from(execFileSync('git',['show',`${p.source}:${file}`],{encoding:'utf8'}).replace('  // The music toggle belongs to Sound & Music; the independent join toggle is OFF.\n',"  // The music toggle belongs to Sound & Music; the independent join toggle is OFF.\n  await openCanvasSettings(page,'merge');\n"));
       // Only the failed merge transport and narrow-layout keyboard action move.
       // All generation cases and desktop icon checks retain their original input.
       return Buffer.from(execFileSync('git',['show',`${p.source}:${file}`],{encoding:'utf8'})
@@ -102,15 +103,16 @@ function testSmoothContinuation(p=SMOOTH_BROWSER_CONTINUATION) {
     const bytes=fs.readFileSync(file);assert.equal(sha256(bytes),p.report);const previous=browserRows(JSON.parse(bytes));
     const discovery=browserRows(JSON.parse(fs.readFileSync(path.join(dir,'test-results/canvas-discovery.json'))),{discovery:true});
     const progress=p.browserProgress?{sha:p.browserProgress.sha,rows:browserRows(JSON.parse(fs.readFileSync(path.join(dir,'reuse/smooth-progress.json'))))}:undefined;
-    const retained=smoothRetained(previous,progress,p);
+    const accepted=p.browserAccepted?{sha:p.browserAccepted.sha,rows:browserRows(JSON.parse(fs.readFileSync(path.join(dir,'reuse/smooth-accepted-cases.json'))))}:undefined;
+    const retained=smoothRetained(previous,progress,p,accepted);
     const fresh=previous.filter(row=>!retained.has(row.key)).map(row=>({...row,expectedStatus:'passed',status:'expected',results:[{status:'passed',retry:0,error:false}]}));
     const counts=inspector?p.counts:audioFit?{required:4,reused:2,executed:2}:{required:228,reused:208,executed:20};
-    const report={policy:SMOOTH_BROWSER_POLICY,sha:head,source:p.source,previous,...(progress?{progress}:{}),discovery,fresh,counts};
+    const report={policy:SMOOTH_BROWSER_POLICY,sha:head,source:p.source,previous,...(progress?{progress}:{}),...(accepted?{accepted}:{}),discovery,fresh,counts};
     assert.deepEqual(verifySmoothBrowserReport(report,head),report.counts);
     const manifest={sha:head,selection:{auth:true,canvasText:true,...(inspector?{canvasInspector:true}:audioFit?{canvasAudioFit:true}:{canvasAudio:true})}};
     const proof=()=>candidateProof(manifest,{job:'browser-validation',readJson:name=>name.endsWith('canvas-discovery.json')?JSON.parse(fs.readFileSync(path.join(dir,'test-results/canvas-discovery.json'))):report});
     assert.equal(proof().tests,counts.required);
-    for(const mutate of [r=>r.fresh.pop(),r=>r.fresh.push(r.fresh[0]),r=>r.fresh[0].results[0].status='failed',r=>r.fresh[0].results[0].retry=1,r=>r.previous.find(passedBrowserCase).status='unexpected',r=>r.discovery.pop(),...(inspector?[r=>delete r.progress,r=>r.progress.rows.pop(),r=>r.progress.rows.find(passedBrowserCase).results[0].status='failed']:[])]) {
+    for(const mutate of [...(fresh.length?[r=>r.fresh.pop(),r=>r.fresh.push(r.fresh[0]),r=>r.fresh[0].results[0].status='failed',r=>r.fresh[0].results[0].retry=1]:[r=>r.fresh.push(r.previous.find(passedBrowserCase))]),r=>r.previous.find(passedBrowserCase).status='unexpected',r=>r.discovery.pop(),...(inspector?[r=>delete r.progress,r=>r.progress.rows.pop(),r=>r.progress.rows.find(passedBrowserCase).results[0].status='failed',r=>delete r.accepted,r=>r.accepted.rows[0].results[0].retry=1]:[])]) {
       const original=structuredClone(report);mutate(report);assert.throws(proof);Object.assign(report,original);
     }
     if(!inspector&&!audioFit&&fs.existsSync(path.join(dir,'reuse/smooth-accepted.json'))) {
@@ -120,7 +122,7 @@ function testSmoothContinuation(p=SMOOTH_BROWSER_CONTINUATION) {
         rebound.reusedFrom.sha=head;assert.throws(()=>verifySmoothBrowserReport(rebound,head));
       }finally{fs.rmSync(tmp,{recursive:true,force:true});}
     }
-    if(inspector){console.log('Inspector continuation counterchecks: 18 retained / 2 required; missing, failed, skipped, retried and altered source evidence rejected.');return;}
+    if(inspector){console.log('Inspector continuation counterchecks: 20 retained / 0 repeated; missing, failed, skipped, retried and altered source evidence rejected.');return;}
     const image=JSON.parse(fs.readFileSync(path.join(dir,'test-results/private-media-image/image.json')));assert.equal(verifySmoothImageReuse(image,head,{read:read()}),p.source);
     const imported={...image,run:'123',attempt:'1',localValidation:{policy:'development-mac-v1',publicationSha:head,run:image.run,attempt:image.attempt,evidence:'a'.repeat(64),recordHash:sha256(JSON.stringify(image))}};
     const verify=record=>verifyImportedSmoothImage(record,{sha:head,run:'123',attempt:'1'},{read:read()});assert.equal(verify(imported),p.source);

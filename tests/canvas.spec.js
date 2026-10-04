@@ -1180,6 +1180,7 @@ for (const locale of ['en','de']) for(const delayedMetadata of [false,true]) tes
   const open=async()=>{await page.goto(locale==='de'?'/de/canvas/':'/canvas/');await page.locator(`[data-node-id="${nodeId}"]`).first().click();if(locale==='de')await page.locator('#canvasInspectorToggle').click();};
   await open();const block=page.locator('.canvas-full-video'),inspector=page.locator('#canvasInspectorBody');
   // The music toggle belongs to Sound & Music; the independent join toggle is OFF.
+  await openCanvasSettings(page,'merge');
   await expect(block.getByRole('checkbox',{name:locale==='de'?'Musik als Hintergrund hinzufügen':'Add music as background',exact:true})).toHaveCount(0);
   await expect(block.getByRole('checkbox',{name:locale==='de'?'Sanft zusammenführen':'Smooth joins',exact:true})).not.toBeChecked();
   if(locale==='de')await page.locator('#canvasInspectorToggle').click();
