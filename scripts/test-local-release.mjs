@@ -75,13 +75,13 @@ function testBrowserContinuation() {
   const directory=process.env.LOCAL_BROWSER_EVIDENCE||(fs.existsSync('.local-release/reuse/browser-previous.json')?'.local-release':null);
   if(directory) {
     const pool=readMigrationBrowserPool(directory),retained=migrationBrowserPool(pool);
-    assert(retained.size>=707);assert.equal(pool.production.length,224);
+    assert(retained.size>=707);assert.equal(pool.production.length,224);assert.equal(pool.coreProgress.filter(row=>row.status==='expected').length,225);
     const discovery=pool.previous.map(identity),pending=discovery.filter(row=>!retained.has(row.key));
     assert.equal(pending.length,2);assert(pending.every(row=>row.title.startsWith('P03 lab: pending generation')));
     const report={policy:LOCAL_BROWSER_POLICY,sha:'a'.repeat(40),scope:'auth',origins:BROWSER_ORIGINS,pool,discovery,fresh:[],counts:{required:709,reused:707,executed:0}};
     assert.throws(()=>verifyMigrationBrowserReport(report,report.sha),'Two unresolved real failures cannot acquire a passing proof');
     const changed=structuredClone(pool);changed.previous[0].title+=' changed';assert.throws(()=>migrationBrowserPool(changed));
-    console.log('Real 707 Auth passes and 224 production cases retained; unresolved Lab cases still block.');
+    console.log('Real 707 Auth, 224 production and 225 core passes retained; unresolved Lab cases still block.');
   }
   console.log('Browser continuation: exact discovery/union, omitted/duplicate/failed/skipped/retried/foreign cases and unreviewed candidate bytes counterchecked.');
 }

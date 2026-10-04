@@ -8,7 +8,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { ensureEnvironment, docker, PACKAGES, cacheRoot, TOOL_PREFLIGHT, toolchainPins } from './lib/local-release-environment.mjs';
 import { LOCAL_POLICY, validationPlan, selectedCommands, sha256, commandRuntimes, nativeBrowserKey } from './lib/local-release-plan.mjs';
 import { gitSelection, tree, REPOSITORY, publishedBase } from './pages-candidate.mjs';
-import { verifyLocalEvidence, LOCAL_WORKER_REPAIR, LOCAL_REPAIR_REFRESH, assertLocalRepairTree, verifyLocalWorkerRepair, localWorkerContinuation } from './lib/local-release-evidence.mjs';
+import { verifyLocalEvidence, LOCAL_WORKER_REPAIR, LOCAL_REPAIR_REFRESH, LOCAL_CORE_REUSE, assertLocalRepairTree, verifyLocalWorkerRepair, localWorkerContinuation } from './lib/local-release-evidence.mjs';
 import { BROWSER_ORIGINS, readMigrationBrowserPool, runMigrationBrowserContinuation } from './lib/local-release-browser.mjs';
 
 const git = (args, cwd = '.') => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore','pipe','pipe'] }).trim();
@@ -139,13 +139,15 @@ export const preflightLocal=options=>withReleaseLock(()=>prepareRelease(options)
 export async function releaseLocal(options = {}) {
   return withReleaseLock(async()=>{
   const directory=await prepareRelease(options);
+  const sha=json(path.join(directory,'checkpoint.json')).sha;
+  assert.equal(git(['rev-parse','HEAD']),sha,'Source moved during acceptance; do not publish another commit');
   const {uploadLocalEvidence}=await import('./lib/local-release-transport.mjs');
   const transport=await uploadLocalEvidence(directory);
   // The single existing main-push workflow continues automatically. Test
   // evidence exists before push; a normal push never races an unfinished test.
-  const sha=git(['rev-parse','HEAD']);
+  assert.equal(git(['rev-parse','HEAD']),sha,'Source moved during evidence upload');
   const remote=git(['ls-remote','origin','refs/heads/main']).split(/\s/)[0];
-  if(remote!==sha)execFileSync('git',['push','origin','HEAD:main'],{stdio:'inherit'});
+  if(remote!==sha)execFileSync('git',['push','origin',`${sha}:refs/heads/main`],{stdio:'inherit'});
   else {
     const runs=JSON.parse(execFileSync('gh',['run','list','--repo',REPOSITORY,'--workflow','static.yml','--commit',sha,'--limit','10','--json','databaseId,status,conclusion'],{encoding:'utf8'}));
     const current=runs.find(run=>run.status!=='completed'||run.conclusion==='success');
@@ -213,6 +215,19 @@ function runLocalRelease({ base, resume }) {
     copy(path.join(cacheRoot(),'runs',browserRun[0],'source/test-results/candidate-auth.json'),'browser-previous.json');
     for(const name of ['progress','corrected'])copy(path.join(cacheRoot(),'repairs',BROWSER_ORIGINS[name],'browser-progress.json'),`browser-${name}.json`);
     copy(path.join(cacheRoot()+'-checkpoint','production-browser-proof/proof-browser-validation.json'),'browser-production.json');
+    const coreRuns=fs.readdirSync(path.join(cacheRoot(),'runs')).filter(name=>name.startsWith(LOCAL_WORKER_REPAIR.coreSource+'-'));
+    assert.equal(coreRuns.length,1,'Missing/ambiguous core continuation');
+    const coreRoot=path.join(cacheRoot(),'runs',coreRuns[0]);
+    copy(path.join(coreRoot,'checkpoint.json'),'core-checkpoint.json');
+    assert.equal(sha256(fs.readFileSync(path.join(reuse,'core-checkpoint.json'))),LOCAL_WORKER_REPAIR.coreCheckpoint);
+    const core=json(path.join(reuse,'core-checkpoint.json'));
+    copy(path.join(coreRoot,'source/test-results/local-homepage-fresh.json'),'browser-coreProgress.json');
+    fs.copyFileSync(path.join(coreRoot,'bundle/test-results/homepage-functional.json'),path.join(bundle,'test-results/homepage-functional.json'));
+    for(const index of LOCAL_CORE_REUSE) {
+      assert.equal(core.commands[index].exitCode,0);
+      fs.copyFileSync(path.join(coreRoot,'bundle',core.commands[index].log),path.join(bundle,core.commands[index].log));
+      state.commands[index]={...core.commands[index],command:commands[index],reusedFrom:core.sha};
+    }
     readMigrationBrowserPool(bundle);
   }
   assert.equal(state.sha, sha); assert.equal(state.base, base); assert.equal(state.planHash, validationPlan().digest);
@@ -228,6 +243,7 @@ function runLocalRelease({ base, resume }) {
     git(['checkout','--detach',sha], work);
     git(['remote','set-url','origin','https://github.com/bitbiai/Bitbi.git'], work);
     if(originalDirectory)for(const name of ['candidate','_site','test-results'])fs.cpSync(path.join(originalDirectory,'source',name),path.join(work,name),{recursive:true});
+    if(originalDirectory)fs.copyFileSync(path.join(bundle,'test-results/homepage-functional.json'),path.join(work,'test-results/homepage-functional.json'));
     // Exact committed source; unrelated owner's worktree edits are never copied.
   }
   fs.mkdirSync(path.join(bundle, 'logs'), { recursive: true });

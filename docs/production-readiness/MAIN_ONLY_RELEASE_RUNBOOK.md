@@ -89,8 +89,13 @@ production browser proof (`903f4680`, run `37195464481/1`) preserves another 224
 unchanged Canvas cases. Full current discovery is bound to the union of retained
 and freshly executed cases; missing, failed, skipped or retried cases still block.
 Do not run the whole Auth/core suites again. The locale fixture also selects
-homepage acceptance: its 50 Linux functional cases and 245 unconfirmed core cases
-remain required. The other 249 core cases already have valid retained results.
+homepage acceptance: `8c471701` passed 45 applicable Linux cases (five existing
+engine-specific exclusions) and 225/245 newly selected core cases. Preserve these
+results alongside the other 249 retained core cases. The remaining 20 core failures
+were missing public availability in legacy Lab/Models/help fixtures. Reuse the
+existing approved fixture and await the complete catalog before measuring it;
+retain exact membership and missing/duplicate/substitution countercontrols. Only
+those 20 cases and the two unresolved Lab cases require fresh browser execution.
 Source/candidate comparison permits only the reviewed guard and generated cache
 version tokens; the frontend Worker/runtime/configuration must remain identical.
 

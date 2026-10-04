@@ -87,10 +87,14 @@ export const LOCAL_WORKER_REPAIR = Object.freeze({
   nativeLog:'52e3de550b9f7ad24f78802f7afadcacd965c6b9248214ef23a97889f33250e7',
   manifest:'050e0629fbae7721fb97cb4f89cabd374263cbc23e17fb7c9ab2ea620daeccf4',
   frontendProof:'39780d92a6e1046bdad051f28154bafcd5177c57639a3ba726984fbc78cb6b49',
+  coreSource:'8c471701860db3a07b08224f676589b10a1103cc',
+  coreCheckpoint:'53903614dccdce7864296187c108921ad2e034cd7c43a91da56a007dc8e69cc6',
+  functionalReport:'8b23a73b88974644b54bf4306d3fd56e2cafc8b1c9eb12edfec76f19560f3685',
   tailSource:'ed7a7d6a6084b79aabcff903f7cc66698f8e0c86',
   tailCheckpoint:'38f1757fa3b5e8134c65b5c89f11cbcd06c8495461cd99b6b29a1395c797a29f',
   tailLog:'a4905f85e7c5c5a3c19f37a8c30479f35f5459c617ebd4e4d34ebae52e2ac114',
   specs: {
+    'tests/smoke.spec.js':'5542e87d6bc492ed91fa494d3c3d0c9cffa4a03b2605693b89388df83cadbe0e',
     'js/pages/generate-lab/main.js':'ab851f5fb287503f137aecd324e6eb0b77fa92aa2b83a0e6bd863365df5a3267',
     'tests/auth-admin.spec.js':'53f92668d3233a8581d564ba4c2b0a5050d483b50bd4ede259e61d7bd1d65948',
     'tests/helpers/model-help-contract.cjs':'1477ed43927165b514bfeea6df1864d92f5e6e4cee8ae8f2f819ee539c5df7f5',
@@ -106,6 +110,7 @@ export const LOCAL_WORKER_REPAIR = Object.freeze({
   },
 });
 export const LOCAL_REPAIR_REFRESH = new Set([0,3,4,13,18,32,33,35,42]);
+export const LOCAL_CORE_REUSE = new Set([43,44,46,47]);
 const repairTooling = new Set(['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/lib/local-release-plan.mjs','scripts/test-local-release.mjs',
   'scripts/lib/local-release-browser.mjs','scripts/pages-candidate.mjs','scripts/lib/ci-test-selection.mjs',
   'AGENTS.md','docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md','docs/runbooks/REGRESSION_REGISTER.md']);
@@ -228,6 +233,12 @@ export function verifyNativeCaseUnion(before,after) {
 }
 export function verifyLocalReuse(directory,evidence) {
   const {original}=verifyLocalWorkerRepair(directory,evidence.sha);
+  const coreBytes=fs.readFileSync(path.join(directory,'reuse/core-checkpoint.json'));
+  assert.equal(sha256(coreBytes),LOCAL_WORKER_REPAIR.coreCheckpoint);
+  const core=JSON.parse(coreBytes);assert.equal(core.sha,LOCAL_WORKER_REPAIR.coreSource);
+  assert.equal(core.environment.key,evidence.environment.key);
+  assert.equal(core.nativeBrowsers.key,evidence.nativeBrowsers.key);
+  assert.equal(sha256(fs.readFileSync(path.join(directory,'test-results/homepage-functional.json'))),LOCAL_WORKER_REPAIR.functionalReport);
   const nativeBytes=fs.readFileSync(path.join(directory,'reuse/native-checkpoint.json'));
   assert.equal(sha256(nativeBytes),LOCAL_WORKER_REPAIR.nativeCheckpoint);
   const native=JSON.parse(nativeBytes);assert.equal(native.sha,LOCAL_WORKER_REPAIR.nativeSource);assert.equal(native.commands[42].exitCode,0);
@@ -252,6 +263,13 @@ export function verifyLocalReuse(directory,evidence) {
   for(const [index,result] of evidence.commands.entries()) {
     const prior=original.commands[index];
     if(index===42){assert.equal(result.continuation,localWorkerContinuation());continue;}
+    if(LOCAL_CORE_REUSE.has(index)) {
+      const saved=core.commands[index];assert.equal(saved.exitCode,0);
+      assert.equal(result.reusedFrom,core.sha);assert.equal(result.logHash,saved.logHash);
+      assert.equal(result.durationMs,saved.durationMs);
+      assert.deepEqual(result.command,JSON.parse(JSON.stringify(saved.command).replaceAll(core.sha,evidence.sha)));
+      continue;
+    }
     if(LOCAL_REPAIR_REFRESH.has(index)||index>=43){assert(!result.reusedFrom,'Changed-input check requires fresh execution');continue;}
     assert.equal(result.reusedFrom,original.sha,'Missing original command identity');
     assert.equal(result.exitCode,0);assert.equal(prior.exitCode,0);

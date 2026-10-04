@@ -447,6 +447,8 @@ async function expectModelsOverlayOpenState(page, { homepage = false } = {}) {
 
   await expect(overlay).toBeVisible();
   await expect(overlay).toHaveClass(/is-active/);
+  // Opening is immediate; the public availability request fills the catalogue.
+  await expect(overlay.locator('.models-overlay__group')).toHaveCount(expectedCatalog.length);
 
   const actualCatalog = await overlay.locator('.models-overlay__group').evaluateAll((nodes) => (
     nodes.map((node) => ({
@@ -473,6 +475,14 @@ async function expectModelsOverlayOpenState(page, { homepage = false } = {}) {
   }));
 
   expect(normalizedCatalog).toEqual(expectedCatalog);
+  for (const damage of [
+    groups => groups[0].models.pop(),
+    groups => groups[0].models.push(groups[0].models[0]),
+    groups => { groups[0].models[0].name = 'Unexpected model'; },
+  ]) {
+    const broken = structuredClone(normalizedCatalog); damage(broken);
+    expect(() => expect(broken).toEqual(expectedCatalog)).toThrow();
+  }
 
   const renderedCategories = normalizedCatalog.map((group) => group.category);
   expect(renderedCategories).toEqual(
@@ -2766,6 +2776,7 @@ test.describe('Homepage', () => {
   }
 
   test('MODELS opens the homepage models overlay from the mobile navigation without navigation', async ({ page }) => {
+    await require('./helpers/generation-selectors.cjs').mockAvailability(page);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
 
@@ -3871,6 +3882,7 @@ test.describe('Homepage', () => {
   });
 
   test('Generate Lab signed-out generation opens the account modal with guidance', async ({ page }) => {
+    await require('./helpers/generation-selectors.cjs').mockAvailability(page);
     await page.setViewportSize({ width: 1440, height: 980 });
     await page.route('**/api/me', async (route) => {
       await route.fulfill({
@@ -4331,6 +4343,7 @@ test.describe('Homepage', () => {
   });
 
   test('Generate Lab shows generation status, save retry guidance, and Assets Manager handoff', async ({ page }, testInfo) => {
+    await require('./helpers/generation-selectors.cjs').mockAvailability(page);
     await page.setViewportSize({ width: 1440, height: 980 });
     let saveAttempts = 0;
     const savePayloads = [];
@@ -4468,6 +4481,7 @@ test.describe('Homepage', () => {
   });
 
   test('Generate Lab sends allowlisted FLUX.2 Max and Grok Imagine Video payloads', async ({ page }) => {
+    await require('./helpers/generation-selectors.cjs').mockAvailability(page);
     await page.setViewportSize({ width: 1440, height: 980 });
     const imagePayloads = [];
     const videoPayloads = [];
@@ -4585,6 +4599,7 @@ test.describe('Homepage', () => {
   });
 
   test('German Generate Lab shows HappyHorse video controls with localized labels', async ({ page }) => {
+    await require('./helpers/generation-selectors.cjs').mockAvailability(page);
     await page.setViewportSize({ width: 1440, height: 980 });
     await page.route('**/api/me', async (route) => {
       await route.fulfill({
@@ -8641,11 +8656,13 @@ test.describe('Homepage', () => {
   });
 
   test('mobile models overlay keeps the final model fully reachable', async ({ page }) => {
+    await require('./helpers/generation-selectors.cjs').mockAvailability(page);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
 
     await page.getByRole('button', { name: 'Toggle menu' }).click();
     await page.locator('#mobileNav').getByRole('button', { name: 'Models' }).click();
+    await expectModelsOverlayOpenState(page, { homepage: true });
 
     const layout = page.locator('.models-overlay__layout');
     const lastCard = page.locator('.models-overlay__card').last();
@@ -9734,6 +9751,7 @@ test.describe('Global Help Menu', () => {
           if (route.request().method() !== 'GET') writes.push(route.request().url());
           await route.fulfill({ json: { loggedIn: false, user: null, assets: [], folders: [] } });
         });
+        await require('./helpers/generation-selectors.cjs').mockAvailability(page);
         await page.addInitScript(() => localStorage.setItem('bitbi_cookie_consent', JSON.stringify({ v: '1', ts: Date.now(), necessary: true, analytics: false, marketing: false })));
         try {
           await page.goto(new URL(`/${locale === 'de' ? 'de/' : ''}generate-lab/`, baseURL).href);
@@ -10025,6 +10043,7 @@ test.describe('Shared MODELS overlay', () => {
 
   for (const pathname of MODELS_OVERLAY_PATHS) {
     test(`${pathname} opens the local MODELS overlay from the mobile menu without navigation`, async ({ page }) => {
+      await require('./helpers/generation-selectors.cjs').mockAvailability(page);
       await page.setViewportSize({ width: 390, height: 844 });
       await page.goto(pathname);
       const currentUrl = new URL(page.url());

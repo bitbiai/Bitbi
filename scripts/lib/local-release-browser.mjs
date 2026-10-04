@@ -13,18 +13,21 @@ export const BROWSER_ORIGINS=Object.freeze({
   progress:'a4d3f433b96b7c0e9f51cc909b9e78ad7b3be694',
   corrected:'004ff2eca022dae6a8c48c6c29e8d8114236c79e',
   production:'903f46807424efa062460d8c95efbf2f104d66e8',productionRun:'37195464481',
+  coreProgress:'8c471701860db3a07b08224f676589b10a1103cc',
 });
 const rawHashes={
   previous:'cbee4ba34cc3c3bfbc71428351050a6f01416a836967fcbf8cf0788a3045e01e',
   progress:'c92b7c84a55b792de0918b4e1e9fc85318c43ad0a27c262d8b94da23966f9c8f',
   corrected:'728aa52b0144bdbd198e1e15a712f8bfde08cf4513e881bc14e67cb12a9f26f7',
   production:'094e6513e4efa457fa6424a250f77bc914cdc3a3790590e73dc31b3396e10ed2',
+  coreProgress:'1769babff07d3b1731ef014a02b5593ac041dfc25ae38736d3bc5518988847a1',
 };
 const rowHashes={
   previous:'617fd1c410187d1e2a1549da366b8ce3cfbfcb95206ea647f536eca1f27d05ab',
   progress:'bc53792d564dcc02dc3b064ae6c6b834837e357ae5949f09a478d7fcb05cc132',
   corrected:'3f0cfc3107dcbea944eb0f3081ebaa1258f8e98c5c4d70ed4c6f3745bbb9a578',
   production:'6e230eba3d38c0f4b692a57e15ce87b58d1d359a1c8600fd196b91da8172164b',
+  coreProgress:'2b89315fc47f0313178e28fa78dd0265263e15abaeb2197f64a1bfc51f4d19cc',
 };
 const discoveryHashes={auth:'7f7b08cedcd4e7883649e1210b89e8179b867ce7e9611481df2b8a22c0c6b903',homepage:'d42e2742b87f5099c47f0930ef310c3333060cd26fe4711194607e854004cfd3'};
 export const passedBrowserCase=row=>row.expectedStatus==='passed'&&row.status==='expected'&&row.results?.length===1&&row.results[0].status==='passed'&&row.results[0].retry===0&&!row.results[0].error;
@@ -53,7 +56,9 @@ export function migrationBrowserPool(pool) {
   assert.equal(rows.length,707);assert.equal(new Set(rows.map(row=>row.key)).size,707);
   for(const row of [...pool.progress,...pool.corrected])assert.deepEqual(identity(row),identity(pool.previous.find(old=>old.key===row.key)));
   const retained=new Map(rows.map(row=>[row.key,row]));
-  for(const row of pool.production) {
+  assert.equal(pool.coreProgress.length,245);
+  assert.equal(pool.coreProgress.filter(passedBrowserCase).length,225);
+  for(const row of [...pool.production,...pool.coreProgress.filter(passedBrowserCase)]) {
     assert(passedBrowserCase(row));
     if(retained.has(row.key))assert.deepEqual(identity(row),identity(retained.get(row.key)));
     else retained.set(row.key,row);
