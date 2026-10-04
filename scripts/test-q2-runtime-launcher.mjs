@@ -659,13 +659,15 @@ test('focused native scopes dispatch through the actual child and preserve bound
   assert.equal(selectedRuntimeSuites('canvas-completion')[0][1],(await import('../tests/helpers/q2-runtime/canvas.mjs')).runCanvasCompletionTests);
   assert.equal(parseRuntimeArgs(['--suite','canvas-audio'],{}).suite,'canvas-audio');
   assert.equal(selectedRuntimeSuites('canvas-audio')[0][1],(await import('../tests/helpers/q2-runtime/canvas.mjs')).runCanvasAudioTests);
+  assert.equal(parseRuntimeArgs(['--suite','canvas-audio-fit'],{}).suite,'canvas-audio-fit');
+  assert.equal(selectedRuntimeSuites('canvas-audio-fit')[0][1],(await import('../tests/helpers/q2-runtime/canvas.mjs')).runCanvasAudioFitTests);
   assert.deepEqual(selectedRuntimeSuites('q4-stream').map(([name])=>name),['q4-stream']);
   assert.equal(parseRuntimeArgs(['--suite','q4-stream'],{}).suite,'q4-stream');
   assert.deepEqual(selectedRuntimeSuites('website-assistant').map(([name])=>name),['website-assistant']);
   assert.equal(parseRuntimeArgs(['--suite','website-assistant'],{}).suite,'website-assistant');
   assert.throws(()=>selectedRuntimeSuites('unknown'));
   const bootstrap=read('tests/helpers/q2-runtime/linux-bootstrap.py');
-  assert.match(bootstrap,/choices=\["member-generation", "model-status", "model-pricing", "appearance", "canvas", "canvas-completion", "canvas-audio", "q4-stream", "website-assistant"\]/);
+  assert.match(bootstrap,/choices=\["member-generation", "model-status", "model-pricing", "appearance", "canvas", "canvas-completion", "canvas-audio", "canvas-audio-fit", "q4-stream", "website-assistant"\]/);
   assert.match(bootstrap,/"website-assistant-result.json"/);
   // Execute the unchanged child module with synthetic process/import boundaries.
   // This checks dispatch ordering, not Linux kernel isolation (required in CI).
@@ -674,7 +676,7 @@ test('focused native scopes dispatch through the actual child and preserve bound
     import {readFileSync} from 'node:fs';
     import {SourceTextModule,SyntheticModule,createContext} from 'node:vm';
     const source=readFileSync('tests/helpers/q2-runtime/linux-runtime-child.mjs','utf8');
-    for(const suite of [undefined,'member-generation','model-status','model-pricing','appearance','canvas','canvas-completion','canvas-audio','q4-stream','website-assistant','unknown','',null,false]) {
+    for(const suite of [undefined,'member-generation','model-status','model-pricing','appearance','canvas','canvas-completion','canvas-audio','canvas-audio-fit','q4-stream','website-assistant','unknown','',null,false]) {
       for(const fault of [null,'platform','uid','gid']) {
         const calls=[], context=createContext({process:{platform:fault==='platform'?'darwin':'linux',
           getuid:()=>fault==='uid'?0:65534,getgid:()=>fault==='gid'?0:65534}});
@@ -687,7 +689,7 @@ test('focused native scopes dispatch through the actual child and preserve bound
           const m=new SyntheticModule(Object.keys(modules[name]),function(){for(const [k,v]of Object.entries(modules[name]))this.setExport(k,v);},{context});
           await m.link(()=>{});await m.evaluate();return m;};
         const m=new SourceTextModule(source,{context,importModuleDynamically:load});await m.link(load);
-        if(!fault && [undefined,null,'member-generation','model-status','model-pricing','appearance','canvas','canvas-completion','canvas-audio','q4-stream','website-assistant'].includes(suite)) {
+        if(!fault && [undefined,null,'member-generation','model-status','model-pricing','appearance','canvas','canvas-completion','canvas-audio','canvas-audio-fit','q4-stream','website-assistant'].includes(suite)) {
           await m.evaluate();assert.deepEqual(calls,['node:assert/strict','node:fs','boundary','./runner.mjs','run']);
         } else {
           await assert.rejects(m.evaluate());assert.ok(!calls.includes('./runner.mjs'));
@@ -705,13 +707,14 @@ test('actual selected Worker shell stops before downstream work on every failure
   for(const name of ['node','npx','npm'])fs.writeFileSync(path.join(bin,name),'#!/bin/sh\ncommand="${0##*/} $*"\nprintf "%s\\n" "$command" >> "$TRACE"\n[ "$command" != "$FAIL_COMMAND" ] || exit 37\n',{mode:0o700});
   const block=read('.github/workflows/static.yml').split('      - name: Run worker route tests\n')[1].split('      - name:')[0];
   const script=block.split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n');
-  for(const [status,selected,canvas='false',pricing='false',appearance='false',areas='false',completion='false',audio='false'] of [['false','true'],['false','false'],['true','false'],['false','false','true'],['false','false','false','true'],['false','false','false','false','true'],['true','false','false','false','false','true'],['false','false','true','false','false','false','true'],['false','false','true','false','false','false','false','true']]) {
-    const command=script.replaceAll('${{ needs.release-compatibility.outputs.canvas_audio }}',audio).replaceAll('${{ needs.release-compatibility.outputs.canvas_completion }}',completion).replaceAll('${{ needs.release-compatibility.outputs.appearance }}',appearance).replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}',pricing).replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}',canvas).replaceAll('${{ needs.release-compatibility.outputs.model_status }}',status).replaceAll('${{ needs.release-compatibility.outputs.model_areas }}',areas).replaceAll("${{ needs.release-compatibility.outputs.member_assets }}",selected);
+  for(const [status,selected,canvas='false',pricing='false',appearance='false',areas='false',completion='false',audio='false',fit='false'] of [['false','true'],['false','false'],['true','false'],['false','false','true'],['false','false','false','true'],['false','false','false','false','true'],['true','false','false','false','false','true'],['false','false','true','false','false','false','true'],['false','false','true','false','false','false','false','true'],['false','false','true','false','false','false','false','false','true']]) {
+    const command=script.replaceAll('${{ needs.release-compatibility.outputs.canvas_audio_fit }}',fit).replaceAll('${{ needs.release-compatibility.outputs.canvas_audio }}',audio).replaceAll('${{ needs.release-compatibility.outputs.canvas_completion }}',completion).replaceAll('${{ needs.release-compatibility.outputs.appearance }}',appearance).replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}',pricing).replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}',canvas).replaceAll('${{ needs.release-compatibility.outputs.model_status }}',status).replaceAll('${{ needs.release-compatibility.outputs.model_areas }}',areas).replaceAll("${{ needs.release-compatibility.outputs.member_assets }}",selected);
     const run=fail=>{fs.writeFileSync(trace,'');const result=spawnSync('/bin/sh',['-c',command],{cwd:f.base,env:{PATH:bin,TRACE:trace,FAIL_COMMAND:fail||''},encoding:'utf8'});return {status:result.status,commands:fs.readFileSync(trace,'utf8').trim().split('\n')};};
     const passed=run();assert.equal(passed.status,0);
     if(canvas!=='true')assert.equal(passed.commands.length,areas==='true'?5:appearance==='true'?3:pricing==='true'?4:status==='true'||selected==='true'?3:1);
     if(appearance==='true'){assert.match(passed.commands[0],/test-q2-runtime-launcher/);assert.match(passed.commands[1],/tests\/appearance.spec.js --retries=0$/);assert.match(passed.commands[2],/--suite appearance$/);}
     else if(pricing==='true'){assert.match(passed.commands[0],/test-q2-runtime-launcher/);assert.match(passed.commands[1],/tests\/model-pricing.spec.js/);assert.match(passed.commands[2],/tests\/workers.spec.js/);assert.match(passed.commands[3],/--suite model-pricing$/);}
+    else if(fit==='true'){assert.equal(passed.commands.length,2);assert.match(passed.commands[1],/--suite canvas-audio-fit$/);}
     else if(audio==='true'){assert.equal(passed.commands.length,3);assert.match(passed.commands[0],/test-q2-runtime-launcher/);assert.match(passed.commands[1],/Canvas audio/);assert.match(passed.commands[2],/--suite canvas-audio$/);}
     else if(completion==='true'){assert.equal(passed.commands.length,2);assert.match(passed.commands[0],/test-q2-runtime-launcher/);assert.match(passed.commands[1],/--suite canvas-completion$/);}
     else if(canvas==='true'){

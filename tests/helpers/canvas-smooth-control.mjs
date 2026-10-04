@@ -1,7 +1,13 @@
 import {canvasAudioFixture} from './canvas-audio-control.mjs';
+import {validAudioFit,cutSafeAudio,audioFitResultText} from '../../js/shared/canvas-audio-fit.mjs';
+import {enqueueCanvasProcessing} from '../../workers/auth/src/lib/canvas-video-processing.js';
 import {canvasClipIdentity} from '../../js/shared/canvas-export.mjs';
 const check=(value,message)=>{if(!value)throw new Error(message);};
 export async function canvasSmoothCase(base,media) {
+  const fitted={policy:'fit-picture-v1',trimStart:0,trimEnd:.2};
+  check(validAudioFit(fitted)&&!validAudioFit({...fitted,trimEnd:null})&&!validAudioFit({...fitted,private:'forbidden'}),'Strict fit report');
+  check(cutSafeAudio({gain:.5,fadeOut:.3},fitted).fadeOut===.3&&cutSafeAudio({gain:.5,fadeOut:0},fitted).fadeOut===.005,'Audition uses the same single edge ramp and retains gain');
+  check(audioFitResultText([{originalAudioFit:fitted}],true).includes('gekürzt')&&audioFitResultText([{originalAudioFit:fitted}],false).includes('trimmed'),'Both languages disclose shortened audio');
   const f=await canvasAudioFixture(base,{...media,scope:'smooth'}),internal='/api/internal/homepage/hero-videos/canvas-exports/jobs';
   const ledger=JSON.stringify((await f.db.prepare('SELECT * FROM member_credit_ledger WHERE user_id=? ORDER BY id').bind(f.owner).all()).results);
   const view=await f.data(await f.request(f.endpoint)),clips=view.chain.clips.map(canvasClipIdentity);
@@ -13,7 +19,12 @@ export async function canvasSmoothCase(base,media) {
   await f.data(await f.request(setting,'PATCH',{config:{smoothJoins:true}}));
   check((await f.readProject()).nodes.find(n=>n.id===f.last.id).config.smoothJoins===true,'Project reload preserves selected mode');
   const normal=(await f.data(await post(body,'smooth-off-acceptance'))).export;
-  check(normal.recipe.version===4&&!normal.recipe.smoothJoins.enabled&&normal.recipe.timingPolicy==='video-clock-v1','OFF still uses corrected video timing');
+  check(normal.recipe.version===5&&!normal.recipe.smoothJoins.enabled&&normal.recipe.timingPolicy==='video-clock-v2'&&normal.recipe.originalAudioPolicy==='fit-picture-v1','OFF still uses corrected video timing');
+  const legacyRecipe={...normal.recipe,version:4,timingPolicy:'video-clock-v1'};delete legacyRecipe.originalAudioPolicy;
+  const legacy=await enqueueCanvasProcessing(f.env,{userId:f.owner,projectId:f.project,runId:{nodeId:f.last.id},kind:'concat',sources:legacyRecipe.videos,recipe:legacyRecipe,requestKey:'audio-fit-legacy-key'});
+  await f.db.prepare("UPDATE canvas_video_processing SET status='failed',error_code='canvas_audio_tail_exceeds_video' WHERE id=?").bind(legacy.id).run();
+  const replay=(await f.data(await post(body,'audio-fit-legacy-key'))).export;
+  check(replay.id===legacy.id&&replay.recipe.version===4&&replay.status==='failed','Old accepted failure is observed without changing its policy');
   const smooth=(await f.data(await post({...body,smoothJoins:true},'smooth-on-acceptance'))).export;
   check(smooth.id!==normal.id&&smooth.recipe.smoothJoins.policy==='motion-anchors-v1','Mode/policy is immutable render input');
   check((await post({...body,smoothJoins:false},'smooth-on-acceptance')).status===409,'Unknown outcome cannot silently change mode');
@@ -34,22 +45,27 @@ export async function canvasSmoothCase(base,media) {
   check(preview.recipe.videos.at(-1).originalAudio.enabled===true,'Accepted preview is not changed by later sound editing');
   const head=await f.db.prepare('SELECT latest_id,current_id FROM canvas_export_heads WHERE node_id=?').bind(f.last.id).first();
   const auth={Authorization:'Bearer synthetic-audio-processor'};
-  check(!(await f.data(await f.request(internal+'/claim','POST',{protocol:1,recipeProtocol:4,limit:3},auth))).jobs.length,'Old processor cannot claim new policy');
+  check(!(await f.data(await f.request(internal+'/claim','POST',{protocol:1,recipeProtocol:5,limit:3},auth))).jobs.length,'Old processor cannot claim new policy');
   let previewJob;
   for(let i=0;i<4;i++) {
-    const job=(await f.data(await f.request(internal+'/claim','POST',{protocol:1,recipeProtocol:5,limit:1},auth))).jobs[0];
-    check(job?.recipeVersion===4&&job.smoothJoins.policy==='motion-anchors-v1','New processor receives policy');
+    const job=(await f.data(await f.request(internal+'/claim','POST',{protocol:1,recipeProtocol:6,limit:1},auth))).jobs[0];
+    check(job?.recipeVersion===5&&job.originalAudioPolicy==='fit-picture-v1'&&job.smoothJoins.policy==='motion-anchors-v1','New processor receives policy');
     if(job.id===preview.id)previewJob=job;
   }
   check(previewJob.preview.seamIndex===1,'Real claim receives the same requested seam');
-  const form=(report=true)=>{const form=new FormData();form.set('video',new Blob([Uint8Array.from(atob(media.videoBase64),c=>c.charCodeAt(0))],{type:'video/mp4'}),'preview.mp4');
-    form.set('duration','2');form.set('width','320');form.set('height','180');form.set('audioTimeline',JSON.stringify([{start:0,duration:1},{start:1,duration:1}]));
+  const form=(report=true,fit=true)=>{const form=new FormData();form.set('video',new Blob([Uint8Array.from(atob(media.videoBase64),c=>c.charCodeAt(0))],{type:'video/mp4'}),'preview.mp4');
+    form.set('duration','2');form.set('width','320');form.set('height','180');form.set('audioTimeline',JSON.stringify([0,1].map(start=>({start,duration:1,...(fit?{originalAudioFit:{policy:'fit-picture-v1',trimStart:0,trimEnd:start?.2:0}}:{})}))));
     if(report)form.set('seamResult',JSON.stringify({policy:'motion-anchors-v1',improved:0,seams:[{index:1,at:2,reason:'uncertain_motion'}]}));return form;};
   const lease={...auth,'X-BITBI-Canvas-Claim':previewJob.claim};
+  check((await f.request(previewJob.completion.url,'POST',form(true,false),lease)).status===409,'Missing fit report blocks completion');
+  const malformed=form();malformed.set('audioTimeline',JSON.stringify([{start:0,duration:1,originalAudioFit:{policy:'fit-picture-v1',trimStart:0,trimEnd:-1}},{start:1,duration:1}]));
+  check((await f.request(previewJob.completion.url,'POST',malformed,lease)).status===409,'Malformed fit is not a zero trim');
   check((await f.request(previewJob.completion.url,'POST',form(false),lease)).status===409,'Missing result cannot become a silent successful smoothing');
   await f.data(await f.request(previewJob.completion.url+'?part=preview-base','POST',form(),lease));
   await f.data(await f.request(previewJob.completion.url,'POST',form(),lease));
   const ready=(await f.data(await f.request(f.endpoint+'?seamPreview='+preview.id))).preview;
+  check(ready.audio_timeline[1].originalAudioFit.trimEnd===.2,'Fit disclosure persists in authoritative readback');
+  check((await f.db.prepare('SELECT recipe_json,status FROM canvas_video_processing WHERE id=?').bind(legacy.id).first()).recipe_json===JSON.stringify(legacyRecipe),'Old accepted recipe remains immutable');
   check(ready.preview_base&&ready.asset&&ready.seam_result.improved===0,'Fallback and both source-protected comparisons are visible');
   check((await f.request(ready.preview_base.file_url)).ok,'Owner can read before preview');
   check((await f.request(ready.preview_base.file_url,'GET',null,{Cookie:'__Host-bitbi_session=invalid'})).status===401,'Private comparison stays protected');

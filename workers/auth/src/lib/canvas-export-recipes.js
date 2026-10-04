@@ -2,6 +2,7 @@ import { exportMusicSettings, isExportMusic, canvasExportSubject, canvasNodeMedi
 import { sha256Hex, nowIso } from './tokens.js';
 import { ownedCanvasVideo } from './canvas-video-input.js';
 import {smoothJoinSettings,seamPreviewSettings} from '../../../../js/shared/canvas-smooth-joins.mjs';
+import {CANVAS_AUDIO_FIT_POLICY} from '../../../../js/shared/canvas-audio-fit.mjs';
 
 const fail = code => { throw Object.assign(new Error(code), {code,status:409}); };
 export async function validateExportEdge(env,userId,projectId,sourceId,targetId,config) {
@@ -52,7 +53,7 @@ export async function canvasExportRecipe(env,userId,projectId,runId,videos,setti
   if(sources.reduce((total,s)=>total+s.size,0)>400_000_000)fail('canvas_chain_size');
   const smoothJoins=smoothJoinSettings(smooth),comparison=seamPreviewSettings(preview,videos.length);
   if(comparison&&!smoothJoins.enabled)fail('canvas_smooth_settings');
-  return {version:4,spatialPolicy:'center-crop-v1',timingPolicy:'video-clock-v1',smoothJoins,...(comparison?{preview:comparison}:{}),...(explicit?{sequence:'explicit'}:{}),videos,music,backgroundMusic};
+  return {version:5,spatialPolicy:'center-crop-v1',timingPolicy:'video-clock-v2',originalAudioPolicy:CANVAS_AUDIO_FIT_POLICY,smoothJoins,...(comparison?{preview:comparison}:{}),...(explicit?{sequence:'explicit'}:{}),videos,music,backgroundMusic};
 }
 export async function exportHead(env,userId,runId) {
   const subject=canvasExportSubject(runId);

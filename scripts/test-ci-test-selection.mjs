@@ -1169,3 +1169,14 @@ console.log('Seedance: real durable Worker/native and workspace/pricing callers 
  const smoothed=selectCiTests([...files,...smooth]);assert.equal(smoothed.canvasAudio,true);assert.equal(requiresPrivateMediaImage(smooth),true);
  assert.notEqual(selectCiTests([...smooth,'workers/auth/src/lib/member-generation-jobs.js']).canvasAudio,true);
 }
+
+{
+ const files=['js/shared/canvas-audio-fit.mjs','services/homepage-ffmpeg-processor/canvas-audio-fit.mjs','services/homepage-ffmpeg-processor/canvas-full-video.mjs','workers/auth/src/routes/canvas-video-processing.js','js/pages/canvas/full-video.js'];
+ const chosen=selectCiTests(files);assert.equal(chosen.policy,'canvas-audio-fit-v1');
+ for(const key of ['canvasAudioFit','canvasText','workers','auth','static','runtime'])assert.equal(chosen[key],true);
+ for(const key of ['full','homepage','carousel','assets'])assert.equal(chosen[key],false);
+ assert.notEqual(chosen.canvasAudio,true,'Fit correction does not repeat the full Canvas collection');
+ for(const unrelated of ['workers/auth/src/lib/billing.js','workers/auth/src/routes/canvas.js','services/homepage-ffmpeg-processor/video-reference.mjs','workers/media/src/index.js','js/pages/canvas/workflow.js'])assert.notEqual(selectCiTests([...files,unrelated]).canvasAudioFit,true);
+ assert.notEqual(selectCiTests(files,{forceFull:true}).canvasAudioFit,true);
+ assert.equal(requiresPrivateMediaImage(files),true);
+}

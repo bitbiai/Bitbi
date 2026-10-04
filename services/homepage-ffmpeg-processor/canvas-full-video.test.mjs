@@ -3,6 +3,7 @@ import {mkdtemp,rm,readFile,writeFile,chmod} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
+import {testAudioFit} from './canvas-audio-fit.test.mjs';
 import {testSmoothJoins} from './canvas-seams.test.mjs';
 import {concatenateClips,mediaCommand,inspectClip,processingTimeout,processCanvasExports,mixBackgroundMusic,loopMusicPcm} from './canvas-full-video.mjs';
 
@@ -36,7 +37,7 @@ export async function testCanvasConcatenation() {
   assert.equal(processingTimeout(720000,0),120000);
   assert.equal(processingTimeout(720000,719000),1000);
   assert.throws(()=>processingTimeout(720000,720000),/canvas_processing_deadline/);
-  for(const advertised of [undefined,4,5]) {
+  for(const advertised of [undefined,4,5,6]) {
     let claims=0;
     await processCanvasExports({baseUrl:'https://processor.invalid',limit:1,authHeaders:()=>({}),
       requestJson:async(url,init={})=>{
@@ -97,6 +98,7 @@ export async function testCanvasConcatenation() {
     await testCenterCrop();
     await testCanvasAudioControls();
     await testSmoothJoins();
+  await testAudioFit();
     await assert.rejects(concatenateClips(files,dir,{limits:{durationSeconds:1,outputBytes:80000000}}),/canvas_duration_limit/);
     await assert.rejects(concatenateClips(files.slice(0,1),dir),/canvas_sources_invalid/);
     assert((await readFile(full.output)).byteLength>1000);

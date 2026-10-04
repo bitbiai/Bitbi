@@ -33,6 +33,12 @@ export function verifyCanvasAudioDiscovery(actual, standard=actual) {
   }
   for(const row of actual)assert.equal(row.expectedStatus,'passed','Selected Canvas audio case must execute');
 }
+export function verifyCanvasAudioFitDiscovery(actual) {
+  const expected=['chromium','webkit-canvas'].flatMap(project=>['en','de'].map(locale=>
+    `${project}:canvas.spec.js:Canvas audio fit ${locale}: original timing, comparison and saved export`));
+  assert.deepEqual(actual.map(row=>`${row.project}:${row.file}:${row.title}`).sort(),expected.sort(),'Audio fit discovery requires every engine/locale exactly once');
+  for(const row of actual)assert.equal(row.expectedStatus,'passed','Audio fit case must execute');
+}
 export function verifyCanvasCompletionDiscovery(actual) {
   const expected = ['chromium', 'webkit-canvas'].flatMap(project => ['en', 'de'].map(locale =>
     `${project}:canvas.spec.js:Canvas completion metadata ${locale}: queue, deficient Inspector, appended chain and admission`));

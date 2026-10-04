@@ -141,7 +141,7 @@ export async function importLocalEvidence(expected, { token = process.env.GH_TOK
       const original=JSON.parse(fs.readFileSync(path.join(mediaDir,'image.json')));
       const retained=isSmoothContinuation(verified.evidence.permissionContinuation?.source);
       if(retained)verifySmoothImageReuse(original,expected.sha);
-      verifyMediaImage(original,{sha:retained?original.sha:expected.sha,run:retained?SMOOTH_BROWSER_CONTINUATION.run:verified.evidence.id,attempt:'1',archive:path.join(mediaDir,'image.tar')});
+      verifyMediaImage(original,{base:expected.base,sha:retained?original.sha:expected.sha,run:retained?SMOOTH_BROWSER_CONTINUATION.run:verified.evidence.id,attempt:'1',archive:path.join(mediaDir,'image.tar')});
       fs.mkdirSync('test-results',{recursive:true});fs.cpSync(mediaDir,'test-results/private-media-image',{recursive:true});
       fs.writeFileSync('test-results/private-media-image/image.json',JSON.stringify({...original,run:String(run),attempt:String(attempt),
         localValidation:{policy:LOCAL_POLICY,...(retained?{publicationSha:expected.sha}:{}),run:original.run,attempt:original.attempt,evidence:verified.digest,recordHash:sha256(JSON.stringify(original))}}));

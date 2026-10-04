@@ -78,6 +78,7 @@ const SHARED_WORKER_FILE_MAP = Object.freeze({
   "js/shared/canvas-video-input.mjs": ["auth"],
   "js/shared/canvas-export.mjs": ["auth"],
   "js/shared/canvas-audio.mjs": ["auth"],
+  "js/shared/canvas-audio-fit.mjs": ["auth"],
   "js/shared/canvas-smooth-joins.mjs": ["auth"],
   "js/shared/ai-image-models.mjs": ["auth"],
   "js/shared/generation-model-order.mjs": ["auth"],

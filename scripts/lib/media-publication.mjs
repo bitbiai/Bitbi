@@ -216,7 +216,7 @@ with zipfile.ZipFile(p/'image.zip') as z:
   with (p/e.filename).open('xb') as f:f.write(z.read(e))`,dir]);
     const record=JSON.parse(fs.readFileSync(path.join(dir,'image.json')));
     const imageSha=record.sha===sha?sha:verifyImportedSmoothImage(record,{sha,run:source.run,attempt:source.attempt});
-    verifyMediaImage(record,{sha:imageSha,run:source.run,attempt:source.attempt,archive:path.join(dir,'image.tar')});
+    verifyMediaImage(record,{base:c.base,sha:imageSha,run:source.run,attempt:source.attempt,archive:path.join(dir,'image.tar')});
     command('docker',['load','--input',path.join(dir,'image.tar')]);
     const image=JSON.parse(command('docker',['image','inspect',record.tag]))[0];verifyLoadedMediaImage(record,image,mediaArchiveIdentity(path.join(dir,'image.tar')));
     if(reuse) {

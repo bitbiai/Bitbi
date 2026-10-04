@@ -1,5 +1,6 @@
 import {canvasApi} from './api.js?v=__ASSET_VERSION__';
 import {smoothJoinResultText} from '../../shared/canvas-smooth-joins.mjs?v=__ASSET_VERSION__';
+import {audioFitResultText} from '../../shared/canvas-audio-fit.mjs?v=__ASSET_VERSION__';
 
 export function smoothJoinControls({parent,german,signal,projectId,anchor,read,write,flush,sequence,settings,getGraph,pause}) {
     const box=document.createElement('div');box.className='canvas-smooth-joins';
@@ -67,7 +68,7 @@ export function smoothJoinControls({parent,german,signal,projectId,anchor,read,w
         busy=false;if(signal.aborted||signature()!==requestVersion){sync();return;}
         if(!response.ok){status.textContent=(german?'Vergleich nicht verfügbar.':'Comparison unavailable.')+` (${response.code})`;if(response.status>=400&&response.status<500)key=null;sync();return;}
         job=response.data.preview;key=null;
-        if(job?.asset){status.textContent=smoothJoinResultText(job.seam_result,german);render(job);}
+        if(job?.asset){status.textContent=[smoothJoinResultText(job.seam_result,german),audioFitResultText(job.audio_timeline,german)].filter(Boolean).join(' ');render(job);}
         else if(job?.status==='failed')status.textContent=(german?'Verarbeitung fehlgeschlagen: ':'Processing failed: ')+(job.error_code||'canvas_processing_failed');
         else if(++reads<120)timer=setTimeout(()=>void update(false),5000);
         else status.textContent=german?'Die Verarbeitung läuft weiter. Vergleich erneut öffnen.':'Processing continues. Open the comparison again.';

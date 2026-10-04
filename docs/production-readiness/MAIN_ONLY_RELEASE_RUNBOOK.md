@@ -740,12 +740,17 @@ Asset Reference capabilities come from owned media metadata. Imported videos use
 strand export service. Image/music references stay outside video timelines;
 replacement revalidates saved input roles and clears obsolete prepared frames.
 Per-node original-audio settings and independent background-music fades persist
-with the project. New recipe v4 / processor protocol 5 also snapshots the OFF-default
-Smooth joins setting and its policy. The video clock owns new clip boundaries:
-inaudible codec overhang cannot extend the last picture; meaningful audio beyond
-the picture rejects visibly rather than being cut. One continuous soundtrack avoids
-per-clip AAC priming offsets. Center-crop normalization is unchanged. Accepted v1–v3
-jobs retain their original timing and recovery contract.
+with the project. New recipe v5 / processor protocol 6 snapshots the OFF-default
+Smooth joins setting and `fit-picture-v1` original-audio policy. Owner decision,
+2026-10-04: automatically trim even audible overhang to each normalized picture
+window, pad short/missing sound, and retain source offsets without stretching.
+The old v4 overhang rejection is superseded for new requests; accepted v1–v4
+jobs retain their immutable policies. A new explicit export uses a new request
+identity; replay of an old request still observes that old job. One continuous
+soundtrack avoids per-clip AAC priming offsets. Center-crop remains unchanged.
+A 5 ms ramp applies only to a newly cut edge without a user fade; audition and
+render use it once. Persisted fit metadata explains shortened audio in EN/DE.
+Originals and existing exports are never edited.
 
 Smooth joins reconstructs an eight-frame inner interval from motion anchors on
 both sides, without a dissolve, time removal or whole-video interpolation. It requires
@@ -784,7 +789,7 @@ changed private-media image must include `per-clip-audio-decoded` and
 `smooth-joins-decoded` evidence from its existing processor test. This checks decoded
 hold/jump reduction, unchanged good/still/intentional-pause/cut controls, actual output
 replacement (including a deliberately broken compositor), video timestamps, silent
-versus meaningful audio overhang, and preview/export envelope agreement. Native D1
+versus meaningful audio overhang for legacy v4, and preview/export envelope agreement. Native D1
 checks persistence, strict settings, private reads, snapshot/cache replay and schema;
 EN/DE Chromium/WebKit uses the actual Worker and FFmpeg for comparison, playback,
 download and Save. Required discovery rejects a removed comparison case. The existing
@@ -793,6 +798,17 @@ publication allowlist and rejects unknown migrations. FFmpeg/ffprobe preparation
 callers in static, Full and UI-fast. No duplicate Full or unrelated platform suite
 is required for this task. Native fixtures remain synthetic provider acceptance;
 actual D1/R2, decoded playback/export and live readback are separate evidence.
+
+The focused `canvas-audio-fit-v1` selection covers only the closed audio-fit
+correction surface. It executes `--suite canvas-audio-fit`, four EN/DE
+Chromium/WebKit real Worker/FFmpeg cases, and target AMD64 decoded audio-fit plus
+processor/lifecycle checks. Image proof revalidates the complete verified
+base-to-candidate range; missing reports, a broader runtime change or incomplete
+engine/locale discovery cannot inherit this scope. Scheduled Full retains all
+Canvas coverage. No blanket replay of the previous 228 browser passes is needed.
+Decoded acceptance covers audible tails, missing/short/delayed/early audio, actual
+frame timestamps, mute/gain/fades, smooth off/on and preview/music agreement.
+The owner-chain/live receipts remain separate from synthetic fixtures.
 
 The fixture-only continuation for `3e6f82ed` / `37189472421/1` retains its 218
 browser passes, four Linux native cases and tested processor image. The authenticated

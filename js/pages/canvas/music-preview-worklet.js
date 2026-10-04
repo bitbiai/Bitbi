@@ -1,6 +1,7 @@
 // Audition only: no encoding, normalization, ducking or makeup gain.
 // Match the export's 10 ms linear loop overlap and sample-zero first pass.
 import { effectiveAudio } from '../../shared/canvas-audio.mjs?v=__ASSET_VERSION__';
+import { cutSafeAudio } from '../../shared/canvas-audio-fit.mjs?v=__ASSET_VERSION__';
 const envelope=(s,t,d,gain=s?.gain)=>!s?.enabled||t<0||t>=d?0:gain*Math.min(1,s.fadeIn?t/s.fadeIn:1,s.fadeOut?(d-t)/s.fadeOut:1);
 export function loopPosition(frame,length,rate) {
     const overlap=Math.min(Math.round(rate*.01),Math.floor(length/4)),period=length-overlap;
@@ -18,7 +19,7 @@ if(typeof registerProcessor==='function') {
                 if(data.time!==undefined){this.frame=Math.max(0,data.time*this.rate);this.segmentIndex=0;}
                 if(data.speed!==undefined)this.speed=data.speed;
                 if(data.repeat!==undefined)this.repeat=data.repeat;
-                if(data.timeline){this.timeline=data.timeline.map(clip=>({...clip,settings:effectiveAudio(clip.originalAudio,clip.duration)}));this.segmentIndex=0;}
+                if(data.timeline){this.timeline=data.timeline.map(clip=>({...clip,settings:effectiveAudio(cutSafeAudio(clip.originalAudio,clip.originalAudioFit),clip.duration)}));this.segmentIndex=0;}
                 if(data.duration)this.duration=data.duration;
                 if(data.music)this.music=effectiveAudio(data.music,data.duration||this.duration);
             };

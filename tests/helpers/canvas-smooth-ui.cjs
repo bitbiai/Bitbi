@@ -1,11 +1,12 @@
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os');
 const {SqliteD1Database,applyAuthMigrations}=require('./sqlite-d1.js');
 const {createAuthTestEnv}=require('./auth-worker-harness.js');
-exports.smoothUi=async({page,expect,locale,mockSharedAuth,createCanvasApiMock,info})=>{
+exports.smoothUi=async({page,expect,locale,mockSharedAuth,createCanvasApiMock,info,fitAudio=false})=>{
   const {seamFixture}=await import('../../services/homepage-ffmpeg-processor/canvas-seams.test.mjs');
   const {canvasAudioFixture}=await import('./canvas-audio-control.mjs');
   const {processCanvasExports}=await import('../../services/homepage-ffmpeg-processor/canvas-full-video.mjs');
-  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'canvas-smooth-ui-')),files=await seamFixture(dir);
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'canvas-smooth-ui-'));
+  const files=fitAudio?await (await import('../../services/homepage-ffmpeg-processor/canvas-audio-fit.test.mjs')).fitFixture(dir):await seamFixture(dir);
   const DB=new SqliteD1Database();applyAuthMigrations(DB);
   const media=name=>fs.readFileSync(path.join(__dirname,'../fixtures/media',name)).toString('base64');
   const f=await canvasAudioFixture({...createAuthTestEnv(),DB},{videoBase64:fs.readFileSync(files[0]).toString('base64'),importVideoBase64:fs.readFileSync(files[1]).toString('base64'),musicBase64:media('member-music.mp3'),imageBase64:media('h3-frame.png')});
@@ -26,6 +27,7 @@ exports.smoothUi=async({page,expect,locale,mockSharedAuth,createCanvasApiMock,in
   const inspector=page.locator('#canvasInspectorBody'),smooth=inspector.getByRole('checkbox',{name:de?'Sanft zusammenführen':'Smooth joins',exact:true});
   try {
     await page.goto(de?'/de/canvas/':'/canvas/');await open();await expect(smooth).not.toBeChecked();
+    if(fitAudio)await expect(inspector).toContainText(de?'Originalton wird automatisch':'Original audio is automatically');
     await smooth.focus();await page.keyboard.press('Space');await expect(smooth).toBeChecked();
     await expect.poll(async()=>(await f.readProject()).nodes.find(n=>n.id===f.last.id).config.smoothJoins).toBe(true);
     expect(writes).toHaveLength(0);expect(f.calls).toHaveLength(0);
@@ -38,7 +40,7 @@ exports.smoothUi=async({page,expect,locale,mockSharedAuth,createCanvasApiMock,in
     await expect.poll(()=>writes.length).toBe(1);await rendering;
     expect(writes[0].body).toMatchObject({smoothJoins:true,preview:{seamIndex:0}});
     const preview=inspector.locator('.canvas-smooth-joins video');await expect(preview).toBeVisible();
-    await expect(inspector.getByRole('status',{name:de?'Übergangsvorschau':'Join preview',exact:true})).toContainText(de?'1 von 1':'1 of 1');
+    await expect(inspector.getByRole('status',{name:de?'Übergangsvorschau':'Join preview',exact:true})).toContainText(fitAudio?(de?'auf die Bilddauer gekürzt':'trimmed to picture duration'):(de?'1 von 1':'1 of 1'));
     await inspector.getByRole('button',{name:de?'Nachher':'After',exact:true}).click();
     await preview.scrollIntoViewIfNeeded();
     await preview.evaluate(v=>v.play());
@@ -48,10 +50,15 @@ exports.smoothUi=async({page,expect,locale,mockSharedAuth,createCanvasApiMock,in
     await inspector.getByRole('button',{name:de?'Übergang vergleichen':'Compare join',exact:true}).click();
     await expect.poll(()=>writes.length).toBe(2);await rendering;
     expect(writes[1].result.data.preview.id).toBe(writes[0].result.data.preview.id);
+    if(fitAudio&&de){
+      const sound=inspector.locator('.canvas-sound');await sound.locator('summary').click();
+      await sound.getByRole('checkbox',{name:'Musik als Hintergrund hinzufügen',exact:true}).check();
+      await smooth.uncheck();await sequence.getByRole('radio',{name:'Diese Kette zusammenfügen',exact:true}).check();await expect(sequence.locator('li')).toHaveCount(4);}
     await inspector.getByRole('button',{name:de?'Gesamtes Video erstellen':'Create full video',exact:true}).click();
     await expect.poll(()=>writes.length).toBe(3);await rendering;
-    const exported=writes[2].result.data.export;expect(exported.recipe.smoothJoins.enabled).toBe(true);expect(exported.recipe.preview).toBeUndefined();
+    const exported=writes[2].result.data.export;expect(exported.recipe.smoothJoins.enabled).toBe(!(fitAudio&&de));expect(exported.recipe.preview).toBeUndefined();
     await inspector.getByRole('button',{name:de?'Status aktualisieren':'Refresh status',exact:true}).click();
+    if(fitAudio){expect(exported.recipe.originalAudioPolicy).toBe('fit-picture-v1');await expect(inspector).toContainText(de?'auf die Bilddauer gekürzt':'trimmed to picture duration');}
     const output=inspector.locator('.canvas-full-video > div:last-child > video');
     await expect(output).toHaveAttribute('src',`/api/ai/text-assets/${exported.id}/file`);
     await output.scrollIntoViewIfNeeded();
@@ -59,6 +66,12 @@ exports.smoothUi=async({page,expect,locale,mockSharedAuth,createCanvasApiMock,in
     const download=inspector.getByRole('link',{name:de?'Gesamtvideo herunterladen':'Download full video',exact:true});await expect(download).toHaveAttribute('href',`/api/ai/text-assets/${exported.id}/file?download=1`);
     await inspector.getByRole('button',{name:de?'Gesamtvideo in Assets speichern':'Save full video to Assets',exact:true}).click();
     await expect.poll(async()=>(await f.data(await f.request(f.endpoint))).current.storage).toBe('assets');
+    if(fitAudio){
+      const state=await f.data(await f.request(f.endpoint));expect(state.current.id).toBe(exported.id);
+      const bytes=Buffer.from(await (await f.request(state.current.asset.file_url)).arrayBuffer());
+      const downloaded=Buffer.from(await (await f.request(state.current.asset.file_url+'?download=1')).arrayBuffer());expect(downloaded.equals(bytes)).toBe(true);
+      expect(state.current.audio_timeline.filter(c=>c.originalAudioFit.trimEnd>0)).toHaveLength(de?2:1);
+    }
     const graph=await f.readProject();expect(graph.nodes.length).toBe(f.snapshot.nodes.length);expect(graph.edges.length).toBe(f.snapshot.edges.length);
     await inspector.locator('.canvas-smooth-joins').screenshot({path:info.outputPath(`smooth-joins-${locale}.png`)});
     await smooth.uncheck();await expect(preview).toHaveCount(0);expect(writes).toHaveLength(3);

@@ -34,6 +34,7 @@ jobs:
       canvas_text: ${{ steps.selection.outputs.canvas_text }}
       canvas_completion: ${{ steps.selection.outputs.canvas_completion }}
       canvas_audio: ${{ steps.selection.outputs.canvas_audio }}
+      canvas_audio_fit: ${{ steps.selection.outputs.canvas_audio_fit }}
       media_lifecycle: ${{ steps.selection.outputs.media_lifecycle }}
       workspace_help: ${{ steps.selection.outputs.workspace_help }}
       dependencies: ${{ steps.selection.outputs.dependencies }}
@@ -321,6 +322,9 @@ jobs:
               npx playwright test -c playwright.workers.config.js tests/appearance.spec.js --retries=0 &&
               Q2_RUNTIME_ARTIFACTS="$Q2_RUNTIME_ARTIFACTS/appearance" node scripts/test-q2-runtime.mjs --suite appearance || exit $?
             fi
+          elif [ "${{ needs.release-compatibility.outputs.canvas_audio_fit }}" = 'true' ]; then
+            node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs &&
+            node scripts/test-q2-runtime.mjs --suite canvas-audio-fit
           elif [ "${{ needs.release-compatibility.outputs.canvas_audio }}" = 'true' ]; then
             node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs &&
             npx playwright test -c playwright.workers.config.js tests/q2-mock-lifecycle.spec.js --grep 'Canvas audio' --retries=0 &&
@@ -592,6 +596,10 @@ jobs:
             rm -f test-results/model-pricing-discovery.json test-results/candidate-auth.json
             PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/model-pricing-discovery.json npm run test:static -- --config playwright.model-pricing.config.js --list --reporter=json
             PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:static -- --config playwright.model-pricing.config.js --reporter=list,json
+          elif [ "${{ needs.release-compatibility.outputs.canvas_audio_fit }}" = 'true' ]; then
+            rm -f test-results/canvas-discovery.json test-results/candidate-auth.json
+            PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/canvas-discovery.json npm run test:static -- tests/canvas.spec.js --project=chromium --project=webkit-canvas --grep 'Canvas audio fit' --list --reporter=json
+            PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:static -- tests/canvas.spec.js --project=chromium --project=webkit-canvas --grep 'Canvas audio fit' --output=test-results/canvas-artifacts --retries=0 --reporter=list,json
           elif [ "${{ needs.release-compatibility.outputs.canvas_audio }}" = 'true' ]; then
             rm -f test-results/canvas-discovery.json test-results/candidate-auth.json
             PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/canvas-discovery.json npm run test:static -- tests/canvas.spec.js tests/oma2-q1-canvas.spec.js --project=chromium --project=webkit-canvas --grep 'Canvas|P13|@canvas-model-ui' --list --reporter=json

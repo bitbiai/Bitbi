@@ -12,6 +12,7 @@ import { canvasExportRecipe, exportHead, ownedExportSource, saveCanvasExport } f
 import { reclaimCanvasMedia } from '../lib/canvas-media-storage.js';
 import { readCanvasPreviewBase, storeCanvasPreviewBase } from '../lib/canvas-preview-base.js';
 import {smoothJoinSettings,seamPreviewSettings,validSeamResult} from '../../../../js/shared/canvas-smooth-joins.mjs';
+import {validAudioFit} from '../../../../js/shared/canvas-audio-fit.mjs';
 import {sha256Hex} from '../lib/tokens.js';
 
 const base='/api/internal/homepage/hero-videos/canvas-exports/jobs';
@@ -64,7 +65,7 @@ export async function canvasExport(ctx,userId,projectId,runId) {
     if(existing) {
       const recipe=JSON.parse(existing.recipe_json||'null');
       const ordered=recipe?.videos.map(canvasClipIdentity);
-      if(![1,2,3,4].includes(recipe?.version)||JSON.stringify(recipe.backgroundMusic)!==JSON.stringify(exportMusicSettings(parsed.body.backgroundMusic))
+      if(![1,2,3,4,5].includes(recipe?.version)||JSON.stringify(recipe.backgroundMusic)!==JSON.stringify(exportMusicSettings(parsed.body.backgroundMusic))
         ||(recipe.smoothJoins?.enabled??false)!==smooth.enabled||JSON.stringify(recipe.preview||null)!==JSON.stringify(seamPreviewSettings(parsed.body.preview,recipe.videos.length))
         ||recipe.mergeMode!==parsed.body.mergeMode||explicit!==(recipe.sequence==='explicit')||explicit&&JSON.stringify(parsed.body.orderedClips)!==JSON.stringify(ordered))
         throw canvasProcessingError('canvas_export_idempotency_conflict');
@@ -147,7 +148,7 @@ export async function handleCanvasExportProcessor(ctx) {
   if(!backend) return json({ok:false,code:'processor_auth_failed'},{status:403});
   try {
     if(ctx.pathname===base+'/claim') {
-      if(ctx.method==='GET') return reply({protocol:1,recipeProtocol:5,previewBase:1});
+      if(ctx.method==='GET') return reply({protocol:1,recipeProtocol:6,previewBase:1});
       // route-policy: internal.canvas-export.claim
       if (!(method === 'POST')) return null;
       const parsed=await readJsonBodyOrResponse(ctx.request,{maxBytes:BODY_LIMITS.homepageHeroProcessorJson});
@@ -159,6 +160,7 @@ export async function handleCanvasExportProcessor(ctx) {
         originalAudio:row.recipe_json?JSON.parse(row.recipe_json).videos.map(clip=>clip.originalAudio||{enabled:true,gain:1,fadeIn:0,fadeOut:0}):null,
         spatialPolicy:row.recipe_json?JSON.parse(row.recipe_json).spatialPolicy||'legacy-pad-v1':'legacy-pad-v1',
         backgroundMusic:row.recipe_json?JSON.parse(row.recipe_json).backgroundMusic:null,
+        originalAudioPolicy:row.recipe_json?JSON.parse(row.recipe_json).originalAudioPolicy:null,
         smoothJoins:row.recipe_json?JSON.parse(row.recipe_json).smoothJoins:null,
         preview:row.recipe_json?JSON.parse(row.recipe_json).preview:null,
         sources:JSON.parse(row.sources_json).map((s,i)=>({url:`${base}/${row.id}/source/${i}`,size:s.size,kind:s.kind||'video'})),
@@ -200,7 +202,8 @@ export async function handleCanvasExportProcessor(ctx) {
         let end=0;
         if(!Array.isArray(timeline)||timeline.length!==count)throw canvasProcessingError('canvas_audio_timeline_invalid');
         for(const clip of timeline) {
-          if(!clip||Object.keys(clip).sort().join(',')!=='duration,start'||!Number.isFinite(clip.start)||!Number.isFinite(clip.duration)
+          if(!clip||Object.keys(clip).sort().join(',')!==(recipe.version>=5?'duration,originalAudioFit,start':'duration,start')
+            ||recipe.version>=5&&!validAudioFit(clip.originalAudioFit)||!Number.isFinite(clip.start)||!Number.isFinite(clip.duration)
             ||clip.duration<=0||Math.abs(clip.start-end)>.001)throw canvasProcessingError('canvas_audio_timeline_invalid');
           end=clip.start+clip.duration;
         }
@@ -212,7 +215,7 @@ export async function handleCanvasExportProcessor(ctx) {
         await storeCanvasPreviewBase(ctx.env,job,bytes);
         return reply({base_stored:true});
       }
-      if(recipe?.version===4) {
+      if(recipe?.version>=4) {
         let report;try{report=JSON.parse(form.get('seamResult'));}catch{throw canvasProcessingError('canvas_seam_result_invalid');}
         if(!validSeamResult(report,{enabled:recipe.smoothJoins.enabled,preview:recipe.preview,count:recipe.videos.length}))throw canvasProcessingError('canvas_seam_result_invalid');
         await ctx.env.DB.prepare("UPDATE canvas_video_processing SET seam_result_json=? WHERE id=? AND processing_token=? AND status='processing' AND locked_until>?")

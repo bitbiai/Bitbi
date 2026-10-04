@@ -83,6 +83,7 @@ jobs:
       canvas_text: ${{ steps.selection.outputs.canvas_text }}
       canvas_completion: ${{ steps.selection.outputs.canvas_completion }}
       canvas_audio: ${{ steps.selection.outputs.canvas_audio }}
+      canvas_audio_fit: ${{ steps.selection.outputs.canvas_audio_fit }}
       media_lifecycle: ${{ steps.selection.outputs.media_lifecycle }}
       workspace_help: ${{ steps.selection.outputs.workspace_help }}
       dependencies: ${{ steps.selection.outputs.dependencies }}

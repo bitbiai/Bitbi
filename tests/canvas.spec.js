@@ -13,6 +13,10 @@ for (const locale of ['en','de']) test(`Canvas smooth joins ${locale}: persisten
   await require('./helpers/canvas-smooth-ui.cjs').smoothUi({page,expect,locale,mockSharedAuth,createCanvasApiMock,info});
 });
 
+for (const locale of ['en','de']) test(`Canvas audio fit ${locale}: original timing, comparison and saved export`,async({page},info)=>{
+  await require('./helpers/canvas-smooth-ui.cjs').smoothUi({page,expect,locale,mockSharedAuth,createCanvasApiMock,info,fitAudio:true});
+});
+
 for (const locale of ['en','de']) test(`Canvas legacy audio ${locale}: changed originals require a new timeline without replacing saved media`,async({page},info)=>{
   await page.setViewportSize({width:locale==='de'?390:1440,height:900});await mockSharedAuth(page);
   const state=createCanvasApiMock(page),project='1'.repeat(32),node='2'.repeat(32),run='3'.repeat(32),now=new Date().toISOString();

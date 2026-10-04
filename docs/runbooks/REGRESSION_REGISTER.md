@@ -645,8 +645,9 @@ relaxation, provider generation or decorative Hero test is involved.
 2026-10-04 smooth-join extension (base `a52bda33`, implementation acceptance):
 controlled AMD64 FFmpeg 5.1.9 sources confirmed that maximum audio/container duration
 plus terminal-frame padding extended two one-second pictures to about 2.72 seconds.
-New v4 exports use the video clock, reject meaningful excess audio and allow only
-measured inaudible codec residue. Continuous audio encoding also removes the observed
+The original v4 exports used the video clock, rejected meaningful excess audio and
+allowed only measured inaudible codec residue. The owner superseded that rejection
+for new exports on 2026-10-04 (correction below). Continuous audio encoding also removes the observed
 per-clip AAC priming offset. Optional motion reconstruction is separate from these
 normal-join corrections. A generated patch did not prove replacement: an independent
 subject-position check caught a frame-indexed overlay that left output unchanged.
@@ -654,6 +655,23 @@ Frame-derived time bounds and final decoded-patch validation now reject that fai
 `canvas-seams.test.mjs` deliberately disables the compositor to check the rejection.
 The same existing processor-image, native Canvas audio and EN/DE browser callers cover
 private comparison caching/replay, original/music envelopes, persistence and export.
+Audio-fit correction, 2026-10-04, inspected main `6f4dcbd6`: the owned nine-clip
+Grok/Outro v4 export failed `canvas_audio_tail_exceeds_video`. Measured clip 7:
+10.041667 s picture, 10.080 s sound; 38.333 ms overhang, decoded RMS 0.0001283,
+above the former 0.0001 threshold. This is not evidence of a corrupt source or
+perceptually silent tail. Clip 8 also exceeds that threshold in a 0.333 ms tail.
+Recipe v5 / protocol 6 pins `fit-picture-v1`, fits sound to verified normalized
+picture windows, preserves offsets, and reports trimming without blocking. Old
+accepted jobs stay immutable; a new explicit export cannot reuse the old failure.
+Executable counterchecks: `canvas-audio-fit.test.mjs` decodes audible/short/missing/
+offset fixtures, checks exact frame PTS and audio envelopes; the native Canvas fit
+caller checks policy/claim fences, missing/malformed completion metadata, old-key
+replay and private comparison readback. Four required EN/DE engine cases exercise
+real processing, playback/download/save and truthful disclosure. Actual callers:
+existing target-image validation, `--suite canvas-audio-fit`, and the selected
+Canvas browser command. Source/attempt results and live owner-chain output belong
+in the private acceptance checkpoint; implementation alone is not a live repair.
+
 The actual target-container 1280 × 720 sample used one CPU, about 23 seconds additional
 seam processing and 0.88 GB peak container memory (6 GB limit). These controlled
 measurements are not production or arbitrary-content quality claims; final source,

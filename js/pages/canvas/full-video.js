@@ -4,6 +4,7 @@ import { createMusicPreview } from './music-preview.js?v=__ASSET_VERSION__';
 import { hasAudioEffects } from '../../shared/canvas-audio.mjs?v=__ASSET_VERSION__';
 import {smoothJoinControls} from './smooth-joins.js?v=__ASSET_VERSION__';
 import {smoothJoinResultText} from '../../shared/canvas-smooth-joins.mjs?v=__ASSET_VERSION__';
+import {audioFitResultText} from '../../shared/canvas-audio-fit.mjs?v=__ASSET_VERSION__';
 
 export function renderCanvasFullVideo({section,output,projectId,german,signal,video,music=[],sound,readSmooth=()=>false,writeSmooth=()=>{},flush=async()=>true,getGraph}) {
     const anchor=output.runId || (output.nodeId?{nodeId:output.nodeId}:null);
@@ -17,6 +18,9 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
     const block=document.createElement('div');block.className='canvas-full-video';section.append(block);
     const auditionCopy=german?{start:'Vorschau mit Musik',pause:'Vorschau pausieren',label:'Vorschau · noch nicht übernommen',create:'Gesamtes Video mit Hintergrundmusik erstellen',back:'Zurück zum erstellten Video',missing:'Musikvorschau nicht verfügbar: Für diese Version fehlt das vollständige Video ohne Hintergrundmusik. Das erstellte Video bleibt verfügbar.',error:'Die Musikvorschau konnte nicht abgespielt werden. Das erstellte Video bleibt verfügbar.',loading:'Musikvorschau wird geladen.',track:'Hintergrundmusik',choose:'Musik auswählen'}:{start:'Preview with music',pause:'Pause preview',label:'Preview · not exported',create:'Create full video with background music',back:'Return to completed video',missing:'Music preview unavailable: this version has no complete video without background music. The completed video remains available.',error:'Music preview could not play. The completed video remains available.',loading:'Loading music preview.',track:'Background music',choose:'Choose music'};
     const controls=document.createElement('div'),message=document.createElement('p'),preview=document.createElement('div');
+    const fitHelp=document.createElement('p');fitHelp.className='canvas-muted';
+    fitHelp.textContent=german?'Originalton wird automatisch auf die Bilddauer gekürzt oder mit Stille ergänzt. Quelldateien bleiben unverändert.':'Original audio is automatically trimmed or padded with silence to fit the picture. Source files remain unchanged.';
+    controls.append(fitHelp);
     message.setAttribute('role','status');message.setAttribute('aria-label',german?'Exportstatus':'Export status');block.append(controls,message,preview);
     let selected={...sound.music},joins;
     const tracks=music.filter(m=>m.kind==='audio_asset'&&m.assetId);
@@ -109,7 +113,8 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
         } else if(result.data.eligible || status || result.data.current) {
             message.textContent=status?(copy[status.status]||copy.failed):'';
             if(status?.seam_result)message.textContent+=' '+smoothJoinResultText(status.seam_result,german);
-            if(status?.error_code==='canvas_audio_tail_exceeds_video')message.textContent+=' '+(german?'Die Tonspur eines Clips reicht über sein Bildende hinaus. Die Quelle muss passend zugeschnitten werden; Ton wird nicht automatisch abgeschnitten.':'A clip has sound beyond its last video frame. Correct the source duration; sound is never trimmed automatically.');
+            if(status?.audio_timeline)message.textContent+=' '+audioFitResultText(status.audio_timeline,german);
+            if(status?.error_code==='canvas_audio_tail_exceeds_video')message.textContent+=' '+(german?'Diesen älteren Auftrag durch einen neuen Export ersetzen. Der Originalton wird jetzt automatisch an die Bilddauer angepasst.':'Create a new export to replace this older failed job. Original audio now fits the picture duration automatically.');
             createButton.hidden=false;createButton.textContent=status?copy.again:copy.create;
             createButton.disabled=['queued','processing'].includes(status?.status);
             const current=result.data.current||status;

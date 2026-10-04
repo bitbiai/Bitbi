@@ -46,7 +46,7 @@ export async function canvasAudioCase(base,media) {
     const body={orderedClips:clips,mergeMode:'chain',backgroundMusic:{enabled,gain:.5,fadeIn:.4,fadeOut:.8,...(enabled?{musicAssetId:f.musicId}:{})}};
     const key='audio-export-'+String(enabled)+'-fixture';
     const result=await f.data(await f.request(f.endpoint,'POST',body,{'Idempotency-Key':key}));jobs.push(result.export);
-    check(result.export.recipe.version===4,'New immutable audio recipe');
+    check(result.export.recipe.version===5,'New immutable audio recipe');
     check(JSON.stringify(result.export.recipe.videos[1].originalAudio)===JSON.stringify(settings),'Muted settings preserved at admission');
     check(JSON.stringify(result.export.recipe.videos[3].originalAudio)===JSON.stringify(other),'Same asset, independent node sound');
     const replay=await f.data(await f.request(f.endpoint,'POST',body,{'Idempotency-Key':key}));check(replay.export.id===result.export.id,'Replay observes one job');

@@ -36,6 +36,7 @@ const SHARED_WORKER_FILE_MAP = new Map([
   ['js/shared/website-assistant-context.mjs', ['auth']],
   ['js/shared/canvas-export.mjs', ['auth']],
   ['js/shared/canvas-audio.mjs', ['auth']],
+  ['js/shared/canvas-audio-fit.mjs', ['auth']],
   ['js/shared/canvas-smooth-joins.mjs', ['auth']],
   ["js/shared/appearance-contract.js", ["auth"]],
   ["js/shared/model-pricing-catalog.mjs", ["auth"]],
@@ -846,6 +847,33 @@ export function isCanvasCompletionRouteChange(sources) {
 
 // Canvas media controls reuse the existing native and browser callers. Model,
 // provider, pricing, billing and unknown neighboring changes retain broader coverage.
+const CANVAS_AUDIO_FIT_FILES = new Set([
+  'js/shared/canvas-audio-fit.mjs',
+  'js/pages/canvas/full-video.js',
+  'js/pages/canvas/smooth-joins.js',
+  'js/pages/canvas/music-preview-worklet.js',
+  'services/homepage-ffmpeg-processor/canvas-audio-fit.mjs',
+  'services/homepage-ffmpeg-processor/canvas-audio-fit.test.mjs',
+  'services/homepage-ffmpeg-processor/canvas-full-video.mjs',
+  'services/homepage-ffmpeg-processor/canvas-full-video.test.mjs',
+  'services/homepage-ffmpeg-processor/Dockerfile',
+  'workers/auth/src/lib/canvas-export-recipes.js',
+  'workers/auth/src/lib/canvas-video-processing.js',
+  'workers/auth/src/routes/canvas-video-processing.js',
+  'tests/canvas.spec.js',
+  'tests/helpers/canvas-audio-control.mjs',
+  'tests/helpers/canvas-processing-control.mjs',
+  'tests/helpers/canvas-smooth-control.mjs',
+  'tests/helpers/canvas-smooth-ui.cjs',
+  'tests/helpers/q2-runtime/canvas.mjs',
+  'tests/helpers/q2-runtime/runner.mjs',
+  'tests/helpers/q2-runtime/environment.mjs',
+  'tests/helpers/q2-runtime/linux-hosted.mjs',
+  'tests/helpers/q2-runtime/linux-runtime-child.mjs',
+  'tests/helpers/q2-runtime/linux-bootstrap.py',
+  'scripts/test-q2-runtime-launcher.mjs',
+]);
+
 const CANVAS_AUDIO_FILES = new Set([
   'js/shared/canvas-smooth-joins.mjs', 'js/pages/canvas/smooth-joins.js',
   'services/homepage-ffmpeg-processor/canvas-seams.mjs',
@@ -1054,6 +1082,15 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     selection.workers = changedFiles.some(file=>file.startsWith('workers/') || file.includes('q2-runtime') || file==='tests/admin-model-status.spec.js' || file==='tests/admin-model-status-runtime.mjs' || file==='playwright.workers.config.js');
     selection.reasons.auth.push('Read-only Admin model status: Chromium/WebKit, EN/DE, navigation/session denial, stale data, cleanup and build identity');
     if(selection.workers) selection.reasons.workers.push('Model status catalog/evidence/query tests and native guarded Admin/MFA/D1 route; no inference, generation or accounting changes');
+    return selection;
+  }
+
+  if (!forceFull && changedFiles.includes('js/shared/canvas-audio-fit.mjs')
+      && changedFiles.every(file=>isDocumentation(file)||CANVAS_AUDIO_FIT_FILES.has(file)||RELEASE_TOOLING_FILES.has(file))) {
+    selection.policy='canvas-audio-fit-v1';selection.canvasText=selection.canvasAudioFit=true;
+    selection.workers=selection.auth=selection.static=selection.runtime=true;
+    selection.reasons.workers.push('Original-audio fit: target AMD64 decoded timing/offsets/envelopes and native immutable recipe, claims, private completion/replay; no schema or provider change');
+    selection.reasons.auth.push('Four required EN/DE Chromium/WebKit real Worker/FFmpeg fit comparison, export/download/save cases; retain unchanged Canvas evidence');
     return selection;
   }
 
