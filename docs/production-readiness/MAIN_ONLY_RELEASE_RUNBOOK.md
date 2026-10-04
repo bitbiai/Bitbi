@@ -48,7 +48,9 @@ After reboot the ordinary command starts the existing VM. To stop it when idle:
 `colima stop --profile bitbi-release`. If preparation reports an unsafe mount, stop
 that profile and start it with `--activate=false --ssh-agent=false --mount
 /Users/bitbi/Library/Caches/bitbi-local-release:w`; do not expand host access. Preserve
-`runs/<sha>-<id>/checkpoint.json`, logs and failed attempts. After diagnosing an
+`runs/<sha>-<id>/checkpoint.json`, logs and failed attempts. A process lock is acquired
+before credential checks or preparation; a concurrent entry fails before any suites.
+A dead process lock is recoverable without certifying its unfinished checkpoint. After diagnosing an
 interruption, use `npm run release:local -- --resume <directory>`: only exact matching
 source/base/toolchain/commands can retain passed commands. Changed source requires
 fresh affected acceptance; missing or changed outputs cannot inherit a pass. There

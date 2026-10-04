@@ -1192,6 +1192,14 @@ for (const missing of ["release-compatibility", "worker-validation", "browser-va
     `Removing ${missing} must fail the release gate`);
 }
 
+for(const missing of ['release-compatibility','reuse-candidate','import']) {
+  const context=loadReleaseCompatibilityContext(repoRoot);
+  context.localValidationWorkflow=context.localValidationWorkflow.replace(
+    missing==='import'?'node scripts/local-release.mjs import':'needs: [release-compatibility, reuse-candidate]',
+    missing==='import'?'echo no evidence':`needs: [${['release-compatibility','reuse-candidate'].filter(name=>name!==missing).join(', ')}]`);
+  assert(validateReleaseCompatibility(context).length>0,`Missing local acceptance gate ${missing} must fail`);
+}
+
 {
   const context = createValidContext();
   context.workflowSource = context.workflowSource.replace(

@@ -1228,15 +1228,15 @@ function validateWorkflowCompatibility(context) {
       issues.push(`Static workflow does not run "${command}".`);
     }
   }
-  if (
-    !workflowRequiresJob(
-      workflowSource,
-      "deploy",
-      /needs:\s*\[\s*release-compatibility\s*,\s*worker-validation\s*,\s*browser-validation\s*,\s*homepage-validation\s*,\s*reuse-candidate\s*\]/
-    )
-  ) {
-    issues.push('Deploy job must depend on ["release-compatibility", "worker-validation", "browser-validation", "homepage-validation", "reuse-candidate"].');
+  const localWorkflow=context.localValidationWorkflow;
+  const deployNeeds=localWorkflow
+    ? /needs:\s*\[\s*release-compatibility\s*,\s*reuse-candidate\s*\]/
+    : /needs:\s*\[\s*release-compatibility\s*,\s*worker-validation\s*,\s*browser-validation\s*,\s*homepage-validation\s*,\s*reuse-candidate\s*\]/;
+  if(!workflowRequiresJob(localWorkflow||workflowSource,'deploy',deployNeeds)) {
+    issues.push('Deploy job must depend on every required acceptance/import and reuse gate.');
   }
+  if(localWorkflow && !workflowRequiresJob(localWorkflow,'release-compatibility',/run: node scripts\/local-release\.mjs import/))
+    issues.push('Local release acceptance must be verified before the candidate is uploaded.');
   if (!includesRouteLiteral(workflowSource, "npm run build:static")) {
     issues.push('Static workflow must build deploy assets via "npm run build:static".');
   }
@@ -1354,6 +1354,8 @@ export function loadReleaseCompatibilityContext(repoRoot) {
     aiIndexSource: fs.readFileSync(path.join(repoRoot, "workers/ai/src/index.js"), "utf8"),
     aiCallerPolicySource: sourceFiles["workers/ai/src/lib/caller-policy.js"] || "",
     sourceFiles,
+    localValidationWorkflow: fs.existsSync(path.join(repoRoot,'config/release-validation.yml'))
+      ? fs.readFileSync(path.join(repoRoot,'.github/workflows/static.yml'),'utf8') : null,
     workflowSource: (fs.existsSync(path.join(repoRoot, 'config/release-validation.yml'))
       ? fs.readFileSync(path.join(repoRoot, 'config/release-validation.yml'), 'utf8') + '\n' : '') + fs.readFileSync(
       path.join(repoRoot, ".github/workflows/static.yml"),

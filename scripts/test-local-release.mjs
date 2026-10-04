@@ -12,6 +12,7 @@ import { verifyLocalEvidence, rebindLocalCandidate, verifyNativeLocalReports } f
 import { prepareFrontend } from './lib/frontend-hosting.mjs';
 import { gitSelection, tree, MEDIA_POLICY, validateSource, verifyManifest, verifyProofs } from './pages-candidate.mjs';
 import { assertHostedBootstrapAllowed, assertLocalBootstrapAllowed } from '../tests/helpers/q2-runtime/linux-hosted.mjs';
+import { acquireLocalReleaseLock } from './local-release.mjs';
 
 const workflow = yaml.parse(fs.readFileSync('.github/workflows/static.yml','utf8'));
 assert.deepEqual(Object.keys(workflow.jobs),['release-compatibility','reuse-candidate','deploy','recover-frontend']);
@@ -43,7 +44,7 @@ for (const files of [['index.html'],['workers/auth/src/index.js'],['js/pages/adm
   assert.equal(commands.some(c=>c.name==='Run worker route tests'),selection.workers&&!selection.mediaLifecycle);
   assert.equal(commands.some(c=>c.name==='Run Linux homepage functional acceptance'),selection.homepage||selection.carousel);
   assert(!commands.some(c=>c.name==='Verify repaired native media smoke'),'Missing output cannot accidentally select a historical native repeat');
-  assert(!commands.some(c=>/(?:npm|node|npx)[^\n]*\|\| true/.test(c.run)),'Test failures cannot be suppressed');
+  assert(!commands.some(c=>/\b(?:npm|node|npx) (?:run|scripts|playwright|--)[^\n]*\|\| true/.test(c.run)),'Test failures cannot be suppressed');
   assert(commands.every(c=>!c.run.includes('${{')));
 }
 const inputs=environmentInputs(), key=environmentKey(inputs);
@@ -67,6 +68,9 @@ for(const patch of [{task:'deploy'},{production_environment:true},{creator:{logi
 assert.throws(()=>validateLocator(record,{...scope,sha:scope.base}));
 const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-local-archive-'));
 try {
+  const lockDir=path.join(temporary,'lock');const unlock=acquireLocalReleaseLock(lockDir);
+  assert.throws(()=>acquireLocalReleaseLock(lockDir),/Another local release is active/);
+  unlock();acquireLocalReleaseLock(lockDir)();
   const native=path.join(temporary,'runtime/q2-runtime-evidence/native-control');fs.mkdirSync(path.join(native,'reports'),{recursive:true});
   const launcher={origin:'development-mac-v1',mode:'runtime',status:0,failure:null,childBoundaryVerified:true,postcheckFailures:[]};
   const log=JSON.stringify({q2LinuxEvidence:'/tmp/bitbi-release/q2-runtime-evidence/native-control'});

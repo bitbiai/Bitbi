@@ -15,6 +15,25 @@ const json = file => JSON.parse(fs.readFileSync(file));
 const save = (file, value) => fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n');
 const safeEnv = () => ({ PATH: process.env.PATH, HOME: os.homedir(), TMPDIR: os.tmpdir(), LANG: 'en_US.UTF-8' });
 
+export function acquireLocalReleaseLock(directory=cacheRoot()) {
+  fs.mkdirSync(directory,{recursive:true,mode:0o700});
+  const file=path.join(directory,'active-release.json');
+  try { fs.writeFileSync(file,JSON.stringify({pid:process.pid,startedAt:new Date().toISOString()}),{flag:'wx',mode:0o600}); }
+  catch(error) {
+    if(error.code!=='EEXIST')throw error;
+    const previous=json(file);assert(Number.isSafeInteger(previous.pid)&&previous.pid>0,'Malformed local release lock; inspect before recovery');
+    let absent=false;try{process.kill(previous.pid,0);}catch(probe){if(probe.code==='ESRCH')absent=true;else throw probe;}
+    if(!absent)throw Error(`Another local release is active (PID ${previous.pid}); no second setup, suite or push was started.`);
+    // A terminated process cannot own the lock. Existing failed/run checkpoints
+    // still require diagnosis and explicit resume; removing a stale lock is no pass.
+    fs.unlinkSync(file);return acquireLocalReleaseLock(directory);
+  }
+  return ()=>{assert.equal(json(file).pid,process.pid);fs.unlinkSync(file);};
+}
+async function withReleaseLock(operation) {
+  const unlock=acquireLocalReleaseLock();try{return await operation();}finally{unlock();}
+}
+
 async function verifiedLocalBase() {
   // Read credentials only in this outer, non-test process. No credentials are
   // copied into the persistent image, disposable source or execution logs.
@@ -28,7 +47,7 @@ async function verifiedLocalBase() {
   return (await publishedBase()).sha;
 }
 
-export async function preflightLocal({ base, resume } = {}) {
+async function prepareRelease({ base, resume } = {}) {
   const published=await verifiedLocalBase();
   if(base)git(['merge-base','--is-ancestor',base,published]);else base=published;
   const head=git(['rev-parse','HEAD']);
@@ -45,8 +64,10 @@ export async function preflightLocal({ base, resume } = {}) {
   return runLocalRelease({base,resume});
 }
 
+export const preflightLocal=options=>withReleaseLock(()=>prepareRelease(options));
 export async function releaseLocal(options = {}) {
-  const directory=await preflightLocal(options);
+  return withReleaseLock(async()=>{
+  const directory=await prepareRelease(options);
   const {uploadLocalEvidence}=await import('./lib/local-release-transport.mjs');
   const transport=await uploadLocalEvidence(directory);
   // The single existing main-push workflow continues automatically. Test
@@ -61,9 +82,10 @@ export async function releaseLocal(options = {}) {
   }
   save(path.join(directory,'continuation.json'),{sha,transport,workflow:'static.yml',state:'CI pending',checkedAt:new Date().toISOString()});
   console.log(JSON.stringify({sha,workflow:'https://github.com/bitbiai/Bitbi/actions/workflows/static.yml',state:'pushed; CI/publication not yet verified',directory}));
+  });
 }
 
-export function runLocalRelease({ base, resume }) {
+function runLocalRelease({ base, resume }) {
   assert.equal(process.platform, 'darwin');
   assert.equal(git(['branch','--show-current']), 'main', 'Release preparation starts on main');
   const sha = git(['rev-parse','HEAD']);
@@ -213,7 +235,7 @@ export function runLocalRelease({ base, resume }) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const args = process.argv.slice(2), command = args.shift();
-    if (command === 'prepare') { assert.equal(args.length, 0); console.log(JSON.stringify(ensureEnvironment())); }
+    if (command === 'prepare') { assert.equal(args.length, 0); console.log(JSON.stringify(await withReleaseLock(()=>ensureEnvironment()))); }
     else if (command === 'baseline') { assert.equal(args.length,0);console.log(await verifiedLocalBase()); }
     else if (command === 'import') {
       assert.equal(process.env.GITHUB_ACTIONS, 'true'); assert.equal(process.env.GITHUB_JOB, 'release-compatibility');
@@ -225,11 +247,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     else if (command === 'upload') {
       assert.equal(args.length, 1);
       const { uploadLocalEvidence } = await import('./lib/local-release-transport.mjs');
-      console.log(JSON.stringify(await uploadLocalEvidence(path.resolve(args[0]))));
+      console.log(JSON.stringify(await withReleaseLock(()=>uploadLocalEvidence(path.resolve(args[0])))));
     }
     else if (command === 'test' || command === 'release' || command === 'preflight') {
       const options = {}; for (let i = 0; i < args.length; i += 2) { assert(['--base','--resume'].includes(args[i]) && args[i+1]); options[args[i].slice(2)] = args[i+1]; }
-      if(command==='release')await releaseLocal(options);else if(command==='preflight')await preflightLocal(options);else runLocalRelease(options);
+      if(command==='release')await releaseLocal(options);else if(command==='preflight')await preflightLocal(options);else await withReleaseLock(()=>runLocalRelease(options));
     } else throw new Error('Usage: local-release.mjs prepare | baseline | preflight|release [--base <wider-SHA>] [--resume <directory>] | test --base <verified-published-SHA> [--resume <directory>]');
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }
