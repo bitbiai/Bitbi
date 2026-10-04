@@ -2112,6 +2112,8 @@ async function handleGenerate() {
     if (state.busy) return;
     if (!requireMember()) return;
     await refreshModelPricing();
+    // Concurrent UI triggers may have awaited the same pricing refresh.
+    if (state.busy) return;
     if (!modelAreaEnabled(state.modelId,'generation')) { renderImageModelOptions(); updateActionState(); return; }
 
     const prompt = refs.prompt?.value.trim() || '';

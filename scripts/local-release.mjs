@@ -9,6 +9,7 @@ import { ensureEnvironment, docker, PACKAGES, cacheRoot, TOOL_PREFLIGHT, toolcha
 import { LOCAL_POLICY, validationPlan, selectedCommands, sha256, commandRuntimes, nativeBrowserKey } from './lib/local-release-plan.mjs';
 import { gitSelection, tree, REPOSITORY, publishedBase } from './pages-candidate.mjs';
 import { verifyLocalEvidence, LOCAL_WORKER_REPAIR, LOCAL_REPAIR_REFRESH, assertLocalRepairTree, verifyLocalWorkerRepair, localWorkerContinuation } from './lib/local-release-evidence.mjs';
+import { BROWSER_ORIGINS, readMigrationBrowserPool, runMigrationBrowserContinuation } from './lib/local-release-browser.mjs';
 
 const git = (args, cwd = '.') => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore','pipe','pipe'] }).trim();
 const json = file => JSON.parse(fs.readFileSync(file));
@@ -207,7 +208,12 @@ function runLocalRelease({ base, resume }) {
     fs.cpSync(path.join(native,'runtime'),path.join(directory,'runtime'),{recursive:true});
     fs.cpSync(path.join(native,'runtime'),path.join(bundle,'runtime'),{recursive:true});
     state.commands[42]={...completed.commands[42],command:commands[42],reusedFrom:completed.sha};
-
+    const browserRun=fs.readdirSync(path.join(cacheRoot(),'runs')).filter(name=>name.startsWith(BROWSER_ORIGINS.previous+'-'));
+    assert.equal(browserRun.length,1,'Missing/ambiguous original browser incident');
+    copy(path.join(cacheRoot(),'runs',browserRun[0],'source/test-results/candidate-auth.json'),'browser-previous.json');
+    for(const name of ['progress','corrected'])copy(path.join(cacheRoot(),'repairs',BROWSER_ORIGINS[name],'browser-progress.json'),`browser-${name}.json`);
+    copy(path.join(cacheRoot()+'-checkpoint','production-browser-proof/proof-browser-validation.json'),'browser-production.json');
+    readMigrationBrowserPool(bundle);
   }
   assert.equal(state.sha, sha); assert.equal(state.base, base); assert.equal(state.planHash, validationPlan().digest);
   assert.equal(state.environment.key, environment.key, 'Changed dependencies invalidate this resume');
@@ -313,9 +319,12 @@ function runLocalRelease({ base, resume }) {
           }
           const nativeManifest=json(path.join(work,'candidate/manifest.json'));
           assert.deepEqual(tree(path.join(work,'_site')),nativeManifest.files,'Native input differs from the candidate');
+          if(state.repair)fs.cpSync(path.join(bundle,'reuse'),path.join(work,'.local-release/reuse'),{recursive:true});
           // Each fresh browser invocation has a fresh profile/server. Shared
           // dependency installations are persistent, never browser/account state.
-          result=spawnSync('/bin/bash',['--noprofile','--norc','-euo','pipefail','-c',part.run],{cwd:work,
+          const scope=command.name==='Run selected auth and admin tests'?'auth':command.name==='Run selected homepage core tests'?'homepage':null;
+          const browserRun=state.repair&&scope?`node scripts/local-release.mjs browser-continuation ${scope}`:part.run;
+          result=spawnSync('/bin/bash',['--noprofile','--norc','-euo','pipefail','-c',browserRun],{cwd:work,
             env:{...safeEnv(),...env,...command.env,HOME:nativeHome,GITHUB_JOB:command.job,
               WRANGLER_SEND_METRICS:'false',npm_config_userconfig:path.join(nativeHome,'.npmrc'),
               PLAYWRIGHT_BROWSERS_PATH:nativeBrowsers.browserRoot,BITBI_LOCAL_RELEASE_CONTAINER:'',
@@ -344,6 +353,7 @@ function runLocalRelease({ base, resume }) {
       } finally { fs.closeSync(fd); }
       const record = { command, exitCode: result.status ?? -1, durationMs: Date.now() - started, log, logHash: sha256(fs.readFileSync(logFile)) };
       record.runtimes=commandRuntimes(command).map(part=>part.runtime);
+      if(state.repair&&['Run selected auth and admin tests','Run selected homepage core tests'].includes(command.name))record.browserContinuation='local-browser-continuation-v1';
       if(state.repair&&index===42)record.continuation=localWorkerContinuation();
       if(state.repair&&index===18)record.supplement='npm run test:local-release -- --repair-only';
       state.commands[index] = record; state.status = record.exitCode === 0 ? 'running' : 'failed'; save(checkpoint, state);
@@ -401,6 +411,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     if (command === 'prepare') { assert.equal(args.length, 0); console.log(JSON.stringify(await withReleaseLock(()=>ensureEnvironment()))); }
     else if (command === 'restore-boundary') {assert.equal(args.length,0);prepareCandidateRestore();}
     else if (command === 'verify-worker-repair') {assert.equal(args.length,1);console.log(JSON.stringify(verifyLocalWorkerRepair(path.resolve(args[0]),git(['rev-parse','HEAD'])).result));}
+    else if (command === 'browser-continuation') {assert.equal(args.length,1);assertLocalRepairTree(git(['rev-parse','HEAD']));runMigrationBrowserContinuation(args[0]);}
     else if (command === 'prepare-native') {assert.equal(args.length,0);console.log(JSON.stringify(await withReleaseLock(()=>ensureNativeBrowsers())));}
     else if (command === 'baseline') { assert.equal(args.length,0);console.log(await verifiedLocalBase()); }
     else if (command === 'import') {

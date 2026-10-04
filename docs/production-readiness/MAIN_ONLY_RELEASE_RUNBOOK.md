@@ -82,11 +82,17 @@ Keep all 707 genuine passes and their original reports. A deterministic EN/DE
 control confirms a separate Lab pricing-await race: the second rejected UI submission
 clears the first submission's busy state. A two-line product fix passed both controls
 in a private candidate; it is not committed product acceptance or live evidence.
-Complete current discovery, a closed case-union proof and final affected candidate
-acceptance remain required; do not run the whole Auth suite again. Publication of
-that separate product fix requires the task-specific scope decision recorded in
-the local checkpoint. The new locale fixture also selects homepage acceptance;
-its required, unexecuted work cannot be labelled passed.
+The release correction rechecks busy immediately after pricing; it changes no
+provider, credit or authentication contract. Exact source pins permit only this
+verified guard and the reviewed fixture/tooling changes. The existing successful
+production browser proof (`903f4680`, run `37195464481/1`) preserves another 224
+unchanged Canvas cases. Full current discovery is bound to the union of retained
+and freshly executed cases; missing, failed, skipped or retried cases still block.
+Do not run the whole Auth/core suites again. The locale fixture also selects
+homepage acceptance: its 50 Linux functional cases and 245 unconfirmed core cases
+remain required. The other 249 core cases already have valid retained results.
+Source/candidate comparison permits only the reviewed guard and generated cache
+version tokens; the frontend Worker/runtime/configuration must remain identical.
 
 Evidence expires after seven days. The existing owner credential uploads a digest-bound
 archive as an unpublished draft asset, indexed by a nonproduction GitHub deployment

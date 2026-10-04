@@ -8,7 +8,8 @@ import { selectCiTests } from './lib/ci-test-selection.mjs';
 import { validationPlan, selectedCommands, sha256, commandRuntimes, nativeBrowserKey } from './lib/local-release-plan.mjs';
 import { environmentInputs, environmentKey, TOOL_PREFLIGHT, toolchainPins } from './lib/local-release-environment.mjs';
 import { validateLocator, extractEvidence } from './lib/local-release-transport.mjs';
-import { verifyLocalEvidence, rebindLocalCandidate, verifyNativeLocalReports, workerListResults, verifyWorkerUnion, assertLocalRepairTree, verifyLocalWorkerRepair, localWorkerContinuation, tapResults, verifyNativeCaseUnion, NATIVE_REPAIRED_CASES, verifyNativeBrowserEnvironment } from './lib/local-release-evidence.mjs';
+import { verifyLocalEvidence, rebindLocalCandidate, verifyNativeLocalReports, workerListResults, verifyWorkerUnion, assertLocalRepairTree, verifyLocalWorkerRepair, localWorkerContinuation, tapResults, verifyNativeCaseUnion, NATIVE_REPAIRED_CASES, verifyNativeBrowserEnvironment, verifyMigrationCandidateBytes } from './lib/local-release-evidence.mjs';
+import {readMigrationBrowserPool,migrationBrowserPool,verifyBrowserUnion,verifyMigrationBrowserReport,BROWSER_ORIGINS,LOCAL_BROWSER_POLICY} from './lib/local-release-browser.mjs';
 import { prepareFrontend } from './lib/frontend-hosting.mjs';
 import { gitSelection, tree, MEDIA_POLICY, validateSource, verifyManifest, verifyProofs } from './pages-candidate.mjs';
 import { assertHostedBootstrapAllowed, assertLocalBootstrapAllowed } from '../tests/helpers/q2-runtime/linux-hosted.mjs';
@@ -48,9 +49,47 @@ function testNativeRouting() {
   console.log('Native browser routing preserves every selected command and the Linux carousel matrix; missing codec/tool/version/input evidence blocks acceptance.');
 }
 if(process.argv.includes('--native-only')) {testNativeRouting();process.exit(0);}
+function testBrowserContinuation() {
+  const row=(key,status='passed')=>({key,file:'fixture.spec.js',title:key,project:'chromium',expectedStatus:'passed',status:status==='passed'?'expected':'unexpected',results:[{status,retry:0,error:status!=='passed'}]});
+  const identity=({key,file,title,project})=>({key,file,title,project});
+  const retained=new Map([['kept',row('kept')]]),fresh=[row('fixed')],discovery=[...retained.values(),...fresh].map(identity);
+  assert.deepEqual(verifyBrowserUnion(discovery,retained,fresh),{required:2,reused:1,executed:1});
+  for(const changed of [[],[row('fixed','failed')],[row('fixed','skipped')],[{...row('fixed'),results:[{status:'passed',retry:1,error:false}]}],
+    [row('fixed'),row('fixed')],[row('foreign')],[row('kept'),row('fixed')],[{...row('fixed'),project:'webkit'}]])assert.throws(()=>verifyBrowserUnion(discovery,retained,changed));
+  assert.throws(()=>verifyBrowserUnion([...discovery,discovery[0]],retained,fresh));
+  assert.throws(()=>verifyBrowserUnion(discovery,new Map([['kept',row('kept','failed')]]),fresh));
+  const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-candidate-delta-'));
+  try {
+    const site=path.join(tmp,'candidate/site');fs.mkdirSync(path.join(site,'js/pages/generate-lab'),{recursive:true});
+    const source='export const fixture = true;\n',guard='    // Concurrent UI triggers may have awaited the same pricing refresh.\n    if (state.busy) return;\n';
+    fs.writeFileSync(path.join(site,'index.html'),'<script src="/fixture.js?v=aaaaaaaaaaaa"></script>');
+    fs.writeFileSync(path.join(site,'js/pages/generate-lab/main.js'),source);
+    const old={sha:'a'.repeat(40),files:tree(site)};
+    fs.writeFileSync(path.join(site,'index.html'),'<script src="/fixture.js?v=bbbbbbbbbbbb"></script>');
+    fs.writeFileSync(path.join(site,'js/pages/generate-lab/main.js'),guard+source);
+    const current={sha:'b'.repeat(40),files:tree(site)};verifyMigrationCandidateBytes(tmp,old,current);
+    fs.appendFileSync(path.join(site,'js/pages/generate-lab/main.js'),'unexpected');
+    assert.throws(()=>verifyMigrationCandidateBytes(tmp,old,current));
+    assert.throws(()=>verifyMigrationCandidateBytes(tmp,old,{...current,files:tree(site)}),/Unreviewed product/);
+  }finally{fs.rmSync(tmp,{recursive:true,force:true});}
+  const directory=process.env.LOCAL_BROWSER_EVIDENCE||(fs.existsSync('.local-release/reuse/browser-previous.json')?'.local-release':null);
+  if(directory) {
+    const pool=readMigrationBrowserPool(directory),retained=migrationBrowserPool(pool);
+    assert(retained.size>=707);assert.equal(pool.production.length,224);
+    const discovery=pool.previous.map(identity),pending=discovery.filter(row=>!retained.has(row.key));
+    assert.equal(pending.length,2);assert(pending.every(row=>row.title.startsWith('P03 lab: pending generation')));
+    const report={policy:LOCAL_BROWSER_POLICY,sha:'a'.repeat(40),scope:'auth',origins:BROWSER_ORIGINS,pool,discovery,fresh:[],counts:{required:709,reused:707,executed:0}};
+    assert.throws(()=>verifyMigrationBrowserReport(report,report.sha),'Two unresolved real failures cannot acquire a passing proof');
+    const changed=structuredClone(pool);changed.previous[0].title+=' changed';assert.throws(()=>migrationBrowserPool(changed));
+    console.log('Real 707 Auth passes and 224 production cases retained; unresolved Lab cases still block.');
+  }
+  console.log('Browser continuation: exact discovery/union, omitted/duplicate/failed/skipped/retried/foreign cases and unreviewed candidate bytes counterchecked.');
+}
+if(process.argv.includes('--browser-only')) {testBrowserContinuation();process.exit(0);}
 
 async function testLocalRepair() {
   testNativeRouting();
+  testBrowserContinuation();
   const restored=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-local-restore-'));
   try {
     fs.mkdirSync(path.join(restored,'candidate/site'),{recursive:true});fs.writeFileSync(path.join(restored,'candidate/site/index.html'),'tested');

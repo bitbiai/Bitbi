@@ -2,6 +2,7 @@ import { repairDelta, repairKind } from './lib/media-repair-source.mjs';
 import { assertBrowserSourceIdentity, assertBrowserReportArtifact, assertOriginalBrowserJob, verifyBrowserRepairProof, runBrowserRepair } from './lib/browser-fixture-repair.mjs';
 import { hostingPolicy, prepareFrontend, verifyFrontend, cloudflarePublishedBase } from './lib/frontend-hosting.mjs';
 import { LOCAL_REQUIRED_JOBS, localPolicyAt } from './lib/local-release-evidence.mjs';
+import { LOCAL_BROWSER_POLICY, verifyMigrationBrowserReport } from './lib/local-release-browser.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { selectCiTests, requiresPrivateMediaImage, memberSpecSources, canvasCompletionRouteSources } from './lib/ci-test-selection.mjs';
@@ -336,7 +337,12 @@ export function candidateProof(manifest, { job, reportFile, readJson = file => J
     ? (manifest.selection.adminRelease ? ['admin-release'] : manifest.selection.full ? ['static','carousel'] : ['homepage','carousel','assets','auth'].filter(key=>manifest.selection[key])).map(key=>`test-results/candidate-${key}.json`)
     : [reportFile];
   const reports=names.map(name=>readJson(name));
-  for(const report of reports) {
+  const counts=[];
+  for(const [index,report] of reports.entries()) {
+    if(report.policy===LOCAL_BROWSER_POLICY) {
+      assert.equal(job,'browser-validation');assert.equal(names[index],`test-results/candidate-${report.scope}.json`);
+      counts.push(verifyMigrationBrowserReport(report,manifest.sha).required);continue;
+    }
     const broad = job === 'browser-validation';
     assert(Array.isArray(report.errors || []) && (report.errors || []).length === 0, 'Browser execution reported errors');
     assert(['expected','unexpected','flaky'].every(key => Number.isInteger(report.stats?.[key]) && report.stats[key] >= 0), 'Malformed browser statistics');
@@ -351,6 +357,7 @@ export function candidateProof(manifest, { job, reportFile, readJson = file => J
     }(suite.suites||[]).forEach(visit);};(report.suites||[]).forEach(visit);
     assert(executed>0,'No executed cases');
     if (!broad) assert.equal(executed, report.stats.expected, 'Inconsistent homepage execution statistics');
+    counts.push(report.stats.expected+report.stats.flaky);
   }
   const report=reports[0];
   if(job==='homepage-validation')
@@ -363,7 +370,7 @@ export function candidateProof(manifest, { job, reportFile, readJson = file => J
   if (manifest.selection?.workspaceHelp) verifyWorkspaceHelpReport(report, readJson('test-results/workspace-discovery.json'));
   if (manifest.selection?.publicMedia) verifyPublicMediaReport(report, readJson('test-results/public-media-discovery.json'));
   if (manifest.selection?.adminRelease) verifyAdminReport(report, readJson('test-results/admin-discovery.json'));
-  return {job,status:'passed',manifestHash:digest(JSON.stringify(manifest)),reportHash:digest(JSON.stringify(reports)),tests:reports.reduce((n,r)=>n+r.stats.expected+r.stats.flaky,0)};
+  return {job,status:'passed',manifestHash:digest(JSON.stringify(manifest)),reportHash:digest(JSON.stringify(reports)),tests:counts.reduce((n,count)=>n+count,0)};
 }
 
 export async function api(endpoint) {

@@ -10,6 +10,7 @@ import { environmentInputs, environmentKey, toolchainPins } from './local-releas
 import { gitSelection, tree, verifyManifest, verifyProofs, candidateProof, proofJobs, REPOSITORY } from '../pages-candidate.mjs';
 import { verifyFrontend } from './frontend-hosting.mjs';
 import { browserRows } from './browser-fixture-repair.mjs';
+import { LOCAL_BROWSER_POLICY, readMigrationBrowserPool } from './local-release-browser.mjs';
 
 export const LOCAL_REQUIRED_JOBS = { 'release-compatibility': [
   'Preflight complete static release plan', 'Select tests from changed files',
@@ -84,10 +85,20 @@ export const LOCAL_WORKER_REPAIR = Object.freeze({
   nativeSource:'b1efd966923876520ec5b1a69e896203f7d56c12',
   nativeCheckpoint:'c8f2f3b1f83106169d21ec0ab6bc405c5cafc430436c6205721588401b2f38c3',
   nativeLog:'52e3de550b9f7ad24f78802f7afadcacd965c6b9248214ef23a97889f33250e7',
+  manifest:'050e0629fbae7721fb97cb4f89cabd374263cbc23e17fb7c9ab2ea620daeccf4',
+  frontendProof:'39780d92a6e1046bdad051f28154bafcd5177c57639a3ba726984fbc78cb6b49',
   tailSource:'ed7a7d6a6084b79aabcff903f7cc66698f8e0c86',
   tailCheckpoint:'38f1757fa3b5e8134c65b5c89f11cbcd06c8495461cd99b6b29a1395c797a29f',
   tailLog:'a4905f85e7c5c5a3c19f37a8c30479f35f5459c617ebd4e4d34ebae52e2ac114',
   specs: {
+    'js/pages/generate-lab/main.js':'ab851f5fb287503f137aecd324e6eb0b77fa92aa2b83a0e6bd863365df5a3267',
+    'tests/auth-admin.spec.js':'53f92668d3233a8581d564ba4c2b0a5050d483b50bd4ede259e61d7bd1d65948',
+    'tests/helpers/model-help-contract.cjs':'1477ed43927165b514bfeea6df1864d92f5e6e4cee8ae8f2f819ee539c5df7f5',
+    'tests/locale.spec.js':'3935284793e20a98275e5708a17f317bc3f3faa20232b5934d73427680b1c589',
+    'tests/oma2-q1-member.spec.js':'2383a1772442878b3a6deb2efc147fa620ea69866c034140a3faea1930e04ef9',
+    'tests/oma2-q3-model-pricing.spec.js':'bdbf1735402063d0ba3d123d14b7ab4a6a58110cac71fd6ef44cde098749d9e9',
+    'tests/oma2-q3-model-status.spec.js':'509b6e12eaf929fbaa1849540878058a63b588c89d77582ac185f9f823ddf206',
+    'tests/oma2-q3-workflows.spec.js':'c27c6b3a5422749539b7e82c5417594eafc638898a0b882f0f17fe0dbdc5183b',
     'scripts/test-q2-runtime-launcher.mjs':'195741c2c1decc256225dcdcc2b3dbd64e9bee37439661544a1c00d45617badc',
     'tests/admin-model-status.spec.js':'7c0a013cff629249a73148363f9304322e07c4c635b5bbf0c8ac00d12c4c8a64',
     'tests/appearance.spec.js':'4344d83d6712d4348b5b37db72e2bee024684891ff74a6eaa8c033890cc0d4e4',
@@ -96,6 +107,7 @@ export const LOCAL_WORKER_REPAIR = Object.freeze({
 });
 export const LOCAL_REPAIR_REFRESH = new Set([0,3,4,13,18,32,33,35,42]);
 const repairTooling = new Set(['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/lib/local-release-plan.mjs','scripts/test-local-release.mjs',
+  'scripts/lib/local-release-browser.mjs','scripts/pages-candidate.mjs','scripts/lib/ci-test-selection.mjs',
   'AGENTS.md','docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md','docs/runbooks/REGRESSION_REGISTER.md']);
 const gitBytes=(args)=>execFileSync('git',args,{stdio:['ignore','pipe','pipe'],maxBuffer:64*1024*1024});
 export function assertLocalRepairTree(head) {
@@ -104,6 +116,9 @@ export function assertLocalRepairTree(head) {
   const changed=gitBytes(['diff','--name-only',p.source,head]).toString().trim().split('\n').filter(Boolean);
   assert(changed.every(file=>repairTooling.has(file)||Object.hasOwn(p.specs,file)), 'Changed product/toolchain/shared fixture cannot inherit local passes');
   for(const [file,hash] of Object.entries(p.specs))assert.equal(sha256(gitBytes(['show',`${head}:${file}`])),hash,'Changed fixture outside the closed repair');
+  const before=gitBytes(['show',`${p.source}:js/pages/generate-lab/main.js`]).toString();
+  const after=gitBytes(['show',`${head}:js/pages/generate-lab/main.js`]).toString();
+  assert.equal(after.replace('    // Concurrent UI triggers may have awaited the same pricing refresh.\n    if (state.busy) return;\n',''),before,'Product reuse permits only the verified concurrent-waiter guard');
 }
 export function parseDiscovery(text) {
   // The original --list stderr contains Node's SQLite warning. Preserve the raw
@@ -231,6 +246,7 @@ export function verifyLocalReuse(directory,evidence) {
   // The retained Worker fixture file also selects independent Auth browser
   // acceptance under the unchanged selector. That new downstream job must run.
   assert.equal(oldSelection.auth,false);assert.equal(newSelection.auth,true);oldSelection.auth=true;
+  assert.equal(oldSelection.homepage,false);assert.equal(newSelection.homepage,true);oldSelection.homepage=true;
   for(const selection of [oldSelection,newSelection]){delete selection.files;delete selection.reasons;}
   assert.deepEqual(oldSelection,newSelection,'Changed selected scope cannot reuse local commands');
   for(const [index,result] of evidence.commands.entries()) {
@@ -243,13 +259,28 @@ export function verifyLocalReuse(directory,evidence) {
     assert.deepEqual(result.command,JSON.parse(JSON.stringify(prior.command).replaceAll(original.sha,evidence.sha)),'Changed retained command');
   }
   const oldManifest=JSON.parse(fs.readFileSync(path.join(directory,'reuse/manifest.json')));
+  assert.equal(sha256(fs.readFileSync(path.join(directory,'reuse/manifest.json'))),LOCAL_WORKER_REPAIR.manifest);
   const manifest=JSON.parse(fs.readFileSync(path.join(directory,'candidate/manifest.json')));
-  verifyManifest(oldManifest,{sha:original.sha,base:original.base,run:original.id,attempt:'1',selection:original.selection},path.join(directory,'candidate/site'));
-  assert.deepEqual(manifest.files,oldManifest.files);assert.deepEqual(manifest.hosting,oldManifest.hosting,'Changed frontend runtime cannot reuse a proof');
+  verifyMigrationCandidateBytes(directory,oldManifest,manifest);
+  assert.deepEqual(manifest.hosting,oldManifest.hosting,'Changed frontend runtime cannot reuse a proof');
   const proof=JSON.parse(fs.readFileSync(path.join(directory,'candidate/proof-frontend-runtime.json')));
   const oldProof=JSON.parse(fs.readFileSync(path.join(directory,'reuse/proof-frontend-runtime.json')));
+  assert.equal(sha256(fs.readFileSync(path.join(directory,'reuse/proof-frontend-runtime.json'))),LOCAL_WORKER_REPAIR.frontendProof);
   assert.deepEqual(proof,{...oldProof,manifestHash:sha256(JSON.stringify(manifest)),reusedFrom:{sha:original.sha,manifestHash:oldProof.manifestHash}});
   verifyProofs(oldManifest,[oldProof]);
+}
+
+export function verifyMigrationCandidateBytes(directory,oldManifest,manifest) {
+  assert.deepEqual(Object.keys(manifest.files),Object.keys(oldManifest.files),'Candidate membership changed');
+  const oldToken=oldManifest.sha.slice(0,12),newToken=manifest.sha.slice(0,12);
+  for(const [file,hash]of Object.entries(oldManifest.files)) {
+    const bytes=fs.readFileSync(path.join(directory,'candidate/site',file));
+    assert.equal(sha256(bytes),manifest.files[file],'Final candidate bytes changed');
+    if(sha256(bytes)===hash)continue;
+    let normalized=bytes.toString().replaceAll(`?v=${newToken}`,`?v=${oldToken}`);
+    if(file==='js/pages/generate-lab/main.js')normalized=normalized.replace('    // Concurrent UI triggers may have awaited the same pricing refresh.\n    if (state.busy) return;\n','');
+    assert.equal(sha256(normalized),hash,`Unreviewed product/build change: ${file}`);
+  }
 }
 
 export function verifyLocalEvidence(directory, expected, { now = Date.now(), selection = gitSelection(expected.base, expected.sha) } = {}) {
@@ -282,6 +313,8 @@ export function verifyLocalEvidence(directory, expected, { now = Date.now(), sel
     assert.equal(result.exitCode, 0, `Local command failed: ${command.name}`);
     const runtimes=commandRuntimes(command).map(part=>part.runtime);
     if(runtimes.includes('native-browser-v1'))assert.deepEqual(result.runtimes,runtimes,'Missing/mismatched browser execution environment');
+    if(evidence.repair&&['Run selected auth and admin tests','Run selected homepage core tests'].includes(command.name))assert.equal(result.browserContinuation,LOCAL_BROWSER_POLICY);
+    else assert(!result.browserContinuation,'Unreviewed browser continuation');
     assert(result.durationMs >= 0 && Number.isFinite(result.durationMs));
     assert.equal(result.log, `logs/${index}.log`);
     assert.equal(sha256(fs.readFileSync(path.join(directory, result.log))), result.logHash, 'Missing/changed execution log');
@@ -300,6 +333,14 @@ export function verifyLocalEvidence(directory, expected, { now = Date.now(), sel
     const expectedProof = candidateProof(manifest, { job, reportFile: 'test-results/homepage-functional.json',
       readJson: file => JSON.parse(fs.readFileSync(path.join(directory, file))) });
     assert.deepEqual(proofs.find(proof => proof.job === job), expectedProof, 'Local proof differs from required executed reports');
+  }
+  if(evidence.repair) {
+    const pool=readMigrationBrowserPool(directory);
+    for(const scope of ['auth','homepage']) {
+      const report=JSON.parse(fs.readFileSync(path.join(directory,`test-results/candidate-${scope}.json`)));
+      assert.equal(report.policy,LOCAL_BROWSER_POLICY);assert.deepEqual(report.pool,pool);
+      assert.deepEqual(report.fresh,browserRows(JSON.parse(fs.readFileSync(path.join(directory,`test-results/local-${scope}-fresh.json`)))),'Changed actual browser execution report');
+    }
   }
   const runtimeLog=fs.readFileSync(path.join(directory,'test-results/frontend-runtime.log'),'utf8');
   assert(runtimeLog.length>0,'Missing native frontend runtime evidence');
