@@ -34,8 +34,8 @@ function testPermissionContinuation() {
     const bytes=fs.readFileSync(file),original=JSON.parse(bytes),actualHead=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
     const context={head:actualHead,base:original.base,planHash:validationPlan().digest,environment:original.environment,
       commands:selectedCommands(gitSelection(original.base,actualHead),{GITHUB_SHA:actualHead,CANDIDATE_BASE:original.base})};
-    assertPermissionContinuationTree(actualHead,undefined,{smooth:isSmoothContinuation(original.sha)});assert([PERMISSION_CONTINUATION.source,PERMISSION_CONTINUATION.tail,SMOOTH_BROWSER_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.progress,SMOOTH_BROWSER_CONTINUATION.accepted].includes(permissionContinuationPrefix(bytes,context).sha));
-    for(const mutate of [r=>r.commands.find(row=>row&&row.exitCode!==0).exitCode=0,r=>r.commands[0].logHash='wrong',r=>r.commands.pop(),r=>r.status='passed']) {
+    assertPermissionContinuationTree(actualHead,undefined,{smooth:isSmoothContinuation(original.sha)});assert([PERMISSION_CONTINUATION.source,PERMISSION_CONTINUATION.tail,SMOOTH_BROWSER_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.progress,SMOOTH_BROWSER_CONTINUATION.accepted,SMOOTH_BROWSER_CONTINUATION.completed].includes(permissionContinuationPrefix(bytes,context).sha));
+    for(const mutate of [r=>r.commands[0].exitCode=1,r=>r.commands[0].logHash='wrong',r=>r.commands.pop(),r=>r.status=r.status==='passed'?'failed':'passed']) {
       const wrong=structuredClone(original);mutate(wrong);assert.throws(()=>permissionContinuationPrefix(Buffer.from(JSON.stringify(wrong)),context));
     }
     for(const mutate of [c=>c.base='b'.repeat(40),c=>c.planHash='changed',c=>c.environment.key='changed',c=>c.commands[18].run='skip']) {

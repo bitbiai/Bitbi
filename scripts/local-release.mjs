@@ -179,7 +179,7 @@ function runLocalRelease({ base, resume }) {
   const nativeBrowsers=commands.some(command=>commandRuntimes(command).some(part=>part.runtime==='native-browser-v1'))?ensureNativeBrowsers():null;
   const nativeEvidence=nativeBrowsers?Object.fromEntries(Object.entries(nativeBrowsers).filter(([key])=>!['packages','browserRoot'].includes(key))):null;
   const originalDirectory=resume&&json(path.join(resume,'checkpoint.json')).sha!==sha?path.resolve(resume):null;
-  const permissionContinuation=originalDirectory&&[PERMISSION_CONTINUATION.source,PERMISSION_CONTINUATION.tail,SMOOTH_BROWSER_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.progress,SMOOTH_BROWSER_CONTINUATION.accepted].includes(json(path.join(originalDirectory,'checkpoint.json')).sha);
+  const permissionContinuation=originalDirectory&&[PERMISSION_CONTINUATION.source,PERMISSION_CONTINUATION.tail,SMOOTH_BROWSER_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.progress,SMOOTH_BROWSER_CONTINUATION.accepted,SMOOTH_BROWSER_CONTINUATION.completed].includes(json(path.join(originalDirectory,'checkpoint.json')).sha);
   if(originalDirectory){if(permissionContinuation)assertPermissionContinuationTree(sha,undefined,{smooth:isSmoothContinuation(json(path.join(originalDirectory,'checkpoint.json')).sha)});else assertLocalRepairTree(sha);}
   const directory = resume&&!originalDirectory ? path.resolve(resume) : path.join(cacheRoot(), 'runs', `${sha}-${randomUUID()}`);
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -193,8 +193,8 @@ function runLocalRelease({ base, resume }) {
     const prior=permissionContinuationPrefix(bytes,{head:sha,base,planHash:state.planHash,environment,commands});
     const reuse=path.join(bundle,'reuse');fs.mkdirSync(reuse,{recursive:true});fs.mkdirSync(path.join(bundle,'logs'),{recursive:true});
     fs.writeFileSync(path.join(reuse,'permission-checkpoint.json'),bytes);
-    const tail=prior.sha===PERMISSION_CONTINUATION.tail,smooth=isSmoothContinuation(prior.sha),progress=prior.sha===SMOOTH_BROWSER_CONTINUATION.progress,accepted=prior.sha===SMOOTH_BROWSER_CONTINUATION.accepted;
-    state={...state,startedAt:prior.startedAt,permissionContinuation:{source:prior.sha,checkpoint:accepted?SMOOTH_BROWSER_CONTINUATION.acceptedCheckpoint:progress?SMOOTH_BROWSER_CONTINUATION.progressCheckpoint:smooth?SMOOTH_BROWSER_CONTINUATION.checkpoint:tail?PERMISSION_CONTINUATION.tailCheckpoint:PERMISSION_CONTINUATION.checkpoint},
+    const tail=prior.sha===PERMISSION_CONTINUATION.tail,smooth=isSmoothContinuation(prior.sha),progress=prior.sha===SMOOTH_BROWSER_CONTINUATION.progress,accepted=prior.sha===SMOOTH_BROWSER_CONTINUATION.accepted,completed=prior.sha===SMOOTH_BROWSER_CONTINUATION.completed;
+    state={...state,startedAt:prior.startedAt,permissionContinuation:{source:prior.sha,checkpoint:completed?SMOOTH_BROWSER_CONTINUATION.completedCheckpoint:accepted?SMOOTH_BROWSER_CONTINUATION.acceptedCheckpoint:progress?SMOOTH_BROWSER_CONTINUATION.progressCheckpoint:smooth?SMOOTH_BROWSER_CONTINUATION.checkpoint:tail?PERMISSION_CONTINUATION.tailCheckpoint:PERMISSION_CONTINUATION.checkpoint},
       commands:prior.commands.map((row,i)=>!row||row.exitCode!==0||permissionRefresh(prior.sha).has(i)?null:{...row,command:commands[i],reusedFrom:row.reusedFrom||prior.sha})};
     for(const row of state.commands.filter(Boolean))fs.copyFileSync(path.join(originalDirectory,'bundle',row.log),path.join(bundle,row.log));
     if(smooth) {
@@ -427,7 +427,7 @@ function runLocalRelease({ base, resume }) {
       state.commands[index] = record; state.status = record.exitCode === 0 ? 'running' : 'failed'; save(checkpoint, state);
       assert.equal(record.exitCode, 0, `Local check failed: ${command.name}. Evidence: ${logFile}. Resume this exact source with --resume ${directory}`);
       if(state.permissionContinuation&&state.permissionContinuation.source!==PERMISSION_CONTINUATION.source&&index===34)docker([...unprivileged,'node','--input-type=module','-e',"import fs from 'node:fs';import{restoreCanvasHostingProof}from'./scripts/lib/local-release-evidence.mjs';fs.cpSync('.local-release/reuse','reuse',{recursive:true});restoreCanvasHostingProof('.');fs.rmSync('reuse',{recursive:true});"]);
-      if(state.permissionContinuation?.source===SMOOTH_BROWSER_CONTINUATION.accepted&&index===44)docker([...unprivileged,'node','--input-type=module','-e',"import fs from 'node:fs';import{restoreSmoothBrowserProof}from'./scripts/lib/local-release-browser.mjs';fs.cpSync('.local-release/reuse','reuse',{recursive:true});restoreSmoothBrowserProof('.',{sha:process.env.GITHUB_SHA});fs.rmSync('reuse',{recursive:true});"]);
+      if([SMOOTH_BROWSER_CONTINUATION.accepted,SMOOTH_BROWSER_CONTINUATION.completed].includes(state.permissionContinuation?.source)&&index===44)docker([...unprivileged,'node','--input-type=module','-e',"import fs from 'node:fs';import{restoreSmoothBrowserProof}from'./scripts/lib/local-release-browser.mjs';fs.cpSync('.local-release/reuse','reuse',{recursive:true});restoreSmoothBrowserProof('.',{sha:process.env.GITHUB_SHA});fs.rmSync('reuse',{recursive:true});"]);
       if(state.repair&&index===35) {
         // Candidate source metadata is new; the tested package remains byte-identical.
         // Preserve the original native report and explicit proof provenance.

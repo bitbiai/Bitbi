@@ -133,16 +133,17 @@ export function runMigrationBrowserContinuation(scope,env=process.env) {
 export const SMOOTH_BROWSER_POLICY='local-canvas-smooth-continuation-v1';
 export const SMOOTH_BROWSER_CONTINUATION=Object.freeze({
   source:'a286659009951d8c862a4921ad049b65c9cc4b35',
+  completed:'3ee89ea4b885cc3856ae50357b37de3a07c57577',completedCheckpoint:'be73fc580c057a2e6626a57db683a3508b3347a92fe86c287e76fe3942366edc',
   accepted:'8fa6359ea254ddd32adc86768e7585388131ff84',acceptedCheckpoint:'c0c61042c6fa100b5a820f979d9837d4347971ff305625604ae62c2c3e8c4666',acceptedReport:'19be3e7b4f9ff1dc91778ec25f5ce215eb2c4ca9f70569cf249a7aafd59b64e5',
   progress:'0d161a2812837db56e1b0da972ca3a4b0f6a5f96',progressCheckpoint:'70e6681c57c6ebbdaa78a2cff59cc79b6360ee64a2e41819111747bc32d7ca52',
   run:'a286659009951d8c862a4921ad049b65c9cc4b35-d0412998-3e94-425c-a142-041dffe70d19',
   checkpoint:'6a13e066b667c7eb5479426d6470cf707153524b5e28f2ba1f0e342ed1a9b6f2',report:'2638a5c7f026e567fc769259b98b0870540d8f5c2f306a71c17752eb618244f2',rows:'51208eddcaf2efd3d4a9637a0787a497e98a990babd0b68f0f51f9b64e41c50c',discovery:'a963815b36f428532fbeed6d60328ea7157eef1b164019e4e756908438f5dc89',image:'6fadf1fb2110ca06ef256ba4f3992915f43bf7f51c5a5cd33dcff7bbdfa3c02e',
   specs:{'tests/canvas.spec.js':'b473f43fc2d88cf3da5bd9fb3c8da97c2cdde61ad4b8366bd2c86bb6cb624681','tests/helpers/canvas-music-preview.cjs':'af192385d85f174cb2256158023f5799099c3079475dd5c431c643c10c4a270f'},
 });
-export const isSmoothContinuation=sha=>[SMOOTH_BROWSER_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.progress,SMOOTH_BROWSER_CONTINUATION.accepted].includes(sha);
+export const isSmoothContinuation=sha=>[SMOOTH_BROWSER_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.progress,SMOOTH_BROWSER_CONTINUATION.accepted,SMOOTH_BROWSER_CONTINUATION.completed].includes(sha);
 const smoothTooling=new Set(['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/lib/local-release-browser.mjs',
   'scripts/lib/local-release-transport.mjs','scripts/pages-candidate.mjs','scripts/test-local-release.mjs',
-  'scripts/lib/media-publication.mjs','scripts/lib/backend-publication.mjs',
+  'scripts/lib/media-publication.mjs','scripts/lib/backend-publication.mjs','scripts/test-media-activation-reuse.mjs',
   'docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md','docs/runbooks/REGRESSION_REGISTER.md']);
 export function assertSmoothContinuationTree(head,read=args=>execFileSync('git',args,{stdio:['ignore','pipe','pipe']})) {
   const p=SMOOTH_BROWSER_CONTINUATION;read(['merge-base','--is-ancestor',p.source,head]);

@@ -669,6 +669,16 @@ corrected fixture bytes, executes exactly unresolved cases, and reuses the origi
 image digest/source with checked publication identity. The actual candidate/import
 verifiers reject missing/failed/retried cases, product drift and altered image proof.
 Old failed reports stay failed; this is fixture compatibility, not an audio repair.
+Release `37221046580/1` at `3ee89ea4` imported all local evidence, then stopped before
+media activation: Mac Docker recorded OCI index `7c0708fa…`, GitHub Docker reported
+config `4eafa8bc…` from the same SHA-verified archive. Readback confirmed only schema
+0101 had advanced; Auth/media/frontend still served their previous versions. The
+existing publisher now resolves both IDs through the archive and independently
+checks platform, runtime configuration and ordered layers. Existing
+`test-media-activation-reuse.mjs` / `test:release-plan` reject unrelated IDs, changed
+commands, wrong platforms/layers and altered provenance; a retained real archive
+control covers this exact format. No image rebuild or processor/browser rerun is
+required for this deploy-only correction. The original failed release remains failed.
 
 Release `37189472421/1` at `3e6f82ed` passed all four Linux native cases and the
 seven required Linux image controls, then stopped with 218 browser passes and six

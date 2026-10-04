@@ -158,6 +158,41 @@ export function mediaFixtureSha(env=process.env,options) {
   if(env.REPAIR_SOURCE_SHA===CANVAS_AUDIO_BROWSER_REPAIR.sha){mediaEvidenceRun(env,options);return undefined;}
   return env.REPAIR_SOURCE_SHA;
 }
+// Docker's containerd store reports an OCI index/manifest ID; the classic
+// store reports the config ID after docker load. Both must resolve to the exact
+// tested archive's AMD64 config and ordered filesystem, not just a matching tag.
+export function mediaArchiveIdentity(archive) {
+  return JSON.parse(execFileSync('python3',['-I','-c',`import sys,tarfile,json,hashlib
+with tarfile.open(sys.argv[1]) as t:
+ def data(name):
+  m=t.getmember(name);assert m.isfile() and m.size<8*1024*1024
+  return t.extractfile(m).read()
+ def blob(digest):
+  assert digest.startswith('sha256:') and len(digest)==71
+  b=data('blobs/sha256/'+digest[7:]);assert 'sha256:'+hashlib.sha256(b).hexdigest()==digest
+  return json.loads(b)
+ saved=json.loads(data('manifest.json'));assert len(saved)==1
+ entry=saved[0];raw=data(entry['Config']);config=json.loads(raw);cid='sha256:'+hashlib.sha256(raw).hexdigest();ids=[cid]
+ if 'index.json' in t.getnames():
+  current=json.loads(data('index.json'));depth=0
+  while 'manifests' in current:
+   choices=[m for m in current['manifests'] if not m.get('platform') or (m['platform'].get('os')=='linux' and m['platform'].get('architecture')=='amd64')]
+   assert len(choices)==1 and depth<4
+   digest=choices[0]['digest'];ids.append(digest);current=blob(digest);depth+=1
+  assert current['config']['digest']==cid
+  assert [x['digest'] for x in current['layers']]==['sha256:'+x.split('/')[-1] for x in entry['Layers']]
+ assert config['os']=='linux' and config['architecture']=='amd64'
+ assert config['rootfs']['type']=='layers' and len(config['rootfs']['diff_ids'])==len(entry['Layers'])
+ print(json.dumps(dict(ids=ids,config=cid,tags=entry['RepoTags'],runtime=config['config'],layers=config['rootfs']['diff_ids'])))`,archive],{encoding:'utf8',stdio:['ignore','pipe','pipe'],timeout:30000}));
+}
+export function verifyLoadedMediaImage(record,image,identity) {
+  assert(identity.ids.includes(record.image),'Tested image ID does not resolve inside its archive');
+  assert(identity.ids.includes(image.Id),'Loaded image is not the tested OCI image/config');
+  assert.deepEqual(identity.tags,[record.tag]);assert.equal(image.Os,'linux');assert.equal(image.Architecture,'amd64');
+  assert.deepEqual(image.RootFS?.Layers,identity.layers,'Loaded filesystem differs from tested ordered layers');
+  for(const [key,value]of Object.entries(identity.runtime))assert.deepEqual(image.Config?.[key],value,`Loaded runtime configuration differs: ${key}`);
+  assert.equal(image.Config?.Labels?.['org.opencontainers.image.revision'],record.sha);
+}
 export async function publishMedia(c,secretFile,{reuse,listArtifacts=collection,fetchArtifact=fetch,command=run,verifyActive=mediaActive}={}) {
   const source=reuse||mediaEvidenceRun(),sha=reuse?.sha||source.imageSha||c.sha;
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-media-release-'));
@@ -183,7 +218,7 @@ with zipfile.ZipFile(p/'image.zip') as z:
     const imageSha=record.sha===sha?sha:verifyImportedSmoothImage(record,{sha,run:source.run,attempt:source.attempt});
     verifyMediaImage(record,{sha:imageSha,run:source.run,attempt:source.attempt,archive:path.join(dir,'image.tar')});
     command('docker',['load','--input',path.join(dir,'image.tar')]);
-    const image=JSON.parse(command('docker',['image','inspect',record.tag]))[0];assert.equal(image.Id,record.image);assert.equal(image.Config.Labels['org.opencontainers.image.revision'],imageSha);
+    const image=JSON.parse(command('docker',['image','inspect',record.tag]))[0];verifyLoadedMediaImage(record,image,mediaArchiveIdentity(path.join(dir,'image.tar')));
     if(reuse) {
       const expected={sha,...(imageSha!==sha?{imageSourceSha:imageSha}:{}),imageDigest:reuse.imageDigest,image:record.image,artifact:reuse.artifact,
         sourceRun:source.run,sourceAttempt:source.attempt,reusedActivation:reuse.activation};

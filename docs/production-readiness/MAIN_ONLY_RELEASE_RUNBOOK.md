@@ -146,6 +146,12 @@ keeps its original SHA and digest through import and protected publication; an
 explicit publication-to-image association is verified, never a rebuilt or relabelled
 claim of fresh testing. Opening a new checkbox must not invalidate unrelated
 controls: test their accessible names and independently assert new default behavior.
+A Docker image ID is storage-engine dependent: the Mac containerd store returns
+an OCI index/manifest ID, while classic Docker returns the config ID after load.
+The protected media publisher verifies the authenticated archive association,
+Linux/AMD64 platform, complete runtime config and ordered filesystem layers before
+push. Matching tags alone never suffice. `test:release-plan` exercises both identities
+and wrong-config/layer/platform controls without repeating processor tests.
 The closed `e637dce9` continuation permits only the exact reviewed workflow delta,
 pins its passed source evidence/manifest/contract log, and permits only generated
 cache-version changes in the candidate. Original source identities remain intact.

@@ -7,7 +7,7 @@ import {mediaInputsUnchanged,resolveActiveMediaSource,verifyReusedMediaReceipt} 
 import {requiredJobs,proofJobs} from './pages-candidate.mjs';
 import {mediaImageInputs} from './private-media-image.mjs';
 import {hash} from './lib/frontend-hosting.mjs';
-import {publishMedia,mediaSmoke} from './lib/media-publication.mjs';
+import {publishMedia,mediaSmoke,mediaArchiveIdentity,verifyLoadedMediaImage} from './lib/media-publication.mjs';
 
 const repoRoot=process.cwd(),root=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-media-reuse-'));
 const git=args=>execFileSync('git',args,{cwd:root,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
@@ -84,10 +84,20 @@ try {
 
   // Original archive bytes are verified at the publication boundary before any
   // live reuse; this path never invokes push/deploy, even for a matching label.
-  const archive=Buffer.from('synthetic Docker save bytes'),image='sha256:'+'e'.repeat(64);
+  const config={architecture:'amd64',os:'linux',config:{Labels:{'org.opencontainers.image.revision':sha},Cmd:['node','fixture.mjs']},rootfs:{type:'layers',diff_ids:['sha256:'+hash('fixture-layer')]}};
+  const blob=value=>Buffer.from(JSON.stringify(value)),configId='sha256:'+hash(blob(config)),layer=hash('fixture-layer');
+  const manifest={schemaVersion:2,config:{digest:configId},layers:[{digest:'sha256:'+layer}]},manifestId='sha256:'+hash(blob(manifest));
+  const index={schemaVersion:2,manifests:[{digest:manifestId,platform:{os:'linux',architecture:'amd64'}}]},image='sha256:'+hash(blob(index));
+  const entries={'manifest.json':blob([{Config:'blobs/sha256/'+configId.slice(7),RepoTags:[`bitbi-private-media:${sha}`],Layers:['blobs/sha256/'+layer]}]),
+    'index.json':blob({schemaVersion:2,manifests:[{digest:image}]}),['blobs/sha256/'+image.slice(7)]:blob(index),['blobs/sha256/'+manifestId.slice(7)]:blob(manifest),['blobs/sha256/'+configId.slice(7)]:blob(config),['blobs/sha256/'+layer]:Buffer.from('fixture-layer')};
+  const archive=execFileSync('python3',['-I','-c',`import sys,tarfile,io,json,base64
+with tarfile.open(fileobj=sys.stdout.buffer,mode='w|') as t:
+ for name,value in json.load(sys.stdin).items():
+  b=base64.b64decode(value);m=tarfile.TarInfo(name);m.size=len(b);t.addfile(m,io.BytesIO(b))`],{input:JSON.stringify(Object.fromEntries(Object.entries(entries).map(([k,v])=>[k,v.toString('base64')])))});
+  const inspected={Id:configId,Os:'linux',Architecture:'amd64',Config:config.config,RootFS:{Type:'layers',Layers:config.rootfs.diff_ids}};
   const record={sha,run:'100',attempt:'1',dirty:false,sourceFiles:mediaImageInputs(),platform:'linux/amd64',image,tag:`bitbi-private-media:${sha}`,ffmpeg:'ffmpeg fixture',ffprobe:'ffprobe fixture',archiveDigest:hash(archive),tests:['two-five-clips','copy-normalize-audio','background-music-decoded','per-clip-audio-decoded','smooth-joins-decoded','private-drain-poster','container-process-restart','h3-video-reference']};
   const publish=async(change=()=>{})=>{
-    const input={record:structuredClone(record),active:{workerVersion:'media-v',deployment:'media-d'},artifact:structuredClone(source.artifact)},calls=[];change(input);
+    const input={record:structuredClone(record),active:{workerVersion:'media-v',deployment:'media-d'},inspected:structuredClone(inspected),artifact:structuredClone(source.artifact)},calls=[];change(input);
     const folder=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-media-archive-'));
     try {
       fs.writeFileSync(path.join(folder,'image.json'),JSON.stringify(input.record));fs.writeFileSync(path.join(folder,'image.tar'),archive);fs.writeFileSync(path.join(folder,'test.log'),'passed');
@@ -100,7 +110,7 @@ try {
         command:(name,args,options)=>{
           calls.push([name,...args]);if(name==='python3')return execFileSync(name,args,{encoding:'utf8',...options});
           assert.equal(name,'docker');if(args[0]==='load')return '';
-          assert.deepEqual(args,['image','inspect',record.tag]);return JSON.stringify([{Id:image,Config:{Labels:{'org.opencontainers.image.revision':sha}}}]);
+          assert.deepEqual(args,['image','inspect',record.tag]);return JSON.stringify([input.inspected]);
         },
         verifyActive:async expected=>({...expected,...input.active}),
       });
@@ -108,7 +118,8 @@ try {
       assert(!calls.some(c=>c.includes('push')||c.includes('deploy')));return result;
     }finally{fs.rmSync(folder,{recursive:true,force:true});}
   };
-  await publish();
+  await publish();await publish(d=>d.inspected.Id=image);await publish(d=>d.inspected.Id=manifestId);
+  for(const change of [d=>d.inspected.Id='sha256:'+'f'.repeat(64),d=>d.inspected.Architecture='arm64',d=>d.inspected.RootFS.Layers=['sha256:'+'f'.repeat(64)],d=>d.inspected.Config.Cmd=['wrong'],d=>d.inspected.Config.Labels['org.opencontainers.image.revision']=head])await assert.rejects(publish(change));
   for(const change of [d=>d.corruptArchive=true,d=>d.record.sha=head,d=>d.record.run='200',d=>d.record.attempt='2',d=>d.record.dirty=true,d=>d.record.sourceFiles['workers/media/src/index.js']='bad',d=>d.record.archiveDigest='bad',d=>d.record.tests.pop(),d=>d.active.workerVersion='replacement',d=>d.active.deployment='replacement'])await assert.rejects(publish(change));
   write('workers/media/src/index.js','genuine changed implementation\n');const changed=commit('actual media edit');
   assert.equal(mediaInputsUnchanged(sha,changed),false);assert.equal(await exercise(()=>{},{...c,sha:changed}),null,'A genuine media change selects a new tested deployment');
@@ -146,3 +157,12 @@ try {
   }finally{globalThis.fetch=originalFetch;for(const k of keys)if(previous[k]===undefined)delete process.env[k];else process.env[k]=previous[k];}
 }
 console.log('Media activation reuse: exact Git inputs, protected failed activation, accepted original image archive, fresh Auth/smoke identity, no redeploy and rejection controls passed.');
+
+const retained='.local-release/test-results/private-media-image';
+if(fs.existsSync(path.join(retained,'image.tar'))) {
+  const record=JSON.parse(fs.readFileSync(path.join(retained,'image.json'))),identity=mediaArchiveIdentity(path.join(retained,'image.tar'));
+  const classic={Id:identity.config,Os:'linux',Architecture:'amd64',Config:identity.runtime,RootFS:{Layers:identity.layers}};
+  verifyLoadedMediaImage(record,classic,identity);verifyLoadedMediaImage(record,{...classic,Id:record.image},identity);
+  for(const mutate of [v=>v.Id='sha256:'+'f'.repeat(64),v=>v.RootFS.Layers.reverse(),v=>v.Config.Cmd=['unexpected'],v=>v.Architecture='arm64']) {const bad=structuredClone(classic);mutate(bad);assert.throws(()=>verifyLoadedMediaImage(record,bad,identity));}
+  console.log('Actual retained AMD64 archive: OCI index/classic config identity, ordered layers and runtime verified; substituted image/layer/entrypoint/platform controls rejected. No media tests repeated.');
+}
