@@ -222,6 +222,9 @@ function runLocalRelease({ base, resume }) {
     assert.equal(sha256(fs.readFileSync(path.join(reuse,'core-checkpoint.json'))),LOCAL_WORKER_REPAIR.coreCheckpoint);
     const core=json(path.join(reuse,'core-checkpoint.json'));
     copy(path.join(coreRoot,'source/test-results/local-homepage-fresh.json'),'browser-coreProgress.json');
+    const coreCorrected=fs.readdirSync(path.join(cacheRoot(),'runs')).filter(name=>name.startsWith(BROWSER_ORIGINS.coreCorrected+'-'));
+    assert.equal(coreCorrected.length,1,'Missing/ambiguous corrected core evidence');
+    copy(path.join(cacheRoot(),'runs',coreCorrected[0],'source/test-results/local-homepage-fresh.json'),'browser-coreCorrected.json');
     for(const report of LOCAL_HOMEPAGE_REPORTS)fs.copyFileSync(path.join(coreRoot,'bundle/test-results',report),path.join(bundle,'test-results',report));
     verifyRetainedHomepageReports(bundle);
     for(const index of LOCAL_CORE_REUSE) {

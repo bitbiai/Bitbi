@@ -10042,8 +10042,12 @@ test.describe('Shared MODELS overlay', () => {
   });
 
   for (const pathname of MODELS_OVERLAY_PATHS) {
-    test(`${pathname} opens the local MODELS overlay from the mobile menu without navigation`, async ({ page }) => {
-      await require('./helpers/generation-selectors.cjs').mockAvailability(page);
+    test(`${pathname} opens the local MODELS overlay from the mobile menu without navigation`, async ({ page, baseURL }) => {
+      // Admin pricing is protected and requires the ordinary authenticated fixture.
+      const admin = pathname === '/admin/index.html' ? await setupAppearance(page, baseURL) : null;
+      if (!admin) await require('./helpers/generation-selectors.cjs').mockAvailability(page);
+      else await page.route('**/api/admin/ai/model-pricing', route => route.request().method() === 'GET'
+        ? route.fulfill({ json: { ok: true, revision: 0, rules: {}, availability: admin.availability } }) : route.abort());
       await page.setViewportSize({ width: 390, height: 844 });
       await page.goto(pathname);
       const currentUrl = new URL(page.url());
@@ -10059,6 +10063,10 @@ test.describe('Shared MODELS overlay', () => {
       await page.locator('.models-overlay__close').click();
       await expect(page.locator('.models-overlay')).not.toHaveClass(/is-active/);
       await expectPathUnchanged(page, currentPath);
+      if (admin) {
+        expect(admin.calls.filter(call => call.method !== 'GET')).toEqual([]);
+        expect(admin.errors).toEqual([]);
+      }
     });
   }
 });

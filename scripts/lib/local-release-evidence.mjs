@@ -95,7 +95,7 @@ export const LOCAL_WORKER_REPAIR = Object.freeze({
   tailCheckpoint:'38f1757fa3b5e8134c65b5c89f11cbcd06c8495461cd99b6b29a1395c797a29f',
   tailLog:'a4905f85e7c5c5a3c19f37a8c30479f35f5459c617ebd4e4d34ebae52e2ac114',
   specs: {
-    'tests/smoke.spec.js':'5542e87d6bc492ed91fa494d3c3d0c9cffa4a03b2605693b89388df83cadbe0e',
+    'tests/smoke.spec.js':'9163a19228e9cc1deec52ba824b07f3c0d95b1a73fa844fc9f394db82422ebe4',
     'js/pages/generate-lab/main.js':'ab851f5fb287503f137aecd324e6eb0b77fa92aa2b83a0e6bd863365df5a3267',
     'tests/auth-admin.spec.js':'53f92668d3233a8581d564ba4c2b0a5050d483b50bd4ede259e61d7bd1d65948',
     'tests/helpers/model-help-contract.cjs':'1477ed43927165b514bfeea6df1864d92f5e6e4cee8ae8f2f819ee539c5df7f5',
