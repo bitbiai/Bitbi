@@ -848,6 +848,7 @@ export function isCanvasCompletionRouteChange(sources) {
 // Canvas media controls reuse the existing native and browser callers. Model,
 // provider, pricing, billing and unknown neighboring changes retain broader coverage.
 const CANVAS_AUDIO_FIT_FILES = new Set([
+  'workers/auth/src/lib/canvas-preview-base.js',
   'js/shared/canvas-audio-fit.mjs',
   'js/pages/canvas/full-video.js',
   'js/pages/canvas/smooth-joins.js',
