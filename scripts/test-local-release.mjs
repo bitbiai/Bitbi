@@ -64,8 +64,14 @@ function testSmoothContinuation() {
     assert(!fs.existsSync(path.join(target,'test-results/canvas-artifacts/error-context.md')));assert(fs.existsSync(path.join(target,'test-results/canvas-artifacts/result.json')));assert(fs.existsSync(path.join(target,'docs/UNKNOWN.md')));assert.equal(scanRepoForSecrets(target).length,0);
     fs.writeFileSync(path.join(target,'product.js'),'const token = '+JSON.stringify('Z'.repeat(40))+';');assert(scanRepoForSecrets(target).length>0,'Product secrets must still block after staging proof metadata');
   }finally{fs.rmSync(staging,{recursive:true,force:true});}
-  const read=(changed=Object.keys(p.specs),broken=false)=>args=>args[0]==='show'?broken?Buffer.from('invalid expectation'):fs.readFileSync(args[1].split(':')[1]):Buffer.from(args[0]==='diff'?changed.join('\n'):'');
+  const read=(changed=Object.keys(p.specs),broken=false)=>args=>args[0]==='show'?broken?Buffer.from('invalid expectation'):execFileSync('git',['show',`${p.accepted}:${args[1].split(':')[1]}`]):Buffer.from(args[0]==='diff'?changed.join('\n'):'');
   assertSmoothContinuationTree(head,read());
+  // Closed historical evidence uses its pinned Git fixture, never today's
+  // independently changed Canvas tests. A changed fixture still rejects.
+  for(const file of Object.keys(p.specs)) {
+    const current=fs.readFileSync(file);
+    if(sha256(current)!==p.specs[file])assert.throws(()=>assertSmoothContinuationTree(head,args=>args[0]==='show'&&args[1].endsWith(':'+file)?current:read()(args)),/Unreviewed/);
+  }
   for(const file of ['js/pages/canvas/full-video.js','services/homepage-ffmpeg-processor/canvas-seams.mjs','workers/auth/src/routes/canvas.js','package-lock.json','.github/workflows/static.yml'])
     assert.throws(()=>assertSmoothContinuationTree(head,read([...Object.keys(p.specs),file])),/cannot inherit/);
   assert.throws(()=>assertSmoothContinuationTree(head,read(undefined,true)),/Unreviewed/);
