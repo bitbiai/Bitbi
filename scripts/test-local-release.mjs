@@ -7,7 +7,8 @@ import { yaml } from '../node_modules/playwright-core/lib/utilsBundle.js';
 import { selectCiTests } from './lib/ci-test-selection.mjs';
 import { validationPlan, selectedCommands, sha256, commandRuntimes, nativeBrowserKey, verifyImportWorkflow } from './lib/local-release-plan.mjs';
 import { environmentInputs, environmentKey, TOOL_PREFLIGHT, toolchainPins } from './lib/local-release-environment.mjs';
-import { validateLocator, extractEvidence } from './lib/local-release-transport.mjs';
+import { validateLocator, extractEvidence, stageImportedCandidate } from './lib/local-release-transport.mjs';
+import { scanRepoForSecrets } from './lib/quality-gates.mjs';
 import { verifyLocalEvidence, rebindLocalCandidate, verifyNativeLocalReports, workerListResults, verifyWorkerUnion, assertLocalRepairTree, verifyLocalWorkerRepair, localWorkerContinuation, tapResults, verifyNativeCaseUnion, NATIVE_REPAIRED_CASES, verifyNativeBrowserEnvironment, verifyMigrationCandidateBytes, LOCAL_HOMEPAGE_REPORTS, verifyRetainedHomepageReports, verifyRetainedFrontendLog } from './lib/local-release-evidence.mjs';
 import {readMigrationBrowserPool,migrationBrowserPool,verifyBrowserUnion,verifyMigrationBrowserReport,BROWSER_ORIGINS,LOCAL_BROWSER_POLICY} from './lib/local-release-browser.mjs';
 import { prepareFrontend, verifyFrontend, stopFrontendRuntime } from './lib/frontend-hosting.mjs';
@@ -16,7 +17,7 @@ import { assertHostedBootstrapAllowed, assertLocalBootstrapAllowed } from '../te
 import { acquireLocalReleaseLock, prepareCandidateRestore } from './local-release.mjs';
 import { LOCAL_IMPORT_REPAIR, assertImportRepairWorkflow, localRepairCommand, verifyImportRepairEvidence } from './lib/local-release-evidence.mjs';
 
-function testImportRepair() {
+function testImportRepair({closed=false}={}) {
   const file='.github/workflows/static.yml',text=fs.readFileSync(file,'utf8'),workflow=yaml.parse(text);
   verifyImportWorkflow(workflow);
   const changes=[
@@ -33,10 +34,13 @@ function testImportRepair() {
     w=>w.jobs['release-compatibility'].steps=w.jobs['release-compatibility'].steps.filter(s=>s.id!=='local_evidence'),
   ];
   for(const change of changes){const wrong=structuredClone(workflow);change(wrong);assert.throws(()=>verifyImportWorkflow(wrong));}
-  const before=execFileSync('git',['show',`${LOCAL_IMPORT_REPAIR.source}:${file}`],{encoding:'utf8'});
-  assertImportRepairWorkflow(before,text);
-  for(const changed of [before,text.replace('cancel-in-progress: false','cancel-in-progress: true'),text.replace('digest-mismatch: error','digest-mismatch: warn')])
-    assert.throws(()=>assertImportRepairWorkflow(before,changed));
+  const missing=structuredClone(workflow);delete missing.jobs['release-compatibility'].permissions;
+  const before=closed?execFileSync('git',['show',`${LOCAL_IMPORT_REPAIR.source}:${file}`],{encoding:'utf8'}):yaml.stringify(missing);
+  if(closed) {
+    assertImportRepairWorkflow(before,text);
+    for(const changed of [before,text.replace('cancel-in-progress: false','cancel-in-progress: true'),text.replace('digest-mismatch: error','digest-mismatch: warn')])
+      assert.throws(()=>assertImportRepairWorkflow(before,changed));
+  }
   const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-import-repair-'));
   try {
     // Exercise the actual early caller, not just a helper with a synthetic object.
@@ -44,6 +48,7 @@ function testImportRepair() {
     fs.copyFileSync('config/release-validation.yml',path.join(tmp,'config/release-validation.yml'));
     fs.writeFileSync(path.join(tmp,file),text);validationPlan(tmp);
     fs.writeFileSync(path.join(tmp,file),before);assert.throws(()=>validationPlan(tmp),/approved import-job permission/);
+    if(closed) {
     const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
     const gitEnv={...process.env,GIT_INDEX_FILE:path.join(tmp,'index')};
     function commitFile(name,bytes) {
@@ -57,18 +62,19 @@ function testImportRepair() {
     assert.equal(localRepairCommand(allowed),'npm run test:local-release -- --import-repair-only');
     assert.throws(()=>assertLocalRepairTree(commitFile(file,text.replace('cancel-in-progress: false','cancel-in-progress: true'))),/Only the reviewed/);
     assert.throws(()=>assertLocalRepairTree(commitFile('tests/canvas.spec.js','changed input')),/Changed product/);
-    const directory=process.env.LOCAL_IMPORT_EVIDENCE||(fs.existsSync('.local-release/reuse/import-source-evidence.json')?'.local-release':null);
+    const directory=process.env.LOCAL_IMPORT_EVIDENCE||(fs.existsSync('.local-release/reuse/test-results/import-source-evidence.json')?'.local-release':null);
     if(directory) {
       const source=verifyImportRepairEvidence(directory,allowed);
       assert.equal(source.original.commands.length,53);
-      fs.mkdirSync(path.join(tmp,'reuse'));
+      fs.mkdirSync(path.join(tmp,'reuse/test-results'),{recursive:true});
       for(const name of ['import-source-evidence.json','import-source-manifest.json','import-source-contract.log'])
-        fs.copyFileSync(path.join(directory,'reuse',name),path.join(tmp,'reuse',name));
-      for(const name of fs.readdirSync(path.join(tmp,'reuse'))) {
-        const file=path.join(tmp,'reuse',name),bytes=fs.readFileSync(file);
+        fs.copyFileSync(path.join(directory,'reuse/test-results',name),path.join(tmp,'reuse/test-results',name));
+      for(const name of fs.readdirSync(path.join(tmp,'reuse/test-results'))) {
+        const file=path.join(tmp,'reuse/test-results',name),bytes=fs.readFileSync(file);
         fs.unlinkSync(file);assert.throws(()=>verifyImportRepairEvidence(tmp,allowed));
         fs.writeFileSync(file,'changed');assert.throws(()=>verifyImportRepairEvidence(tmp,allowed));fs.writeFileSync(file,bytes);
       }
+    }
     }
     const site=path.join(tmp,'candidate/site');fs.mkdirSync(site,{recursive:true});
     fs.writeFileSync(path.join(site,'index.html'),'<script src="/app.js?v=aaaaaaaaaaaa"></script>');
@@ -77,10 +83,23 @@ function testImportRepair() {
     verifyMigrationCandidateBytes(tmp,original,{sha:'b'.repeat(40),files:tree(site)},{allowLabGuard:false});
     fs.appendFileSync(path.join(site,'index.html'),'changed product');
     assert.throws(()=>verifyMigrationCandidateBytes(tmp,original,{sha:'b'.repeat(40),files:tree(site)},{allowLabGuard:false}),/Unreviewed product/);
+    const staging=path.join(tmp,'imported'),manifest={files:tree(site)};
+    const bytes=JSON.stringify({candidateFiles:{'js/csrf-token.js':'a'.repeat(64)}},null,2);
+    fs.writeFileSync(path.join(tmp,'evidence.json'),bytes);
+    assert(scanRepoForSecrets(tmp).some(issue=>issue.file==='evidence.json'),'Exercise the metadata/hash false positive');
+    // Keep destination outside unpack so the actual recursive import cannot copy itself.
+    const unpack=path.join(tmp,'unpack');fs.mkdirSync(unpack);fs.cpSync(path.join(tmp,'candidate'),path.join(unpack,'candidate'),{recursive:true});
+    fs.copyFileSync(path.join(tmp,'evidence.json'),path.join(unpack,'evidence.json'));
+    stageImportedCandidate(unpack,{manifest},{manifest,proofs:[]},{receipt:1},{destination:staging});
+    assert.equal(fs.readFileSync(path.join(staging,'test-results/local-validation/evidence.json'),'utf8'),bytes);
+    assert.deepEqual(scanRepoForSecrets(staging),[]);
+    assert.throws(()=>stageImportedCandidate(unpack,{manifest},{manifest,proofs:[]},{},{destination:staging}),/Refuse to replace/);
+    fs.writeFileSync(path.join(staging,'site/app.js'),`const key = '${['sk','synthetic'].join('-')}${'x'.repeat(32)}';`);
+    assert(scanRepoForSecrets(staging).some(issue=>issue.file==='site/app.js'),'Actual candidate secret still blocks the import scan');
   } finally {fs.rmSync(tmp,{recursive:true,force:true});}
   console.log('Import permission: scoped writer, private-token exposure, lifecycle scripts, blocking import, exact Git delta and original evidence/candidate counterchecks passed. No product tests executed.');
 }
-if(process.argv.includes('--import-repair-only')) {testImportRepair();process.exit(0);}
+if(process.argv.includes('--import-repair-only')) {testImportRepair({closed:true});process.exit(0);}
 
 function testNativeRouting() {
   const commands=selectedCommands(selectCiTests(['config/static-hosting.json']),{GITHUB_SHA:'a'.repeat(40),CANDIDATE_BASE:'b'.repeat(40)});

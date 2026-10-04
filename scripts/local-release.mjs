@@ -241,7 +241,8 @@ function runLocalRelease({ base, resume }) {
       const imports=fs.readdirSync(path.join(cacheRoot(),'runs')).filter(name=>name.startsWith(LOCAL_IMPORT_REPAIR.source+'-'));
       assert.equal(imports.length,1,'Missing/ambiguous passed source before permission repair');
       const originalBundle=path.join(cacheRoot(),'runs',imports[0],'bundle');
-      for(const [from,to]of [['evidence.json','import-source-evidence.json'],['candidate/manifest.json','import-source-manifest.json'],['logs/18.log','import-source-contract.log']])copy(path.join(originalBundle,from),to);
+      fs.mkdirSync(path.join(reuse,'test-results'),{recursive:true});
+      for(const [from,to]of [['evidence.json','import-source-evidence.json'],['candidate/manifest.json','import-source-manifest.json'],['logs/18.log','import-source-contract.log']])copy(path.join(originalBundle,from),'test-results/'+to);
       verifyImportRepairEvidence(bundle,sha);
       state.repair.importSource=LOCAL_IMPORT_REPAIR.source;state.repair.importEvidence=LOCAL_IMPORT_REPAIR.evidence;
     }

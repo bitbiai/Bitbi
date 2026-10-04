@@ -22,6 +22,7 @@ export const LOCAL_IMPORT_REPAIR = Object.freeze({
   evidence:'19f68bf54dcc33f75d0ab519c0e57ca13751d76ad8a1882828e059a4794bb737',
   manifest:'9e103aee168dfd6f47d6533b6d16a9493f37d067a8fb5efad2940cc31e6a53f9',
   contractLog:'210230e351867cda65c454a613854b68fafa526f384c4bb8c12a9ee25e7c104c',
+  transport:'e9842950b4eef16554d55c734aad02d1d01040affb9987454896e475def27993',
 });
 export function assertImportRepairWorkflow(before,after) {
   assert.equal(sha256(before),LOCAL_IMPORT_REPAIR.workflow,'Unknown original import workflow');
@@ -41,9 +42,10 @@ export function localRepairCommand(head) {
 export function verifyImportRepairEvidence(directory,head) {
   gitBytes(['merge-base','--is-ancestor',LOCAL_IMPORT_REPAIR.source,head]);
   const files=gitBytes(['diff','--name-only',LOCAL_IMPORT_REPAIR.source,head]).toString().trim().split('\n').filter(Boolean);
-  assert(files.every(file=>repairTooling.has(file)||file==='.github/workflows/static.yml'),'Import repair changed product/test/toolchain inputs');
+  assert(files.every(file=>repairTooling.has(file)||file==='.github/workflows/static.yml'||file==='scripts/lib/local-release-transport.mjs'),'Import repair changed product/test/toolchain inputs');
+  assert.equal(sha256(gitBytes(['show',`${head}:scripts/lib/local-release-transport.mjs`])),LOCAL_IMPORT_REPAIR.transport,'Unreviewed import transport change');
   const read=(name,hash)=>{
-    const bytes=fs.readFileSync(path.join(directory,'reuse',name));
+    const bytes=fs.readFileSync(path.join(directory,'reuse/test-results',name));
     assert.equal(sha256(bytes),hash,`Changed permission-repair source evidence: ${name}`);return bytes;
   };
   const original=JSON.parse(read('import-source-evidence.json',LOCAL_IMPORT_REPAIR.evidence));
@@ -134,6 +136,7 @@ export const LOCAL_WORKER_REPAIR = Object.freeze({
   tailCheckpoint:'38f1757fa3b5e8134c65b5c89f11cbcd06c8495461cd99b6b29a1395c797a29f',
   tailLog:'a4905f85e7c5c5a3c19f37a8c30479f35f5459c617ebd4e4d34ebae52e2ac114',
   specs: {
+    'scripts/lib/local-release-transport.mjs':LOCAL_IMPORT_REPAIR.transport,
     'scripts/test-frontend-hosting.mjs':'b55a18f11e17cb3846098dd81ee2940e0d616458b90a8297615c08e8c10bbf30',
     'scripts/lib/frontend-hosting.mjs':'c007308e23e210302fd1d2c6e864fb6cb032445cfb9a66f3b3d7924b6d7180fe',
     'tests/smoke.spec.js':'9163a19228e9cc1deec52ba824b07f3c0d95b1a73fa844fc9f394db82422ebe4',

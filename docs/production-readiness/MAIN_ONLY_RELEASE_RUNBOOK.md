@@ -123,6 +123,10 @@ before suites; missing/scoped-down or broadened permissions and skipped import f
 The closed `e637dce9` continuation permits only the exact reviewed workflow delta,
 pins its passed source evidence/manifest/contract log, and permits only generated
 cache-version changes in the candidate. Original source identities remain intact.
+Retained/imported proof metadata lives under the existing `test-results` boundary;
+its file/hash maps must not be scanned as product code. Candidate source still passes
+the unchanged secret scanner, including a planted-secret countercheck through the
+actual import staging function. The transport correction is separately hash-pinned.
 The actual Actions import and protected publication must still succeed; syntax or
 local fixtures do not prove draft access. The schema-3 candidate envelope retains the original local manifest,
 reports and proof identity; the Actions run/attempt identifies the import, not invented

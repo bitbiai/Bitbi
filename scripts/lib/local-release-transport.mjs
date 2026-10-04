@@ -99,8 +99,21 @@ with zipfile.ZipFile(sys.argv[2],'w',compression=zipfile.ZIP_DEFLATED,compressle
   fs.writeFileSync(path.join(directory,'transport.json'),JSON.stringify({receipt:record.id,...locator},null,2)+'\n');
   return { receipt:record.id, ...locator };
 }
+export function stageImportedCandidate(unpack,verified,rebound,transport,{destination='candidate'}={}) {
+  assert(!fs.existsSync(destination),'Refuse to replace existing candidate');
+  fs.cpSync(path.join(unpack,'candidate'),destination,{recursive:true});
+  const records=path.join(destination,'test-results/local-validation');
+  fs.mkdirSync(records,{recursive:true});
+  // Evidence metadata belongs to the established report boundary. Its file/hash
+  // maps are not product source; candidate/site remains subject to the secret scan.
+  fs.cpSync(unpack,records,{recursive:true,filter:file=>file!==path.join(unpack,'test-results/private-media-image/image.tar')});
+  fs.writeFileSync(path.join(destination,'manifest.json'),JSON.stringify(rebound.manifest));
+  for(const proof of rebound.proofs)fs.writeFileSync(path.join(destination,`proof-${proof.job}.json`),JSON.stringify(proof));
+  fs.writeFileSync(path.join(records,'transport.json'),JSON.stringify(transport));
+  assert.deepEqual(tree(path.join(destination,'site')),verified.manifest.files);
+}
 export async function importLocalEvidence(expected, { token = process.env.GH_TOKEN, receipt, run = process.env.GITHUB_RUN_ID, attempt = process.env.GITHUB_RUN_ATTEMPT } = {}) {
-  assert(token,'Missing existing GitHub read token');
+  assert(token,'Missing existing GitHub import token');
   let record;
   if (receipt) record = await request(`deployments/${receipt}`,token);
   else {
@@ -130,16 +143,9 @@ export async function importLocalEvidence(expected, { token = process.env.GH_TOK
       fs.writeFileSync('test-results/private-media-image/image.json',JSON.stringify({...original,run:String(run),attempt:String(attempt),
         localValidation:{policy:LOCAL_POLICY,run:original.run,attempt:original.attempt,evidence:verified.digest,recordHash:sha256(JSON.stringify(original))}}));
     }
-    assert(!fs.existsSync('candidate'),'Refuse to replace existing candidate');
-    fs.cpSync(path.join(unpack,'candidate'),'candidate',{recursive:true});
-    fs.mkdirSync('candidate/local-validation');
     // Retain the original immutable local report and proof identities, not an
     // invented GitHub execution result. The Actions envelope identifies import.
-    fs.cpSync(unpack,'candidate/local-validation',{recursive:true,filter:file=>file!==path.join(unpack,'test-results/private-media-image/image.tar')});
-    fs.writeFileSync('candidate/manifest.json',JSON.stringify(rebound.manifest));
-    for(const proof of rebound.proofs)fs.writeFileSync(`candidate/proof-${proof.job}.json`,JSON.stringify(proof));
-    fs.writeFileSync('candidate/local-validation/transport.json',JSON.stringify({receipt:record.id,...locator}));
-    assert.deepEqual(tree('candidate/site'),verified.manifest.files);
+    stageImportedCandidate(unpack,verified,rebound,{receipt:record.id,...locator});
     if(process.env.GITHUB_OUTPUT)fs.appendFileSync(process.env.GITHUB_OUTPUT,`media_image=${media}\n`);
     return { receipt:record.id,manifest:rebound.manifest };
   } finally { fs.rmSync(temporary,{recursive:true,force:true}); }
