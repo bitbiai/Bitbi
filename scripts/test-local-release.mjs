@@ -1,4 +1,4 @@
-import {SMOOTH_BROWSER_POLICY,SMOOTH_BROWSER_CONTINUATION,assertSmoothContinuationTree,verifySmoothBrowserReport,verifySmoothImageReuse,verifyImportedSmoothImage,passedBrowserCase} from './lib/local-release-browser.mjs';
+import {SMOOTH_BROWSER_POLICY,SMOOTH_BROWSER_CONTINUATION,isSmoothContinuation,assertSmoothContinuationTree,verifySmoothBrowserReport,verifySmoothImageReuse,verifyImportedSmoothImage,passedBrowserCase} from './lib/local-release-browser.mjs';
 import {browserRows} from './lib/browser-fixture-repair.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -16,7 +16,7 @@ import {readMigrationBrowserPool,migrationBrowserPool,verifyBrowserUnion,verifyM
 import { prepareFrontend, verifyFrontend, stopFrontendRuntime } from './lib/frontend-hosting.mjs';
 import { gitSelection, tree, MEDIA_POLICY, candidateProof, validateSource, verifyManifest, verifyProofs } from './pages-candidate.mjs';
 import { assertHostedBootstrapAllowed, assertLocalBootstrapAllowed } from '../tests/helpers/q2-runtime/linux-hosted.mjs';
-import { acquireLocalReleaseLock, prepareCandidateRestore } from './local-release.mjs';
+import { acquireLocalReleaseLock, prepareCandidateRestore, copyEvidenceToolInputs } from './local-release.mjs';
 import { LOCAL_IMPORT_REPAIR, assertImportRepairWorkflow, localRepairCommand, verifyImportRepairEvidence } from './lib/local-release-evidence.mjs';
 import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,assertPermissionContinuationTree,permissionContinuationPrefix,CANVAS_STAGE_CASES,canvasStageContinuation} from './lib/local-release-evidence.mjs';
 
@@ -34,8 +34,8 @@ function testPermissionContinuation() {
     const bytes=fs.readFileSync(file),original=JSON.parse(bytes),actualHead=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
     const context={head:actualHead,base:original.base,planHash:validationPlan().digest,environment:original.environment,
       commands:selectedCommands(gitSelection(original.base,actualHead),{GITHUB_SHA:actualHead,CANDIDATE_BASE:original.base})};
-    assertPermissionContinuationTree(actualHead,undefined,{smooth:original.sha===SMOOTH_BROWSER_CONTINUATION.source});assert([PERMISSION_CONTINUATION.source,PERMISSION_CONTINUATION.tail,SMOOTH_BROWSER_CONTINUATION.source].includes(permissionContinuationPrefix(bytes,context).sha));
-    for(const mutate of [r=>r.commands.at(-1).exitCode=0,r=>r.commands[0].logHash='wrong',r=>r.commands.pop(),r=>r.status='passed']) {
+    assertPermissionContinuationTree(actualHead,undefined,{smooth:isSmoothContinuation(original.sha)});assert([PERMISSION_CONTINUATION.source,PERMISSION_CONTINUATION.tail,SMOOTH_BROWSER_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.progress].includes(permissionContinuationPrefix(bytes,context).sha));
+    for(const mutate of [r=>r.commands.find(row=>row&&row.exitCode!==0).exitCode=0,r=>r.commands[0].logHash='wrong',r=>r.commands.pop(),r=>r.status='passed']) {
       const wrong=structuredClone(original);mutate(wrong);assert.throws(()=>permissionContinuationPrefix(Buffer.from(JSON.stringify(wrong)),context));
     }
     for(const mutate of [c=>c.base='b'.repeat(40),c=>c.planHash='changed',c=>c.environment.key='changed',c=>c.commands[18].run='skip']) {
@@ -55,6 +55,13 @@ function testPermissionContinuation() {
 
 function testSmoothContinuation() {
   const p=SMOOTH_BROWSER_CONTINUATION,head='f'.repeat(40);
+  const staging=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-proof-inputs-'));
+  try {
+    const source=path.join(staging,'source'),target=path.join(staging,'target');fs.mkdirSync(path.join(source,'test-results/canvas-artifacts'),{recursive:true});fs.mkdirSync(path.join(source,'docs'));
+    for(const file of ['test-results/canvas-artifacts/error-context.md','test-results/canvas-artifacts/result.json','docs/UNKNOWN.md'])fs.writeFileSync(path.join(source,file),'retained');
+    copyEvidenceToolInputs(source,target);assert(fs.existsSync(path.join(source,'test-results/canvas-artifacts/error-context.md')));
+    assert(!fs.existsSync(path.join(target,'test-results/canvas-artifacts/error-context.md')));assert(fs.existsSync(path.join(target,'test-results/canvas-artifacts/result.json')));assert(fs.existsSync(path.join(target,'docs/UNKNOWN.md')));
+  }finally{fs.rmSync(staging,{recursive:true,force:true});}
   const read=(changed=Object.keys(p.specs),broken=false)=>args=>args[0]==='show'?broken?Buffer.from('invalid expectation'):fs.readFileSync(args[1].split(':')[1]):Buffer.from(args[0]==='diff'?changed.join('\n'):'');
   assertSmoothContinuationTree(head,read());
   for(const file of ['js/pages/canvas/full-video.js','services/homepage-ffmpeg-processor/canvas-seams.mjs','workers/auth/src/routes/canvas.js','package-lock.json','.github/workflows/static.yml'])

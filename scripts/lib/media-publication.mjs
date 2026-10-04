@@ -185,7 +185,7 @@ with zipfile.ZipFile(p/'image.zip') as z:
     command('docker',['load','--input',path.join(dir,'image.tar')]);
     const image=JSON.parse(command('docker',['image','inspect',record.tag]))[0];assert.equal(image.Id,record.image);assert.equal(image.Config.Labels['org.opencontainers.image.revision'],imageSha);
     if(reuse) {
-      const expected={sha,imageDigest:reuse.imageDigest,image:record.image,artifact:reuse.artifact,
+      const expected={sha,...(imageSha!==sha?{imageSourceSha:imageSha}:{}),imageDigest:reuse.imageDigest,image:record.image,artifact:reuse.artifact,
         sourceRun:source.run,sourceAttempt:source.attempt,reusedActivation:reuse.activation};
       const active=await verifyActive(expected);
       assert.equal(active.workerVersion,reuse.activation.workerVersion,'Original media version changed');

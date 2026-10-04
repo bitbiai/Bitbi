@@ -1,4 +1,4 @@
-import {SMOOTH_BROWSER_CONTINUATION,verifySmoothImageReuse} from './local-release-browser.mjs';
+import {SMOOTH_BROWSER_CONTINUATION,isSmoothContinuation,verifySmoothImageReuse} from './local-release-browser.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -139,7 +139,7 @@ export async function importLocalEvidence(expected, { token = process.env.GH_TOK
     if(media) {
       const mediaDir=path.join(unpack,'test-results/private-media-image');
       const original=JSON.parse(fs.readFileSync(path.join(mediaDir,'image.json')));
-      const retained=verified.evidence.permissionContinuation?.source===SMOOTH_BROWSER_CONTINUATION.source;
+      const retained=isSmoothContinuation(verified.evidence.permissionContinuation?.source);
       if(retained)verifySmoothImageReuse(original,expected.sha);
       verifyMediaImage(original,{sha:retained?original.sha:expected.sha,run:retained?SMOOTH_BROWSER_CONTINUATION.run:verified.evidence.id,attempt:'1',archive:path.join(mediaDir,'image.tar')});
       fs.mkdirSync('test-results',{recursive:true});fs.cpSync(mediaDir,'test-results/private-media-image',{recursive:true});
