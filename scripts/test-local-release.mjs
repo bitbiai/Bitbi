@@ -60,14 +60,19 @@ function testBrowserContinuation() {
   assert.throws(()=>verifyBrowserUnion(discovery,new Map([['kept',row('kept','failed')]]),fresh));
   const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-candidate-delta-'));
   try {
-    const site=path.join(tmp,'candidate/site');fs.mkdirSync(path.join(site,'js/pages/generate-lab'),{recursive:true});
+    const site=path.join(tmp,'candidate/site');fs.mkdirSync(path.join(site,'js/pages/generate-lab'),{recursive:true});fs.mkdirSync(path.join(site,'js/pages/admin'),{recursive:true});
     const source='export const fixture = true;\n',guard='    // Concurrent UI triggers may have awaited the same pricing refresh.\n    if (state.busy) return;\n';
     fs.writeFileSync(path.join(site,'index.html'),'<script src="/fixture.js?v=aaaaaaaaaaaa"></script>');
     fs.writeFileSync(path.join(site,'js/pages/generate-lab/main.js'),source);
+    fs.writeFileSync(path.join(site,'js/pages/admin/ai-lab.js'),"const ADMIN_AI_UI_VERSION = 'aaaaaaaaaaaa';\n");
     const old={sha:'a'.repeat(40),files:tree(site)};
     fs.writeFileSync(path.join(site,'index.html'),'<script src="/fixture.js?v=bbbbbbbbbbbb"></script>');
     fs.writeFileSync(path.join(site,'js/pages/generate-lab/main.js'),guard+source);
+    fs.writeFileSync(path.join(site,'js/pages/admin/ai-lab.js'),"const ADMIN_AI_UI_VERSION = 'bbbbbbbbbbbb';\n");
     const current={sha:'b'.repeat(40),files:tree(site)};verifyMigrationCandidateBytes(tmp,old,current);
+    fs.appendFileSync(path.join(site,'js/pages/admin/ai-lab.js'),'unexpected');
+    assert.throws(()=>verifyMigrationCandidateBytes(tmp,old,{...current,files:tree(site)}));
+    fs.writeFileSync(path.join(site,'js/pages/admin/ai-lab.js'),"const ADMIN_AI_UI_VERSION = 'bbbbbbbbbbbb';\n");
     fs.appendFileSync(path.join(site,'js/pages/generate-lab/main.js'),'unexpected');
     assert.throws(()=>verifyMigrationCandidateBytes(tmp,old,current));
     assert.throws(()=>verifyMigrationCandidateBytes(tmp,old,{...current,files:tree(site)}),/Unreviewed product/);
@@ -77,11 +82,12 @@ function testBrowserContinuation() {
     const pool=readMigrationBrowserPool(directory),retained=migrationBrowserPool(pool);
     assert(retained.size>=707);assert.equal(pool.production.length,224);assert.equal(pool.coreProgress.filter(row=>row.status==='expected').length,225);
     const discovery=pool.previous.map(identity),pending=discovery.filter(row=>!retained.has(row.key));
-    assert.equal(pending.length,2);assert(pending.every(row=>row.title.startsWith('P03 lab: pending generation')));
-    const report={policy:LOCAL_BROWSER_POLICY,sha:'a'.repeat(40),scope:'auth',origins:BROWSER_ORIGINS,pool,discovery,fresh:[],counts:{required:709,reused:707,executed:0}};
-    assert.throws(()=>verifyMigrationBrowserReport(report,report.sha),'Two unresolved real failures cannot acquire a passing proof');
+    assert.equal(pending.length,0);
+    const report={policy:LOCAL_BROWSER_POLICY,sha:'a'.repeat(40),scope:'auth',origins:BROWSER_ORIGINS,pool,discovery,fresh:[],counts:{required:709,reused:709,executed:0}};
+    assert.deepEqual(verifyMigrationBrowserReport(report,report.sha),report.counts);
+    assert.throws(()=>verifyMigrationBrowserReport({...report,counts:{...report.counts,executed:2}},report.sha),'Retained execution must never be labelled fresh');
     const changed=structuredClone(pool);changed.previous[0].title+=' changed';assert.throws(()=>migrationBrowserPool(changed));
-    console.log('Real 707 Auth, 224 production and 225 core passes retained; unresolved Lab cases still block.');
+    console.log('All real Auth/core passes retained with exact case provenance; no product test repeats.');
   }
   console.log('Browser continuation: exact discovery/union, omitted/duplicate/failed/skipped/retried/foreign cases and unreviewed candidate bytes counterchecked.');
 }

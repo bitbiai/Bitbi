@@ -15,6 +15,7 @@ export const BROWSER_ORIGINS=Object.freeze({
   production:'903f46807424efa062460d8c95efbf2f104d66e8',productionRun:'37195464481',
   coreProgress:'8c471701860db3a07b08224f676589b10a1103cc',
   coreCorrected:'136def1dcd6b8b6475632132d33c2b80ec52fec6',
+  final:'115eecc584c459808019b708623f341b5ee4f37c',
 });
 const rawHashes={
   previous:'cbee4ba34cc3c3bfbc71428351050a6f01416a836967fcbf8cf0788a3045e01e',
@@ -23,6 +24,8 @@ const rawHashes={
   production:'094e6513e4efa457fa6424a250f77bc914cdc3a3790590e73dc31b3396e10ed2',
   coreProgress:'1769babff07d3b1731ef014a02b5593ac041dfc25ae38736d3bc5518988847a1',
   coreCorrected:'0b340b593b033065415ffb32bd2786416031c25d4013fdc667612890f973adc8',
+  coreFinal:'44e79807276bb4506a2130e8a3efe71e5a2af918fc612c106d0225852590d86f',
+  authFinal:'31ceaf8102c23ba456446b9256aa0e85e9f6d0c5c9fa6e863dfa42d9ac3bc21a',
 };
 const rowHashes={
   previous:'617fd1c410187d1e2a1549da366b8ce3cfbfcb95206ea647f536eca1f27d05ab',
@@ -31,6 +34,8 @@ const rowHashes={
   production:'6e230eba3d38c0f4b692a57e15ce87b58d1d359a1c8600fd196b91da8172164b',
   coreProgress:'2b89315fc47f0313178e28fa78dd0265263e15abaeb2197f64a1bfc51f4d19cc',
   coreCorrected:'d61a8238de71bb34b4fdd836724a07986a4d18ba07913f6509254e218060f89e',
+  coreFinal:'47d1d2e7d4e7d7e7a0b89e3e449ccae0afad3924a5f1eec6f1da4720cd6e2e8d',
+  authFinal:'6dcdfdbc83e54e093faf83eba1da8649797fe387526cdfdf6288a961b20e81e2',
 };
 const discoveryHashes={auth:'7f7b08cedcd4e7883649e1210b89e8179b867ce7e9611481df2b8a22c0c6b903',homepage:'d42e2742b87f5099c47f0930ef310c3333060cd26fe4711194607e854004cfd3'};
 export const passedBrowserCase=row=>row.expectedStatus==='passed'&&row.status==='expected'&&row.results?.length===1&&row.results[0].status==='passed'&&row.results[0].retry===0&&!row.results[0].error;
@@ -63,8 +68,11 @@ export function migrationBrowserPool(pool) {
   assert.equal(pool.coreProgress.filter(passedBrowserCase).length,225);
   assert.equal(pool.coreCorrected.length,20);
   assert.equal(pool.coreCorrected.filter(passedBrowserCase).length,19);
+  assert.equal(pool.coreFinal.length,1);assert.equal(pool.authFinal.length,2);
   for(const row of pool.coreCorrected)assert.deepEqual(identity(row),identity(pool.coreProgress.find(old=>old.key===row.key)));
-  for(const row of [...pool.production,...pool.coreProgress.filter(passedBrowserCase),...pool.coreCorrected.filter(passedBrowserCase)]) {
+  for(const row of pool.coreFinal)assert.deepEqual(identity(row),identity(pool.coreCorrected.find(old=>old.key===row.key)));
+  for(const row of pool.authFinal)assert.deepEqual(identity(row),identity(pool.previous.find(old=>old.key===row.key)));
+  for(const row of [...pool.production,...pool.coreProgress.filter(passedBrowserCase),...pool.coreCorrected.filter(passedBrowserCase),...pool.coreFinal,...pool.authFinal]) {
     assert(passedBrowserCase(row));
     if(retained.has(row.key))assert.deepEqual(identity(row),identity(retained.get(row.key)));
     else retained.set(row.key,row);
@@ -110,9 +118,9 @@ export function runMigrationBrowserContinuation(scope,env=process.env) {
   };discoveryReport.suites.forEach(suite=>visit(suite));assert.equal(list.length,pending.size);
   const listFile=`test-results/local-${scope}-pending.txt`;fs.writeFileSync(listFile,list.join('\n')+'\n');
   const args=['--test-list',listFile,'--retries=0',`--output=test-results/local-${scope}-artifacts`];
-  const selected=browserRows(run('selected-discovery',[...args,'--list'],true),{discovery:true});
+  const selected=pending.size?browserRows(run('selected-discovery',[...args,'--list'],true),{discovery:true}):[];
   assert.deepEqual(selected,discovery.filter(row=>pending.has(row.key)),'CLI selection changed required unresolved cases');
-  const fresh=browserRows(run('fresh',args));
+  const fresh=pending.size?browserRows(run('fresh',args)):[];
   const report={policy:LOCAL_BROWSER_POLICY,sha:env.GITHUB_SHA,scope,origins:BROWSER_ORIGINS,pool,discovery,fresh,
     counts:verifyBrowserUnion(discovery,retained,fresh)};
   verifyMigrationBrowserReport(report,env.GITHUB_SHA);

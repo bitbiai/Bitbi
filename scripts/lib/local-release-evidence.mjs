@@ -304,6 +304,7 @@ export function verifyMigrationCandidateBytes(directory,oldManifest,manifest) {
     assert.equal(sha256(bytes),manifest.files[file],'Final candidate bytes changed');
     if(sha256(bytes)===hash)continue;
     let normalized=bytes.toString().replaceAll(`?v=${newToken}`,`?v=${oldToken}`);
+    if(file==='js/pages/admin/ai-lab.js')normalized=normalized.replace(`const ADMIN_AI_UI_VERSION = '${newToken}';`,`const ADMIN_AI_UI_VERSION = '${oldToken}';`);
     if(file==='js/pages/generate-lab/main.js')normalized=normalized.replace('    // Concurrent UI triggers may have awaited the same pricing refresh.\n    if (state.busy) return;\n','');
     assert.equal(sha256(normalized),hash,`Unreviewed product/build change: ${file}`);
   }
@@ -365,7 +366,8 @@ export function verifyLocalEvidence(directory, expected, { now = Date.now(), sel
     for(const scope of ['auth','homepage']) {
       const report=JSON.parse(fs.readFileSync(path.join(directory,`test-results/candidate-${scope}.json`)));
       assert.equal(report.policy,LOCAL_BROWSER_POLICY);assert.deepEqual(report.pool,pool);
-      assert.deepEqual(report.fresh,browserRows(JSON.parse(fs.readFileSync(path.join(directory,`test-results/local-${scope}-fresh.json`)))),'Changed actual browser execution report');
+      if(report.fresh.length)assert.deepEqual(report.fresh,browserRows(JSON.parse(fs.readFileSync(path.join(directory,`test-results/local-${scope}-fresh.json`)))),'Changed actual browser execution report');
+      else assert.equal(report.counts.executed,0,'Retained coverage is not fresh execution');
     }
   }
   const runtimeLog=fs.readFileSync(path.join(directory,'test-results/frontend-runtime.log'),'utf8');
