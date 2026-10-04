@@ -2,7 +2,7 @@ const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
-const { mockPublicAppearance } = require('./helpers/appearance');
+const { mockPublicAppearance, setupAppearance } = require('./helpers/appearance');
 
 async function loadLocaleRouting() {
   return import(pathToFileURL(path.join(__dirname, '..', 'js/shared/locale-routing.mjs')).href);
@@ -1599,8 +1599,12 @@ test.describe('Bilingual locale pages', () => {
     }
   });
 
-  test('Admin stays English-only and is not exposed as a German localized page', async ({ page }) => {
-    await mockPublicAppearance(page);
+  test('Admin stays English-only and is not exposed as a German localized page', async ({ page, baseURL }) => {
+    // This is the authorized Admin language surface. Denial/MFA has separate
+    // blocking cases; without an Admin session its pricing stays unavailable.
+    const fixture=await setupAppearance(page,baseURL);
+    await page.route('**/api/admin/ai/model-pricing', route => route.request().method()==='GET'
+      ? route.fulfill({json:{ok:true,revision:0,rules:{},availability:fixture.availability}}) : route.abort());
     expect(fs.existsSync(path.join(__dirname, '..', 'de/admin/index.html'))).toBe(false);
 
     const adminHtml = repoFile('admin/index.html');
@@ -1635,6 +1639,8 @@ test.describe('Bilingual locale pages', () => {
     ]);
     await expect(overlay.locator('.models-overlay__category').filter({ hasText: 'BILDGENERIERUNG' })).toHaveCount(0);
     await expect(overlay.getByRole('button', { name: 'Close models' })).toBeVisible();
+    expect(fixture.unexpectedWrites).toEqual([]);
+    expect(fixture.errors).toEqual([]);
   });
 });
 
