@@ -8,7 +8,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { ensureEnvironment, docker, PACKAGES, cacheRoot, TOOL_PREFLIGHT, toolchainPins } from './lib/local-release-environment.mjs';
 import { LOCAL_POLICY, validationPlan, selectedCommands, sha256, commandRuntimes, nativeBrowserKey } from './lib/local-release-plan.mjs';
 import { gitSelection, tree, REPOSITORY, publishedBase } from './pages-candidate.mjs';
-import { verifyLocalEvidence, LOCAL_WORKER_REPAIR, LOCAL_REPAIR_REFRESH, LOCAL_CORE_REUSE, assertLocalRepairTree, verifyLocalWorkerRepair, localWorkerContinuation } from './lib/local-release-evidence.mjs';
+import { verifyLocalEvidence, LOCAL_WORKER_REPAIR, LOCAL_REPAIR_REFRESH, LOCAL_CORE_REUSE, LOCAL_HOMEPAGE_REPORTS, verifyRetainedHomepageReports, assertLocalRepairTree, verifyLocalWorkerRepair, localWorkerContinuation } from './lib/local-release-evidence.mjs';
 import { BROWSER_ORIGINS, readMigrationBrowserPool, runMigrationBrowserContinuation } from './lib/local-release-browser.mjs';
 
 const git = (args, cwd = '.') => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore','pipe','pipe'] }).trim();
@@ -222,7 +222,8 @@ function runLocalRelease({ base, resume }) {
     assert.equal(sha256(fs.readFileSync(path.join(reuse,'core-checkpoint.json'))),LOCAL_WORKER_REPAIR.coreCheckpoint);
     const core=json(path.join(reuse,'core-checkpoint.json'));
     copy(path.join(coreRoot,'source/test-results/local-homepage-fresh.json'),'browser-coreProgress.json');
-    fs.copyFileSync(path.join(coreRoot,'bundle/test-results/homepage-functional.json'),path.join(bundle,'test-results/homepage-functional.json'));
+    for(const report of LOCAL_HOMEPAGE_REPORTS)fs.copyFileSync(path.join(coreRoot,'bundle/test-results',report),path.join(bundle,'test-results',report));
+    verifyRetainedHomepageReports(bundle);
     for(const index of LOCAL_CORE_REUSE) {
       assert.equal(core.commands[index].exitCode,0);
       fs.copyFileSync(path.join(coreRoot,'bundle',core.commands[index].log),path.join(bundle,core.commands[index].log));
@@ -243,7 +244,7 @@ function runLocalRelease({ base, resume }) {
     git(['checkout','--detach',sha], work);
     git(['remote','set-url','origin','https://github.com/bitbiai/Bitbi.git'], work);
     if(originalDirectory)for(const name of ['candidate','_site','test-results'])fs.cpSync(path.join(originalDirectory,'source',name),path.join(work,name),{recursive:true});
-    if(originalDirectory)fs.copyFileSync(path.join(bundle,'test-results/homepage-functional.json'),path.join(work,'test-results/homepage-functional.json'));
+    if(originalDirectory)for(const report of LOCAL_HOMEPAGE_REPORTS)fs.copyFileSync(path.join(bundle,'test-results',report),path.join(work,'test-results',report));
     // Exact committed source; unrelated owner's worktree edits are never copied.
   }
   fs.mkdirSync(path.join(bundle, 'logs'), { recursive: true });

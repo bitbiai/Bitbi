@@ -8,7 +8,7 @@ import { selectCiTests } from './lib/ci-test-selection.mjs';
 import { validationPlan, selectedCommands, sha256, commandRuntimes, nativeBrowserKey } from './lib/local-release-plan.mjs';
 import { environmentInputs, environmentKey, TOOL_PREFLIGHT, toolchainPins } from './lib/local-release-environment.mjs';
 import { validateLocator, extractEvidence } from './lib/local-release-transport.mjs';
-import { verifyLocalEvidence, rebindLocalCandidate, verifyNativeLocalReports, workerListResults, verifyWorkerUnion, assertLocalRepairTree, verifyLocalWorkerRepair, localWorkerContinuation, tapResults, verifyNativeCaseUnion, NATIVE_REPAIRED_CASES, verifyNativeBrowserEnvironment, verifyMigrationCandidateBytes } from './lib/local-release-evidence.mjs';
+import { verifyLocalEvidence, rebindLocalCandidate, verifyNativeLocalReports, workerListResults, verifyWorkerUnion, assertLocalRepairTree, verifyLocalWorkerRepair, localWorkerContinuation, tapResults, verifyNativeCaseUnion, NATIVE_REPAIRED_CASES, verifyNativeBrowserEnvironment, verifyMigrationCandidateBytes, LOCAL_HOMEPAGE_REPORTS, verifyRetainedHomepageReports } from './lib/local-release-evidence.mjs';
 import {readMigrationBrowserPool,migrationBrowserPool,verifyBrowserUnion,verifyMigrationBrowserReport,BROWSER_ORIGINS,LOCAL_BROWSER_POLICY} from './lib/local-release-browser.mjs';
 import { prepareFrontend } from './lib/frontend-hosting.mjs';
 import { gitSelection, tree, MEDIA_POLICY, validateSource, verifyManifest, verifyProofs } from './pages-candidate.mjs';
@@ -129,6 +129,18 @@ async function testLocalRepair() {
   if(fs.existsSync('.local-release/reuse/checkpoint.json')) {
     const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
     assertLocalRepairTree(head);
+    verifyRetainedHomepageReports('.local-release');
+    const reports=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-homepage-reports-'));
+    try {
+      fs.mkdirSync(path.join(reports,'test-results'));
+      for(const name of LOCAL_HOMEPAGE_REPORTS)fs.copyFileSync(path.join('.local-release/test-results',name),path.join(reports,'test-results',name));
+      verifyRetainedHomepageReports(reports);
+      for(const name of LOCAL_HOMEPAGE_REPORTS) {
+        const file=path.join(reports,'test-results',name),bytes=fs.readFileSync(file);
+        fs.unlinkSync(file);assert.throws(()=>verifyRetainedHomepageReports(reports));
+        fs.writeFileSync(file,'{}');assert.throws(()=>verifyRetainedHomepageReports(reports));fs.writeFileSync(file,bytes);
+      }
+    }finally{fs.rmSync(reports,{recursive:true,force:true});}
     assert.equal(verifyLocalWorkerRepair('.local-release',head).result.total,1408);
     const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-local-repair-'));
     try {

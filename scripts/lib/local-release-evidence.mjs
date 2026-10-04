@@ -90,6 +90,7 @@ export const LOCAL_WORKER_REPAIR = Object.freeze({
   coreSource:'8c471701860db3a07b08224f676589b10a1103cc',
   coreCheckpoint:'53903614dccdce7864296187c108921ad2e034cd7c43a91da56a007dc8e69cc6',
   functionalReport:'8b23a73b88974644b54bf4306d3fd56e2cafc8b1c9eb12edfec76f19560f3685',
+  functionalDiscovery:'8127969d0a51d7a513c17bf679c05bd06dd5a14470e241def4e8a78371c0a959',
   tailSource:'ed7a7d6a6084b79aabcff903f7cc66698f8e0c86',
   tailCheckpoint:'38f1757fa3b5e8134c65b5c89f11cbcd06c8495461cd99b6b29a1395c797a29f',
   tailLog:'a4905f85e7c5c5a3c19f37a8c30479f35f5459c617ebd4e4d34ebae52e2ac114',
@@ -111,6 +112,13 @@ export const LOCAL_WORKER_REPAIR = Object.freeze({
 });
 export const LOCAL_REPAIR_REFRESH = new Set([0,3,4,13,18,32,33,35,42]);
 export const LOCAL_CORE_REUSE = new Set([43,44,46,47]);
+export const LOCAL_HOMEPAGE_REPORTS = ['homepage-functional.json','homepage-discovery.json'];
+export function verifyRetainedHomepageReports(directory) {
+  for(const [index,name]of LOCAL_HOMEPAGE_REPORTS.entries())assert.equal(
+    sha256(fs.readFileSync(path.join(directory,'test-results',name))),
+    LOCAL_WORKER_REPAIR[index===0?'functionalReport':'functionalDiscovery'],
+    `Missing/changed retained homepage report: ${name}`);
+}
 const repairTooling = new Set(['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/lib/local-release-plan.mjs','scripts/test-local-release.mjs',
   'scripts/lib/local-release-browser.mjs','scripts/pages-candidate.mjs','scripts/lib/ci-test-selection.mjs',
   'AGENTS.md','docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md','docs/runbooks/REGRESSION_REGISTER.md']);
@@ -238,7 +246,7 @@ export function verifyLocalReuse(directory,evidence) {
   const core=JSON.parse(coreBytes);assert.equal(core.sha,LOCAL_WORKER_REPAIR.coreSource);
   assert.equal(core.environment.key,evidence.environment.key);
   assert.equal(core.nativeBrowsers.key,evidence.nativeBrowsers.key);
-  assert.equal(sha256(fs.readFileSync(path.join(directory,'test-results/homepage-functional.json'))),LOCAL_WORKER_REPAIR.functionalReport);
+  verifyRetainedHomepageReports(directory);
   const nativeBytes=fs.readFileSync(path.join(directory,'reuse/native-checkpoint.json'));
   assert.equal(sha256(nativeBytes),LOCAL_WORKER_REPAIR.nativeCheckpoint);
   const native=JSON.parse(nativeBytes);assert.equal(native.sha,LOCAL_WORKER_REPAIR.nativeSource);assert.equal(native.commands[42].exitCode,0);
