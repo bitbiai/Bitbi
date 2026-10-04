@@ -1,3 +1,4 @@
+import {verifyImportedSmoothImage} from './local-release-browser.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -179,9 +180,10 @@ with zipfile.ZipFile(p/'image.zip') as z:
   assert stat.S_IFMT(e.external_attr>>16) in (0,stat.S_IFREG)
   with (p/e.filename).open('xb') as f:f.write(z.read(e))`,dir]);
     const record=JSON.parse(fs.readFileSync(path.join(dir,'image.json')));
-    verifyMediaImage(record,{sha,run:source.run,attempt:source.attempt,archive:path.join(dir,'image.tar')});
+    const imageSha=record.sha===sha?sha:verifyImportedSmoothImage(record,{sha,run:source.run,attempt:source.attempt});
+    verifyMediaImage(record,{sha:imageSha,run:source.run,attempt:source.attempt,archive:path.join(dir,'image.tar')});
     command('docker',['load','--input',path.join(dir,'image.tar')]);
-    const image=JSON.parse(command('docker',['image','inspect',record.tag]))[0];assert.equal(image.Id,record.image);assert.equal(image.Config.Labels['org.opencontainers.image.revision'],sha);
+    const image=JSON.parse(command('docker',['image','inspect',record.tag]))[0];assert.equal(image.Id,record.image);assert.equal(image.Config.Labels['org.opencontainers.image.revision'],imageSha);
     if(reuse) {
       const expected={sha,imageDigest:reuse.imageDigest,image:record.image,artifact:reuse.artifact,
         sourceRun:source.run,sourceAttempt:source.attempt,reusedActivation:reuse.activation};

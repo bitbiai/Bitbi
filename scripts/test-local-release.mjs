@@ -1,3 +1,5 @@
+import {SMOOTH_BROWSER_POLICY,SMOOTH_BROWSER_CONTINUATION,assertSmoothContinuationTree,verifySmoothBrowserReport,verifySmoothImageReuse,verifyImportedSmoothImage,passedBrowserCase} from './lib/local-release-browser.mjs';
+import {browserRows} from './lib/browser-fixture-repair.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -12,7 +14,7 @@ import { scanRepoForSecrets } from './lib/quality-gates.mjs';
 import { verifyLocalEvidence, rebindLocalCandidate, verifyNativeLocalReports, workerListResults, verifyWorkerUnion, assertLocalRepairTree, verifyLocalWorkerRepair, localWorkerContinuation, tapResults, verifyNativeCaseUnion, NATIVE_REPAIRED_CASES, verifyNativeBrowserEnvironment, verifyMigrationCandidateBytes, LOCAL_HOMEPAGE_REPORTS, verifyRetainedHomepageReports, verifyRetainedFrontendLog } from './lib/local-release-evidence.mjs';
 import {readMigrationBrowserPool,migrationBrowserPool,verifyBrowserUnion,verifyMigrationBrowserReport,BROWSER_ORIGINS,LOCAL_BROWSER_POLICY} from './lib/local-release-browser.mjs';
 import { prepareFrontend, verifyFrontend, stopFrontendRuntime } from './lib/frontend-hosting.mjs';
-import { gitSelection, tree, MEDIA_POLICY, validateSource, verifyManifest, verifyProofs } from './pages-candidate.mjs';
+import { gitSelection, tree, MEDIA_POLICY, candidateProof, validateSource, verifyManifest, verifyProofs } from './pages-candidate.mjs';
 import { assertHostedBootstrapAllowed, assertLocalBootstrapAllowed } from '../tests/helpers/q2-runtime/linux-hosted.mjs';
 import { acquireLocalReleaseLock, prepareCandidateRestore } from './local-release.mjs';
 import { LOCAL_IMPORT_REPAIR, assertImportRepairWorkflow, localRepairCommand, verifyImportRepairEvidence } from './lib/local-release-evidence.mjs';
@@ -32,7 +34,7 @@ function testPermissionContinuation() {
     const bytes=fs.readFileSync(file),original=JSON.parse(bytes),actualHead=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
     const context={head:actualHead,base:original.base,planHash:validationPlan().digest,environment:original.environment,
       commands:selectedCommands(gitSelection(original.base,actualHead),{GITHUB_SHA:actualHead,CANDIDATE_BASE:original.base})};
-    assertPermissionContinuationTree(actualHead);assert([PERMISSION_CONTINUATION.source,PERMISSION_CONTINUATION.tail].includes(permissionContinuationPrefix(bytes,context).sha));
+    assertPermissionContinuationTree(actualHead,undefined,{smooth:original.sha===SMOOTH_BROWSER_CONTINUATION.source});assert([PERMISSION_CONTINUATION.source,PERMISSION_CONTINUATION.tail,SMOOTH_BROWSER_CONTINUATION.source].includes(permissionContinuationPrefix(bytes,context).sha));
     for(const mutate of [r=>r.commands.at(-1).exitCode=0,r=>r.commands[0].logHash='wrong',r=>r.commands.pop(),r=>r.status='passed']) {
       const wrong=structuredClone(original);mutate(wrong);assert.throws(()=>permissionContinuationPrefix(Buffer.from(JSON.stringify(wrong)),context));
     }
@@ -48,6 +50,37 @@ function testPermissionContinuation() {
     }
   }
   console.log('Permission continuation: exact failed checkpoint/tree, immutable passes, changed scope/toolchain and forged-success controls passed.');
+}
+
+
+function testSmoothContinuation() {
+  const p=SMOOTH_BROWSER_CONTINUATION,head='f'.repeat(40);
+  const read=(changed=Object.keys(p.specs),broken=false)=>args=>args[0]==='show'?broken?Buffer.from('invalid expectation'):fs.readFileSync(args[1].split(':')[1]):Buffer.from(args[0]==='diff'?changed.join('\n'):'');
+  assertSmoothContinuationTree(head,read());
+  for(const file of ['js/pages/canvas/full-video.js','services/homepage-ffmpeg-processor/canvas-seams.mjs','workers/auth/src/routes/canvas.js','package-lock.json','.github/workflows/static.yml'])
+    assert.throws(()=>assertSmoothContinuationTree(head,read([...Object.keys(p.specs),file])),/cannot inherit/);
+  assert.throws(()=>assertSmoothContinuationTree(head,read(undefined,true)),/Unreviewed/);
+  const dir='.local-release',file=path.join(dir,'reuse/smooth-browser.json');
+  if(fs.existsSync(file)) {
+    const bytes=fs.readFileSync(file);assert.equal(sha256(bytes),p.report);const previous=browserRows(JSON.parse(bytes));
+    const discovery=browserRows(JSON.parse(fs.readFileSync(path.join(dir,'test-results/canvas-discovery.json'))),{discovery:true});
+    const fresh=previous.filter(row=>!passedBrowserCase(row)).map(row=>({...row,expectedStatus:'passed',status:'expected',results:[{status:'passed',retry:0,error:false}]}));
+    const report={policy:SMOOTH_BROWSER_POLICY,sha:head,source:p.source,previous,discovery,fresh,counts:{required:228,reused:208,executed:20}};
+    assert.deepEqual(verifySmoothBrowserReport(report,head),report.counts);
+    const manifest={sha:head,selection:{auth:true,canvasAudio:true}};
+    const proof=()=>candidateProof(manifest,{job:'browser-validation',readJson:name=>name.endsWith('canvas-discovery.json')?JSON.parse(fs.readFileSync(path.join(dir,'test-results/canvas-discovery.json'))):report});
+    assert.equal(proof().tests,228);
+    for(const mutate of [r=>r.fresh.pop(),r=>r.fresh.push(r.fresh[0]),r=>r.fresh[0].results[0].status='failed',r=>r.fresh[0].results[0].retry=1,r=>r.previous[0].status='unexpected',r=>r.discovery.pop()]) {
+      const original=structuredClone(report);mutate(report);assert.throws(proof);Object.assign(report,original);
+    }
+    const image=JSON.parse(fs.readFileSync(path.join(dir,'test-results/private-media-image/image.json')));assert.equal(verifySmoothImageReuse(image,head,{read:read()}),p.source);
+    const imported={...image,run:'123',attempt:'1',localValidation:{policy:'development-mac-v1',publicationSha:head,run:image.run,attempt:image.attempt,evidence:'a'.repeat(64),recordHash:sha256(JSON.stringify(image))}};
+    const verify=record=>verifyImportedSmoothImage(record,{sha:head,run:'123',attempt:'1'},{read:read()});assert.equal(verify(imported),p.source);
+    for(const mutate of [r=>r.sha=head,r=>r.image='sha256:'+'b'.repeat(64),r=>r.sourceFiles={},r=>r.localValidation.publicationSha='c'.repeat(40),r=>r.run='999',r=>r.tests.pop(),r=>r.localValidation.run='other']) {
+      const bad=structuredClone(imported);mutate(bad);assert.throws(()=>verify(bad));
+    }
+    console.log('Synthetic counterchecks only: 208 retained/20 required union; missing, failed, retry-only, forged source and changed image rejected through actual candidate/import verifiers.');
+  }
 }
 
 function testImportRepair({closed=false}={}) {
@@ -467,3 +500,4 @@ if(process.env.BITBI_LOCAL_RELEASE_CONTAINER==='1') {
 await testLocalRepair();
 testImportRepair();
 testPermissionContinuation();
+testSmoothContinuation();

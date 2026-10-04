@@ -134,7 +134,18 @@ and represent its two schema guards in the existing fixture. Its continuation
 executes only those two failed launcher cases, then the unexecuted native/media/
 browser tail. A pinned frontend manifest/proof plus byte comparison permits only
 cache-token rebinding; actual runtime code, asset membership or content changes
-invalidate the retained HTTP proof.
+invalidate the retained HTTP proof. Local `a2866590` subsequently passed all five
+native cases and the actual AMD64 image, plus 208/228 browser cases. Its 20 failures
+were exact legacy request bodies missing the new explicit `smoothJoins:false` and
+an unqualified checkbox-count assertion. Retain the music-only boundary and require
+the new join setting OFF. The closed browser continuation authenticates that failed
+report, discovers all 228 cases, and executes only the 20 unresolved identities;
+missing, failed, skipped or retry-only replacements block the actual candidate proof.
+Product, environment and image/test inputs must remain unchanged. The tested image
+keeps its original SHA and digest through import and protected publication; an
+explicit publication-to-image association is verified, never a rebuilt or relabelled
+claim of fresh testing. Opening a new checkbox must not invalidate unrelated
+controls: test their accessible names and independently assert new default behavior.
 The closed `e637dce9` continuation permits only the exact reviewed workflow delta,
 pins its passed source evidence/manifest/contract log, and permits only generated
 cache-version changes in the candidate. Original source identities remain intact.

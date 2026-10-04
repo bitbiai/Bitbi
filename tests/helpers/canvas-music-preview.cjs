@@ -151,7 +151,7 @@ module.exports=({expect,mockSharedAuth,createCanvasApiMock},locale)=>async({page
   await block.getByRole('button',{name:locale==='de'?'Gesamtvideo in Assets speichern':'Save full video to Assets'}).click();
   expect(writes[0].body).toEqual({saveExportId:completed.id});
   await block.getByRole('button',{name:locale==='de'?'Gesamtes Video mit Hintergrundmusik erstellen':'Create full video with background music',exact:true}).click();
-  await expect.poll(()=>writes.length).toBe(2);expect(writes[1].body).toEqual({backgroundMusic:{enabled:true,gain:1,fadeIn:0,fadeOut:0,musicAssetId:second},orderedClips,mergeMode:'chain'});
+  await expect.poll(()=>writes.length).toBe(2);expect(writes[1].body).toEqual({smoothJoins:false,backgroundMusic:{enabled:true,gain:1,fadeIn:0,fadeOut:0,musicAssetId:second},orderedClips,mergeMode:'chain'});
   await start().click();await expect(pause()).toBeVisible();
   if(locale==='de')await page.locator('#canvasInspectorToggle').click();await page.locator(`[data-node-id="${mid}"]`).press('Enter');
   await expect.poll(()=>page.evaluate(()=>window.auditionContexts[0].context.state)).toBe('closed');

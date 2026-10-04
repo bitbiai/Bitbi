@@ -10,7 +10,7 @@ import { environmentInputs, environmentKey, toolchainPins } from './local-releas
 import { gitSelection, tree, verifyManifest, verifyProofs, candidateProof, proofJobs, REPOSITORY } from '../pages-candidate.mjs';
 import { verifyFrontend } from './frontend-hosting.mjs';
 import { browserRows } from './browser-fixture-repair.mjs';
-import { LOCAL_BROWSER_POLICY, readMigrationBrowserPool } from './local-release-browser.mjs';
+import { LOCAL_BROWSER_POLICY, readMigrationBrowserPool, SMOOTH_BROWSER_POLICY, SMOOTH_BROWSER_CONTINUATION, assertSmoothContinuationTree, verifySmoothBrowserReport } from './local-release-browser.mjs';
 
 export const LOCAL_REQUIRED_JOBS = { 'release-compatibility': [
   'Preflight complete static release plan', 'Select tests from changed files',
@@ -196,7 +196,9 @@ export function canvasStageContinuation(command) {
   return command.replaceAll(prior,()=>`node --test --test-name-pattern='^(${CANVAS_STAGE_CASES.join('|')})$' scripts/test-q2-runtime-launcher.mjs`);
 }
 export const PERMISSION_REFRESH=new Set([0,2,3,4,7,12,17,28,29,33,34,35]);
-export function assertPermissionContinuationTree(head,read=gitBytes) {
+export const SMOOTH_REFRESH=new Set([...PERMISSION_REFRESH,14,44]);
+export function assertPermissionContinuationTree(head,read=gitBytes,{smooth=false}={}) {
+  if(smooth){assertSmoothContinuationTree(head,read);return;}
   const p=PERMISSION_CONTINUATION;
   read(['merge-base','--is-ancestor',p.source,head]);
   const allowed=new Set(['scripts/test-frontend-review.mjs','scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs',
@@ -210,26 +212,33 @@ export function assertPermissionContinuationTree(head,read=gitBytes) {
 export function permissionContinuationPrefix(bytes,{head,base,planHash,environment,commands}) {
   const p=PERMISSION_CONTINUATION;
   const original=JSON.parse(bytes);
-  const tail=original.sha===p.tail,last=tail?41:36;
-  assert.equal(sha256(bytes),tail?p.tailCheckpoint:p.checkpoint,'Changed original failed permission checkpoint');
-  assert.equal(original.sha,tail?p.tail:p.source);assert.equal(original.status,'failed');assert.equal(original.commands.length,last+1);
+  const smooth=original.sha===SMOOTH_BROWSER_CONTINUATION.source,tail=original.sha===p.tail,last=smooth?45:tail?41:36;
+  assert.equal(sha256(bytes),smooth?SMOOTH_BROWSER_CONTINUATION.checkpoint:tail?p.tailCheckpoint:p.checkpoint,'Changed original failed permission checkpoint');
+  assert.equal(original.sha,smooth?SMOOTH_BROWSER_CONTINUATION.source:tail?p.tail:p.source);assert.equal(original.status,'failed');assert.equal(original.commands.length,last+1);
   assert(original.commands.slice(0,last).every(row=>row.exitCode===0));assert.equal(original.commands[last].exitCode,1);
-  assert.equal(original.commands[last].command.name,tail?'Run worker route tests':'Check frontend hosting package');
+  assert.equal(original.commands[last].command.name,smooth?'Run selected auth and admin tests':tail?'Run worker route tests':'Check frontend hosting package');
   assert.equal(original.base,base);assert.equal(original.planHash,planHash);assert.equal(original.environment.key,environment.key);
   for(const [i,row] of original.commands.entries())assert.deepEqual(JSON.parse(JSON.stringify(row.command).replaceAll(original.sha,head)),commands[i],'Changed selected command');
   return original;
 }
 function verifyPermissionContinuation(directory,evidence,commands) {
-  const p=PERMISSION_CONTINUATION;assertPermissionContinuationTree(evidence.sha);
+  const p=PERMISSION_CONTINUATION,smooth=evidence.permissionContinuation.source===SMOOTH_BROWSER_CONTINUATION.source;assertPermissionContinuationTree(evidence.sha,gitBytes,{smooth});
   const tail=evidence.permissionContinuation.source===p.tail;
-  assert.deepEqual(evidence.permissionContinuation,{source:tail?p.tail:p.source,checkpoint:tail?p.tailCheckpoint:p.checkpoint});assert(!evidence.repair);
+  assert.deepEqual(evidence.permissionContinuation,{source:smooth?SMOOTH_BROWSER_CONTINUATION.source:tail?p.tail:p.source,checkpoint:smooth?SMOOTH_BROWSER_CONTINUATION.checkpoint:tail?p.tailCheckpoint:p.checkpoint});assert(!evidence.repair);
   const original=permissionContinuationPrefix(fs.readFileSync(path.join(directory,'reuse/permission-checkpoint.json')),{...evidence,head:evidence.sha,commands});
   for(const [i,row] of evidence.commands.entries()) {
-    if(i<(tail?41:36)&&!PERMISSION_REFRESH.has(i)) {
+    if(i<(smooth?45:tail?41:36)&&!(smooth?SMOOTH_REFRESH:PERMISSION_REFRESH).has(i)) {
       assert.equal(row.reusedFrom,original.commands[i].reusedFrom||original.sha);
       assert.deepEqual({...row,command:original.commands[i].command,reusedFrom:undefined},{...original.commands[i],reusedFrom:undefined},'Changed retained passing execution');
       assert.equal(sha256(fs.readFileSync(path.join(directory,row.log))),original.commands[i].logHash);
     }else assert(!row.reusedFrom&&(!row.continuation||tail&&i===41),'Affected or unexecuted command cannot inherit a pass');
+  }
+  if(smooth) {
+    const raw=fs.readFileSync(path.join(directory,'reuse/smooth-browser.json'));assert.equal(sha256(raw),SMOOTH_BROWSER_CONTINUATION.report);
+    const report=JSON.parse(fs.readFileSync(path.join(directory,'test-results/candidate-auth.json')));
+    assert.deepEqual(report.previous,browserRows(JSON.parse(raw)));
+    assert.deepEqual(report.fresh,browserRows(JSON.parse(fs.readFileSync(path.join(directory,'test-results/smooth-fresh.json')))));
+    verifySmoothBrowserReport(report,evidence.sha);restoreCanvasHostingProof(directory,{verifyOnly:true});
   }
   if(tail) {
     const before=fs.readFileSync(path.join(directory,'reuse/stage-failed.log'),'utf8');assert.equal(sha256(before),p.tailLog);
@@ -477,6 +486,7 @@ export function verifyLocalEvidence(directory, expected, { now = Date.now(), sel
     const runtimes=commandRuntimes(command).map(part=>part.runtime);
     if(runtimes.includes('native-browser-v1'))assert.deepEqual(result.runtimes,runtimes,'Missing/mismatched browser execution environment');
     if(evidence.repair&&['Run selected auth and admin tests','Run selected homepage core tests'].includes(command.name))assert.equal(result.browserContinuation,LOCAL_BROWSER_POLICY);
+    else if(evidence.permissionContinuation?.source===SMOOTH_BROWSER_CONTINUATION.source&&command.name==='Run selected auth and admin tests')assert.equal(result.browserContinuation,SMOOTH_BROWSER_POLICY);
     else assert(!result.browserContinuation,'Unreviewed browser continuation');
     assert(result.durationMs >= 0 && Number.isFinite(result.durationMs));
     assert.equal(result.log, `logs/${index}.log`);

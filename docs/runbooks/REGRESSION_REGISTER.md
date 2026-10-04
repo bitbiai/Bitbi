@@ -658,6 +658,17 @@ The actual target-container 1280 × 720 sample used one CPU, about 23 seconds ad
 seam processing and 0.88 GB peak container memory (6 GB limit). These controlled
 measurements are not production or arbitrary-content quality claims; final source,
 release receipts and live output are recorded in the task acceptance checkpoint.
+Local candidate `a2866590` passed the actual AMD64 image, five native cases and all
+four new EN/DE Chromium/WebKit smooth-join flows. Its browser report retained 208
+passes and 20 failures: old exact export requests omitted the new OFF snapshot;
+a music-only test counted every checkbox and rejected the unrelated new control.
+Correct only those expectations, retaining full ordered/versioned request checks,
+OFF-by-default, music destination/amplitude countercontrols and ordinary Save clicks.
+The existing local continuation binds the original failed checkpoint/report and
+corrected fixture bytes, executes exactly unresolved cases, and reuses the original
+image digest/source with checked publication identity. The actual candidate/import
+verifiers reject missing/failed/retried cases, product drift and altered image proof.
+Old failed reports stay failed; this is fixture compatibility, not an audio repair.
 
 Release `37189472421/1` at `3e6f82ed` passed all four Linux native cases and the
 seven required Linux image controls, then stopped with 218 browser passes and six

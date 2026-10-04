@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import {spawnSync} from 'node:child_process';
+import {spawnSync,execFileSync} from 'node:child_process';
 import {sha256} from './local-release-plan.mjs';
 import {browserRows,verifyBrowserRepairCoverage} from './browser-fixture-repair.mjs';
 
@@ -126,4 +126,74 @@ export function runMigrationBrowserContinuation(scope,env=process.env) {
   verifyMigrationBrowserReport(report,env.GITHUB_SHA);
   fs.writeFileSync(`test-results/candidate-${scope}.json`,JSON.stringify(report));
   console.log(JSON.stringify({scope,...report.counts,originalFailuresPreserved:true}));
+}
+
+// Closed, source-bound continuation: new OFF field and a separate checkbox
+// changed four old fixture assumptions, not product or decoder behavior.
+export const SMOOTH_BROWSER_POLICY='local-canvas-smooth-continuation-v1';
+export const SMOOTH_BROWSER_CONTINUATION=Object.freeze({
+  source:'a286659009951d8c862a4921ad049b65c9cc4b35',
+  run:'a286659009951d8c862a4921ad049b65c9cc4b35-d0412998-3e94-425c-a142-041dffe70d19',
+  checkpoint:'6a13e066b667c7eb5479426d6470cf707153524b5e28f2ba1f0e342ed1a9b6f2',report:'2638a5c7f026e567fc769259b98b0870540d8f5c2f306a71c17752eb618244f2',rows:'51208eddcaf2efd3d4a9637a0787a497e98a990babd0b68f0f51f9b64e41c50c',discovery:'a963815b36f428532fbeed6d60328ea7157eef1b164019e4e756908438f5dc89',image:'6fadf1fb2110ca06ef256ba4f3992915f43bf7f51c5a5cd33dcff7bbdfa3c02e',
+  specs:{'tests/canvas.spec.js':'b473f43fc2d88cf3da5bd9fb3c8da97c2cdde61ad4b8366bd2c86bb6cb624681','tests/helpers/canvas-music-preview.cjs':'af192385d85f174cb2256158023f5799099c3079475dd5c431c643c10c4a270f'},
+});
+const smoothTooling=new Set(['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/lib/local-release-browser.mjs',
+  'scripts/lib/local-release-transport.mjs','scripts/pages-candidate.mjs','scripts/test-local-release.mjs',
+  'scripts/lib/media-publication.mjs','scripts/lib/backend-publication.mjs',
+  'docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md','docs/runbooks/REGRESSION_REGISTER.md']);
+export function assertSmoothContinuationTree(head,read=args=>execFileSync('git',args,{stdio:['ignore','pipe','pipe']})) {
+  const p=SMOOTH_BROWSER_CONTINUATION;read(['merge-base','--is-ancestor',p.source,head]);
+  const changed=read(['diff','--name-only',p.source,head]).toString().trim().split('\n').filter(Boolean);
+  assert(changed.every(file=>smoothTooling.has(file)||Object.hasOwn(p.specs,file)),'Changed product/workflow/environment cannot inherit smooth-join evidence');
+  for(const [file,hash]of Object.entries(p.specs))assert.equal(sha256(read(['show',`${head}:${file}`])),hash,'Unreviewed browser fixture correction');
+}
+export function verifySmoothBrowserReport(report,sha) {
+  const p=SMOOTH_BROWSER_CONTINUATION;assert.equal(report.policy,SMOOTH_BROWSER_POLICY);assert.equal(report.sha,sha);
+  assert.equal(report.source,p.source);assert.equal(sha256(JSON.stringify(report.previous)),p.rows,'Original failed browser results changed');
+  assert.equal(sha256(JSON.stringify(report.discovery)),p.discovery,'Required browser discovery changed');
+  const retained=new Map(report.previous.filter(passedBrowserCase).map(row=>[row.key,row]));
+  const counts=verifyBrowserUnion(report.discovery,retained,report.fresh);assert.deepEqual(report.counts,counts);return counts;
+}
+export function runSmoothBrowserContinuation(env=process.env) {
+  const p=SMOOTH_BROWSER_CONTINUATION;assert.equal(env.GITHUB_JOB,'browser-validation');assert.equal(env.CI,'1');assertSmoothContinuationTree(env.GITHUB_SHA);
+  const raw=fs.readFileSync('.local-release/reuse/smooth-browser.json');assert.equal(sha256(raw),p.report);
+  const previous=browserRows(JSON.parse(raw)),retained=new Map(previous.filter(passedBrowserCase).map(row=>[row.key,row]));
+  const base=['test:static','--','tests/canvas.spec.js','tests/oma2-q1-canvas.spec.js','--project=chromium','--project=webkit-canvas','--grep','Canvas|P13|@canvas-model-ui'];
+  const run=(name,args,discovery=false)=>{
+    const file=path.resolve(`test-results/smooth-${name}.json`);fs.rmSync(file,{force:true});
+    const child=spawnSync('npm',['run',...base,...args,`--reporter=${discovery?'json':'list,json'}`],{env:{...env,PLAYWRIGHT_JSON_OUTPUT_NAME:file},stdio:discovery?'pipe':'inherit',maxBuffer:16*1024*1024});
+    assert.equal(child.status,0,`Canvas ${name} failed; preserve original reports and passing cases`);return JSON.parse(fs.readFileSync(file));
+  };
+  const rawDiscovery=run('discovery',['--list'],true),discovery=browserRows(rawDiscovery,{discovery:true});
+  assert.equal(sha256(JSON.stringify(discovery)),p.discovery);fs.writeFileSync('test-results/canvas-discovery.json',JSON.stringify(rawDiscovery));
+  const pending=new Set(discovery.filter(row=>!retained.has(row.key)).map(row=>row.key)),list=[];
+  const visit=(suite,parents=[])=>{
+    for(const spec of suite.specs||[])for(const test of spec.tests||[])if(pending.has(`${test.projectName}:${spec.id}`))list.push(`[${test.projectName}] › ${spec.file} › ${[...parents,spec.title].join(' › ')}`);
+    for(const child of suite.suites||[])visit(child,[...parents,child.title]);
+  };rawDiscovery.suites.forEach(suite=>visit(suite));assert.equal(list.length,pending.size);
+  const file='test-results/smooth-pending.txt';fs.writeFileSync(file,list.join('\n')+'\n');
+  const args=['--test-list',file,'--retries=0','--output=test-results/smooth-repair-artifacts'];
+  const selected=browserRows(run('selected-discovery',[...args,'--list'],true),{discovery:true});
+  assert.deepEqual(selected,discovery.filter(row=>pending.has(row.key)));
+  const fresh=browserRows(run('fresh',args));
+  const report={policy:SMOOTH_BROWSER_POLICY,sha:env.GITHUB_SHA,source:p.source,previous,discovery,fresh,counts:verifyBrowserUnion(discovery,retained,fresh)};
+  verifySmoothBrowserReport(report,env.GITHUB_SHA);fs.writeFileSync('test-results/candidate-auth.json',JSON.stringify(report));
+  console.log(JSON.stringify({...report.counts,originalFailuresPreserved:true}));
+}
+export function verifySmoothImageReuse(record,sha,{read}={}) {
+  const p=SMOOTH_BROWSER_CONTINUATION;assertSmoothContinuationTree(sha,read);
+  assert.equal(record.sha,p.source);assert.equal(record.run,p.run);assert.equal(record.attempt,'1');
+  assert.equal(sha256(JSON.stringify(record)),p.image,'Retained image/test identity changed');return record.sha;
+}
+export function verifyImportedSmoothImage(record,{sha,run,attempt},options) {
+  assert.equal(record.run,String(run));assert.equal(record.attempt,String(attempt));
+  const {localValidation,...original}=record;assert.equal(localValidation?.policy,'development-mac-v1');
+  assert.equal(localValidation.publicationSha,sha);assert.match(localValidation.evidence,/^[a-f0-9]{64}$/);
+  original.run=localValidation.run;original.attempt=localValidation.attempt;
+  assert.equal(sha256(JSON.stringify(original)),localValidation.recordHash);
+  return verifySmoothImageReuse(original,sha,options);
+}
+export function smoothReceiptImageSource(media,sha) {
+  if(!media.imageSourceSha||media.imageSourceSha===sha)return sha;
+  assert.equal(media.imageSourceSha,SMOOTH_BROWSER_CONTINUATION.source);assertSmoothContinuationTree(sha);return media.imageSourceSha;
 }

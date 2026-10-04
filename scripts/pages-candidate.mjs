@@ -1,8 +1,9 @@
+import {browserRows} from './lib/browser-fixture-repair.mjs';
 import { repairDelta, repairKind } from './lib/media-repair-source.mjs';
 import { assertBrowserSourceIdentity, assertBrowserReportArtifact, assertOriginalBrowserJob, verifyBrowserRepairProof, runBrowserRepair } from './lib/browser-fixture-repair.mjs';
 import { hostingPolicy, prepareFrontend, verifyFrontend, cloudflarePublishedBase } from './lib/frontend-hosting.mjs';
 import { LOCAL_REQUIRED_JOBS, localPolicyAt } from './lib/local-release-evidence.mjs';
-import { LOCAL_BROWSER_POLICY, verifyMigrationBrowserReport } from './lib/local-release-browser.mjs';
+import { LOCAL_BROWSER_POLICY, verifyMigrationBrowserReport, SMOOTH_BROWSER_POLICY, verifySmoothBrowserReport } from './lib/local-release-browser.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { selectCiTests, requiresPrivateMediaImage, memberSpecSources, canvasCompletionRouteSources } from './lib/ci-test-selection.mjs';
@@ -339,6 +340,12 @@ export function candidateProof(manifest, { job, reportFile, readJson = file => J
   const reports=names.map(name=>readJson(name));
   const counts=[];
   for(const [index,report] of reports.entries()) {
+    if(report.policy===SMOOTH_BROWSER_POLICY) {
+      assert.equal(job,'browser-validation');assert.equal(names[index],'test-results/candidate-auth.json');assert.equal(manifest.selection.canvasAudio,true);
+      const discovery=readJson('test-results/canvas-discovery.json');verifyCanvasAudioDiscovery(flattenHomepageDiscovery(discovery));
+      assert.deepEqual(report.discovery,browserRows(discovery,{discovery:true}));
+      counts.push(verifySmoothBrowserReport(report,manifest.sha).required);continue;
+    }
     if(report.policy===LOCAL_BROWSER_POLICY) {
       assert.equal(job,'browser-validation');assert.equal(names[index],`test-results/candidate-${report.scope}.json`);
       counts.push(verifyMigrationBrowserReport(report,manifest.sha).required);continue;

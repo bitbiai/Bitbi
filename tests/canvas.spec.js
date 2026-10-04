@@ -982,7 +982,7 @@ for (const locale of ['en','de']) test(`Canvas full video ${locale}: durable exp
   const merge=currentMergeFixture(state,nodeId,now);
   let posts=0, task=null;
   await page.route('**/api/account/canvas/**/full-video',route=>{
-    if(route.request().method()==='POST'){posts++;expect(route.request().postDataJSON()).toEqual({backgroundMusic:{enabled:false,gain:1,fadeIn:0,fadeOut:0},orderedClips:merge.orderedClips,mergeMode:'chain'});expect(route.request().headers()['idempotency-key']).toBeTruthy();task={id:'export',status:'queued'};}
+    if(route.request().method()==='POST'){posts++;expect(route.request().postDataJSON()).toEqual({smoothJoins:false,backgroundMusic:{enabled:false,gain:1,fadeIn:0,fadeOut:0},orderedClips:merge.orderedClips,mergeMode:'chain'});expect(route.request().headers()['idempotency-key']).toBeTruthy();task={id:'export',status:'queued'};}
     return route.fulfill({json:{ok:true,data:{eligible:true,export:task,availableClips:merge.availableClips}}});
   });
   await page.route('**/api/ai/text-assets/*/file',route=>route.fulfill({contentType:'video/mp4',body:fs.readFileSync(path.join(__dirname,'fixtures/media/canvas-end-frame.mp4'))}));
@@ -1021,7 +1021,7 @@ for(const locale of ['en','de']) test(`Canvas full video ordered clips ${locale}
   const originalState=JSON.stringify([state.nodes,state.edges,state.runs]);let reject=true,posts=0,task=null;
   await page.route('**/api/account/canvas/**/full-video',route=>{
     if(route.request().method()==='POST'){
-      posts++;const body=route.request().postDataJSON();expect(body).toEqual({backgroundMusic:{enabled:false,gain:1,fadeIn:0,fadeOut:0},orderedClips:[1,0].map(i=>{const{runId,assetId,version}=availableClips[i];return{runId,assetId,version};})});expect(route.request().headers()['idempotency-key']).toBeTruthy();
+      posts++;const body=route.request().postDataJSON();expect(body).toEqual({smoothJoins:false,backgroundMusic:{enabled:false,gain:1,fadeIn:0,fadeOut:0},orderedClips:[1,0].map(i=>{const{runId,assetId,version}=availableClips[i];return{runId,assetId,version};})});expect(route.request().headers()['idempotency-key']).toBeTruthy();
       if(reject)return route.fulfill({status:409,json:{ok:false,code:'video_source_changed'}});
       task={id:'export',status:'queued',recipe:{version:2,spatialPolicy:'center-crop-v1',sequence:'explicit',videos:body.orderedClips}};
     }
@@ -1161,7 +1161,9 @@ for (const locale of ['en','de']) for(const delayedMetadata of [false,true]) tes
   await page.route('**/api/ai/text-assets/*/poster',route=>route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg"/>'}));
   const open=async()=>{await page.goto(locale==='de'?'/de/canvas/':'/canvas/');await page.locator(`[data-node-id="${nodeId}"]`).first().click();if(locale==='de')await page.locator('#canvasInspectorToggle').click();};
   await open();const block=page.locator('.canvas-full-video'),inspector=page.locator('#canvasInspectorBody');
-  await expect(block.getByRole('checkbox')).toHaveCount(0);
+  // The music toggle belongs to Sound & Music; the independent join toggle is OFF.
+  await expect(block.getByRole('checkbox',{name:locale==='de'?'Musik als Hintergrund hinzufügen':'Add music as background',exact:true})).toHaveCount(0);
+  await expect(block.getByRole('checkbox',{name:locale==='de'?'Sanft zusammenführen':'Smooth joins',exact:true})).not.toBeChecked();
   if(locale==='de')await page.locator('#canvasInspectorToggle').click();
   await page.locator(`[data-edge-id="${'5'.repeat(32)}"] .canvas-edge-hit`).press('Enter');
   if(locale==='de')await page.locator('#canvasInspectorToggle').click();
@@ -1182,7 +1184,7 @@ for (const locale of ['en','de']) for(const delayedMetadata of [false,true]) tes
   expect(exports).toHaveLength(0);
   await block.getByRole('button',{name:locale==='de'?'Gesamtes Video mit Hintergrundmusik erstellen':'Create full video with background music',exact:true}).click();
   await expect.poll(()=>exports.length).toBe(1);
-  expect(exports[0].body).toEqual({backgroundMusic:{enabled:true,gain:0.5,fadeIn:0,fadeOut:0},orderedClips:merge.orderedClips,mergeMode:'chain'});expect(exports[0].key).toBeTruthy();
+  expect(exports[0].body).toEqual({smoothJoins:false,backgroundMusic:{enabled:true,gain:0.5,fadeIn:0,fadeOut:0},orderedClips:merge.orderedClips,mergeMode:'chain'});expect(exports[0].key).toBeTruthy();
   await expect.poll(()=>state.nodes[0].config.backgroundMusic).toEqual({enabled:true,gain:0.5,fadeIn:0,fadeOut:0});
   current={...task,status:'ready',asset:{id:task.id,file_url:'/api/ai/text-assets/version-1/file'}};task=current;
   await page.evaluate(()=>{

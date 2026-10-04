@@ -1,3 +1,4 @@
+import {SMOOTH_BROWSER_CONTINUATION,verifySmoothImageReuse} from './local-release-browser.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -138,10 +139,12 @@ export async function importLocalEvidence(expected, { token = process.env.GH_TOK
     if(media) {
       const mediaDir=path.join(unpack,'test-results/private-media-image');
       const original=JSON.parse(fs.readFileSync(path.join(mediaDir,'image.json')));
-      verifyMediaImage(original,{sha:expected.sha,run:verified.evidence.id,attempt:'1',archive:path.join(mediaDir,'image.tar')});
+      const retained=verified.evidence.permissionContinuation?.source===SMOOTH_BROWSER_CONTINUATION.source;
+      if(retained)verifySmoothImageReuse(original,expected.sha);
+      verifyMediaImage(original,{sha:retained?original.sha:expected.sha,run:retained?SMOOTH_BROWSER_CONTINUATION.run:verified.evidence.id,attempt:'1',archive:path.join(mediaDir,'image.tar')});
       fs.mkdirSync('test-results',{recursive:true});fs.cpSync(mediaDir,'test-results/private-media-image',{recursive:true});
       fs.writeFileSync('test-results/private-media-image/image.json',JSON.stringify({...original,run:String(run),attempt:String(attempt),
-        localValidation:{policy:LOCAL_POLICY,run:original.run,attempt:original.attempt,evidence:verified.digest,recordHash:sha256(JSON.stringify(original))}}));
+        localValidation:{policy:LOCAL_POLICY,...(retained?{publicationSha:expected.sha}:{}),run:original.run,attempt:original.attempt,evidence:verified.digest,recordHash:sha256(JSON.stringify(original))}}));
     }
     // Retain the original immutable local report and proof identities, not an
     // invented GitHub execution result. The Actions envelope identifies import.
