@@ -9,6 +9,7 @@ import { createRequire } from 'node:module';
 export const PROFILE = 'bitbi-release';
 export const CONTEXT = `colima-${PROFILE}`;
 export const PACKAGES = ['', 'workers/contact', 'workers/auth', 'workers/ai', 'workers/media'];
+export const TOOL_PREFLIGHT='for tool in zip unzip python3 git curl ffmpeg ffprobe; do command -v "$tool" >/dev/null; done';
 export const cacheRoot = () => path.join(os.homedir(), 'Library/Caches/bitbi-local-release');
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const require=createRequire(import.meta.url);

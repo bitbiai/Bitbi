@@ -6,7 +6,7 @@ import { spawnSync, execFileSync } from 'node:child_process';
 import { yaml } from '../node_modules/playwright-core/lib/utilsBundle.js';
 import { selectCiTests } from './lib/ci-test-selection.mjs';
 import { validationPlan, selectedCommands, sha256 } from './lib/local-release-plan.mjs';
-import { environmentInputs, environmentKey } from './lib/local-release-environment.mjs';
+import { environmentInputs, environmentKey, TOOL_PREFLIGHT } from './lib/local-release-environment.mjs';
 import { validateLocator, extractEvidence } from './lib/local-release-transport.mjs';
 import { verifyLocalEvidence, rebindLocalCandidate, verifyNativeLocalReports } from './lib/local-release-evidence.mjs';
 import { prepareFrontend } from './lib/frontend-hosting.mjs';
@@ -68,6 +68,12 @@ for(const patch of [{task:'deploy'},{production_environment:true},{creator:{logi
 assert.throws(()=>validateLocator(record,{...scope,sha:scope.base}));
 const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-local-archive-'));
 try {
+  const bin=path.join(temporary,'bin');fs.mkdirSync(bin);
+  const tools=['zip','unzip','python3','git','curl','ffmpeg','ffprobe'];
+  for(const tool of tools)fs.writeFileSync(path.join(bin,tool),'#!/bin/sh\nexit 0\n',{mode:0o755});
+  const preflight=()=>spawnSync('/bin/bash',['-euc',TOOL_PREFLIGHT],{env:{PATH:bin}}).status;
+  assert.equal(preflight(),0);
+  for(const tool of tools){fs.renameSync(path.join(bin,tool),path.join(temporary,tool));assert.notEqual(preflight(),0,`Missing ${tool} must stop before suites`);fs.renameSync(path.join(temporary,tool),path.join(bin,tool));}
   const lockDir=path.join(temporary,'lock');const unlock=acquireLocalReleaseLock(lockDir);
   assert.throws(()=>acquireLocalReleaseLock(lockDir),/Another local release is active/);
   unlock();acquireLocalReleaseLock(lockDir)();

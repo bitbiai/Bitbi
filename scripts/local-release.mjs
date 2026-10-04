@@ -5,7 +5,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { ensureEnvironment, docker, PACKAGES, cacheRoot } from './lib/local-release-environment.mjs';
+import { ensureEnvironment, docker, PACKAGES, cacheRoot, TOOL_PREFLIGHT } from './lib/local-release-environment.mjs';
 import { LOCAL_POLICY, validationPlan, selectedCommands, sha256 } from './lib/local-release-plan.mjs';
 import { gitSelection, tree, REPOSITORY, publishedBase } from './pages-candidate.mjs';
 import { verifyLocalEvidence } from './lib/local-release-evidence.mjs';
@@ -152,6 +152,7 @@ function runLocalRelease({ base, resume }) {
       docker(['exec',name,'chown','-R','1001:1001','/tmp/bitbi-release']);
     }
     const unprivileged=['exec',name,'/usr/bin/setpriv','--reuid=1001','--regid=1001','--clear-groups','--bounding-set=-all','--inh-caps=-all','--ambient-caps=-all','--no-new-privs'];
+    docker([...unprivileged,'bash','-euc',TOOL_PREFLIGHT]);
     docker([...unprivileged,'node','scripts/check-media-tools.mjs']);
     docker([...unprivileged,'node','scripts/check-homepage-runtime.mjs']);
     for (let index = 0; index < commands.length; index++) {
