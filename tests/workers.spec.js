@@ -15170,7 +15170,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
   });
 
   test('member Seedance routes standard and Fast models while rejecting unsupported fields and invalid Fast options', async () => {
-    const { authWorker, env, token, calls } = await createMemberVideoHarness();
+    const { authWorker, env, token, calls } = await createMemberVideoHarness({creditBalance:10000});
 
     const standardModel = await postGenerateVideo({
       worker: authWorker,
@@ -15193,7 +15193,7 @@ test.describe('Phase 2-C AI usage entitlement and credit enforcement', () => {
     const {modelAreaEnvironment}=await import('../workers/auth/src/lib/model-availability.js');
     for(const [model,scope] of [['bytedance/seedance-2.0',modelAreaEnvironment(env,'canvas')],['bytedance/seedance-2.0-fast',env]]) {
       const accepted=await postGenerateVideo({worker:authWorker,env:scope,token,includePixverseDefaults:false,
-        body:{model,duration:12,resolution:'720p',aspect_ratio:'16:9'},idempotencyKey:`valid-area-${model}`});
+        body:{model,duration:12,resolution:'720p',aspect_ratio:'16:9'},idempotencyKey:`valid-area-${model.endsWith('fast')?'fast':'standard'}`});
       expect(accepted.status,JSON.stringify(await accepted.clone().json())).toBe(200);
       await expect(accepted.json()).resolves.toMatchObject({ok:true,data:{model:{id:model}}});
     }
