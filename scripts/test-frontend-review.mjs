@@ -8,6 +8,7 @@ import {prepareFrontend,hash,hostingPolicy,materializeFrontendConfig} from './li
 import {durableBaseline,loadDurableReceipt,activateRecovery,persistDurableReceipt,findPendingFrontendActivation,RECEIPT_TASK} from './lib/frontend-receipts.mjs';
 import {yaml} from '../node_modules/playwright-core/lib/utilsBundle.js';
 import vm from 'node:vm';
+import {verifyImportWorkflow} from './lib/local-release-plan.mjs';
 import {backendReceiptContext,readToolingBackendReceipt,verifiedRead,verifyBackendActivation} from './lib/backend-publication.mjs';
 const root=process.cwd(),temp=fs.mkdtempSync(path.join(process.env.TMPDIR||os.tmpdir(),'bitbi-hosting-review-'));
 const results=[];const record=(name,kind='positive')=>results.push({name,kind,passed:true});
@@ -194,11 +195,14 @@ try {
  // Effective permissions: job permissions REPLACE the workflow mapping;
  // omitted write rights are none, including branch/validation_only jobs.
  const workflow=yaml.parse(fs.readFileSync('.github/workflows/static.yml','utf8'));
+ verifyImportWorkflow(workflow); // The approved draft-evidence importer has its own exact, scoped permission contract.
  assert.deepEqual(workflow.permissions,{contents:'read',actions:'read',deployments:'read'});
  for(const [name,job] of Object.entries(workflow.jobs)) {
   const permissions=job.permissions||workflow.permissions;
   for(const step of job.steps||[])if(step.uses?.startsWith('actions/checkout@'))assert.equal(step.with['persist-credentials'],false);
-  if(!['deploy','recover-frontend'].includes(name)) {
+  if(name==='release-compatibility') {
+   assert(!JSON.stringify(job).includes('secrets.CF_FRONTEND_DEPLOY_TOKEN'));
+  } else if(!['deploy','recover-frontend'].includes(name)) {
    assert(!Object.values(permissions).includes('write'),name+' inherits writes');
    assert(!JSON.stringify(job).includes('secrets.CF_FRONTEND_DEPLOY_TOKEN'));
   } else assert(JSON.stringify(job.environment).includes('cloudflare-static-production'));

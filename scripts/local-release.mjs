@@ -10,6 +10,7 @@ import { LOCAL_POLICY, validationPlan, selectedCommands, sha256, commandRuntimes
 import { gitSelection, tree, REPOSITORY, publishedBase } from './pages-candidate.mjs';
 import { verifyLocalEvidence, LOCAL_WORKER_REPAIR, LOCAL_IMPORT_REPAIR, localRepairCommand, verifyImportRepairEvidence, LOCAL_REPAIR_REFRESH, LOCAL_CORE_REUSE, LOCAL_HOMEPAGE_REPORTS, verifyRetainedHomepageReports, assertLocalRepairTree, verifyLocalWorkerRepair, localWorkerContinuation } from './lib/local-release-evidence.mjs';
 import { BROWSER_ORIGINS, readMigrationBrowserPool, runMigrationBrowserContinuation } from './lib/local-release-browser.mjs';
+import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,assertPermissionContinuationTree,permissionContinuationPrefix} from './lib/local-release-evidence.mjs';
 
 const git = (args, cwd = '.') => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore','pipe','pipe'] }).trim();
 const json = file => JSON.parse(fs.readFileSync(file));
@@ -172,7 +173,8 @@ function runLocalRelease({ base, resume }) {
   const nativeBrowsers=commands.some(command=>commandRuntimes(command).some(part=>part.runtime==='native-browser-v1'))?ensureNativeBrowsers():null;
   const nativeEvidence=nativeBrowsers?Object.fromEntries(Object.entries(nativeBrowsers).filter(([key])=>!['packages','browserRoot'].includes(key))):null;
   const originalDirectory=resume&&json(path.join(resume,'checkpoint.json')).sha!==sha?path.resolve(resume):null;
-  if(originalDirectory)assertLocalRepairTree(sha);
+  const permissionContinuation=originalDirectory&&json(path.join(originalDirectory,'checkpoint.json')).sha===PERMISSION_CONTINUATION.source;
+  if(originalDirectory){if(permissionContinuation)assertPermissionContinuationTree(sha);else assertLocalRepairTree(sha);}
   const directory = resume&&!originalDirectory ? path.resolve(resume) : path.join(cacheRoot(), 'runs', `${sha}-${randomUUID()}`);
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const work = path.join(directory, 'source'), bundle = path.join(directory, 'bundle'), checkpoint = path.join(directory, 'checkpoint.json');
@@ -180,7 +182,15 @@ function runLocalRelease({ base, resume }) {
   let state = fs.existsSync(checkpoint) ? json(checkpoint) : { policy: LOCAL_POLICY, repository: REPOSITORY,
     id, sha, base, sourceTree: git(['rev-parse',`${sha}^{tree}`]), planHash: validationPlan().digest,
     selection, environment, ...(nativeEvidence?{nativeBrowsers:nativeEvidence}:{}), origin: 'development-mac', ci: true, startedAt: new Date().toISOString(), status: 'running', commands: [] };
-  if(originalDirectory) {
+  if(permissionContinuation) {
+    const bytes=fs.readFileSync(path.join(originalDirectory,'checkpoint.json'));
+    const prior=permissionContinuationPrefix(bytes,{head:sha,base,planHash:state.planHash,environment,commands});
+    const reuse=path.join(bundle,'reuse');fs.mkdirSync(reuse,{recursive:true});fs.mkdirSync(path.join(bundle,'logs'),{recursive:true});
+    fs.writeFileSync(path.join(reuse,'permission-checkpoint.json'),bytes);
+    state={...state,startedAt:prior.startedAt,permissionContinuation:{source:prior.sha,checkpoint:PERMISSION_CONTINUATION.checkpoint},
+      commands:prior.commands.map((row,i)=>i===36||PERMISSION_REFRESH.has(i)?null:{...row,command:commands[i],reusedFrom:prior.sha})};
+    for(const row of state.commands.filter(Boolean))fs.copyFileSync(path.join(originalDirectory,'bundle',row.log),path.join(bundle,row.log));
+  } else if(originalDirectory) {
     const prior=json(path.join(originalDirectory,'checkpoint.json'));
     assert.equal(prior.sha,LOCAL_WORKER_REPAIR.source,'Only the pinned failed migration incident permits changed-source continuation');
     assert.equal(sha256(fs.readFileSync(path.join(originalDirectory,'checkpoint.json'))),LOCAL_WORKER_REPAIR.checkpoint);
@@ -259,8 +269,8 @@ function runLocalRelease({ base, resume }) {
     execFileSync('git', ['clone','--local','--no-hardlinks','--no-checkout','.',work], { stdio: 'pipe' });
     git(['checkout','--detach',sha], work);
     git(['remote','set-url','origin','https://github.com/bitbiai/Bitbi.git'], work);
-    if(originalDirectory)for(const name of ['candidate','_site','test-results'])fs.cpSync(path.join(originalDirectory,'source',name),path.join(work,name),{recursive:true});
-    if(originalDirectory)for(const report of LOCAL_HOMEPAGE_REPORTS)fs.copyFileSync(path.join(bundle,'test-results',report),path.join(work,'test-results',report));
+    if(originalDirectory&&!permissionContinuation)for(const name of ['candidate','_site','test-results'])fs.cpSync(path.join(originalDirectory,'source',name),path.join(work,name),{recursive:true});
+    if(originalDirectory&&!permissionContinuation)for(const report of LOCAL_HOMEPAGE_REPORTS)fs.copyFileSync(path.join(bundle,'test-results',report),path.join(work,'test-results',report));
     // Exact committed source; unrelated owner's worktree edits are never copied.
   }
   fs.mkdirSync(path.join(bundle, 'logs'), { recursive: true });
@@ -300,7 +310,7 @@ function runLocalRelease({ base, resume }) {
       docker(['exec',name,'chown','-R','1001:1001','/tmp/bitbi-release']);
     }
     const unprivileged=['exec',name,'/usr/bin/setpriv','--reuid=1001','--regid=1001','--clear-groups','--bounding-set=-all','--inh-caps=-all','--ambient-caps=-all','--no-new-privs'];
-    if(state.repair) {
+    if(state.repair||state.permissionContinuation) {
       docker(['cp',bundle,`${name}:/workspace/.local-release`]);
       docker(['exec',name,'chown','-R','1001:1001','/workspace/.local-release']);
     }

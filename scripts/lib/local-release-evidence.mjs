@@ -175,6 +175,47 @@ const repairTooling = new Set(['scripts/local-release.mjs','scripts/lib/local-re
   'scripts/lib/local-release-browser.mjs','scripts/pages-candidate.mjs','scripts/lib/ci-test-selection.mjs',
   'AGENTS.md','docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md','docs/runbooks/REGRESSION_REGISTER.md']);
 const gitBytes=(args)=>execFileSync('git',args,{stdio:['ignore','pipe','pipe'],maxBuffer:64*1024*1024});
+// Closed continuation of the first ordinary local release after the approved
+// import permission change. No product, dependency, workflow or test scope may
+// change; the original failed hosting check remains failed and executes fresh.
+export const PERMISSION_CONTINUATION=Object.freeze({
+  source:'e4ca9f58705166dfacfaf0851d2f9e550523b784',
+  checkpoint:'bb41b8fbd37f02ad1577a201c14797742a5b0fb9c080ec094665a82f291d217a',
+  review:'043124e8a6424338b71d3f8e40a053050173d39897eb7216c760159eaa9f0f01',
+});
+export const PERMISSION_REFRESH=new Set([0,2,3,4,7,12,17,28,29,33,34,35]);
+export function assertPermissionContinuationTree(head,read=gitBytes) {
+  const p=PERMISSION_CONTINUATION;
+  read(['merge-base','--is-ancestor',p.source,head]);
+  const allowed=new Set(['scripts/test-frontend-review.mjs','scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs',
+    'docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md','docs/runbooks/REGRESSION_REGISTER.md']);
+  const files=read(['diff','--name-only',p.source,head]).toString().trim().split('\n').filter(Boolean);
+  assert(files.length&&files.every(file=>allowed.has(file)),'Permission continuation changed product, workflow, scope or dependency inputs');
+  assert.equal(sha256(read(['show',`${head}:scripts/test-frontend-review.mjs`])),p.review,'Unreviewed hosting permission assertion');
+}
+export function permissionContinuationPrefix(bytes,{head,base,planHash,environment,commands}) {
+  const p=PERMISSION_CONTINUATION;
+  assert.equal(sha256(bytes),p.checkpoint,'Changed original failed permission checkpoint');
+  const original=JSON.parse(bytes);
+  assert.equal(original.sha,p.source);assert.equal(original.status,'failed');assert.equal(original.commands.length,37);
+  assert(original.commands.slice(0,36).every(row=>row.exitCode===0));assert.equal(original.commands[36].exitCode,1);
+  assert.equal(original.commands[36].command.name,'Check frontend hosting package');
+  assert.equal(original.base,base);assert.equal(original.planHash,planHash);assert.equal(original.environment.key,environment.key);
+  for(const [i,row] of original.commands.entries())assert.deepEqual(JSON.parse(JSON.stringify(row.command).replaceAll(p.source,head)),commands[i],'Changed selected command');
+  return original;
+}
+function verifyPermissionContinuation(directory,evidence,commands) {
+  const p=PERMISSION_CONTINUATION;assertPermissionContinuationTree(evidence.sha);
+  assert.deepEqual(evidence.permissionContinuation,{source:p.source,checkpoint:p.checkpoint});assert(!evidence.repair);
+  const original=permissionContinuationPrefix(fs.readFileSync(path.join(directory,'reuse/permission-checkpoint.json')),{...evidence,head:evidence.sha,commands});
+  for(const [i,row] of evidence.commands.entries()) {
+    if(i<36&&!PERMISSION_REFRESH.has(i)) {
+      assert.equal(row.reusedFrom,p.source);
+      assert.deepEqual({...row,command:original.commands[i].command,reusedFrom:undefined},{...original.commands[i],reusedFrom:undefined},'Changed retained passing execution');
+      assert.equal(sha256(fs.readFileSync(path.join(directory,row.log))),original.commands[i].logHash);
+    }else assert(!row.reusedFrom&&!row.continuation,'Affected or unexecuted command cannot inherit a pass');
+  }
+}
 export function assertLocalRepairTree(head) {
   const p=LOCAL_WORKER_REPAIR;
   gitBytes(['merge-base','--is-ancestor',p.corrected,head]);
@@ -390,10 +431,11 @@ export function verifyLocalEvidence(directory, expected, { now = Date.now(), sel
   assert.match(evidence.environment.image, /^sha256:[a-f0-9]{64}$/);
   for(const [key,value] of Object.entries(toolchainPins()))assert.equal(evidence.environment[key],value);
   assert.equal(evidence.ci, true); assert.equal(evidence.origin, 'development-mac');
-  if(evidence.repair)verifyLocalReuse(directory,evidence);
-  else assert(evidence.commands.every(row=>!row.reusedFrom&&!row.continuation),'Unverified local evidence reuse');
   const env = { GITHUB_SHA: expected.sha, CANDIDATE_BASE: expected.base };
   const commands = selectedCommands(selection, env);
+  if(evidence.permissionContinuation)verifyPermissionContinuation(directory,evidence,commands);
+  else if(evidence.repair)verifyLocalReuse(directory,evidence);
+  else assert(evidence.commands.every(row=>!row.reusedFrom&&!row.continuation),'Unverified local evidence reuse');
   if(commands.some(command=>commandRuntimes(command).some(part=>part.runtime==='native-browser-v1')))
     verifyNativeBrowserEnvironment(evidence.nativeBrowsers);
   assert.equal(evidence.commands.length, commands.length, 'Missing/extra local commands');

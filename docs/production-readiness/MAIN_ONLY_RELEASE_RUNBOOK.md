@@ -120,6 +120,15 @@ and other jobs retain their existing permissions. Checkout never persists creden
 dependency installation disables lifecycle scripts and token environment variables
 are restricted to necessary read/import steps. `validationPlan()` checks this boundary
 before suites; missing/scoped-down or broadened permissions and skipped import fail.
+The hosting review uses this same `verifyImportWorkflow()` contract, rather than a
+second blanket rule contradicting the approved importer. Local source `e4ca9f58`
+stopped at that stale assertion after 36 passed steps. Its closed permission
+continuation retains exact unchanged logs and refreshes affected verifiers/build
+metadata before executing the failed hosting check and all unexecuted media/native/
+browser work. The pinned failed checkpoint, exact corrected assertion, unchanged
+product/workflow/dependencies and command list are enforced; no failed result is
+relabelled. Existing `test:local-release` counterchecks reject changed inputs,
+forged passes, altered logs/checkpoints and missing evidence.
 The closed `e637dce9` continuation permits only the exact reviewed workflow delta,
 pins its passed source evidence/manifest/contract log, and permits only generated
 cache-version changes in the candidate. Original source identities remain intact.

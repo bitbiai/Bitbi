@@ -16,6 +16,32 @@ import { gitSelection, tree, MEDIA_POLICY, validateSource, verifyManifest, verif
 import { assertHostedBootstrapAllowed, assertLocalBootstrapAllowed } from '../tests/helpers/q2-runtime/linux-hosted.mjs';
 import { acquireLocalReleaseLock, prepareCandidateRestore } from './local-release.mjs';
 import { LOCAL_IMPORT_REPAIR, assertImportRepairWorkflow, localRepairCommand, verifyImportRepairEvidence } from './lib/local-release-evidence.mjs';
+import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,assertPermissionContinuationTree,permissionContinuationPrefix} from './lib/local-release-evidence.mjs';
+
+function testPermissionContinuation() {
+  const head='f'.repeat(40),corrected=fs.readFileSync('scripts/test-frontend-review.mjs');
+  const reader=(files,bytes=corrected)=>args=>args[0]==='show'?bytes:Buffer.from(args[0]==='diff'?files.join('\n'):'');
+  assertPermissionContinuationTree(head,reader(['scripts/test-frontend-review.mjs']));
+  for(const file of ['js/pages/canvas/main.js','package-lock.json','.github/workflows/static.yml','config/release-validation.yml','tests/canvas.spec.js'])
+    assert.throws(()=>assertPermissionContinuationTree(head,reader(['scripts/test-frontend-review.mjs',file])),/changed product/);
+  assert.throws(()=>assertPermissionContinuationTree(head,reader(['scripts/test-frontend-review.mjs'],Buffer.from('unchecked write permissions'))),/Unreviewed/);
+  assert.throws(()=>permissionContinuationPrefix(Buffer.from('{}'),{}),/original failed/);
+  assert(PERMISSION_REFRESH.has(17)&&PERMISSION_REFRESH.has(34)&&!PERMISSION_REFRESH.has(18),'Changed verifiers/build refresh; unchanged discovery retains proof');
+  const file='.local-release/reuse/permission-checkpoint.json';
+  if(fs.existsSync(file)) {
+    const bytes=fs.readFileSync(file),original=JSON.parse(bytes),actualHead=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+    const context={head:actualHead,base:original.base,planHash:validationPlan().digest,environment:original.environment,
+      commands:selectedCommands(gitSelection(original.base,actualHead),{GITHUB_SHA:actualHead,CANDIDATE_BASE:original.base})};
+    assertPermissionContinuationTree(actualHead);assert.equal(permissionContinuationPrefix(bytes,context).sha,PERMISSION_CONTINUATION.source);
+    for(const mutate of [r=>r.commands[36].exitCode=0,r=>r.commands[0].logHash='wrong',r=>r.commands.pop(),r=>r.status='passed']) {
+      const wrong=structuredClone(original);mutate(wrong);assert.throws(()=>permissionContinuationPrefix(Buffer.from(JSON.stringify(wrong)),context));
+    }
+    for(const mutate of [c=>c.base='b'.repeat(40),c=>c.planHash='changed',c=>c.environment.key='changed',c=>c.commands[18].run='skip']) {
+      const wrong=structuredClone(context);mutate(wrong);assert.throws(()=>permissionContinuationPrefix(bytes,wrong));
+    }
+  }
+  console.log('Permission continuation: exact failed checkpoint/tree, immutable passes, changed scope/toolchain and forged-success controls passed.');
+}
 
 function testImportRepair({closed=false}={}) {
   const file='.github/workflows/static.yml',text=fs.readFileSync(file,'utf8'),workflow=yaml.parse(text);
@@ -433,3 +459,4 @@ if(process.env.BITBI_LOCAL_RELEASE_CONTAINER==='1') {
 
 await testLocalRepair();
 testImportRepair();
+testPermissionContinuation();
