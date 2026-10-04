@@ -49,6 +49,11 @@ env:
   
 jobs:
   release-compatibility:
+    # Owner-approved draft evidence access; all other jobs keep their own rights.
+    permissions:
+      contents: write
+      actions: read
+      deployments: read
     if: ${{ !github.event.inputs.candidate_run_id && !github.event.inputs.frontend_recovery_receipt }}
     runs-on: ubuntu-latest
     outputs:
@@ -108,7 +113,7 @@ jobs:
           RELEASE_BASE_INPUT: ${{ github.event.inputs.release_plan_base_ref }}
         run: node scripts/pages-candidate.mjs baseline
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
       - name: Preflight complete static release plan
         id: release_preflight
         env:

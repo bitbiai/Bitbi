@@ -8,7 +8,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { ensureEnvironment, docker, PACKAGES, cacheRoot, TOOL_PREFLIGHT, toolchainPins } from './lib/local-release-environment.mjs';
 import { LOCAL_POLICY, validationPlan, selectedCommands, sha256, commandRuntimes, nativeBrowserKey } from './lib/local-release-plan.mjs';
 import { gitSelection, tree, REPOSITORY, publishedBase } from './pages-candidate.mjs';
-import { verifyLocalEvidence, LOCAL_WORKER_REPAIR, LOCAL_REPAIR_REFRESH, LOCAL_CORE_REUSE, LOCAL_HOMEPAGE_REPORTS, verifyRetainedHomepageReports, assertLocalRepairTree, verifyLocalWorkerRepair, localWorkerContinuation } from './lib/local-release-evidence.mjs';
+import { verifyLocalEvidence, LOCAL_WORKER_REPAIR, LOCAL_IMPORT_REPAIR, localRepairCommand, verifyImportRepairEvidence, LOCAL_REPAIR_REFRESH, LOCAL_CORE_REUSE, LOCAL_HOMEPAGE_REPORTS, verifyRetainedHomepageReports, assertLocalRepairTree, verifyLocalWorkerRepair, localWorkerContinuation } from './lib/local-release-evidence.mjs';
 import { BROWSER_ORIGINS, readMigrationBrowserPool, runMigrationBrowserContinuation } from './lib/local-release-browser.mjs';
 
 const git = (args, cwd = '.') => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore','pipe','pipe'] }).trim();
@@ -237,6 +237,14 @@ function runLocalRelease({ base, resume }) {
       state.commands[index]={...core.commands[index],command:commands[index],reusedFrom:core.sha};
     }
     readMigrationBrowserPool(bundle);
+    if(localRepairCommand(sha).endsWith('--import-repair-only')) {
+      const imports=fs.readdirSync(path.join(cacheRoot(),'runs')).filter(name=>name.startsWith(LOCAL_IMPORT_REPAIR.source+'-'));
+      assert.equal(imports.length,1,'Missing/ambiguous passed source before permission repair');
+      const originalBundle=path.join(cacheRoot(),'runs',imports[0],'bundle');
+      for(const [from,to]of [['evidence.json','import-source-evidence.json'],['candidate/manifest.json','import-source-manifest.json'],['logs/18.log','import-source-contract.log']])copy(path.join(originalBundle,from),to);
+      verifyImportRepairEvidence(bundle,sha);
+      state.repair.importSource=LOCAL_IMPORT_REPAIR.source;state.repair.importEvidence=LOCAL_IMPORT_REPAIR.evidence;
+    }
   }
   assert.equal(state.sha, sha); assert.equal(state.base, base); assert.equal(state.planHash, validationPlan().digest);
   assert.equal(state.environment.key, environment.key, 'Changed dependencies invalidate this resume');
@@ -366,7 +374,7 @@ function runLocalRelease({ base, resume }) {
         const q2 = /test-q2-runtime|test:workers/.test(command.run);
         const args = ['exec', '--user', q2 ? '1001:1001' : '0:0', ...Object.entries({ ...command.env, GITHUB_JOB: command.job }).filter(([key]) => key !== 'GH_TOKEN').flatMap(([key,value]) => ['--env',`${key}=${value}`]), name];
         if (!q2) args.push('/usr/bin/setpriv','--reuid=1001','--regid=1001','--clear-groups','--bounding-set=-all','--inh-caps=-all','--ambient-caps=-all','--no-new-privs');
-        const effective=state.repair&&index===42?localWorkerContinuation():state.repair&&index===18?'npm run test:local-release -- --repair-only':part.run;
+        const effective=state.repair&&index===42?localWorkerContinuation():state.repair&&index===18?localRepairCommand(sha):part.run;
         const execution=command.name==='Restore exact candidate static site'?'node scripts/local-release.mjs restore-boundary\n'+effective:effective;
         args.push('bash','--noprofile','--norc','-euo','pipefail','-c',execution);
         result = spawnSync('docker', ['--context','colima-bitbi-release',...args], { env: safeEnv(), stdio: ['ignore',fd,fd], timeout: 60 * 60 * 1000 });
@@ -379,7 +387,7 @@ function runLocalRelease({ base, resume }) {
       record.runtimes=commandRuntimes(command).map(part=>part.runtime);
       if(state.repair&&['Run selected auth and admin tests','Run selected homepage core tests'].includes(command.name))record.browserContinuation='local-browser-continuation-v1';
       if(state.repair&&index===42)record.continuation=localWorkerContinuation();
-      if(state.repair&&index===18)record.supplement='npm run test:local-release -- --repair-only';
+      if(state.repair&&index===18)record.supplement=localRepairCommand(sha);
       state.commands[index] = record; state.status = record.exitCode === 0 ? 'running' : 'failed'; save(checkpoint, state);
       assert.equal(record.exitCode, 0, `Local check failed: ${command.name}. Evidence: ${logFile}. Resume this exact source with --resume ${directory}`);
       if(state.repair&&index===35) {

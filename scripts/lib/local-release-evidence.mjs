@@ -16,6 +16,44 @@ export const LOCAL_REQUIRED_JOBS = { 'release-compatibility': [
   'Preflight complete static release plan', 'Select tests from changed files',
   'Verify local release evidence and candidate bytes', 'Upload immutable candidate build',
 ] };
+export const LOCAL_IMPORT_REPAIR = Object.freeze({
+  source:'e637dce9b775d3ebb39fad8e3de0396b064c3a36',
+  workflow:'7db39e78c84654e4ff0c5fb5434ebca371d0ded7fef2dca9fb9fa1826f686134',
+  evidence:'19f68bf54dcc33f75d0ab519c0e57ca13751d76ad8a1882828e059a4794bb737',
+  manifest:'9e103aee168dfd6f47d6533b6d16a9493f37d067a8fb5efad2940cc31e6a53f9',
+  contractLog:'210230e351867cda65c454a613854b68fafa526f384c4bb8c12a9ee25e7c104c',
+});
+export function assertImportRepairWorkflow(before,after) {
+  assert.equal(sha256(before),LOCAL_IMPORT_REPAIR.workflow,'Unknown original import workflow');
+  const expected=before.replace('  release-compatibility:\n',
+    '  release-compatibility:\n    # Owner-approved draft evidence access; all other jobs keep their own rights.\n    permissions:\n      contents: write\n      actions: read\n      deployments: read\n')
+    .replace('      - name: Install dependencies\n        run: npm ci\n','      - name: Install dependencies\n        run: npm ci --ignore-scripts\n');
+  assert.equal(after,expected,'Only the reviewed import-job permission/install correction may inherit evidence');
+}
+export function localRepairCommand(head) {
+  const workflow='.github/workflows/static.yml';
+  const before=gitBytes(['show',`${LOCAL_IMPORT_REPAIR.source}:${workflow}`]).toString();
+  const after=gitBytes(['show',`${head}:${workflow}`]).toString();
+  if(after===before)return 'npm run test:local-release -- --repair-only';
+  assertImportRepairWorkflow(before,after);
+  return 'npm run test:local-release -- --import-repair-only';
+}
+export function verifyImportRepairEvidence(directory,head) {
+  gitBytes(['merge-base','--is-ancestor',LOCAL_IMPORT_REPAIR.source,head]);
+  const files=gitBytes(['diff','--name-only',LOCAL_IMPORT_REPAIR.source,head]).toString().trim().split('\n').filter(Boolean);
+  assert(files.every(file=>repairTooling.has(file)||file==='.github/workflows/static.yml'),'Import repair changed product/test/toolchain inputs');
+  const read=(name,hash)=>{
+    const bytes=fs.readFileSync(path.join(directory,'reuse',name));
+    assert.equal(sha256(bytes),hash,`Changed permission-repair source evidence: ${name}`);return bytes;
+  };
+  const original=JSON.parse(read('import-source-evidence.json',LOCAL_IMPORT_REPAIR.evidence));
+  const manifest=JSON.parse(read('import-source-manifest.json',LOCAL_IMPORT_REPAIR.manifest));
+  read('import-source-contract.log',LOCAL_IMPORT_REPAIR.contractLog);
+  assert.equal(original.sha,LOCAL_IMPORT_REPAIR.source);assert.equal(original.status,'passed');
+  assert.equal(original.commands[18].exitCode,0);assert.equal(original.commands[18].logHash,LOCAL_IMPORT_REPAIR.contractLog);
+  assert.equal(manifest.sha,original.sha);
+  return {original,manifest};
+}
 export function localPolicyAt(sha) {
   if (!/^[a-f0-9]{40}$/.test(sha || '')) return false;
   try { return execFileSync('git', ['show', `${sha}:config/release-validation.yml`], { encoding: 'utf8', stdio: ['ignore','pipe','ignore'] }).includes('version: 1'); }
@@ -138,7 +176,8 @@ export function assertLocalRepairTree(head) {
   const p=LOCAL_WORKER_REPAIR;
   gitBytes(['merge-base','--is-ancestor',p.corrected,head]);
   const changed=gitBytes(['diff','--name-only',p.source,head]).toString().trim().split('\n').filter(Boolean);
-  assert(changed.every(file=>repairTooling.has(file)||Object.hasOwn(p.specs,file)), 'Changed product/toolchain/shared fixture cannot inherit local passes');
+  assert(changed.every(file=>repairTooling.has(file)||Object.hasOwn(p.specs,file)||file==='.github/workflows/static.yml'), 'Changed product/toolchain/shared fixture cannot inherit local passes');
+  if(changed.includes('.github/workflows/static.yml'))localRepairCommand(head);
   for(const [file,hash] of Object.entries(p.specs))assert.equal(sha256(gitBytes(['show',`${head}:${file}`])),hash,'Changed fixture outside the closed repair');
   const before=gitBytes(['show',`${p.source}:js/pages/generate-lab/main.js`]).toString();
   const after=gitBytes(['show',`${head}:js/pages/generate-lab/main.js`]).toString();
@@ -270,7 +309,13 @@ export function verifyLocalReuse(directory,evidence) {
   assert.deepEqual(evidence.environment.inputs,original.environment.inputs);
   assert.equal(evidence.environment.image,original.environment.image);
   assert.equal(evidence.planHash,original.planHash);
-  assert.equal(evidence.commands[18].supplement,'npm run test:local-release -- --repair-only');
+  const repairCommand=localRepairCommand(evidence.sha);
+  assert.equal(evidence.commands[18].supplement,repairCommand);
+  if(repairCommand.endsWith('--import-repair-only')) {
+    const source=verifyImportRepairEvidence(directory,evidence.sha);
+    assert.equal(evidence.repair.importSource,source.original.sha);
+    assert.equal(evidence.repair.importEvidence,LOCAL_IMPORT_REPAIR.evidence);
+  }
   assert.equal(sha256(fs.readFileSync(path.join(directory,'reuse/local-contract.log'))),original.commands[18].logHash);
   const oldSelection={...original.selection},newSelection={...evidence.selection};
   // The retained Worker fixture file also selects independent Auth browser
@@ -299,6 +344,10 @@ export function verifyLocalReuse(directory,evidence) {
   assert.equal(sha256(fs.readFileSync(path.join(directory,'reuse/manifest.json'))),LOCAL_WORKER_REPAIR.manifest);
   const manifest=JSON.parse(fs.readFileSync(path.join(directory,'candidate/manifest.json')));
   verifyMigrationCandidateBytes(directory,oldManifest,manifest);
+  if(evidence.repair.importSource) {
+    const source=verifyImportRepairEvidence(directory,evidence.sha);
+    verifyMigrationCandidateBytes(directory,source.manifest,manifest,{allowLabGuard:false});
+  }
   assert.deepEqual(manifest.hosting,oldManifest.hosting,'Changed frontend runtime cannot reuse a proof');
   const proof=JSON.parse(fs.readFileSync(path.join(directory,'candidate/proof-frontend-runtime.json')));
   const oldProof=JSON.parse(fs.readFileSync(path.join(directory,'reuse/proof-frontend-runtime.json')));
@@ -307,7 +356,7 @@ export function verifyLocalReuse(directory,evidence) {
   verifyProofs(oldManifest,[oldProof]);
 }
 
-export function verifyMigrationCandidateBytes(directory,oldManifest,manifest) {
+export function verifyMigrationCandidateBytes(directory,oldManifest,manifest,{allowLabGuard=true}={}) {
   assert.deepEqual(Object.keys(manifest.files),Object.keys(oldManifest.files),'Candidate membership changed');
   const oldToken=oldManifest.sha.slice(0,12),newToken=manifest.sha.slice(0,12);
   for(const [file,hash]of Object.entries(oldManifest.files)) {
@@ -316,7 +365,7 @@ export function verifyMigrationCandidateBytes(directory,oldManifest,manifest) {
     if(sha256(bytes)===hash)continue;
     let normalized=bytes.toString().replaceAll(`?v=${newToken}`,`?v=${oldToken}`);
     if(file==='js/pages/admin/ai-lab.js')normalized=normalized.replace(`const ADMIN_AI_UI_VERSION = '${newToken}';`,`const ADMIN_AI_UI_VERSION = '${oldToken}';`);
-    if(file==='js/pages/generate-lab/main.js')normalized=normalized.replace('    // Concurrent UI triggers may have awaited the same pricing refresh.\n    if (state.busy) return;\n','');
+    if(allowLabGuard&&file==='js/pages/generate-lab/main.js')normalized=normalized.replace('    // Concurrent UI triggers may have awaited the same pricing refresh.\n    if (state.busy) return;\n','');
     assert.equal(sha256(normalized),hash,`Unreviewed product/build change: ${file}`);
   }
 }

@@ -27,7 +27,31 @@ export function commandRuntimes(command) {
 export function nativeBrowserKey({node,playwright,platform,kernel,inputs,binaries}) {
   return sha256(JSON.stringify({policy:'native-browser-v1',node,playwright,platform,kernel,inputs,binaries}));
 }
+export function verifyImportWorkflow(workflow) {
+  const read={contents:'read',actions:'read',deployments:'read'};
+  assert.deepEqual(workflow.permissions,read,'Workflow defaults must remain read-only');
+  const job=workflow.jobs?.['release-compatibility'];
+  assert.deepEqual(job?.permissions,{...read,contents:'write'},'Private draft evidence requires the approved import-job permission');
+  const token=/github\.token|secrets\.GITHUB_TOKEN|GH_TOKEN|GITHUB_TOKEN/;
+  assert(!token.test(JSON.stringify(workflow.env||{}))&&!token.test(JSON.stringify(job.env||{})),'No workflow/job-wide credential');
+  const imports=job.steps.filter(step=>step.run==='node scripts/local-release.mjs import');
+  assert.equal(imports.length,1,'Exactly one evidence import is required');
+  assert(!imports[0].if&&!imports[0]['continue-on-error']&&!job['continue-on-error'],'Evidence import must block publication');
+  assert.equal(imports[0].env?.GH_TOKEN,'${{ github.token }}');
+  const checkout=job.steps.filter(step=>step.uses?.startsWith('actions/checkout@'));
+  assert.equal(checkout.length,1);assert.equal(checkout[0].with?.['persist-credentials'],false,'Import credentials must not persist');
+  const installs=job.steps.filter(step=>step.name==='Install dependencies');
+  assert.equal(installs.length,1);assert.equal(installs[0].run,'npm ci --ignore-scripts','Do not run dependency lifecycle scripts in the elevated job');
+  const readers=new Set(['Resolve verified published Pages baseline','Select tests from changed files','Verify local release evidence and candidate bytes']);
+  for(const step of job.steps) {
+    assert(!token.test(JSON.stringify(step.with||{}))&&!token.test(step.run||''),'Do not interpolate credentials into commands/action inputs');
+    if(token.test(JSON.stringify(step.env||{})))assert(readers.has(step.name),'Unnecessary step receives the elevated token');
+  }
+  for(const [name,other]of Object.entries(workflow.jobs))if(name!=='release-compatibility')
+    assert.equal((other.permissions||workflow.permissions).contents,'read','Only the import job may write repository contents');
+}
 export function validationPlan(root = '.') {
+  verifyImportWorkflow(require('../../node_modules/playwright-core/lib/utilsBundle.js').yaml.parse(fs.readFileSync(`${root}/.github/workflows/static.yml`,'utf8')));
   const bytes = fs.readFileSync(`${root}/${PLAN_FILE}`);
   const plan = require('../../node_modules/playwright-core/lib/utilsBundle.js').yaml.parse(bytes.toString());
   assert.equal(plan.version, 1, 'Unknown local validation plan');

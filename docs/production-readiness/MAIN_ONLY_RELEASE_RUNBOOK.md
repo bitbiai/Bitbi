@@ -81,7 +81,8 @@ non-Lab cases; `004ff2ec` repaired only the remaining authorized Admin locale fi
 Keep all 707 genuine passes and their original reports. A deterministic EN/DE
 control confirms a separate Lab pricing-await race: the second rejected UI submission
 clears the first submission's busy state. A two-line product fix passed both controls
-in a private candidate; it is not committed product acceptance or live evidence.
+in a private candidate. Owner-approved final EN/DE acceptance passed at `115eecc5`;
+this local result alone was not publication evidence.
 The release correction rechecks busy immediately after pricing; it changes no
 provider, credit or authentication contract. Exact source pins permit only this
 verified guard and the reviewed fixture/tooling changes. The existing successful
@@ -95,7 +96,10 @@ results alongside the other 249 retained core cases. The remaining 20 core failu
 were missing public availability in legacy Lab/Models/help fixtures. Reuse the
 existing approved fixture and await the complete catalog before measuring it;
 retain exact membership and missing/duplicate/substitution countercontrols. Only
-those 20 cases and the two unresolved Lab cases require fresh browser execution.
+those 20 cases and the two unresolved Lab cases required fresh browser execution.
+`136def1d` passed 19 corrected cases; `115eecc5` passed the remaining Admin case
+and both Lab cases. `e637dce9` completed the full evidence union. No product cases
+remain unresolved and none repeat for the import-permission correction.
 Source/candidate comparison permits only the reviewed guard and generated cache
 version tokens; the frontend Worker/runtime/configuration must remain identical.
 The local import verifier resolves asset-size checks against the actual bundled
@@ -109,8 +113,18 @@ controls, including an actual child-process drain check.
 Evidence expires after seven days. The existing owner credential uploads a digest-bound
 archive as an unpublished draft asset, indexed by a nonproduction GitHub deployment
 metadata record (`bitbi-local-validation`). It creates no public release/tag event,
-new token, production activation or new workflow. GitHub consumes it with its existing
-read permissions. The schema-3 candidate envelope retains the original local manifest,
+new token, production activation or new workflow. Private draft assets require the
+owner-approved `contents: write` permission on `release-compatibility` only; this is
+repository-content/release write access, not asset-only read access. Workflow defaults
+and other jobs retain their existing permissions. Checkout never persists credentials;
+dependency installation disables lifecycle scripts and token environment variables
+are restricted to necessary read/import steps. `validationPlan()` checks this boundary
+before suites; missing/scoped-down or broadened permissions and skipped import fail.
+The closed `e637dce9` continuation permits only the exact reviewed workflow delta,
+pins its passed source evidence/manifest/contract log, and permits only generated
+cache-version changes in the candidate. Original source identities remain intact.
+The actual Actions import and protected publication must still succeed; syntax or
+local fixtures do not prove draft access. The schema-3 candidate envelope retains the original local manifest,
 reports and proof identity; the Actions run/attempt identifies the import, not invented
 hosted execution. Missing access/evidence, stale source, failed or incomplete commands,
 changed reports/candidate bytes and unsupported setup all block release. Retain the

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { yaml } from '../node_modules/playwright-core/lib/utilsBundle.js';
 import { selectCiTests } from './lib/ci-test-selection.mjs';
-import { validationPlan, selectedCommands, sha256, commandRuntimes, nativeBrowserKey } from './lib/local-release-plan.mjs';
+import { validationPlan, selectedCommands, sha256, commandRuntimes, nativeBrowserKey, verifyImportWorkflow } from './lib/local-release-plan.mjs';
 import { environmentInputs, environmentKey, TOOL_PREFLIGHT, toolchainPins } from './lib/local-release-environment.mjs';
 import { validateLocator, extractEvidence } from './lib/local-release-transport.mjs';
 import { verifyLocalEvidence, rebindLocalCandidate, verifyNativeLocalReports, workerListResults, verifyWorkerUnion, assertLocalRepairTree, verifyLocalWorkerRepair, localWorkerContinuation, tapResults, verifyNativeCaseUnion, NATIVE_REPAIRED_CASES, verifyNativeBrowserEnvironment, verifyMigrationCandidateBytes, LOCAL_HOMEPAGE_REPORTS, verifyRetainedHomepageReports, verifyRetainedFrontendLog } from './lib/local-release-evidence.mjs';
@@ -14,6 +14,73 @@ import { prepareFrontend, verifyFrontend, stopFrontendRuntime } from './lib/fron
 import { gitSelection, tree, MEDIA_POLICY, validateSource, verifyManifest, verifyProofs } from './pages-candidate.mjs';
 import { assertHostedBootstrapAllowed, assertLocalBootstrapAllowed } from '../tests/helpers/q2-runtime/linux-hosted.mjs';
 import { acquireLocalReleaseLock, prepareCandidateRestore } from './local-release.mjs';
+import { LOCAL_IMPORT_REPAIR, assertImportRepairWorkflow, localRepairCommand, verifyImportRepairEvidence } from './lib/local-release-evidence.mjs';
+
+function testImportRepair() {
+  const file='.github/workflows/static.yml',text=fs.readFileSync(file,'utf8'),workflow=yaml.parse(text);
+  verifyImportWorkflow(workflow);
+  const changes=[
+    w=>delete w.jobs['release-compatibility'].permissions,
+    w=>w.jobs['release-compatibility'].permissions.contents='read',
+    w=>w.jobs['release-compatibility'].permissions.issues='write',
+    w=>w.permissions.contents='write',w=>w.jobs.deploy.permissions.contents='write',
+    w=>w.jobs['release-compatibility'].env={GH_TOKEN:'${{ github.token }}'},
+    w=>w.jobs['release-compatibility'].steps.find(s=>s.name==='Install dependencies').env={GH_TOKEN:'${{ github.token }}'},
+    w=>w.jobs['release-compatibility'].steps.find(s=>s.name==='Install dependencies').run='npm ci',
+    w=>w.jobs['release-compatibility'].steps.find(s=>s.name==='Checkout').with['persist-credentials']=true,
+    w=>w.jobs['release-compatibility'].steps.find(s=>s.id==='local_evidence').if='false',
+    w=>w.jobs['release-compatibility'].steps.find(s=>s.id==='local_evidence')['continue-on-error']=true,
+    w=>w.jobs['release-compatibility'].steps=w.jobs['release-compatibility'].steps.filter(s=>s.id!=='local_evidence'),
+  ];
+  for(const change of changes){const wrong=structuredClone(workflow);change(wrong);assert.throws(()=>verifyImportWorkflow(wrong));}
+  const before=execFileSync('git',['show',`${LOCAL_IMPORT_REPAIR.source}:${file}`],{encoding:'utf8'});
+  assertImportRepairWorkflow(before,text);
+  for(const changed of [before,text.replace('cancel-in-progress: false','cancel-in-progress: true'),text.replace('digest-mismatch: error','digest-mismatch: warn')])
+    assert.throws(()=>assertImportRepairWorkflow(before,changed));
+  const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-import-repair-'));
+  try {
+    // Exercise the actual early caller, not just a helper with a synthetic object.
+    fs.mkdirSync(path.join(tmp,'.github/workflows'),{recursive:true});fs.mkdirSync(path.join(tmp,'config'));
+    fs.copyFileSync('config/release-validation.yml',path.join(tmp,'config/release-validation.yml'));
+    fs.writeFileSync(path.join(tmp,file),text);validationPlan(tmp);
+    fs.writeFileSync(path.join(tmp,file),before);assert.throws(()=>validationPlan(tmp),/approved import-job permission/);
+    const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+    const gitEnv={...process.env,GIT_INDEX_FILE:path.join(tmp,'index')};
+    function commitFile(name,bytes) {
+      execFileSync('git',['read-tree',head],{env:gitEnv});
+      const blob=execFileSync('git',['hash-object','-w','--stdin'],{input:bytes,encoding:'utf8'}).trim();
+      execFileSync('git',['update-index','--cacheinfo',`100644,${blob},${name}`],{env:gitEnv});
+      const tree=execFileSync('git',['write-tree'],{env:gitEnv,encoding:'utf8'}).trim();
+      return execFileSync('git',['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit-tree',tree,'-p',head],{input:'Synthetic import permission boundary\n',encoding:'utf8'}).trim();
+    }
+    const allowed=commitFile(file,text);assertLocalRepairTree(allowed);
+    assert.equal(localRepairCommand(allowed),'npm run test:local-release -- --import-repair-only');
+    assert.throws(()=>assertLocalRepairTree(commitFile(file,text.replace('cancel-in-progress: false','cancel-in-progress: true'))),/Only the reviewed/);
+    assert.throws(()=>assertLocalRepairTree(commitFile('tests/canvas.spec.js','changed input')),/Changed product/);
+    const directory=process.env.LOCAL_IMPORT_EVIDENCE||(fs.existsSync('.local-release/reuse/import-source-evidence.json')?'.local-release':null);
+    if(directory) {
+      const source=verifyImportRepairEvidence(directory,allowed);
+      assert.equal(source.original.commands.length,53);
+      fs.mkdirSync(path.join(tmp,'reuse'));
+      for(const name of ['import-source-evidence.json','import-source-manifest.json','import-source-contract.log'])
+        fs.copyFileSync(path.join(directory,'reuse',name),path.join(tmp,'reuse',name));
+      for(const name of fs.readdirSync(path.join(tmp,'reuse'))) {
+        const file=path.join(tmp,'reuse',name),bytes=fs.readFileSync(file);
+        fs.unlinkSync(file);assert.throws(()=>verifyImportRepairEvidence(tmp,allowed));
+        fs.writeFileSync(file,'changed');assert.throws(()=>verifyImportRepairEvidence(tmp,allowed));fs.writeFileSync(file,bytes);
+      }
+    }
+    const site=path.join(tmp,'candidate/site');fs.mkdirSync(site,{recursive:true});
+    fs.writeFileSync(path.join(site,'index.html'),'<script src="/app.js?v=aaaaaaaaaaaa"></script>');
+    const original={sha:'a'.repeat(40),files:tree(site)};
+    fs.writeFileSync(path.join(site,'index.html'),'<script src="/app.js?v=bbbbbbbbbbbb"></script>');
+    verifyMigrationCandidateBytes(tmp,original,{sha:'b'.repeat(40),files:tree(site)},{allowLabGuard:false});
+    fs.appendFileSync(path.join(site,'index.html'),'changed product');
+    assert.throws(()=>verifyMigrationCandidateBytes(tmp,original,{sha:'b'.repeat(40),files:tree(site)},{allowLabGuard:false}),/Unreviewed product/);
+  } finally {fs.rmSync(tmp,{recursive:true,force:true});}
+  console.log('Import permission: scoped writer, private-token exposure, lifecycle scripts, blocking import, exact Git delta and original evidence/candidate counterchecks passed. No product tests executed.');
+}
+if(process.argv.includes('--import-repair-only')) {testImportRepair();process.exit(0);}
 
 function testNativeRouting() {
   const commands=selectedCommands(selectCiTests(['config/static-hosting.json']),{GITHUB_SHA:'a'.repeat(40),CANDIDATE_BASE:'b'.repeat(40)});
@@ -274,7 +341,7 @@ console.log('Local command mapping, no hosted duplicate suites, dependency inval
 // No provider or production call is possible in this fixture.
 const repo=process.cwd(), fixtureRoot=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-local-proof-'));
 try {
-  for(const file of [...Object.keys(environmentInputs()),'config/release-validation.yml','config/static-hosting.json','frontend/index.mjs','frontend/wrangler.jsonc']) {
+  for(const file of [...Object.keys(environmentInputs()),'.github/workflows/static.yml','config/release-validation.yml','config/static-hosting.json','frontend/index.mjs','frontend/wrangler.jsonc']) {
     const dest=path.join(fixtureRoot,file);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(path.join(repo,file),dest);
   }
   process.chdir(fixtureRoot);
@@ -346,3 +413,4 @@ if(process.env.BITBI_LOCAL_RELEASE_CONTAINER==='1') {
 }
 
 await testLocalRepair();
+testImportRepair();
