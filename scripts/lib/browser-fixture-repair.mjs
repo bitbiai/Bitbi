@@ -168,8 +168,17 @@ export const CANVAS_AUDIO_BROWSER_REPAIR=Object.freeze({
   reportHash:'21239bb362fff7994371571708110ec6a46c24e164285c888024e2116ba2bc67',
   casesHash:'f85d2197d54ace19f18f21dca871fcced44dc252103db55e9bb7a2dfd133ab0d',
 });
+export const CANVAS_AUDIO_BROWSER_PROGRESS=Object.freeze({
+  sha:'6ae6dfb01bdd9f1762a7fa4e492e6df0bea01d48',run:'37192908814',attempt:'1',
+  artifact:11299483349,artifactName:'playwright-report-selected',
+  archiveHash:'3af39480ded8c5cfbc3b4975723fcd687025e3728d9a44d3cef9ae7f25a68ffc',
+  reports:{'test-results/repair-scoped-0.json':'169d2324857fce6549809ea2d2bd293cf11c3a9a704d66b21a3462f75fbf104b',
+    'test-results/repair-scoped-1.json':'7934c7b8d156f521c2420ae46fcc139cbb3e23f5580a9593cdadc36342abe6b2'},
+  casesHash:'59e4d084429b0281a2f107df0de312bc63aee23333d8f0483c9a54ed82298044',
+  helperHash:'10e4c19b447bd4646a7075c295444555bc3dfb27a51038e4d92f07ae5025e8a2',
+});
 export const CANVAS_AUDIO_BROWSER_REPAIR_SPECS=Object.freeze({
-  'tests/helpers/canvas-audio-ui.cjs':['5edd386fb3c398ed743bab53be1a4e13cce221293b8e34c677902183c235b58d','10e4c19b447bd4646a7075c295444555bc3dfb27a51038e4d92f07ae5025e8a2'],
+  'tests/helpers/canvas-audio-ui.cjs':['5edd386fb3c398ed743bab53be1a4e13cce221293b8e34c677902183c235b58d','92151cb4d32b5095cdd3247b645f1b34d7728f920b001f6997cf32ddbeef5446'],
   'tests/helpers/canvas-music-preview.cjs':['92ae2db9261d089c0c04825bbb7d95efb67b8a2c5ac831f1bdc97455cf0a01af','fe86fc479d33b492ad479f9fb52fa87ea87926d3daa65c73737f157fcc2f83b3'],
 });
 export const CANVAS_AUDIO_BROWSER_REPAIR_CASES=Object.freeze([
@@ -198,7 +207,8 @@ export function assertBrowserRepairTrees(source,head) {
   for(const row of after.filter(r=>allowed.has(r.file)))assert(/^100(?:644|755) blob [a-f0-9]{40}$/.test(row.identity),'Browser repair requires regular Git files');
   for(const [file,hashes] of Object.entries(audio?CANVAS_AUDIO_BROWSER_REPAIR_SPECS:merge?CANVAS_MERGE_BROWSER_REPAIR_SPECS:seedance?SEEDANCE_BROWSER_REPAIR_SPECS:omni?OMNI_BROWSER_REPAIR_SPECS:BROWSER_REPAIR_SPECS)) {
     assert.equal(browserHash(git(['show',`${source}:${file}`])),hashes[0],`Unreviewed original spec: ${file}`);
-    assert.equal(browserHash(git(['show',`${head}:${file}`])),hashes[1],`Unreviewed repaired spec: ${file}`);
+    const expected=audio&&head===CANVAS_AUDIO_BROWSER_PROGRESS.sha&&file==='tests/helpers/canvas-audio-ui.cjs'?CANVAS_AUDIO_BROWSER_PROGRESS.helperHash:hashes[1];
+    assert.equal(browserHash(git(['show',`${head}:${file}`])),expected,`Unreviewed repaired spec: ${file}`);
   }
 }
 export function assertBrowserPublicationTree(head) {
@@ -310,12 +320,31 @@ const tailSkip=row=>intentionalCarouselSkip(row)||row.file==='homepage-carousel-
 export function verifyBrowserRepairCoverage(evidence,source=BROWSER_REPAIR.sha) {
   const {previous}=evidence;
   assert.equal(browserHash(JSON.stringify(previous)),browserRepairIncident(source).casesHash,'Original failed case evidence changed');
+  if(source===CANVAS_AUDIO_BROWSER_REPAIR.sha) {
+    assert.deepEqual(evidence.progress?.source,CANVAS_AUDIO_BROWSER_PROGRESS,'Missing exact intermediate failed-run provenance');
+    assert.equal(browserHash(JSON.stringify(evidence.progress.rows)),CANVAS_AUDIO_BROWSER_PROGRESS.casesHash,'Intermediate browser results changed');
+  }
   return verifyBrowserCaseCoverage(evidence,source);
 }
 // Pure case-union check, separately counterchecked with synthetic reports. Only
 // verifyBrowserRepairCoverage grants incident acceptance after the pinned hash.
-export function verifyBrowserCaseCoverage({previous,discovery,scoped,carouselDiscovery,carousel},source=BROWSER_REPAIR.sha) {
+export function verifyBrowserCaseCoverage({previous,discovery,scoped,carouselDiscovery,carousel,progress},source=BROWSER_REPAIR.sha) {
   const seedance=browserRepairIncident(source)===SEEDANCE_BROWSER_REPAIR,merge=browserRepairIncident(source)===CANVAS_MERGE_BROWSER_REPAIR,audio=browserRepairIncident(source)===CANVAS_AUDIO_BROWSER_REPAIR;
+  if(audio&&progress) {
+    const repaired=discovery.filter(row=>repairedCase(row,source));
+    assert.equal(repaired.length,6);assert.equal(progress.rows.length,6);
+    assert.deepEqual(keys(progress.rows),keys(repaired),'Intermediate execution differs from the original six repairs');
+    for(const row of progress.rows)assert.deepEqual(identity(row),identity(repaired.find(r=>r.key===row.key)));
+    const retained=progress.rows.filter(passed),pending=progress.rows.filter(row=>!passed(row));
+    assert.equal(retained.length,5);assert.equal(pending.length,1);
+    assert.equal(pending[0].project,'webkit-canvas');assert.equal(pending[0].title,'Canvas asset audio de: typed references, persistent controls and real export');
+    assert.equal(pending[0].status,'unexpected');assert.deepEqual(pending[0].results,[{status:'failed',retry:0,error:true}]);
+    assert.deepEqual(keys(scoped),keys(pending),'Only the unresolved DE WebKit case may execute again');
+    // Reuse the existing strict full-discovery union. No failed intermediate
+    // result is substituted, and all original 224 identities remain required.
+    const full=verifyBrowserCaseCoverage({previous,discovery,scoped:[...retained,...scoped].sort((a,b)=>a.key.localeCompare(b.key,'en')),carouselDiscovery,carousel},source);
+    return {...full,reused:[...full.reused,...keys(retained)].sort(),fresh:keys(scoped),reusedPassed:223,freshPassed:1,progressPassed:5};
+  }
   if(audio||merge||seedance||browserRepairIncident(source)===OMNI_BROWSER_REPAIR) {
     const total=audio?224:merge?327:seedance?317:303,freshCount=merge?5:seedance?59:6,reusedCount=total-freshCount;
     assert.equal(previous.length,total);assert.equal(discovery.length,total,'Required Canvas discovery changed');
@@ -379,6 +408,9 @@ export function verifyBrowserRepairProof(proof,manifest,{publicationSha,run,atte
 }
 export async function originalBrowserRows(env=process.env) {
   const incident=browserRepairIncident(env.REPAIR_SOURCE_SHA||BROWSER_REPAIR.sha);
+  return archivedBrowserRows(incident,env,incident.reports||{[incident!==BROWSER_REPAIR?'test-results/candidate-auth.json':'test-results/candidate-static.json']:incident.reportHash});
+}
+async function archivedBrowserRows(incident,env,reports) {
   assert(env.GH_TOKEN,'Read-only Actions token required');
   const response=await fetch(`https://api.github.com/repos/bitbiai/Bitbi/actions/artifacts/${incident.artifact}/zip`,{headers:{Authorization:`Bearer ${env.GH_TOKEN}`},signal:AbortSignal.timeout(30000)});
   assert(response.ok,'Cannot read exact original browser artifact');const bytes=Buffer.from(await response.arrayBuffer());
@@ -386,10 +418,48 @@ export async function originalBrowserRows(env=process.env) {
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-browser-source-'));
   try {
     const archive=path.join(dir,'source.zip');fs.writeFileSync(archive,bytes);
-    const report=execFileSync('python3',['-I','-c',"import sys,zipfile\nwith zipfile.ZipFile(sys.argv[1]) as z:\n n=sys.argv[2]\n assert sum(x.filename==n for x in z.infolist())==1\n assert z.getinfo(n).file_size<16*1024*1024\n sys.stdout.buffer.write(z.read(n))",archive,incident!==BROWSER_REPAIR?'test-results/candidate-auth.json':'test-results/candidate-static.json'],{maxBuffer:16*1024*1024,timeout:30000});
-    assert.equal(browserHash(report),incident.reportHash,'Original browser JSON changed');
-    const rows=browserRows(JSON.parse(report));assert.equal(browserHash(JSON.stringify(rows)),incident.casesHash);return rows;
+    const rows=[];
+    for(const [name,expectedHash] of Object.entries(reports)) {
+      const report=execFileSync('python3',['-I','-c',"import sys,zipfile\nwith zipfile.ZipFile(sys.argv[1]) as z:\n n=sys.argv[2]\n assert sum(x.filename==n for x in z.infolist())==1\n assert z.getinfo(n).file_size<16*1024*1024\n sys.stdout.buffer.write(z.read(n))",archive,name],{maxBuffer:16*1024*1024,timeout:30000});
+      assert.equal(browserHash(report),expectedHash,'Original browser JSON changed');rows.push(...browserRows(JSON.parse(report)));
+    }
+    rows.sort((a,b)=>a.key.localeCompare(b.key,'en'));
+    assert.equal(browserHash(JSON.stringify(rows)),incident.casesHash);return rows;
   } finally{fs.rmSync(dir,{recursive:true,force:true});}
+}
+export function assertCanvasAudioProgress({run,jobs,artifact}) {
+  const p=CANVAS_AUDIO_BROWSER_PROGRESS;
+  assert.equal(String(run.id),p.run);assert.equal(String(run.run_attempt),p.attempt);assert.equal(run.head_sha,p.sha);
+  assert.equal(run.head_branch,'main');assert.equal(run.path,'.github/workflows/static.yml');assert.equal(run.event,'push');
+  assert.equal(run.repository?.full_name,'bitbiai/Bitbi');assert.equal(run.head_repository?.full_name,'bitbiai/Bitbi');
+  assert.equal(run.status,'completed');assert.equal(run.conclusion,'failure','Intermediate failed run remains failed');
+  for(const [name,conclusion] of [['release-compatibility','success'],['worker-validation','skipped'],['homepage-validation','skipped'],['browser-validation','failure'],['deploy','skipped']]) {
+    const found=jobs.filter(j=>j.name===name);assert.equal(found.length,1);const job=found[0];
+    assert.equal(job.head_sha,p.sha);assert.equal(job.status,'completed');assert.equal(job.conclusion,conclusion);
+    if(name==='browser-validation') {
+      assert.deepEqual(job.steps.filter(s=>s.conclusion==='failure').map(s=>s.name),['Run repaired browser acceptance']);
+      let prior=-1;
+      for(const stepName of ['Install Canvas browser media tools','Restore unchanged browser repair candidate','Restore exact candidate static site','Run repaired browser acceptance']) {
+        const steps=job.steps.filter(s=>s.name===stepName);assert.equal(steps.length,1);const step=steps[0];
+        assert.equal(step.status,'completed');assert.equal(step.conclusion,stepName==='Run repaired browser acceptance'?'failure':'success');
+        assert(job.steps.indexOf(step)>prior);prior=job.steps.indexOf(step);
+      }
+    }
+  }
+  assert.equal(artifact.id,p.artifact);assert.equal(artifact.name,p.artifactName);assert.equal(artifact.digest,`sha256:${p.archiveHash}`);
+  assert.equal(artifact.expired,false);assert(Date.parse(artifact.expires_at)>Date.now());assert(artifact.size_in_bytes>0);
+  assert.equal(artifact.workflow_run?.id,Number(p.run));assert.equal(artifact.workflow_run?.head_sha,p.sha);
+}
+export async function canvasAudioProgress(env=process.env) {
+  const p=CANVAS_AUDIO_BROWSER_PROGRESS;
+  assertBrowserRepairTrees(CANVAS_AUDIO_BROWSER_REPAIR.sha,p.sha);
+  const read=async endpoint=>{
+    const response=await fetch(`https://api.github.com/repos/bitbiai/Bitbi/${endpoint}`,{headers:{Authorization:`Bearer ${env.GH_TOKEN}`},signal:AbortSignal.timeout(30000)});
+    assert(response.ok,'Cannot authenticate intermediate browser evidence');return response.json();
+  };
+  const [run,data,artifact]=await Promise.all([read(`actions/runs/${p.run}/attempts/${p.attempt}`),read(`actions/runs/${p.run}/attempts/${p.attempt}/jobs?per_page=100`),read(`actions/artifacts/${p.artifact}`)]);
+  assert.equal(data.jobs.length,data.total_count);assertCanvasAudioProgress({run,jobs:data.jobs,artifact});
+  return {source:p,rows:await archivedBrowserRows(p,env,p.reports)};
 }
 export async function runBrowserRepair(manifest,env=process.env) {
   const incident=browserRepairIncident(env.REPAIR_SOURCE_SHA),omni=incident!==BROWSER_REPAIR,seedance=incident===SEEDANCE_BROWSER_REPAIR;
@@ -397,6 +467,7 @@ export async function runBrowserRepair(manifest,env=process.env) {
   assert.equal(env.GITHUB_JOB,'browser-validation');
   assertBrowserRepairTrees(env.REPAIR_SOURCE_SHA,env.GITHUB_SHA);assertBrowserSourceIdentity(manifest);
   const previous=await originalBrowserRows(env);fs.mkdirSync('test-results',{recursive:true});
+  const progress=incident===CANVAS_AUDIO_BROWSER_REPAIR?await canvasAudioProgress(env):undefined;
   const run=(name,args,{discovery=false}={})=>{
     const file=path.resolve(`test-results/repair-${name}.json`);fs.rmSync(file,{force:true});
     const result=spawnSync(process.execPath,['node_modules/@playwright/test/cli.js','test',...args,...(discovery?['--list']:['--retries=0']),`--reporter=${discovery?'json':'list,json'}`],{env:{...env,PLAYWRIGHT_JSON_OUTPUT_NAME:file,STATIC_TEST_ROOT:'_site'},stdio:discovery?'pipe':'inherit',maxBuffer:8*1024*1024});
@@ -407,19 +478,21 @@ export async function runBrowserRepair(manifest,env=process.env) {
   const discovery=run('discovery',['-c','playwright.config.js',...(omni?canvasArgs:[])],{discovery:true});
   const seedanceGrep=SEEDANCE_BROWSER_REPAIR_CASES.map(([,title])=>title.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'$').join('|');
   const args=['-c','playwright.config.js',...(seedance?[...new Set(SEEDANCE_BROWSER_REPAIR_CASES.map(([file])=>'tests/'+file)),'--project=chromium','--project=webkit-canvas','--grep',seedanceGrep]:omni?['tests/auth-admin.spec.js','tests/smoke.spec.js','--project=chromium','--project=webkit-canvas','--grep',`${omniAdminTitle}|${omniMemberTitle}`]:['tests/auth-admin.spec.js','tests/website-assistant.spec.js','--project=chromium','--project=webkit-appearance','--project=webkit-assistant','--grep',`${navTitle}|website assistant (en|de)(${httpSuffix}|${controlSuffix})`]),'--output=test-results/browser-repair-artifacts'];
-  const argsByProject=scopedCases?['chromium','webkit-canvas'].map(project=>[
+  const retained=row=>progress?.rows.some(r=>r.file===row.file&&r.title===row.title&&r.project===row.project&&passed(r));
+  const casesFor=project=>scopedCases.filter(([file,title,projects=['chromium','webkit-canvas']])=>projects.includes(project)&&!retained({file,title,project}));
+  const argsByProject=scopedCases?['chromium','webkit-canvas'].filter(project=>casesFor(project).length).map(project=>[
     '-c','playwright.config.js',...new Set(scopedCases.map(([file])=>'tests/'+file)),
-    '--project='+project,'--grep',scopedCases.filter(([,title,projects=['chromium','webkit-canvas']])=>projects.includes(project)).map(([,title])=>title.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'$').join('|'),
+    '--project='+project,'--grep',casesFor(project).map(([,title])=>title.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'$').join('|'),
     '--output=test-results/browser-repair-artifacts-'+project,
   ]):[args];
   const sortRows=rows=>rows.sort((a,b)=>a.key.localeCompare(b.key,'en'));
   const scopedDiscovery=sortRows(argsByProject.flatMap((args,i)=>run('scoped-discovery-'+i,args,{discovery:true})));
-  assert.deepEqual(scopedDiscovery,discovery.filter(row=>repairedCase(row,incident.sha)),'Scoped command differs from reviewed repaired cases');
+  assert.deepEqual(scopedDiscovery,discovery.filter(row=>repairedCase(row,incident.sha)&&!retained(row)),'Scoped command differs from reviewed repaired cases');
   const scoped=sortRows(argsByProject.flatMap((args,i)=>run('scoped-'+i,args)));
   const carouselArgs=['-c','playwright.carousel.config.js','--output=test-results/carousel-repair-artifacts'];
   const carouselDiscovery=omni?[]:run('carousel-discovery',carouselArgs,{discovery:true});
   const carousel=omni?[]:run('carousel',carouselArgs);
-  const evidence={previous,discovery,scoped,carouselDiscovery,carousel};const coverage=verifyBrowserRepairCoverage(evidence,incident.sha);
+  const evidence={previous,discovery,scoped,carouselDiscovery,carousel,...(progress?{progress}:{})};const coverage=verifyBrowserRepairCoverage(evidence,incident.sha);
   const browserRepair={policy:incident.policy,source:incident,publicationSha:env.GITHUB_SHA,run:String(env.GITHUB_RUN_ID),attempt:String(env.GITHUB_RUN_ATTEMPT),evidence,coverage};
   const proof={job:'browser-validation',status:'passed',manifestHash:browserHash(JSON.stringify(manifest)),reportHash:browserHash(JSON.stringify(evidence)),tests:coverage.reusedPassed+coverage.freshPassed+coverage.carouselPassed,browserRepair};
   verifyBrowserRepairProof(proof,manifest,{publicationSha:env.GITHUB_SHA,run:env.GITHUB_RUN_ID,attempt:env.GITHUB_RUN_ATTEMPT});

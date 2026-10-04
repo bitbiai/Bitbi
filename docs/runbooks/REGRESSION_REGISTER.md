@@ -658,12 +658,25 @@ with its element screenshot during playback. Moving that artifact capture before
 playback passed two bounded EN/DE repetitions; all destination disconnect/reconnect,
 unity, limiter, seek/recovery and no-extra-write checks remain. No viewport resize
 was observed, and the underlying native snapshot interaction is not claimed fixed.
-The new export cases pass in Linux and native macOS WebKit; the DE seek correction
-also passed its bounded Linux repeat. No thresholds, retries or timeouts changed.
+The initial corrected export cases passed locally in Linux and native macOS
+WebKit, but release `37192908814/1` still failed the DE WebKit clean-source start
+while its other five repaired cases passed. The player was below the narrow
+Inspector viewport after the sound button scrolled into view. Source-binding and
+preroll hypotheses did not remain reliable and were reverted. The fixture now
+explicitly brings the measured player into view after those controls. Three
+bounded Linux repetitions passed without retries. A temporary broken worklet
+that silenced original audio only in merged previews failed the retained decoded
+gain assertion; the worklet was restored unchanged. No signal thresholds or
+timeouts changed. Offscreen native behavior remains unproven; this is not a
+decoder-repair claim.
 
 The existing closed browser continuation authenticates archive/report/case hashes,
-requires the complete 224-case discovery and six fresh executions, and retains the
-218 unchanged passes. Its focused counterchecks reject missing media preparation,
+requires complete 224-case discovery and retains 218 original plus five
+intermediate successes. It authenticates the intermediate failed run, preparation,
+archive and both reports; only the unresolved DE WebKit case executes again.
+Actual report-union validation and synthetic counterchecks reject missing, changed
+or retried intermediate evidence and accidental execution of already passed cases.
+Its focused counterchecks also reject missing media preparation,
 unknown product changes and incomplete/failed/retried proofs. Pre-push inspection
 also found that generic repair publication would look for the image in the new
 run and assume existing production smoke outputs. This fixture-only continuation

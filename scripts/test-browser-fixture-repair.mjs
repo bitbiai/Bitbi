@@ -172,13 +172,34 @@ async function canvasMergeCounterchecks() {
 }
 
 async function canvasAudioCounterchecks() {
-  const {CANVAS_AUDIO_BROWSER_REPAIR:incident,CANVAS_AUDIO_BROWSER_REPAIR_FILES:files,CANVAS_AUDIO_BROWSER_REPAIR_CASES:cases}=await import('./lib/browser-fixture-repair.mjs');
+  const {CANVAS_AUDIO_BROWSER_REPAIR:incident,CANVAS_AUDIO_BROWSER_REPAIR_FILES:files,CANVAS_AUDIO_BROWSER_REPAIR_CASES:cases,CANVAS_AUDIO_BROWSER_PROGRESS:progressSource,assertCanvasAudioProgress}=await import('./lib/browser-fixture-repair.mjs');
   const pass=(key,file='ordinary.spec.js',title=key,project='chromium')=>({key,file,title,project,expectedStatus:'passed',status:'expected',results:[{status:'passed',retry:0,error:false}]});
   const identity=({key,file,title,project})=>({key,file,title,project});
   const fresh=['chromium','webkit-canvas'].flatMap(project=>cases.filter(([,title,projects=['chromium','webkit-canvas']])=>projects.includes(project)).map(([file,title],i)=>pass(project+'-audio-'+i,file,title,project)));
   const previous=[...Array.from({length:218},(_,i)=>pass('unchanged-audio-'+i)),...fresh.map(row=>({...structuredClone(row),status:'unexpected',results:[{status:'timedOut',retry:0,error:true}]}))];
   const evidence={previous,discovery:previous.map(identity),scoped:fresh,carouselDiscovery:[],carousel:[]};
   const coverage=verifyBrowserCaseCoverage(evidence,incident.sha);assert.equal(coverage.reusedPassed,218);assert.equal(coverage.freshPassed,6);
+  const progressRows=structuredClone(fresh),remaining=progressRows.find(r=>r.project==='webkit-canvas'&&r.title.startsWith('Canvas asset audio de:'));
+  remaining.status='unexpected';remaining.results=[{status:'failed',retry:0,error:true}];
+  const partial={...structuredClone(evidence),progress:{source:progressSource,rows:progressRows},scoped:fresh.filter(r=>r.key===remaining.key)};
+  const resumed=verifyBrowserCaseCoverage(partial,incident.sha);assert.equal(resumed.reusedPassed,223);assert.equal(resumed.freshPassed,1);assert.equal(resumed.progressPassed,5);
+  for(const mutate of [
+    e=>e.progress.rows.pop(),e=>e.progress.rows.push(e.progress.rows[0]),e=>e.progress.rows[0].status='unexpected',
+    e=>e.progress.rows[0].results[0].retry=1,e=>e.progress.rows[0].expectedStatus='skipped',e=>e.progress.rows[0].title='changed',
+    e=>e.progress.rows.find(r=>r.key===remaining.key).status='expected',e=>e.scoped=[],e=>e.scoped=fresh,
+    e=>e.scoped[0].results[0].status='failed',e=>e.scoped[0].results[0].retry=1,e=>e.discovery.pop(),
+  ]){const bad=structuredClone(partial);mutate(bad);assert.throws(()=>verifyBrowserCaseCoverage(bad,incident.sha));}
+  const progressJob=(name,conclusion,steps=[])=>({name,conclusion,status:'completed',head_sha:progressSource.sha,steps});
+  const progressState={run:{id:Number(progressSource.run),run_attempt:1,head_sha:progressSource.sha,head_branch:'main',path:'.github/workflows/static.yml',event:'push',repository:{full_name:'bitbiai/Bitbi'},head_repository:{full_name:'bitbiai/Bitbi'},status:'completed',conclusion:'failure'},
+    jobs:[progressJob('release-compatibility','success'),progressJob('worker-validation','skipped'),progressJob('homepage-validation','skipped'),progressJob('deploy','skipped'),
+      progressJob('browser-validation','failure',['Install Canvas browser media tools','Restore unchanged browser repair candidate','Restore exact candidate static site','Run repaired browser acceptance'].map(name=>({name,status:'completed',conclusion:name==='Run repaired browser acceptance'?'failure':'success'})))],
+    artifact:{id:progressSource.artifact,name:progressSource.artifactName,digest:`sha256:${progressSource.archiveHash}`,expired:false,size_in_bytes:100,expires_at:new Date(Date.now()+86400000).toISOString(),workflow_run:{id:Number(progressSource.run),head_sha:progressSource.sha}}};
+  assertCanvasAudioProgress(progressState);
+  for(const mutate of [s=>s.run.head_sha='wrong',s=>s.run.run_attempt++,s=>s.run.status='in_progress',s=>s.run.conclusion='success',s=>s.run.head_repository.full_name='foreign',
+    s=>s.jobs.pop(),s=>s.jobs[0].conclusion='failure',s=>s.jobs[4].steps.shift(),s=>s.jobs[4].steps[0].conclusion='skipped',s=>s.jobs[4].steps.reverse(),
+    s=>s.artifact.expired=true,s=>s.artifact.digest='changed',s=>s.artifact.workflow_run.id++,s=>s.artifact.workflow_run.head_sha='wrong']) {
+    const bad=structuredClone(progressState);mutate(bad);assert.throws(()=>assertCanvasAudioProgress(bad));
+  }
   for(const mutate of [
     e=>e.previous.pop(),e=>e.discovery.pop(),e=>e.discovery.push(e.discovery[0]),e=>e.scoped.pop(),e=>e.scoped.push(e.scoped[0]),
     e=>e.scoped[0].results[0].status='failed',e=>e.scoped[0].results[0].retry=1,e=>e.scoped[0].status='flaky',e=>e.scoped[0].expectedStatus='skipped',
@@ -221,5 +242,5 @@ async function canvasAudioCounterchecks() {
   const receipt={media,smoke:['github','cloudflare'].map(backend=>({backend,sha:env.GITHUB_SHA,completedMs:1,outputs:Array.from({length:3},()=>({videoDigest:'a'.repeat(64),posterDigest:'b'.repeat(64)}))}))};
   verifyMediaEvidence(receipt,{sha:env.GITHUB_SHA,...image});
   for(const change of [{imageSourceSha:env.GITHUB_SHA},{imageSourceSha:undefined},{sourceRun:env.GITHUB_RUN_ID},{sourceAttempt:'2'}])assert.throws(()=>verifyMediaEvidence({...receipt,media:{...media,...change}},{sha:env.GITHUB_SHA,...image}));
-  console.log('Canvas audio continuation: 218 retained + exactly 6 failed cases; missing/failed/retried/tampered proofs and changed product inputs reject (synthetic counterchecks).');
+  console.log('Canvas audio continuation: 218 original + 5 authenticated intermediate passes, exactly 1 unresolved case; failed/retried/missing/changed evidence and changed product inputs reject (synthetic counterchecks).');
 }

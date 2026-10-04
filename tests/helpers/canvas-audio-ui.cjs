@@ -73,6 +73,7 @@ exports.audioUi=async({page,expect,locale,browserName,mockSharedAuth,createCanva
     await expect.poll(async()=>(await f.readProject()).nodes.find(n=>n.id===f.first.id).config.originalAudio?.gain).toBe(.3);
     await expect(sound.getByRole('spinbutton',{name:de?'Originalton: Lautstärke (%)':'Original audio: Volume (%)'})).toHaveValue('30');
     if(browserName==='webkit') {
+      await nodeVideo().scrollIntoViewIfNeeded();await expect(nodeVideo()).toBeInViewport();
       await nodeVideo().evaluate(v=>{void v.play().catch(error=>{if(error.name!=='AbortError')throw error;});});await expect.poll(async()=>(await signal()).input).toBeGreaterThan(.05);
       await expect.poll(async()=>withinGain(await signal(),.24,.36)).toBe(true);
       await originalOn().uncheck();await expect.poll(async()=>(await signal()).original).toBeLessThan(.005);
@@ -111,10 +112,13 @@ exports.audioUi=async({page,expect,locale,browserName,mockSharedAuth,createCanva
       else expect(amplitude(440,11)).toBeLessThan(.002);
       // Fixture raster is 160×90 with SAR 9:16: WebKit exposes its 90×90
       // display size. The unchanged crop preserves that aspect ratio.
-      if(browserName==='webkit'){await result.evaluate(v=>v.play());await expect.poll(()=>result.evaluate(v=>v.currentTime)).toBeGreaterThan(.3);expect(await result.evaluate(v=>[v.videoWidth,v.videoHeight])).toEqual([90,90]);await result.evaluate(v=>v.pause());}
+      if(browserName==='webkit'){await result.scrollIntoViewIfNeeded();await expect(result).toBeInViewport();await result.evaluate(v=>v.play());await expect.poll(()=>result.evaluate(v=>v.currentTime)).toBeGreaterThan(.3);expect(await result.evaluate(v=>[v.videoWidth,v.videoHeight])).toEqual([90,90]);await result.evaluate(v=>v.pause());}
       if(browserName==='webkit'&&!enabled){
         const beforePreview=await result.evaluate(v=>v.currentTime);
         await sound.getByRole('button',{name:de?'Toneinstellungen vorhören':'Preview sound settings',exact:true}).click();
+        // Measure the user-visible player: clicking the distant sound controls
+        // scrolls it out of the narrow Inspector's viewport in Linux WebKit.
+        await result.scrollIntoViewIfNeeded();await expect(result).toBeInViewport();
         await expect.poll(()=>result.evaluate(v=>({time:v.currentTime,ready:!v.paused&&!v.seeking}))).toMatchObject({ready:true});
         await expect.poll(()=>result.evaluate(v=>v.currentTime)).toBeGreaterThan(beforePreview+.1);
         await result.evaluate(v=>{v.currentTime=10;});
@@ -129,6 +133,7 @@ exports.audioUi=async({page,expect,locale,browserName,mockSharedAuth,createCanva
         await originalOn().uncheck();await musicOn().check();
         expect(await result.evaluate(v=>v.paused)).toBe(true);
         await sound.getByRole('button',{name:de?'Vorschau mit Musik':'Preview with music',exact:true}).click();
+        await result.scrollIntoViewIfNeeded();await expect(result).toBeInViewport();
         await expect.poll(async()=>(await signal()).music).toBeGreaterThan(.035);
         await expect.poll(async()=>(await signal()).original).toBeLessThan(.005);
         await originalOn().check();await musicOn().uncheck();
@@ -142,6 +147,7 @@ exports.audioUi=async({page,expect,locale,browserName,mockSharedAuth,createCanva
     }
     await page.screenshot({path:info.outputPath(`canvas-sound-controls-${locale}.png`)});
     if(browserName==='webkit'){
+      await nodeVideo().scrollIntoViewIfNeeded();await expect(nodeVideo()).toBeInViewport();
       await nodeVideo().evaluate(v=>{void v.play().catch(error=>{if(error.name!=='AbortError')throw error;});});
       await expect.poll(async()=>(await signal()).input).toBeGreaterThan(.05);
       await nodeVideo().evaluate(v=>{v.currentTime=3.5;});

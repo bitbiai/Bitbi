@@ -591,9 +591,14 @@ is required for this task. Native fixtures remain synthetic provider acceptance;
 actual D1/R2, decoded playback/export and live readback are separate evidence.
 
 The fixture-only continuation for `3e6f82ed` / `37189472421/1` retains its 218
-browser passes, four Linux native cases and tested processor image. Execute the
-six originally failed cases against the original candidate; require all 224 case
-identities and exact reviewed fixture hashes. `test-browser-fixture-repair.mjs
+browser passes, four Linux native cases and tested processor image. The authenticated
+`6ae6dfb0` / `37192908814/1` reports add five repaired passes; only the remaining
+DE WebKit asset-audio case executes anew. Both failed runs remain failed. Require
+all 224 identities, exact reviewed fixture hashes and all three evidence sources.
+For decoded UI measurements, bring the selected player into the narrow Inspector
+viewport after distant controls scroll it away; retain frame progress and every
+signal/gain/mute/seek/export assertion. This does not certify offscreen Linux
+WebKit behavior or claim a native decoder repair. `test-browser-fixture-repair.mjs
 --canvas-audio` rejects missing setup, failed/retried/replaced cases and changed
 product inputs. Media publication downloads the original authenticated image and
 retains its image source SHA independently of the new activation SHA. It must run
