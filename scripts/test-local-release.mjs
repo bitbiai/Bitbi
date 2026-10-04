@@ -107,7 +107,7 @@ function testSmoothContinuation(p=SMOOTH_BROWSER_CONTINUATION) {
     const manifest={sha:head,selection:{auth:true,canvasText:true,...(inspector?{canvasInspector:true}:audioFit?{canvasAudioFit:true}:{canvasAudio:true})}};
     const proof=()=>candidateProof(manifest,{job:'browser-validation',readJson:name=>name.endsWith('canvas-discovery.json')?JSON.parse(fs.readFileSync(path.join(dir,'test-results/canvas-discovery.json'))):report});
     assert.equal(proof().tests,counts.required);
-    for(const mutate of [r=>r.fresh.pop(),r=>r.fresh.push(r.fresh[0]),r=>r.fresh[0].results[0].status='failed',r=>r.fresh[0].results[0].retry=1,r=>r.previous[0].status='unexpected',r=>r.discovery.pop()]) {
+    for(const mutate of [r=>r.fresh.pop(),r=>r.fresh.push(r.fresh[0]),r=>r.fresh[0].results[0].status='failed',r=>r.fresh[0].results[0].retry=1,r=>r.previous.find(passedBrowserCase).status='unexpected',r=>r.discovery.pop()]) {
       const original=structuredClone(report);mutate(report);assert.throws(proof);Object.assign(report,original);
     }
     if(!inspector&&!audioFit&&fs.existsSync(path.join(dir,'reuse/smooth-accepted.json'))) {
