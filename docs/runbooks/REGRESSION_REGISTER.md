@@ -1771,3 +1771,14 @@ last-valid dimensions and rejects missing failure feedback. The closed existing
 local continuation retains immutable image/API/transition evidence, executes only
 unresolved workspace cases and rejects altered input, missing, failed or retried
 proof. Checkpoints retain original failures; they are never relabelled as passes.
+
+Protected run `37669427400/1` imported these exact-source passes, then its backend
+setup stalled for over thirty minutes at the Ubuntu mirror's package indexes.
+Cancellation logs show `release-apply` never started; D1 checkpoint 0102 and both
+backend versions remained unapplied. The shared `setup-media-tools.sh` now executes
+the real existing-tool check before any apt call. Missing tools use bounded
+index/install operations, transport timeouts and fail-closed errors. The existing
+`test-pages-workflow.mjs` shell controls cover available, missing, broken, failed
+update/install and timeout paths across release, Full and processor callers.
+This infrastructure correction reuses all eight passed browser cases, native
+Worker and tested-image evidence; it does not repeat or waive product acceptance.

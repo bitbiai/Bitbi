@@ -125,7 +125,7 @@ function testSmoothContinuation(p=SMOOTH_BROWSER_CONTINUATION) {
     const manifest={sha:head,selection:{auth:true,canvasText:true,...(workspace?{canvasTransitions:true}:inspector?{canvasInspector:true}:audioFit?{canvasAudioFit:true}:{canvasAudio:true})}};
     const proof=()=>candidateProof(manifest,{job:'browser-validation',readJson:name=>name.endsWith('canvas-discovery.json')?JSON.parse(fs.readFileSync(path.join(dir,'test-results/canvas-discovery.json'))):report});
     assert.equal(proof().tests,counts.required);
-    for(const mutate of [...(fresh.length?[r=>r.fresh.pop(),r=>r.fresh.push(r.fresh[0]),r=>r.fresh[0].results[0].status='failed',r=>r.fresh[0].results[0].retry=1]:[r=>r.fresh.push(r.previous.find(passedBrowserCase))]),r=>r.previous.find(passedBrowserCase).status='unexpected',r=>r.discovery.pop(),...(inspector?[r=>delete r.progress,r=>r.progress.rows.pop(),r=>r.progress.rows.find(passedBrowserCase).results[0].status='failed',r=>delete r.accepted,r=>r.accepted.rows[0].results[0].retry=1]:[])]) {
+    for(const mutate of [...(fresh.length?[r=>r.fresh.pop(),r=>r.fresh.push(r.fresh[0]),r=>r.fresh[0].results[0].status='failed',r=>r.fresh[0].results[0].retry=1]:[r=>r.fresh.push(r.previous.find(passedBrowserCase))]),r=>r.previous.find(passedBrowserCase).status='unexpected',r=>r.discovery.pop(),...(inspector||workspace?[r=>delete r.progress,r=>r.progress.rows.pop(),r=>r.progress.rows.find(passedBrowserCase).results[0].status='failed',r=>delete r.accepted,r=>r.accepted.rows[0].results[0].retry=1]:[])]) {
       const original=structuredClone(report);mutate(report);assert.throws(proof);Object.assign(report,original);
     }
     if(!workspace&&!inspector&&!audioFit&&fs.existsSync(path.join(dir,'reuse/smooth-accepted.json'))) {

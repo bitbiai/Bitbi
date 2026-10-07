@@ -204,19 +204,28 @@ export const WORKSPACE_CONTINUATION=Object.freeze({
   "last": 45,
   "counts": {
     "required": 8,
-    "reused": 6,
-    "executed": 2
+    "reused": 8,
+    "executed": 0
   },
   "specs": {
     "tests/helpers/canvas-workspace-transitions-ui.cjs": "449c366554ee9a42d1b9232c1e1fcc61d666dacd617e881ca78d604f17f7f7de",
-    "js/pages/canvas/workspace-view.js": "a7a6fc093a8d61ed1f9ce2a2ef03cae43d5a288f66dbb54d6fd32b38e05572fd"
+    "js/pages/canvas/workspace-view.js": "a7a6fc093a8d61ed1f9ce2a2ef03cae43d5a288f66dbb54d6fd32b38e05572fd",
+    "scripts/setup-media-tools.sh": "347998ad9e8c577db11b92387656e2ab3cc811c5a96ea4f87641c45f49affed8",
+    "scripts/test-pages-workflow.mjs": "08b28465fc0976521cab77ea30dbd85da6dd3c586babc19c04b82a9b203fd4fc",
+    "scripts/lib/ci-test-selection.mjs": "9a9b73a16092de0e5e2a647494ec7584099965930fbef005a7fa6a699acda09d"
   },
-  "reviewedSource": "cf79234decd219ab11277ce59010b93f10e0c0e3",
+  "reviewedSource": "1d90f8c910fbf4ef45404a76a8fd567df0917f24",
   "browserProgress": {
     "sha": "38538d77a6b4c7de43b6d6ed317b9036d6fc1225",
     "run": "38538d77a6b4c7de43b6d6ed317b9036d6fc1225-7705f9d9-845e-448d-85c8-455d7247fdb1",
     "report": "d3e65ca94ba49321fd2afcc68b961d9ab77ed2b9cd162f94eac7d9e6fd179ff4",
     "rows": "6443c19e4340d0b5974fe0607dd173d51fbe49ad0afdc569affa31003effbd7f"
+  },
+  "browserAccepted": {
+    "sha": "47528c1bded04ca1422f4b3084ba851541265ff5",
+    "run": "47528c1bded04ca1422f4b3084ba851541265ff5-339be6c0-96b4-4b84-9d3d-9bb0572b9818",
+    "report": "8e6e0e3e36c2707333747d0e43281d341d018342db67a6afb32dc76abd756c2b",
+    "rows": "e2c02612ed315e2919e03df14d3cf2ada887f8b14a238ea67e895f60584b886a"
   }
 });
 export const smoothProfile=source=>source===WORKSPACE_CONTINUATION.source?WORKSPACE_CONTINUATION:source===INSPECTOR_CONTINUATION.source?INSPECTOR_CONTINUATION:source===AUDIO_FIT_CONTINUATION.source?AUDIO_FIT_CONTINUATION:SMOOTH_BROWSER_CONTINUATION;
