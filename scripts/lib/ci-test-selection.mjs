@@ -38,6 +38,8 @@ const SHARED_WORKER_FILE_MAP = new Map([
   ['js/shared/canvas-export.mjs', ['auth']],
   ['js/shared/canvas-audio.mjs', ['auth']],
   ['js/shared/canvas-audio-fit.mjs', ['auth']],
+  ['js/shared/canvas-transitions.mjs', ['auth']],
+  ['js/shared/canvas-workspace.mjs', ['auth']],
   ['js/shared/canvas-smooth-joins.mjs', ['auth']],
   ["js/shared/appearance-contract.js", ["auth"]],
   ["js/shared/model-pricing-catalog.mjs", ["auth"]],
@@ -848,6 +850,13 @@ export function isCanvasCompletionRouteChange(sources) {
 
 // Canvas media controls reuse the existing native and browser callers. Model,
 // provider, pricing, billing and unknown neighboring changes retain broader coverage.
+const CANVAS_TRANSITION_FILES=new Set(["config/release-compat.json", "css/pages/canvas.css", "js/pages/canvas/main.js", "js/pages/canvas/graph.js", "js/pages/canvas/full-video.js", "js/pages/canvas/workspace-view.js", "js/pages/canvas/transition-controls.js", "js/shared/canvas-workspace.mjs", "js/shared/canvas-transitions.mjs", "js/shared/canvas-smooth-joins.mjs", "services/homepage-ffmpeg-processor/Dockerfile", "services/homepage-ffmpeg-processor/canvas-full-video.mjs", "services/homepage-ffmpeg-processor/canvas-seams.mjs", "services/homepage-ffmpeg-processor/canvas-transitions.mjs", "services/homepage-ffmpeg-processor/canvas-transition-contract.mjs", "services/homepage-ffmpeg-processor/canvas-full-video.test.mjs", "services/homepage-ffmpeg-processor/canvas-transitions.test.mjs", "workers/auth/migrations/0102_canvas_workspace_dimensions.sql", "workers/auth/src/lib/canvas-workspace.js", "workers/auth/src/lib/canvas-export-recipes.js", "workers/auth/src/lib/canvas-merge-selection.js", "workers/auth/src/lib/canvas-video-processing.js", "workers/auth/src/lib/canvas-preview-base.js", "workers/auth/src/routes/canvas.js", "workers/auth/src/routes/canvas-video-processing.js", "tests/canvas.spec.js", "tests/canvas-workspace-transitions.test.mjs", "tests/helpers/canvas-workspace-transition-control.mjs", "tests/helpers/canvas-workspace-transitions-ui.cjs", "tests/helpers/q2-runtime/canvas.mjs", "tests/helpers/q2-runtime/control.mjs", "tests/helpers/q2-runtime/environment.mjs", "tests/helpers/q2-runtime/runner.mjs", "tests/helpers/q2-runtime/linux-hosted.mjs", "tests/helpers/q2-runtime/linux-runtime-child.mjs", "tests/helpers/q2-runtime/linux-bootstrap.py", "scripts/test-q2-runtime-launcher.mjs"]);
+export function isCanvasWorkspaceRouteChange(sources){
+  if(!sources?.before||!sources?.after)return false;
+  const normalize=s=>s.replace(/^import \{ updateWorkspace \} from '[^']+';\n/m,'').replace(/^(?:async )?function (?:projectRecord|requireProject|listProjects|createProject|updateProject)\([^\n]*\)[\s\S]*?^}\n/gm,'');
+  return normalize(sources.before)===normalize(sources.after);
+}
+
 const CANVAS_AUDIO_FIT_FILES = new Set([
   'workers/auth/src/lib/canvas-preview-base.js',
   'js/shared/canvas-audio-fit.mjs',
@@ -1099,6 +1108,16 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     selection.policy='canvas-inspector-v1';selection.canvasText=selection.canvasInspector=true;
     selection.auth=selection.static=selection.runtime=true;
     selection.reasons.auth.push('EN/DE Chromium/WebKit Inspector lifecycle, merge/export controls and typed icon geometry; unchanged generation/audio/backend inputs remain source-checked');
+    return selection;
+  }
+
+  if(!forceFull && changedFiles.includes('js/shared/canvas-transitions.mjs')
+      && (!changedFiles.includes('workers/auth/src/routes/canvas.js')||isCanvasWorkspaceRouteChange(canvasRouteSources))
+      && changedFiles.every(file=>isDocumentation(file)||CANVAS_TRANSITION_FILES.has(file)||RELEASE_TOOLING_FILES.has(file))) {
+    selection.policy='canvas-workspace-transitions-v1';selection.canvasText=selection.canvasTransitions=true;
+    selection.workers=selection.auth=selection.static=selection.runtime=true;
+    selection.reasons.workers.push('Native D1 workspace bounds, immutable transition admission/protocol and target AMD64 decoded effects/audio; unchanged provider, billing and generation code');
+    selection.reasons.auth.push('Eight required EN/DE Chromium/WebKit workspace interaction and real Worker/media preview-export-download-save cases');
     return selection;
   }
 

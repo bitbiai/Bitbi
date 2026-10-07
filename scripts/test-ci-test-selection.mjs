@@ -10,7 +10,7 @@ import {
   FAST_DEPLOY_WORKFLOW_PATHS,
   isFastDeploySafePath,
 } from "./lib/fast-deploy-paths.mjs";
-import { selectCiTests, requiresPrivateMediaImage, isDurableImageTestChange, isFluxReviewTestChange, isCanvasCompletionRouteChange } from "./lib/ci-test-selection.mjs";
+import { selectCiTests, requiresPrivateMediaImage, isDurableImageTestChange, isFluxReviewTestChange, isCanvasCompletionRouteChange, isCanvasWorkspaceRouteChange } from "./lib/ci-test-selection.mjs";
 import { requiredJobs } from "./pages-candidate.mjs";
 import {isCanvasInspectorChange} from './lib/canvas-inspector-selection.mjs';
 
@@ -1199,4 +1199,17 @@ console.log('Seedance: real durable Worker/native and workspace/pricing callers 
  for(const unrelated of ['workers/auth/src/lib/billing.js','workers/auth/src/routes/canvas.js','services/homepage-ffmpeg-processor/video-reference.mjs','workers/media/src/index.js','js/pages/canvas/workflow.js'])assert.notEqual(selectCiTests([...files,unrelated]).canvasAudioFit,true);
  assert.notEqual(selectCiTests(files,{forceFull:true}).canvasAudioFit,true);
  assert.equal(requiresPrivateMediaImage(files),true);
+}
+
+{
+ const before=fs.readFileSync('workers/auth/src/routes/canvas.js','utf8'),canvasRouteSources={before,after:before};
+ const files=['js/shared/canvas-transitions.mjs','js/shared/canvas-workspace.mjs','workers/auth/src/routes/canvas.js','workers/auth/migrations/0102_canvas_workspace_dimensions.sql','services/homepage-ffmpeg-processor/canvas-transitions.mjs','js/pages/canvas/main.js','scripts/private-media-image.mjs'];
+ const selected=selectCiTests(files,{canvasRouteSources});assert.equal(selected.policy,'canvas-workspace-transitions-v1');
+ for(const key of ['canvasTransitions','canvasText','workers','auth','runtime','static'])assert.equal(selected[key],true);
+ for(const key of ['full','homepage','carousel','assets'])assert.equal(selected[key],false);
+ assert.equal(requiresPrivateMediaImage(files),true);
+ for(const extra of ['workers/auth/src/lib/billing.js','workers/ai/src/index.js','services/homepage-ffmpeg-processor/video-reference.mjs','js/pages/canvas/workflow.js'])assert.notEqual(selectCiTests([...files,extra],{canvasRouteSources}).canvasTransitions,true);
+ assert(!isCanvasWorkspaceRouteChange({...canvasRouteSources,after:before+'\nfunction unsafeGenerationChange(){}\n'}));
+ assert.notEqual(selectCiTests(files).canvasTransitions,true,'Missing source proof widens route changes');
+ assert.notEqual(selectCiTests(files,{canvasRouteSources,forceFull:true}).canvasTransitions,true);
 }

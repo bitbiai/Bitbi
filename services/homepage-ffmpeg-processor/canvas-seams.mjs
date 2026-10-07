@@ -71,6 +71,7 @@ export async function smoothVideoSeams(base,dir,options) {
     const time=base.timeline[index+1]?.start,left=base.timeline[index],right=base.timeline[index+1];
     if(!left||!right)fail('canvas_seam_index_invalid');
     const entry={index:originalSeamIndex??index,at:time+(base.previewOffset||0),reason:'short_clip'};report.seams.push(entry);
+    if(options.skipSeams?.has(index)){entry.reason='explicit_transition';continue;}
     if(fps<20){entry.reason='cadence_budget';continue;}
     if(entry.index>=8){entry.reason='analysis_budget';continue;}
     // Twelve frames of context each side; reconstruct only the inner eight.

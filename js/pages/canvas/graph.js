@@ -37,7 +37,7 @@ function edgePath(source, target) {
     return `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`;
 }
 
-export function createCanvasGraph({ nodesRoot, edgesRoot, emptyState, copy, onSelect, onMoveEnd, onPort }) {
+export function createCanvasGraph({ nodesRoot, edgesRoot, emptyState, copy, onSelect, onMoveEnd, onPort, view }) {
     let data = { nodes: [], edges: [], models: [], selected: null, connectionSourceId: null };
     let dragging = null;
 
@@ -144,11 +144,11 @@ export function createCanvasGraph({ nodesRoot, edgesRoot, emptyState, copy, onSe
             if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect('node', node.id); }
             if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) {
                 event.preventDefault();
-                const step = event.shiftKey ? 50 : 10;
-                if (event.key === 'ArrowLeft') node.x = Math.max(0, Number(node.x) - step);
-                if (event.key === 'ArrowRight') node.x = Math.min(2170, Number(node.x) + step);
-                if (event.key === 'ArrowUp') node.y = Math.max(0, Number(node.y) - step);
-                if (event.key === 'ArrowDown') node.y = Math.min(1450, Number(node.y) + step);
+                const step = event.shiftKey ? 50 : 10,bounds=view().limits(card);
+                if (event.key === 'ArrowLeft') node.x = Math.max(bounds.minX, Number(node.x) - step);
+                if (event.key === 'ArrowRight') node.x = Math.min(bounds.maxX, Number(node.x) + step);
+                if (event.key === 'ArrowUp') node.y = Math.max(bounds.minY, Number(node.y) - step);
+                if (event.key === 'ArrowDown') node.y = Math.min(bounds.maxY, Number(node.y) + step);
                 card.style.transform = `translate3d(${node.x}px, ${node.y}px, 0)`;
                 onSelect('node', node.id, { preserveGraph: true });
                 drawEdges();
@@ -176,8 +176,9 @@ export function createCanvasGraph({ nodesRoot, edgesRoot, emptyState, copy, onSe
         });
         head.addEventListener('pointermove', (event) => {
             if (!dragging || dragging.pointerId !== event.pointerId) return;
-            const nextX = Math.max(0, Math.min(2170, dragging.x + event.clientX - dragging.startX));
-            const nextY = Math.max(0, Math.min(1450, dragging.y + event.clientY - dragging.startY));
+            const bounds=view().limits(card),zoom=view().zoom;
+            const nextX = Math.max(bounds.minX, Math.min(bounds.maxX, dragging.x + (event.clientX - dragging.startX)/zoom));
+            const nextY = Math.max(bounds.minY, Math.min(bounds.maxY, dragging.y + (event.clientY - dragging.startY)/zoom));
             node.x = Math.round(nextX * 100) / 100;
             node.y = Math.round(nextY * 100) / 100;
             dragging.card.style.transform = `translate3d(${node.x}px, ${node.y}px, 0)`;

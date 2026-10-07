@@ -1,3 +1,4 @@
+import {canvasWorkspaceTransitionCase} from '../canvas-workspace-transition-control.mjs';
 import {memberGenerationCase} from '../member-generation-control.mjs';
 import { modelPricingCase } from '../model-pricing-control.mjs';
 import { image25Output } from '../../../workers/shared/gpt-image-25.mjs';
@@ -54,6 +55,7 @@ export default {
     if (path==='/private-media') return Response.json(await privateMediaCase(env,body));
     if (path==='/canvas-processing') return Response.json(await canvasProcessingCase(env,body));
     if (path==='/canvas-audio-inputs') return Response.json(await canvasAudioInputsCase(env,body));
+    if(path==='/canvas-transitions') return Response.json(await canvasWorkspaceTransitionCase(env,body));
     if (path==='/canvas-audio') return Response.json(await canvasAudioCase(env,body));
     if (path==='/canvas-smooth') return Response.json(await canvasSmoothCase(env,body));
     if (path==='/canvas-audio-migration-seed') return Response.json(await seedCanvasAudioMigration(env.DB));

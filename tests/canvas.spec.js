@@ -3,6 +3,10 @@ const fs = require('fs');
 const path = require('path');
 const {openCanvasSettings} = require('./helpers/canvas-inspector-actions.cjs');
 
+for(const locale of ['en','de'])for(const feature of ['workspace','transitions'])test(`Canvas workspace transitions ${locale}: ${feature}`,async({page},info)=>{
+  await require('./helpers/canvas-workspace-transitions-ui.cjs')[feature]({page,expect,locale,info,mockSharedAuth,createCanvasApiMock});
+});
+
 for (const locale of ['en', 'de']) {
   for (const media of ['image', 'video', 'music']) test(`Canvas Inspector ${locale}: ${media} successful-output disclosure lifecycle`, async ({page}, info) => {
     await require('./helpers/canvas-inspector-ui.cjs').generation({page, expect, locale, media, info, mockSharedAuth, createCanvasApiMock});

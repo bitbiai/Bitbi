@@ -5,6 +5,7 @@ export async function verifyCanvasExportSchema(query) {
   await query(`SELECT p.id,p.node_id,p.recipe_json,p.audio_timeline_json,p.seam_result_json,p.preview_base_key,p.preview_base_etag,p.preview_base_bytes,h.latest_id,h.current_id,v.state,v.retired,v.node_id
     FROM canvas_video_processing p JOIN canvas_export_versions v ON v.id=p.id
     JOIN canvas_export_heads h ON h.run_id IS p.run_id AND h.node_id IS p.node_id LIMIT 0`);
+  await query('SELECT id,workspace_width,workspace_height FROM canvas_projects LIMIT 0');
   await query('SELECT asset_id,state FROM canvas_asset_dispositions LIMIT 0');
   await query('SELECT request_id,job_id FROM canvas_preview_requests LIMIT 0');
   await query('SELECT id,user_id FROM canvas_export_reclaimable LIMIT 0');

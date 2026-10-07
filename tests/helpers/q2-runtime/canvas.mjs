@@ -68,6 +68,34 @@ export async function runCanvasAudioTests(f, {prepared=false}={}) {
   });
 }
 
+
+export async function runCanvasTransitionTests(f,{prepared=false}={}) {
+  if(!prepared){
+    for(const migration of f.migrations){
+      if(migration.path.startsWith('0102')){
+        await f.sql("INSERT INTO users(id,email,password_hash,created_at) VALUES('workspace-legacy-user','workspace-legacy@example.invalid','synthetic','2026-10-01')").run();
+        await f.sql("INSERT INTO canvas_projects(id,user_id,title,locale,created_at,updated_at) VALUES('workspace-legacy','workspace-legacy-user','Preserved','de','2026-10-01','2026-10-01')").run();
+        await f.sql("INSERT INTO canvas_nodes(id,project_id,user_id,type,x,y,width,height,config_json,content_json,created_at,updated_at) VALUES('workspace-legacy-node','workspace-legacy','workspace-legacy-user','note',2500,1800,230,350,'{}','{}','2026-10-01','2026-10-01')").run();
+      }
+      await f.db.batch(migration.statements.map(s=>f.db.prepare(s)));
+    }
+    await f.test('canvas_workspace_populated_migration_preserves_legacy_positions',async()=>{
+      const row=(await f.rows("SELECT p.title,p.workspace_width,p.workspace_height,n.x,n.y,n.width,n.height FROM canvas_projects p JOIN canvas_nodes n ON n.project_id=p.id WHERE p.id='workspace-legacy'"))[0];
+      assert.deepEqual(row,{title:'Preserved',workspace_width:2400,workspace_height:1600,x:2500,y:1800,width:230,height:350});
+      await verifyCanvasExportSchema(sql=>f.rows(sql));
+    });
+  }
+  await f.test('canvas_workspace_transition_persistence_validation_snapshot_and_processor_fencing',async()=>{
+    const response=await f.control('/canvas-transitions',{
+      videoBase64:fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4',import.meta.url)).toString('base64'),
+      imageBase64:fs.readFileSync(new URL('../../fixtures/media/h3-frame.png',import.meta.url)).toString('base64'),
+      musicBase64:fs.readFileSync(new URL('../../fixtures/media/member-music.mp3',import.meta.url)).toString('base64'),
+    });
+    assert.equal(response.status,200,await response.clone().text());f.metrics.push(await response.json());
+    assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
+  });
+}
+
 export async function runCanvasTests(f) {
   for (const migration of f.migrations) await f.db.batch(migration.statements.map(s => f.db.prepare(s)));
   await f.test('canvas_export_release_schema_queries',()=>verifyCanvasExportSchema(sql=>f.rows(sql)));
@@ -482,4 +510,5 @@ export async function runCanvasTests(f) {
   });
   await runCanvasCompletionTests(f, { prepared: true });
   await runCanvasAudioTests(f, { prepared: true });
+  await runCanvasTransitionTests(f,{prepared:true});
 }

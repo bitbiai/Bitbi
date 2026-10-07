@@ -8,7 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { flattenHomepageDiscovery, HOMEPAGE_CORE_FILES, CANVAS_WEBKIT_FILES, CANVAS_RELEASE_SCOPES, canvasReleaseProject, verifyCanvasReleaseDiscovery, verifyCanvasCompletionDiscovery, verifyCanvasAudioDiscovery, verifyCanvasAudioFitDiscovery, HOMEPAGE_CORE_WEBKIT_FILES, homepageCoreArguments, verifyHomepageCoreDiscovery, HOMEPAGE_FUNCTIONAL_MINIMUMS, HOMEPAGE_PERFORMANCE_REQUIRED, verifyHomepageDiscovery, verifyHomepageReport } from './lib/homepage-test-selection.mjs';
 import { verifyCanvasCandidateReports } from './pages-candidate.mjs';
-import {verifyCanvasInspectorDiscovery} from './lib/homepage-test-selection.mjs';
+import {verifyCanvasInspectorDiscovery,verifyCanvasTransitionDiscovery} from './lib/homepage-test-selection.mjs';
 import { validateHomepageRuntime } from './check-homepage-runtime.mjs';
 
 const require = createRequire(import.meta.url);
@@ -67,7 +67,7 @@ try {
   const lines = workflow.split('\n').map(line => line.trim());
   const allDiscovery = lines.filter(line => line.includes('PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/canvas-discovery.json npm run test:static'));
   const allExecution = lines.filter(line => line.includes('PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:static') && line.includes('tests/canvas.spec.js'));
-  assert.equal(allDiscovery.length, 5); assert.equal(allExecution.length, 5);
+  assert.equal(allDiscovery.length, 6); assert.equal(allExecution.length, 6);
   const focused = allDiscovery.find(line => line.includes("--grep 'Canvas completion metadata'"));
   assert(focused);
   assert.equal(focused.split(' npm ')[1].replace(' --list --reporter=json', ''),
@@ -111,6 +111,17 @@ try {
   verifyInspector(inspectorProof);
   for(const status of ['failed','skipped','timedOut']){setResults(inspectorProof,status);assert.throws(()=>verifyInspector(inspectorProof));}
   assert.throws(()=>verifyCanvasCandidateReports([],[],inspectorReport,{canvasInspector:true}));
+  const transitionLine=allDiscovery.find(line=>line.includes("--grep 'Canvas workspace transitions'"));
+  assert(transitionLine);assert.equal(transitionLine.split(' npm ')[1].replace(' --list --reporter=json',''),allExecution.find(line=>line.includes("--grep 'Canvas workspace transitions'")).split(' npm ')[1].replace(' --output=test-results/canvas-artifacts --retries=0 --reporter=list,json',''));
+  const transitionOutput=path.join(discoveryDirectory,'canvas-transitions-ci.json');
+  const transitionRun=spawnSync('/bin/bash',['--noprofile','--norc','-e','-c',transitionLine],{cwd:root,env:{...process.env,PLAYWRIGHT_JSON_OUTPUT_FILE:transitionOutput},encoding:'utf8',maxBuffer:16*1024*1024});
+  assert.equal(transitionRun.status,0,transitionRun.stderr);
+  const transitionReport=JSON.parse(fs.readFileSync(transitionOutput)),transitionCases=flattenHomepageDiscovery(transitionReport);verifyCanvasTransitionDiscovery(transitionCases);
+  for(const changed of [transitionCases.slice(1),[...transitionCases,transitionCases[0]],transitionCases.map((row,i)=>i?row:{...row,expectedStatus:'skipped'})])assert.throws(()=>verifyCanvasTransitionDiscovery(changed));
+  const transitionProof=structuredClone(transitionReport);setResults(transitionProof,'passed');
+  const verifyTransitions=report=>verifyCanvasCandidateReports(['test-results/candidate-auth.json'],[report],transitionReport,{canvasTransitions:true});verifyTransitions(transitionProof);
+  for(const status of ['failed','skipped','timedOut']){setResults(transitionProof,status);assert.throws(()=>verifyTransitions(transitionProof));}
+  assert.throws(()=>verifyCanvasCandidateReports([],[],transitionReport,{canvasTransitions:true}));
   const audioLine=allDiscovery.find(line=>line.includes('tests/oma2-q1-canvas.spec.js')&&!line.includes('tests/auth-admin.spec.js'));
   assert(audioLine);
   assert.equal(audioLine.split(' npm ')[1].replace(' --list --reporter=json',''),allExecution.find(line=>line.includes('tests/oma2-q1-canvas.spec.js')&&!line.includes('tests/auth-admin.spec.js')).split(' npm ')[1].replace(' --output=test-results/canvas-artifacts --retries=0 --reporter=list,json',''));

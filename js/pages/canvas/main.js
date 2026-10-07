@@ -1,3 +1,5 @@
+import { transitionControls } from './transition-controls.js?v=__ASSET_VERSION__';
+import { createWorkspaceView } from './workspace-view.js?v=__ASSET_VERSION__';
 import { canvasMergeStrand } from '../../shared/canvas-export.mjs?v=__ASSET_VERSION__';
 import { SEEDANCE_25_MODEL, SEEDANCE_25_ROLES } from '../../shared/seedance-25-contract.mjs';
 import { createSeedance25Controls } from '../../shared/seedance-25-controls.js';
@@ -72,6 +74,7 @@ const copy = isGerman ? {
     quickCreated: 'Text → Image → Video was created. Run the nodes from left to right.', quickFailed: 'The quick workflow could not be fully created.', organizationSelect: 'Select organization', organizationRequired: 'Select an active organization for this model.',
 };
 
+let workspaceView;
 const videoCopy = videoInputCopy(isGerman);
 Object.assign(copy, { videoAmbiguous: videoCopy.ambiguous, videoMethodRequired: videoCopy.required, videoPreparing: videoCopy.preparing });
 let videoObservation = new AbortController();
@@ -316,6 +319,7 @@ function renderGraph() {
     dom.connect.classList.toggle('is-active', store.state.connecting);
     dom.connect.setAttribute('aria-pressed', String(store.state.connecting));
     updateContributors();
+    workspaceView?.refresh();
 }
 
 function updateContributors() {
@@ -533,6 +537,7 @@ function renderInspector() {
         const edge = store.state.selected?.kind === 'edge' ? store.state.edges.find((item) => item.id === store.state.selected.id) : null;
         dom.inspectorTitle.textContent = edge ? copy.selectedEdge : (isGerman ? 'Kein Node ausgewählt' : 'No node selected');
         if (edge) {
+            transitionControls({parent:dom.inspector,edge,nodes:store.state.nodes,projectId:store.state.project.id,german:isGerman,signal:inspectorAbort.signal,onSaved:()=>{renderGraph();},flush:flushSaves});
             dom.inspector.append(el('p', 'canvas-muted', `${edge.source_node_id.slice(0, 8)} → ${edge.target_node_id.slice(0, 8)}`));
             const source=nodeOutputValue(store.state.nodes.find(item=>item.id===edge.source_node_id));
             const target=store.state.nodes.find(item=>item.id===edge.target_node_id);
@@ -810,6 +815,7 @@ function renderAll() { renderNewNodeChoices(); renderProjects(); renderGraph(); 
 
 const graph = createCanvasGraph({
     nodesRoot: dom.nodes, edgesRoot: dom.edges, emptyState: dom.empty, copy,
+    view: () => workspaceView,
     onSelect(kind, id, options = {}) {
         if (store.state.connecting && kind === 'node' && store.state.connectionSourceId && id !== store.state.connectionSourceId) void connectNodes(store.state.connectionSourceId, id);
         else {
@@ -823,13 +829,19 @@ const graph = createCanvasGraph({
             renderInspector();
         }
     },
-    onMoveEnd(node) { scheduleNode(node, { x: node.x, y: node.y }); },
+    onMoveEnd(node) { const card=[...dom.nodes.children].find(c=>c.dataset.nodeId===node.id);scheduleNode(node, { x: node.x, y: node.y, width:card.offsetWidth,height:card.offsetHeight });workspaceView.refresh(); },
     onPort(nodeId, direction) {
         if (direction === 'out') {
             store.state.connecting = true; store.state.connectionSourceId = nodeId; dom.hint.textContent = copy.connectTarget; renderGraph();
         } else if (store.state.connectionSourceId) void connectNodes(store.state.connectionSourceId, nodeId);
         else { store.state.connecting = true; dom.hint.textContent = copy.connectStart; renderGraph(); }
     },
+});
+
+workspaceView=createWorkspaceView({viewport:dom.viewport,surface:document.getElementById('canvasSurface'),nodesRoot:dom.nodes,edgesRoot:dom.edges,
+    toolbar:document.querySelector('.canvas-workspace__toolbar'),getState:()=>store.state,german:isGerman,
+    measureSave:async nodes=>{for(const measured of nodes){const node=store.state.nodes.find(n=>n.id===measured.id);if(node.width!==measured.width||node.height!==measured.height)scheduleNode(node,{width:measured.width,height:measured.height});}if(!await flushSaves())throw Error('Save failed');},
+    save:async(project,patch)=>{const result=await canvasApi.updateProject(project.id,patch);if(result.ok){Object.assign(project,patch);Object.assign(store.state.projects.find(p=>p.id===project.id)||{},patch);}return result;},
 });
 
 async function createProject() {
@@ -884,7 +896,7 @@ async function loadProject(projectId) {
     store.state.selected = null; store.state.connecting = false; store.state.connectionSourceId = null;
     dom.title.value = result.data.project.title;
     renderAll();
-    dom.viewport.scrollTo({ left: 0, top: 0, behavior: 'smooth' });
+    workspaceView.refresh();
     for (const run of store.state.runs.filter(run => run.error_code === 'canvas_video_pending' && run.retry_key)) {
         const node = store.state.nodes.find(node => node.id === run.node_id);
         if (node) void observeVideo(node, projectId, run.retry_key, run.video_job_id, null);
@@ -900,8 +912,9 @@ async function addNode() {
     const model = store.state.models.find((item) => item.capability === capability && item.runnable && item.areaEnabled!==false);
     if(capability&&!model)return;
     const count = store.state.nodes.length;
-    const visibleX = Math.min(2140, Math.max(30, dom.viewport.scrollLeft + 70 + (count % 3) * 270));
-    const visibleY = Math.min(1420, Math.max(30, dom.viewport.scrollTop + 70 + Math.floor(count / 3) * 180));
+    const position=workspaceView.placement(),bounds=workspaceView.limits();
+    const visibleX = Math.min(bounds.maxX, Math.max(bounds.minX,position.x+(count%3)*270));
+    const visibleY = Math.min(bounds.maxY, Math.max(bounds.minY,position.y+Math.floor(count/3)*180));
     const body = {
         type, title: copy.nodeTypes[type], x: visibleX, y: visibleY,
         model_id: model?.id || null,
@@ -923,8 +936,8 @@ async function createQuickTextImageVideo() {
     const videoModel = store.state.models.find((model) => model.capability === 'video' && model.runnable && model.areaEnabled!==false && model.controls?.supportsImageInput);
     if (!textModel || !imageModel || !videoModel) return showToast(copy.quickFailed);
     dom.quickTextImageVideo.disabled = true;
-    const startX = Math.min(1450, Math.max(50, dom.viewport.scrollLeft + 70));
-    const startY = Math.min(1350, Math.max(50, dom.viewport.scrollTop + 100));
+    const position=workspaceView.placement(),bounds=workspaceView.limits();
+    const startX=Math.max(bounds.minX,Math.min(bounds.maxX-660,position.x)),startY=Math.max(bounds.minY,Math.min(bounds.maxY,position.y));
     const definitions = [
         { type: 'text_generation', title: copy.nodeTypes.text_generation, x: startX, y: startY, model_id: textModel.id, config: { prompt: isGerman ? 'Erstelle einen präzisen, filmischen Bildgenerierungs-Prompt für eine leuchtende futuristische Stadt zur blauen Stunde.' : 'Create one precise cinematic image-generation prompt for a luminous futuristic city at blue hour.', maxTokens: textModel.controls?.maxTokens?.default || 500, temperature: .7 }, content: {} },
         { type: 'image_generation', title: copy.nodeTypes.image_generation, x: startX + 330, y: startY, model_id: imageModel.id, config: { prompt: '' }, content: {} },

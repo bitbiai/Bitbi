@@ -1,3 +1,4 @@
+import {verifyCanvasTransitionDiscovery} from './lib/homepage-test-selection.mjs';
 import {canvasInspectorSources} from './lib/canvas-inspector-selection.mjs';
 import {browserRows} from './lib/browser-fixture-repair.mjs';
 import { repairDelta, repairKind } from './lib/media-repair-source.mjs';
@@ -283,7 +284,10 @@ export function verifyCanvasTextReport(report,discovery) {
 export function verifyCanvasCandidateReports(names, reports, discovery, selection = {}) {
   const name = 'test-results/candidate-auth.json';
   assert.equal(names.filter(value => value === name).length, 1, 'Exactly one Canvas auth report required');
-  if (selection.canvasInspector) {
+  if(selection.canvasTransitions){
+    verifyCanvasTransitionDiscovery(flattenHomepageDiscovery(discovery));
+    verifyAdminReport(reports[names.indexOf(name)],discovery,[['canvas',['canvas.spec.js']]],canvasReleaseProject);
+  } else if (selection.canvasInspector) {
     verifyCanvasInspectorDiscovery(flattenHomepageDiscovery(discovery));
     const report=reports[names.indexOf(name)];
     if(report.policy===SMOOTH_BROWSER_POLICY){assert.deepEqual(report.discovery,browserRows(discovery,{discovery:true}));verifySmoothBrowserReport(report,report.sha);}

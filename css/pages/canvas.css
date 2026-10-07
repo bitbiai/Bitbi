@@ -95,6 +95,14 @@
   .canvas-graph-stage { position: relative; min-height: 0; min-width: 0; display: grid; }
   .canvas-viewport { position: relative; min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #405361 transparent; background-color: #0e151c; background-image: radial-gradient(circle, #31404c 1px, transparent 1px); background-size: 24px 24px; }
   .canvas-workspace__status { padding: 7px 16px; border-top: 1px solid var(--canvas-line); color: var(--canvas-muted); font-size: .69rem; line-height: 1.4; }
+  .canvas-transition-controls { display:grid;gap:12px;border:1px solid var(--canvas-line);border-radius:10px;padding:12px;min-width:0; }
+  .canvas-transition-preview video { width:100%;max-height:300px; }
+  .canvas-view-controls { display:flex;align-items:center;gap:6px;flex-wrap:wrap;max-width:100%; }
+  .canvas-view-controls output { min-width:3.5em;text-align:center;font-variant-numeric:tabular-nums;font-size:.8rem; }
+  .canvas-view-controls label { display:flex;align-items:center;gap:4px;font-size:.75rem; }
+  .canvas-view-controls input { width:82px; }
+  .canvas-workspace-minimum { flex-basis:100%;color:var(--canvas-muted);font-size:.7rem; }
+  .canvas-view-spacer { position:relative;overflow:hidden; }
   .canvas-surface { position: relative; width: 2400px; height: 1600px; }
   .canvas-edges, .canvas-nodes { position: absolute; inset: 0; }
   .canvas-edges { overflow: visible; pointer-events: none; }

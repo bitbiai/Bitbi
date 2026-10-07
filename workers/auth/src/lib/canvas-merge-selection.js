@@ -1,3 +1,4 @@
+import { sequenceTransitions } from '../../../../js/shared/canvas-transitions.mjs';
 import { ownedCanvasVideo } from './canvas-video-input.js';
 import { canvasProcessingError as fail, parseCanvasJson as parse, CANVAS_VIDEO_LIMITS } from './canvas-video-processing.js';
 import { canvasMergeStrand, canvasMergeSequence, sameCanvasClip, canvasClipIdentity, canvasClipKey } from '../../../../js/shared/canvas-export.mjs';
@@ -90,11 +91,12 @@ export async function canvasVideoSelection(env, userId, projectId, runId, select
   if (selected.some(clip => clip.includedSources.some(parent => seen.has(canvasClipKey(parent))))) throw fail('canvas_sequence_included');
   if (selected.reduce((total, clip) => total + clip.size, 0) > CANVAS_VIDEO_LIMITS.sourceBytes) throw fail('canvas_chain_size');
   return {
+    transitions:sequenceTransitions(selected,view.edges),
     videos: selected.map(clip => ({ ...canvasClipIdentity(clip), size: clip.size, originalAudio: clip.originalAudio })),
     // Rechecked atomically by INSERT, after asynchronous R2/music validation.
-    admission: { nodes: (mode === 'chain' ? view.nodes : view.nodes.filter(node => selected.some(clip => clip.nodeId === node.id)))
+    admission: { nodes: view.nodes
       .map(({ id, type, asset_id, output_json, content_json, config_json }) => ({ id, type, asset_id, output_json, content_json, config_json })),
-    edges: mode === 'chain' ? view.edges.map(({ id, source_node_id, target_node_id, config_json }) => ({ id, source_node_id, target_node_id, config_json })) : null },
+    edges: view.edges.map(({ id, source_node_id, target_node_id, config_json }) => ({ id, source_node_id, target_node_id, config_json })) },
   };
 }
 

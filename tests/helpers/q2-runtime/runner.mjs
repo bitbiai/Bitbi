@@ -1,7 +1,7 @@
 import { runAppearanceTests } from '../../appearance-runtime.mjs';
 import { runWebsiteAssistantTests } from '../../website-assistant-runtime.mjs';
 import { runModelPricingTests } from '../../model-pricing-runtime.mjs';
-import { runCanvasTests, runCanvasCompletionTests, runCanvasAudioTests, runCanvasAudioFitTests } from './canvas.mjs';
+import { runCanvasTests, runCanvasCompletionTests, runCanvasAudioTests, runCanvasAudioFitTests, runCanvasTransitionTests } from './canvas.mjs';
 import { runModelStatusTests } from '../../admin-model-status-runtime.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -39,6 +39,7 @@ export const runtimeSuites = Object.freeze([
 // invented attestation of that external OS boundary.
 export function selectedRuntimeSuites(suite) {
   // Focused entry into the existing Canvas suite; Full still executes it once.
+  if(suite==='canvas-transitions')return [['canvas-transitions',runCanvasTransitionTests,{}]];
   if (suite === 'canvas-audio-fit') return [['canvas-audio-fit', runCanvasAudioFitTests, {}]];
   if (suite === 'canvas-audio') return [['canvas-audio', runCanvasAudioTests, {}]];
   if (suite === 'canvas-completion') return [['canvas-completion', runCanvasCompletionTests, {}]];

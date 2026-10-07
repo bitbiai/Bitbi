@@ -8,7 +8,7 @@ import { canvasExportSubject } from '../../../../js/shared/canvas-export.mjs';
 // Called only by the authenticated processor, inside an explicit export lease.
 // Register cleanup before PUT; a lost response/lease never invents a new job.
 export async function storeCanvasPreviewBase(env,job,bytes) {
-  if(!job.recipe_json || !([3,4,5].includes(JSON.parse(job.recipe_json).version) || JSON.parse(job.recipe_json).backgroundMusic?.enabled))throw canvasProcessingError('canvas_music_settings');
+  if(!job.recipe_json || !([3,4,5,6].includes(JSON.parse(job.recipe_json).version) || JSON.parse(job.recipe_json).backgroundMusic?.enabled))throw canvasProcessingError('canvas_music_settings');
   if(!bytes.length || bytes.length>CANVAS_VIDEO_LIMITS.outputBytes || String.fromCharCode(...bytes.slice(4,8))!=='ftyp')throw canvasProcessingError('canvas_export_file_invalid');
   const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),v=>v.toString(16).padStart(2,'0')).join('');
   const key=`users/${job.user_id}/canvas-export-bases/${job.id}/${digest}.mp4`;

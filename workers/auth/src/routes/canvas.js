@@ -1,3 +1,4 @@
+import { updateWorkspace } from '../lib/canvas-workspace.js';
 import { SEEDANCE_25_MODEL, seedance25References, seedance25MediaType, seedance25Settings } from '../../../../js/shared/seedance-25-contract.mjs';
 import { areaCatalog, modelAreaEnvironment, assertModelArea, publicModelAvailability } from '../lib/model-availability.js';
 import { OMNI_MODEL, omniReferences, omniMediaType, omniOperation } from '../../../../js/shared/gemini-omni-contract.mjs';
@@ -192,6 +193,7 @@ function projectRecord(row) {
     title: row.title,
     locale: row.locale || "en",
     thumbnail_asset_id: row.thumbnail_asset_id || null,
+    workspace_width: row.workspace_width ?? 2400, workspace_height: row.workspace_height ?? 1600,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -254,7 +256,7 @@ function runRecord(row) {
 
 async function requireProject(env, userId, projectId) {
   return env.DB.prepare(
-    `SELECT id, user_id, title, locale, thumbnail_asset_id, created_at, updated_at
+    `SELECT id, user_id, title, locale, thumbnail_asset_id, created_at, updated_at, workspace_width, workspace_height
      FROM canvas_projects
      WHERE id = ? AND user_id = ? AND deleted_at IS NULL
      LIMIT 1`
@@ -448,7 +450,7 @@ function storedGenerationInput(body) {
 
 async function listProjects(ctx, userId) {
   const rows = await ctx.env.DB.prepare(
-    `SELECT id, title, locale, thumbnail_asset_id, created_at, updated_at
+    `SELECT id, title, locale, thumbnail_asset_id, created_at, updated_at, workspace_width, workspace_height
      FROM canvas_projects
      WHERE user_id = ? AND deleted_at IS NULL
      ORDER BY updated_at DESC, id DESC
@@ -472,7 +474,7 @@ async function createProject(ctx, userId) {
     `INSERT INTO canvas_projects (id, user_id, title, locale, thumbnail_asset_id, created_at, updated_at, deleted_at)
      VALUES (?, ?, ?, ?, NULL, ?, ?, NULL)`
   ).bind(id, userId, title, locale, now, now).run();
-  return respond(ctx, { ok: true, data: { project: { id, title, locale, thumbnail_asset_id: null, created_at: now, updated_at: now } } }, { status: 201 });
+  return respond(ctx, { ok: true, data: { project: { id, title, locale, thumbnail_asset_id: null, workspace_width:2400, workspace_height:1600, created_at: now, updated_at: now } } }, { status: 201 });
 }
 
 async function getProject(ctx, userId, projectId) {
@@ -526,12 +528,15 @@ async function updateProject(ctx, userId, projectId) {
   if (Object.prototype.hasOwnProperty.call(parsed.body, "thumbnail_asset_id")) {
     thumbnailAssetId = parsed.body.thumbnail_asset_id ? (await assertAssetOwnership(ctx.env, userId, parsed.body.thumbnail_asset_id)).id : null;
   }
+  const dimensions=Object.hasOwn(parsed.body,'workspace_width')||Object.hasOwn(parsed.body,'workspace_height')?await updateWorkspace(ctx.env,userId,projectId,parsed.body):{};
+  if(Object.keys(parsed.body).every(key=>['workspace_width','workspace_height'].includes(key)))
+    return respond(ctx,{ok:true,data:{project:projectRecord(await requireProject(ctx.env,userId,projectId))}});
   const now = nowIso();
   await ctx.env.DB.prepare(
     `UPDATE canvas_projects SET title = ?, thumbnail_asset_id = ?, updated_at = ?
      WHERE id = ? AND user_id = ? AND deleted_at IS NULL`
   ).bind(title, thumbnailAssetId, now, projectId, userId).run();
-  return respond(ctx, { ok: true, data: { project: { ...projectRecord(project), title, thumbnail_asset_id: thumbnailAssetId, updated_at: now } } });
+  return respond(ctx, { ok: true, data: { project: { ...projectRecord(project), ...dimensions, title, thumbnail_asset_id: thumbnailAssetId, updated_at: now } } });
 }
 
 async function deleteProject(ctx, userId, projectId) {

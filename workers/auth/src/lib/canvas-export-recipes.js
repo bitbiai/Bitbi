@@ -1,3 +1,4 @@
+import { transitionSettings,TRANSITION_POLICY } from '../../../../js/shared/canvas-transitions.mjs';
 import { exportMusicSettings, isExportMusic, canvasExportSubject, canvasNodeMediaKind } from '../../../../js/shared/canvas-export.mjs';
 import { sha256Hex, nowIso } from './tokens.js';
 import { ownedCanvasVideo } from './canvas-video-input.js';
@@ -7,6 +8,13 @@ import {CANVAS_AUDIO_FIT_POLICY} from '../../../../js/shared/canvas-audio-fit.mj
 const fail = code => { throw Object.assign(new Error(code), {code,status:409}); };
 export async function validateExportEdge(env,userId,projectId,sourceId,targetId,config) {
   if(config.purpose!==undefined && !['','export_background_music'].includes(config.purpose))fail('canvas_connection_purpose');
+  if(config.transition!==undefined){
+    const transition=transitionSettings(config.transition);
+    if(transition.preset!=='none'){
+      const rows=(await env.DB.prepare('SELECT id,type,asset_id,output_json,content_json FROM canvas_nodes WHERE user_id=? AND project_id=? AND id IN (?,?) AND deleted_at IS NULL').bind(userId,projectId,sourceId,targetId).all()).results;
+      if(isExportMusic(config)||rows.length!==2||rows.some(n=>canvasNodeMediaKind({...n,output:JSON.parse(n.output_json||'null'),content:JSON.parse(n.content_json||'{}')})!=='video'))fail('canvas_transition_connection');
+    }
+  }
   if(!isExportMusic(config))return;
   if(config.videoInput)fail('canvas_connection_purpose');
   const nodes=(await env.DB.prepare('SELECT id,type,asset_id,output_json,content_json FROM canvas_nodes WHERE user_id=? AND project_id=? AND id IN (?,?) AND deleted_at IS NULL').bind(userId,projectId,sourceId,targetId).all()).results;
@@ -45,15 +53,16 @@ export async function connectedExportMusic(env,userId,projectId,runId,selectedId
   const asset=await ownedCanvasMusic(env,userId,assetId);
   return {kind:'music',assetId:asset.id,version:asset.version,size:asset.size};
 }
-export async function canvasExportRecipe(env,userId,projectId,runId,videos,settings,explicit=false,smooth=false,preview) {
+export async function canvasExportRecipe(env,userId,projectId,runId,videos,settings,explicit=false,smooth=false,preview,transitions=[]) {
   const backgroundMusic=exportMusicSettings(settings);
   const music=backgroundMusic.enabled?await connectedExportMusic(env,userId,projectId,runId,backgroundMusic.musicAssetId):null;
   if(backgroundMusic.enabled && !music)fail('canvas_music_unavailable');
   const sources=[...videos,...(music?[music]:[])];
   if(sources.reduce((total,s)=>total+s.size,0)>400_000_000)fail('canvas_chain_size');
   const smoothJoins=smoothJoinSettings(smooth),comparison=seamPreviewSettings(preview,videos.length);
-  if(comparison&&!smoothJoins.enabled)fail('canvas_smooth_settings');
-  return {version:5,spatialPolicy:'center-crop-v1',timingPolicy:'video-clock-v2',originalAudioPolicy:CANVAS_AUDIO_FIT_POLICY,smoothJoins,...(comparison?{preview:comparison}:{}),...(explicit?{sequence:'explicit'}:{}),videos,music,backgroundMusic};
+  const effects=transitions.some(t=>t.preset!=='none');
+  if(comparison&&!smoothJoins.enabled&&!effects)fail('canvas_smooth_settings');
+  return {version:effects?6:5,...(effects?{transitionPolicy:TRANSITION_POLICY,transitions}:{}),spatialPolicy:'center-crop-v1',timingPolicy:'video-clock-v2',originalAudioPolicy:CANVAS_AUDIO_FIT_POLICY,smoothJoins,...(comparison?{preview:comparison}:{}),...(explicit?{sequence:'explicit'}:{}),videos,music,backgroundMusic};
 }
 export async function exportHead(env,userId,runId) {
   const subject=canvasExportSubject(runId);

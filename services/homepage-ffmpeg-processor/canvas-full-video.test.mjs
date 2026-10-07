@@ -99,6 +99,7 @@ export async function testCanvasConcatenation() {
     await testCanvasAudioControls();
     await testSmoothJoins();
   await testAudioFit();
+  await (await import('./canvas-transitions.test.mjs')).testCanvasTransitions();
     await assert.rejects(concatenateClips(files,dir,{limits:{durationSeconds:1,outputBytes:80000000}}),/canvas_duration_limit/);
     await assert.rejects(concatenateClips(files.slice(0,1),dir),/canvas_sources_invalid/);
     assert((await readFile(full.output)).byteLength>1000);

@@ -65,7 +65,7 @@ export async function canvasExport(ctx,userId,projectId,runId) {
     if(existing) {
       const recipe=JSON.parse(existing.recipe_json||'null');
       const ordered=recipe?.videos.map(canvasClipIdentity);
-      if(![1,2,3,4,5].includes(recipe?.version)||JSON.stringify(recipe.backgroundMusic)!==JSON.stringify(exportMusicSettings(parsed.body.backgroundMusic))
+      if(![1,2,3,4,5,6].includes(recipe?.version)||JSON.stringify(recipe.backgroundMusic)!==JSON.stringify(exportMusicSettings(parsed.body.backgroundMusic))
         ||(recipe.smoothJoins?.enabled??false)!==smooth.enabled||JSON.stringify(recipe.preview||null)!==JSON.stringify(seamPreviewSettings(parsed.body.preview,recipe.videos.length))
         ||recipe.mergeMode!==parsed.body.mergeMode||explicit!==(recipe.sequence==='explicit')||explicit&&JSON.stringify(parsed.body.orderedClips)!==JSON.stringify(ordered))
         throw canvasProcessingError('canvas_export_idempotency_conflict');
@@ -76,9 +76,9 @@ export async function canvasExport(ctx,userId,projectId,runId) {
     const view=await canvasMergeView(ctx.env,userId,projectId,runId);
     if(!explicit && view.chain.error)throw canvasProcessingError(view.chain.error);
     const mode=parsed.body.mergeMode || (explicit?'manual':'chain');
-    const {videos,admission}=await canvasVideoSelection(ctx.env,userId,projectId,runId,
+    const {videos,admission,transitions}=await canvasVideoSelection(ctx.env,userId,projectId,runId,
       explicit?parsed.body.orderedClips:view.chain.clips.map(canvasClipIdentity),mode,view);
-    const recipe=await canvasExportRecipe(ctx.env,userId,projectId,runId,videos,parsed.body.backgroundMusic,explicit,smooth.enabled,parsed.body.preview);
+    const recipe=await canvasExportRecipe(ctx.env,userId,projectId,runId,videos,parsed.body.backgroundMusic,explicit,smooth.enabled,parsed.body.preview,transitions);
     if(parsed.body.mergeMode)recipe.mergeMode=parsed.body.mergeMode;
     let key=requestKey;
     if(recipe.preview) {
@@ -148,7 +148,7 @@ export async function handleCanvasExportProcessor(ctx) {
   if(!backend) return json({ok:false,code:'processor_auth_failed'},{status:403});
   try {
     if(ctx.pathname===base+'/claim') {
-      if(ctx.method==='GET') return reply({protocol:1,recipeProtocol:6,previewBase:1});
+      if(ctx.method==='GET') return reply({protocol:1,recipeProtocol:7,previewBase:1});
       // route-policy: internal.canvas-export.claim
       if (!(method === 'POST')) return null;
       const parsed=await readJsonBodyOrResponse(ctx.request,{maxBytes:BODY_LIMITS.homepageHeroProcessorJson});
@@ -161,6 +161,8 @@ export async function handleCanvasExportProcessor(ctx) {
         spatialPolicy:row.recipe_json?JSON.parse(row.recipe_json).spatialPolicy||'legacy-pad-v1':'legacy-pad-v1',
         backgroundMusic:row.recipe_json?JSON.parse(row.recipe_json).backgroundMusic:null,
         originalAudioPolicy:row.recipe_json?JSON.parse(row.recipe_json).originalAudioPolicy:null,
+        transitionPolicy:row.recipe_json?JSON.parse(row.recipe_json).transitionPolicy:null,
+        transitions:row.recipe_json?JSON.parse(row.recipe_json).transitions:null,
         smoothJoins:row.recipe_json?JSON.parse(row.recipe_json).smoothJoins:null,
         preview:row.recipe_json?JSON.parse(row.recipe_json).preview:null,
         sources:JSON.parse(row.sources_json).map((s,i)=>({url:`${base}/${row.id}/source/${i}`,size:s.size,kind:s.kind||'video'})),
@@ -201,11 +203,12 @@ export async function handleCanvasExportProcessor(ctx) {
         const count=recipe.preview?2:recipe.videos.length;
         let end=0;
         if(!Array.isArray(timeline)||timeline.length!==count)throw canvasProcessingError('canvas_audio_timeline_invalid');
-        for(const clip of timeline) {
-          if(!clip||Object.keys(clip).sort().join(',')!==(recipe.version>=5?'duration,originalAudioFit,start':'duration,start')
+        for(const [i,clip] of timeline.entries()) {
+          if(!clip||Object.keys(clip).sort().join(',')!==(recipe.version>=6?'duration,originalAudioFit,overlap,start':recipe.version>=5?'duration,originalAudioFit,start':'duration,start')
             ||recipe.version>=5&&!validAudioFit(clip.originalAudioFit)||!Number.isFinite(clip.start)||!Number.isFinite(clip.duration)
             ||clip.duration<=0||Math.abs(clip.start-end)>.001)throw canvasProcessingError('canvas_audio_timeline_invalid');
-          end=clip.start+clip.duration;
+          if(recipe.version>=6){const transition=i===count-1?null:recipe.transitions[recipe.preview?recipe.preview.seamIndex+i:i];const expected=transition?.preset!=='none'&&transition?.duration||0;if(!Number.isFinite(clip.overlap)||clip.overlap<0||Math.abs(clip.overlap-expected)>.05||clip.overlap>clip.duration/2+.001)throw canvasProcessingError('canvas_audio_timeline_invalid');}
+          end=clip.start+clip.duration-(clip.overlap||0);
         }
         if(Math.abs(end-duration)>Math.max(.25,count*.06))throw canvasProcessingError('canvas_audio_timeline_invalid');
         await ctx.env.DB.prepare("UPDATE canvas_video_processing SET audio_timeline_json=? WHERE id=? AND processing_token=? AND status='processing' AND locked_until>?")

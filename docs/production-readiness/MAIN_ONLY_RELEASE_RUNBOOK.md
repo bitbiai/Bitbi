@@ -859,3 +859,43 @@ product inputs. Media publication downloads the original authenticated image and
 retains its image source SHA independently of the new activation SHA. It must run
 fresh production smoke: a browser repair does not imply an older production smoke
 fixture exists. Do not rebuild the unchanged image or relabel the failed run.
+
+## Canvas workspace and connection transitions
+
+Canvas coordinates and per-project surface dimensions are independent of view zoom
+and media resolution. Migration `0102_canvas_workspace_dimensions.sql` is additive;
+legacy projects start at 2400 × 1600 and out-of-bounds content expands the visible
+surface without moving nodes. The Inspector/toolbar use measured unscaled card
+bounds, including ports; the server fences node membership and geometry during a
+resize. Width/height can shrink independently after outer nodes move or disappear.
+
+The shared `canvas-transitions.mjs` catalog permits only bounded presets/parameters.
+Its container mirror is byte-checked. Explicit effects belong to exact adjacent
+exported node pairs after ancestry omission; they override smoothing only there.
+Recipe 6 / processor protocol 7 retain `fit-picture-v1`, overlap picture clocks,
+apply original mute/gain/fades once and use complementary linear source-audio
+crossfades. Background music fits the final shorter clock. Pair preview uses the
+same pipeline and only the selected pair. New settings require a new immutable
+job; old exports and None/version-5 jobs retain their behavior. Changed original
+sound on an already mixed transition export needs a new export for full-video
+audition; the connection preview uses current settings. Music remains adjustable.
+
+No downloaded transition pack/shader is used. Effects compose stock FFmpeg 5.1.9
+filters from the existing pinned GPL-enabled/x264 image. Keep its existing package
+copyright/source notices; see [FFmpeg licensing](https://ffmpeg.org/legal.html) and
+[the pinned filter sources](https://github.com/FFmpeg/FFmpeg/tree/n5.1.9/libavfilter).
+The discarded per-pixel radial prototype was too slow; native angular samples
+implement the actual radial blur instead of a radial wipe.
+
+The closed `canvas-workspace-transitions-v1` selection runs native D1 schema,
+resize-race, admission/immutability/protocol cases; all offered effects with decoded
+frames, audio and short-middle counterchecks in the target AMD64 image; and eight
+EN/DE Chromium/WebKit workspace and real preview/export/download/save cases.
+Discovery/candidate checks reject missing, skipped, failed or duplicate cases.
+Generation/billing changes outside the reviewed route sections widen selection.
+Full retains these cases independently; no additional Full dispatch is required.
+Use the existing local release/evidence path. Deploy additive schema and tested
+processor before dependent Auth/frontend. Recovery keeps the additive columns and
+compatible processor; restore an earlier frontend or choose None for new work.
+Actual release receipts and private live observations belong in the task checkpoint;
+implementation or fixture success alone does not prove publication.

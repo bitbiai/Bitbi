@@ -1740,3 +1740,21 @@ using its existing JSON-import mechanism, removing that duplicate moving number.
 The real protected readiness-route tests compare its response to the manifest;
 currentness and the Worker build check the caller. This supersedes the earlier
 instruction to manually keep the Admin label aligned on every migration.
+
+### 2026-10-07 — Canvas coordinate and transition version boundaries
+
+Baseline `746863c9` used a fixed surface and separate drag/placement clamps. The
+workspace control now shares Canvas-coordinate bounds across measured UI geometry
+and a concurrent-change-fenced D1 resize. Counterchecks exercise a node at x=2076
+plus its actual width/port, independent bottom bounds, legacy migration, failed
+save, moving/deleting, reload and project switching.
+
+A transition recipe increment must not bypass the existing audio-fit correction:
+processor v6 retains fit-policy validation, source windows and exactly-once source
+envelopes. Pair preview checks the same overlap with frame-rounded windows and
+final metadata; unsupported presets/filters, oversized overlaps and old processors
+fail closed. The target-image decoded tests check every offered effect and compare
+preview/full output; native API cases pin accepted jobs across later edge edits.
+Actual callers and recovery are in the runbook's Canvas workspace/transition
+section. Decorative Hero coverage stays removed. These implementation notes do not
+claim live acceptance; keep final source/attempt/artifacts in the release checkpoint.

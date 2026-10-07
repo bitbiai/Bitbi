@@ -1,7 +1,7 @@
 import { clipSequence } from './merge-clips.js?v=__ASSET_VERSION__';
 import { canvasApi } from './api.js?v=__ASSET_VERSION__';
 import { createMusicPreview } from './music-preview.js?v=__ASSET_VERSION__';
-import { hasAudioEffects } from '../../shared/canvas-audio.mjs?v=__ASSET_VERSION__';
+import { hasAudioEffects, originalAudioSettings } from '../../shared/canvas-audio.mjs?v=__ASSET_VERSION__';
 import {smoothJoinControls} from './smooth-joins.js?v=__ASSET_VERSION__';
 import {smoothJoinResultText} from '../../shared/canvas-smooth-joins.mjs?v=__ASSET_VERSION__';
 import {audioFitResultText} from '../../shared/canvas-audio-fit.mjs?v=__ASSET_VERSION__';
@@ -38,7 +38,8 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
         const version=node?.type==='asset_reference'?node.content?.asset?.sourceVersion:node?.output?.sourceVersion;
         return node&&assetId===clip.assetId&&version===clip.version?node.config?.originalAudio:clip.originalAudio;
     };
-    const needsAudioTimeline=()=>Boolean(completed&&!completed.audio_timeline?.length &&
+    const changedTransitionAudio=()=>completed?.recipe?.version===6&&completed.recipe.videos.some(clip=>JSON.stringify(originalAudioSettings(clipAudio(clip)))!==JSON.stringify(originalAudioSettings(clip.originalAudio)));
+    const needsAudioTimeline=()=>Boolean(changedTransitionAudio()||completed&&!completed.audio_timeline?.length &&
         (completed.recipe?.videos||[{runId:output.runId,nodeId:output.nodeId,assetId:output.assetId,version:output.sourceVersion}]).some(clip=>hasAudioEffects(clipAudio(clip))));
     const updateButtons=()=>{
         previewButton.hidden=false;
@@ -46,13 +47,14 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
         previewButton.disabled=Boolean(selected.enabled&&!chosen())||!completed?.preview_base?.file_url||needsAudioTimeline();
         returnButton.hidden=!previewMode;
         previewNote.hidden=!previewMode;
-        if(needsAudioTimeline())previewStatus.textContent=legacyAudioMessage;
+        if(needsAudioTimeline())previewStatus.textContent=changedTransitionAudio()?(german?'Neue Originalton-Einstellungen für dieses Übergangsvideo erneut exportieren. Die Übergangsvorschau verwendet die aktuellen Einstellungen.':'Export this transition video again to preview changed source audio. The transition preview uses the current settings.'):legacyAudioMessage;
         else if(auditionState==='idle')previewStatus.textContent=tracks.length && selected.enabled && !completed?.preview_base
             ? completed?.asset ? auditionCopy.missing : german ? 'Musikvorschau erst nach Erstellung eines vollständigen Videos verfügbar.' : 'Music preview is available after a full video has been created.' : '';
         createButton.textContent=selected.enabled?auditionCopy.create:completed?copy.again:copy.create;
     };
     const restore=()=>{previewMode=false;audition?.reset();auditionState='idle';if(resultVideo&&completed?.asset){resultVideo.src=completed.asset.file_url;resultVideo.load();}updateButtons();};
     const previewTimeline=()=>{
+        if(completed?.recipe?.version===6)return []; // The transition base contains each source envelope exactly once.
         return completed?.audio_timeline?.map((segment,index)=>({...segment,originalAudio:clipAudio(completed.recipe.videos[index])}));
     };
     const startPreview=()=>{
@@ -116,8 +118,10 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
             message.textContent=`${changed?(german?'Eine ausgewählte Ausgabe wurde gelöscht oder ersetzt. Status aktualisieren und Clips erneut auswählen.':'A selected output was deleted or replaced. Refresh status and choose the clips again.'):copy.unavailable} (${result.code})`;
         } else if(result.data.eligible || status || result.data.current) {
             message.textContent=status?(copy[status.status]||copy.failed):'';
+            if(status?.duration)message.textContent+=' '+(german?'Dauer: ':'Duration: ')+status.duration.toFixed(2)+' s.';
             if(status?.seam_result)message.textContent+=' '+smoothJoinResultText(status.seam_result,german);
             if(status?.audio_timeline)message.textContent+=' '+audioFitResultText(status.audio_timeline,german);
+            if(status?.error_code==='canvas_transition_too_long')message.textContent+=' '+(german?'Überlappung verkürzen: höchstens die halbe Länge jedes Nachbarclips. Bei kurzen mittleren Clips muss auch zwischen beiden Übergängen ein Bild bleiben.':'Shorten the overlap to at most half of each neighboring clip. Short middle clips also need at least one frame between both transitions.');
             if(status?.error_code==='canvas_audio_tail_exceeds_video')message.textContent+=' '+(german?'Diesen älteren Auftrag durch einen neuen Export ersetzen. Der Originalton wird jetzt automatisch an die Bilddauer angepasst.':'Create a new export to replace this older failed job. Original audio now fits the picture duration automatically.');
             createButton.hidden=false;createButton.textContent=status?copy.again:copy.create;
             createButton.disabled=['queued','processing'].includes(status?.status);
