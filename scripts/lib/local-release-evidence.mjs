@@ -547,14 +547,14 @@ export const CANVAS_PREFLIGHT=Object.freeze({source:'cc9010a92a52eeeb53355cadfc5
 export function assertCanvasPreflightTree(head,read=gitBytes){
   const p=CANVAS_PREFLIGHT;read(['merge-base','--is-ancestor',p.source,head]);
   const files=read(['diff','--name-only',p.source,head]).toString().trim().split('\n').filter(Boolean);
-  assert(files.every(file=>['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs','tests/helpers/q2-runtime/linux-hosted.mjs','tests/helpers/canvas-workspace-transitions-ui.cjs','tests/helpers/q2-runtime/linux-bootstrap.py'].includes(file)),'Preflight continuation changed product/test/toolchain inputs');
-  for(const [file,expected] of Object.entries({"tests/helpers/q2-runtime/linux-bootstrap.py":"e22052bdb1254f7e282f1c8d137bd443e3c54484d206a5800761eb0dd36a5ba4","tests/helpers/q2-runtime/linux-hosted.mjs": "78a5d0e55049ee6b4489f6fbf32917408f40e5a2c232e2700b2f0867ff4e9ad6", "tests/helpers/canvas-workspace-transitions-ui.cjs": "7326beff758492c53fa238cf76ccf30d9eb8465416768ed257e25844d5e20d96"}))assert.equal(sha256(read(['show',`${head}:${file}`])),expected,'Only the reviewed isolated-stage and new browser fixture corrections may inherit this prefix');
+  assert(files.every(file=>['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs','tests/helpers/q2-runtime/linux-hosted.mjs','tests/helpers/canvas-workspace-transitions-ui.cjs','tests/helpers/q2-runtime/linux-bootstrap.py','tests/helpers/q2-runtime/environment.mjs','tests/canvas-workspace-transitions.test.mjs'].includes(file)),'Preflight continuation changed product/test/toolchain inputs');
+  for(const [file,expected] of Object.entries({"tests/helpers/q2-runtime/environment.mjs":"521a0cb02860d26f47a9c397f89f6376df8c307b7ff1b6de8a1e29a3467547a6","tests/canvas-workspace-transitions.test.mjs":"8e47da53e23997815e7ca7dc6eca5c72b8337a60972bba2877dc95df28c72af1","tests/helpers/q2-runtime/linux-bootstrap.py":"e22052bdb1254f7e282f1c8d137bd443e3c54484d206a5800761eb0dd36a5ba4","tests/helpers/q2-runtime/linux-hosted.mjs": "78a5d0e55049ee6b4489f6fbf32917408f40e5a2c232e2700b2f0867ff4e9ad6", "tests/helpers/canvas-workspace-transitions-ui.cjs": "7326beff758492c53fa238cf76ccf30d9eb8465416768ed257e25844d5e20d96"}))assert.equal(sha256(read(['show',`${head}:${file}`])),expected,'Only the reviewed isolated-stage and new browser fixture corrections may inherit this prefix');
 }
 const workspaceStageCase='default native runtime plan stages every actual suite and control input';
 export function canvasWorkspaceStageContinuation(command){
   const original='node --test tests/canvas-workspace-transitions.test.mjs tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs';
   assert(command.includes(original)&&command.includes('node scripts/test-q2-runtime.mjs --suite canvas-transitions'));
-  const at=command.indexOf(original),tail=command.slice(at+original.length),join=tail.match(/^\s*&&\s*/);assert(join);return command.slice(0,at)+tail.slice(join[0].length);
+  const at=command.indexOf(original),tail=command.slice(at+original.length),join=tail.match(/^\s*&&\s*/);assert(join);return command.slice(0,at)+"node --test --test-name-pattern='^Canvas native migration checkpoint rejects missing, duplicate and undeclared migrations$' tests/canvas-workspace-transitions.test.mjs &&\n"+tail.slice(join[0].length);
 }
 export function verifyWorkspaceGuardUnion(before,after){
   assert.equal(before.length,30);assert.equal(new Set(before.map(r=>r.title)).size,30);
@@ -582,7 +582,7 @@ export function verifyCanvasPreflight(directory,evidence,commands){
       assert(!row.reusedFrom);assert.equal(row.continuation,canvasWorkspaceStageContinuation(commands[i].run));
       const prior=fs.readFileSync(path.join(directory,'reuse/stage-guard.log'));assert.equal(sha256(prior),CANVAS_PREFLIGHT.guardLog);
       const progress=fs.readFileSync(path.join(directory,'reuse/stage-progress.log'));assert.equal(sha256(progress),CANVAS_PREFLIGHT.guardProgress);
-      verifyWorkspaceGuardUnion(tapResults(prior.toString()),tapResults(progress.toString()));assert.equal(tapResults(fs.readFileSync(path.join(directory,row.log),'utf8')).length,0,'Passed launcher guards must not repeat');
+      verifyWorkspaceGuardUnion(tapResults(prior.toString()),tapResults(progress.toString()));assert.deepEqual(tapResults(fs.readFileSync(path.join(directory,row.log),'utf8')).filter(r=>r.status!=='skipped'),[{title:'Canvas native migration checkpoint rejects missing, duplicate and undeclared migrations',status:'passed'}],'Only the new moving-checkpoint countercheck executes; passed guards must not repeat');
     }else assert(!row.reusedFrom&&!row.continuation,'Affected or unexecuted check cannot inherit preflight success');
   }
 }

@@ -81,7 +81,7 @@ export function prepareBuild(artifactParent = os.tmpdir()) {
   const migrations = readMigrations(repoRoot);
   const latest = JSON.parse(fs.readFileSync(path.join(repoRoot, 'config/release-compat.json'), 'utf8')).release.schemaCheckpoints.auth.latest;
   assert.equal(migrations.at(-1).path, latest, 'Native build and declared release schema must match');
-  assert.deepEqual(migrations.filter(row => Number(row.path.slice(0, 4)) > 83).map(row => row.path.slice(0, 4)), ['0084', '0085', '0086', '0087', '0088', '0089', '0090', '0091', '0092', '0093', '0094', '0095', '0096', '0097', '0098', '0099', '0100', '0101'], 'Native matrix includes the additive member-generation and Canvas processing migrations');
+  verifyNativeMigrationSequence(migrations,latest);
   const provenance = { versions, compatibilityDate: config.compatibility_date, bundleSha256: sha256(bundle), sourceLedger,
     workerdBinarySha256: sha256(fs.readFileSync(workerd.default)), migrations: migrations.map(({ path: name, sha256: hash }) => ({ path: name, sha256: hash })) };
   fs.writeFileSync(path.join(workDir, 'build-provenance.json'), JSON.stringify(provenance, null, 2), { flag: 'wx' });
@@ -205,4 +205,10 @@ export async function createRuntime(build, name, { restricted = false, reference
     const control = (route, body) => controlWorker.fetch(`https://q2-control.invalid${route}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-q2-control': controlToken }, body: JSON.stringify(body) });
     return { mf, db, bucket, sql, rows, scalar, control, counters, canvasProvider, webhookSecret, migrations: build.migrations, config: build.config, executionDir, close: () => mf.dispose() };
   } catch (error) { await mf.dispose(); throw error; }
+}
+
+export function verifyNativeMigrationSequence(migrations,latest){
+  const end=Number.parseInt(latest,10);assert(Number.isInteger(end)&&end>=84&&end<10000);
+  assert.deepEqual(migrations.filter(row=>Number(row.path.slice(0,4))>83).map(row=>row.path.slice(0,4)),Array.from({length:end-83},(_,i)=>String(i+84).padStart(4,'0')),'Native matrix must include each additive migration through the declared checkpoint exactly once');
+  assert.equal(migrations.at(-1).path,latest,'Native build and declared release schema must match');
 }

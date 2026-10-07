@@ -23,3 +23,11 @@ test('Canvas transition timeline subtracts overlap exactly and protects short mi
     assert.throws(()=>transitionTimeline([2,.8,2],[fade,fade],24),{code:'canvas_transition_too_long'});
     const hard=transitionTimeline([2,2],[{preset:'none'}],24);assert.equal(hard.duration,4);
 });
+
+test('Canvas native migration checkpoint rejects missing, duplicate and undeclared migrations',async()=>{
+    const {verifyNativeMigrationSequence}=await import('./helpers/q2-runtime/environment.mjs');
+    const rows=Array.from({length:20},(_,i)=>({path:String(i+84).padStart(4,'0')+'_fixture.sql'})),latest=rows.at(-1).path;
+    verifyNativeMigrationSequence(rows,latest);
+    for(const altered of [rows.slice(1),rows.slice(0,-1),[...rows,rows.at(-1)],rows.filter((_,i)=>i!==4)])assert.throws(()=>verifyNativeMigrationSequence(altered,latest));
+    assert.throws(()=>verifyNativeMigrationSequence(rows,'0102_other.sql'));
+});
