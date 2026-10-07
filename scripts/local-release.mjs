@@ -195,7 +195,7 @@ function runLocalRelease({ base, resume }) {
     const prior=canvasPreflightPrefix(bytes,{...state,commands});
     fs.mkdirSync(path.join(bundle,'reuse'),{recursive:true});fs.mkdirSync(path.join(bundle,'logs'),{recursive:true});
     fs.writeFileSync(path.join(bundle,'reuse/preflight-checkpoint.json'),bytes);
-    state={...state,startedAt:prior.startedAt,preflightContinuation:{source:prior.sha,checkpoint:CANVAS_PREFLIGHT.checkpoint},commands:prior.commands.map((row,i)=>CANVAS_PREFLIGHT.retain.includes(i)?{...row,reusedFrom:prior.sha}:null)};
+    state={...state,startedAt:prior.startedAt,preflightContinuation:{source:prior.sha,checkpoint:CANVAS_PREFLIGHT.checkpoint},commands:prior.commands.map((row,i)=>CANVAS_PREFLIGHT.retain.includes(i)?{...row,reusedFrom:row.reusedFrom||prior.sha}:null)};
     for(const row of state.commands.filter(Boolean))fs.copyFileSync(path.join(originalDirectory,'bundle',row.log),path.join(bundle,row.log));
   }else if(permissionContinuation) {
     const bytes=fs.readFileSync(path.join(originalDirectory,'checkpoint.json'));

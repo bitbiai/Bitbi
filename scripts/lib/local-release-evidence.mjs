@@ -543,23 +543,25 @@ export function rebindLocalCandidate(verified, { run, attempt, receipt }) {
 
 // A failed preflight has no browser/image/product acceptance to inherit. Retain
 // only its unchanged checks; the migration admission and all remaining work run.
-export const CANVAS_PREFLIGHT=Object.freeze({source:'26bea59123bc9f154e5e6c0d322320b293900e6b',checkpoint:'06d49031063f6752799061f6742712499de58d8db085ad3f40327830fb20315d',retain:[1,4,5,6,7,8,9,10,11,13]});
+export const CANVAS_PREFLIGHT=Object.freeze({source:'8665a5f291b020049b3fffe2006173199e6a2fdd',checkpoint:'27ca7e4a8d9768247de19bf9adb492d80940e0473c414054a960a9b1c6c1de66',retain:[1,4,5,6,7,8,9,10,11,13,14]});
 export function assertCanvasPreflightTree(head,read=gitBytes){
   const p=CANVAS_PREFLIGHT;read(['merge-base','--is-ancestor',p.source,head]);
   const files=read(['diff','--name-only',p.source,head]).toString().trim().split('\n').filter(Boolean);
-  assert(files.every(file=>['scripts/lib/backend-publication.mjs','scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs','scripts/test-media-activation-reuse.mjs'].includes(file)),'Preflight continuation changed product/test/toolchain inputs');
-  const fixture='scripts/test-media-activation-reuse.mjs';
-  assert.equal(read(['show',`${head}:${fixture}`]).toString(),read(['show',`${p.source}:${fixture}`]).toString().replace("'smooth-joins-decoded','audio-fit-decoded','private-drain","'smooth-joins-decoded','audio-fit-decoded','transitions-decoded','private-drain"),'Only the required transition proof field changes in the activation fixture');
-  const file='scripts/lib/backend-publication.mjs';
+  assert(files.every(file=>['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs','scripts/test-q2-runtime-launcher.mjs'].includes(file)),'Preflight continuation changed product/test/toolchain inputs');
+  const file='scripts/test-q2-runtime-launcher.mjs';
   const before=read(['show',`${p.source}:${file}`]).toString(),after=read(['show',`${head}:${file}`]).toString();
-  assert.equal(after,before.replace("'0101_canvas_smooth_join_previews.sql'];","'0101_canvas_smooth_join_previews.sql','0102_canvas_workspace_dimensions.sql'];"),'Only the reviewed additive migration admission may inherit this prefix');
+  const expected=before.replace("audio='false',fit='false']", "audio='false',fit='false',transitions='false']")
+    .replace("'false','false','true','false','false','false','false','false','true']])", "'false','false','true','false','false','false','false','false','true'],['false','false','true','false','false','false','false','false','false','true']])")
+    .replace("const command=script.replaceAll('${{ needs.release-compatibility.outputs.canvas_audio_fit }}',fit)", "const command=script.replaceAll('${{ needs.release-compatibility.outputs.canvas_transitions }}',transitions).replaceAll('${{ needs.release-compatibility.outputs.canvas_audio_fit }}',fit)")
+    .replace("    else if(fit==='true')", "    else if(transitions==='true'){assert.equal(passed.commands.length,2);assert.match(passed.commands[0],/canvas-workspace-transitions.test/);assert.match(passed.commands[1],/--suite canvas-transitions$/); }\n    else if(fit==='true')");
+  assert.equal(after.replace("/--suite canvas-transitions$/);}","/--suite canvas-transitions$/); }"),expected,'Only the actual new shell branch and failure countercheck may inherit this prefix');
 }
 export function canvasPreflightPrefix(bytes,{sha,base,planHash,environment,commands},read=gitBytes){
   assertCanvasPreflightTree(sha,read);assert.equal(sha256(bytes),CANVAS_PREFLIGHT.checkpoint,'Changed failed preflight checkpoint');
   const original=JSON.parse(bytes);assert.equal(original.sha,CANVAS_PREFLIGHT.source);assert.equal(original.status,'failed');
   assert.equal(original.base,base);assert.equal(original.planHash,planHash);assert.equal(original.environment.key,environment.key);
-  assert.equal(original.commands.length,15);assert.equal(original.commands[14].exitCode,1);
-  for(const i of CANVAS_PREFLIGHT.retain){assert.equal(original.commands[i].exitCode,0);assert.deepEqual(original.commands[i].command,commands[i]);assert(!original.commands[i].reusedFrom);}
+  assert.equal(original.commands.length,16);assert.equal(original.commands[15].exitCode,1);
+  for(const i of CANVAS_PREFLIGHT.retain){assert.equal(original.commands[i].exitCode,0);assert.deepEqual(original.commands[i].command,commands[i]);}
   return original;
 }
 export function verifyCanvasPreflight(directory,evidence,commands){
@@ -567,7 +569,7 @@ export function verifyCanvasPreflight(directory,evidence,commands){
   const original=canvasPreflightPrefix(fs.readFileSync(path.join(directory,'reuse/preflight-checkpoint.json')),{...evidence,commands});
   for(const [i,row]of evidence.commands.entries()){
     if(CANVAS_PREFLIGHT.retain.includes(i)){
-      assert.deepEqual({...row,reusedFrom:undefined},original.commands[i]);assert.equal(row.reusedFrom,original.sha);
+      assert.deepEqual({...row,reusedFrom:undefined},{...original.commands[i],reusedFrom:undefined});assert.equal(row.reusedFrom,original.commands[i].reusedFrom||original.sha);
       assert.equal(sha256(fs.readFileSync(path.join(directory,row.log))),original.commands[i].logHash);
     }else assert(!row.reusedFrom&&!row.continuation,'Affected or unexecuted check cannot inherit preflight success');
   }
