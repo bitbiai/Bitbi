@@ -36,9 +36,9 @@ exports.workspace=async({page,expect,locale,mockSharedAuth,createCanvasApiMock,i
   await height.fill('400');await height.press('Enter');await expect.poll(()=>state.projects[0].workspace_height).toBe(400);
   const projects=page.locator('#canvasProjectsToggle');
   if(de&&await projects.getAttribute('aria-expanded')!=='true')await projects.click();
-  await page.locator('.canvas-project-item__open').filter({hasText:'Other workspace'}).click();await expect(width).toHaveValue('700');await expect(height).toHaveValue('450');
+  await page.locator('.canvas-project-item__open').filter({hasText:'Other workspace'}).click();if(de)await page.locator('#canvasGraphToggle').click();await expect(width).toHaveValue('700');await expect(height).toHaveValue('450');
   if(de&&await projects.getAttribute('aria-expanded')!=='true')await projects.click();
-  await page.locator('.canvas-project-item__open').filter({hasText:'Workspace bounds'}).click();await expect(width).toHaveValue('500');await expect(height).toHaveValue('400');
+  await page.locator('.canvas-project-item__open').filter({hasText:'Workspace bounds'}).click();if(de)await page.locator('#canvasGraphToggle').click();await expect(width).toHaveValue('500');await expect(height).toHaveValue('400');
   let rejectSave=true;await page.route(`**/api/account/canvas/projects/${id(1)}`,route=>route.request().method()==='PATCH'&&rejectSave?route.fulfill({status:503,json:{ok:false,error:'Controlled save failure'}}):route.fallback());
   await width.fill('600');await width.press('Enter');await expect(controls.locator('.canvas-workspace-minimum')).toContainText(de?'nicht gespeichert':'not saved');await expect(width).toHaveValue('500');expect(state.projects[0].workspace_width).toBe(500);rejectSave=false;
   await page.reload();await expect(width).toHaveValue('500');await expect(height).toHaveValue('400');
