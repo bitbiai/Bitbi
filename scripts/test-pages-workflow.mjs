@@ -123,12 +123,17 @@ const setupScript=fs.readFileSync(new URL('./setup-media-tools.sh',import.meta.u
 assert.equal(spawnSync('/bin/bash',['-n'],{input:setupScript,encoding:'utf8'}).status,0);
 // Execute the shared install shell with harmless tool functions. The same script
 // is called by release, Full, the processor and guarded backend continuation.
-for(const failing of ['none','update','install','preflight']) {
-  const functions=`sudo() { printf '%s\\n' "$*"; [ "$2" != "${failing}" ] || return 9; }; node() { printf 'node %s\\n' "$*"; [ "${failing}" != preflight ] || return 8; };`;
+for(const present of [true,false])for(const failing of ['none','update','install','preflight','timeout']) {
+  const functions=`command() { if [ "$1" = -v ]; then ${present?'return 0':'return 1'}; fi; builtin command "$@"; }; sudo() { printf '%s\\n' "$*"; case "$*" in *" ${failing}"|*" ${failing} -y ffmpeg") return 9;; esac; [ "${failing}" != timeout ] || return 124; }; node() { printf 'node %s\\n' "$*"; [ "${failing}" != preflight ] || return 8; };`;
   const result=spawnSync('/bin/bash',['--noprofile','--norc','-e','-c',functions+'\n'+setupScript],{env:{PATH:process.env.PATH},encoding:'utf8',timeout:5000});
-  assert.equal(result.status,failing==='none'?0:failing==='preflight'?8:9);
-  const expected=['apt-get update',...(failing==='update'?[]:['apt-get install -y ffmpeg',...(failing==='install'?[]:['node scripts/check-media-tools.mjs'])])];
-  assert.deepEqual(result.stdout.trim().split('\n'),expected);
+  const calls=result.stdout.trim().split('\n');
+  if(present){assert.deepEqual(calls,['node scripts/check-media-tools.mjs'],'Installed tools must never contact apt');assert.equal(result.status,failing==='preflight'?8:0);continue;}
+  assert.equal(result.status,failing==='none'?0:failing==='preflight'?8:failing==='timeout'?124:9);
+  assert.match(calls[0],/^timeout --kill-after=5s 120s apt-get /);
+  assert.match(calls[0],/Acquire::Retries=0/);assert.match(calls[0],/Acquire::http::Timeout=15/);assert.match(calls[0],/Acquire::https::Timeout=15/);assert.match(calls[0],/APT::Update::Error-Mode=any update$/);
+  if(['update','timeout'].includes(failing)){assert.equal(calls.length,1,'Failed package indexes must stop before install/preflight');continue;}
+  assert.match(calls[1],/^timeout --kill-after=5s 300s apt-get .* install -y ffmpeg$/);
+  assert.deepEqual(calls.slice(2),failing==='install'?[]:['node scripts/check-media-tools.mjs']);
 }
 
 // Exercise the real preflight with a private PATH. A missing executable's OS
