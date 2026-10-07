@@ -1,3 +1,4 @@
+import {CANVAS_PREFLIGHT,assertCanvasPreflightTree,canvasPreflightPrefix} from './lib/local-release-evidence.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -179,8 +180,9 @@ function runLocalRelease({ base, resume }) {
   const nativeBrowsers=commands.some(command=>commandRuntimes(command).some(part=>part.runtime==='native-browser-v1'))?ensureNativeBrowsers():null;
   const nativeEvidence=nativeBrowsers?Object.fromEntries(Object.entries(nativeBrowsers).filter(([key])=>!['packages','browserRoot'].includes(key))):null;
   const originalDirectory=resume&&json(path.join(resume,'checkpoint.json')).sha!==sha?path.resolve(resume):null;
+  const preflightContinuation=originalDirectory&&json(path.join(originalDirectory,'checkpoint.json')).sha===CANVAS_PREFLIGHT.source;
   const permissionContinuation=originalDirectory&&[PERMISSION_CONTINUATION.source,PERMISSION_CONTINUATION.tail,INSPECTOR_CONTINUATION.source,AUDIO_FIT_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.progress,SMOOTH_BROWSER_CONTINUATION.accepted,SMOOTH_BROWSER_CONTINUATION.completed].includes(json(path.join(originalDirectory,'checkpoint.json')).sha);
-  if(originalDirectory){if(permissionContinuation)assertPermissionContinuationTree(sha,undefined,{smooth:isSmoothContinuation(json(path.join(originalDirectory,'checkpoint.json')).sha),source:json(path.join(originalDirectory,'checkpoint.json')).sha});else assertLocalRepairTree(sha);}
+  if(originalDirectory){if(preflightContinuation)assertCanvasPreflightTree(sha);else if(permissionContinuation)assertPermissionContinuationTree(sha,undefined,{smooth:isSmoothContinuation(json(path.join(originalDirectory,'checkpoint.json')).sha),source:json(path.join(originalDirectory,'checkpoint.json')).sha});else assertLocalRepairTree(sha);}
   const directory = resume&&!originalDirectory ? path.resolve(resume) : path.join(cacheRoot(), 'runs', `${sha}-${randomUUID()}`);
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const work = path.join(directory, 'source'), bundle = path.join(directory, 'bundle'), checkpoint = path.join(directory, 'checkpoint.json');
@@ -188,7 +190,14 @@ function runLocalRelease({ base, resume }) {
   let state = fs.existsSync(checkpoint) ? json(checkpoint) : { policy: LOCAL_POLICY, repository: REPOSITORY,
     id, sha, base, sourceTree: git(['rev-parse',`${sha}^{tree}`]), planHash: validationPlan().digest,
     selection, environment, ...(nativeEvidence?{nativeBrowsers:nativeEvidence}:{}), origin: 'development-mac', ci: true, startedAt: new Date().toISOString(), status: 'running', commands: [] };
-  if(permissionContinuation) {
+  if(preflightContinuation){
+    const bytes=fs.readFileSync(path.join(originalDirectory,'checkpoint.json'));
+    const prior=canvasPreflightPrefix(bytes,{...state,commands});
+    fs.mkdirSync(path.join(bundle,'reuse'),{recursive:true});fs.mkdirSync(path.join(bundle,'logs'),{recursive:true});
+    fs.writeFileSync(path.join(bundle,'reuse/preflight-checkpoint.json'),bytes);
+    state={...state,startedAt:prior.startedAt,preflightContinuation:{source:prior.sha,checkpoint:CANVAS_PREFLIGHT.checkpoint},commands:prior.commands.map((row,i)=>CANVAS_PREFLIGHT.retain.includes(i)?{...row,reusedFrom:prior.sha}:null)};
+    for(const row of state.commands.filter(Boolean))fs.copyFileSync(path.join(originalDirectory,'bundle',row.log),path.join(bundle,row.log));
+  }else if(permissionContinuation) {
     const bytes=fs.readFileSync(path.join(originalDirectory,'checkpoint.json'));
     const prior=permissionContinuationPrefix(bytes,{head:sha,base,planHash:state.planHash,environment,commands});
     const reuse=path.join(bundle,'reuse');fs.mkdirSync(path.join(reuse,'test-results'),{recursive:true});fs.mkdirSync(path.join(bundle,'logs'),{recursive:true});
@@ -295,8 +304,8 @@ function runLocalRelease({ base, resume }) {
     git(['checkout','--detach',sha], work);
     git(['remote','set-url','origin','https://github.com/bitbiai/Bitbi.git'], work);
     if(state.permissionContinuation&&state.permissionContinuation.source!==PERMISSION_CONTINUATION.source)fs.cpSync(path.join(bundle,'test-results'),path.join(work,'test-results'),{recursive:true});
-    if(originalDirectory&&!permissionContinuation)for(const name of ['candidate','_site','test-results'])fs.cpSync(path.join(originalDirectory,'source',name),path.join(work,name),{recursive:true});
-    if(originalDirectory&&!permissionContinuation)for(const report of LOCAL_HOMEPAGE_REPORTS)fs.copyFileSync(path.join(bundle,'test-results',report),path.join(work,'test-results',report));
+    if(originalDirectory&&!permissionContinuation&&!preflightContinuation)for(const name of ['candidate','_site','test-results'])fs.cpSync(path.join(originalDirectory,'source',name),path.join(work,name),{recursive:true});
+    if(originalDirectory&&!permissionContinuation&&!preflightContinuation)for(const report of LOCAL_HOMEPAGE_REPORTS)fs.copyFileSync(path.join(bundle,'test-results',report),path.join(work,'test-results',report));
     // Exact committed source; unrelated owner's worktree edits are never copied.
   }
   fs.mkdirSync(path.join(bundle, 'logs'), { recursive: true });

@@ -479,7 +479,8 @@ export function verifyLocalEvidence(directory, expected, { now = Date.now(), sel
   assert.equal(evidence.ci, true); assert.equal(evidence.origin, 'development-mac');
   const env = { GITHUB_SHA: expected.sha, CANDIDATE_BASE: expected.base };
   const commands = selectedCommands(selection, env);
-  if(evidence.permissionContinuation)verifyPermissionContinuation(directory,evidence,commands);
+  if(evidence.preflightContinuation)verifyCanvasPreflight(directory,evidence,commands);
+  else if(evidence.permissionContinuation)verifyPermissionContinuation(directory,evidence,commands);
   else if(evidence.repair)verifyLocalReuse(directory,evidence);
   else assert(evidence.commands.every(row=>!row.reusedFrom&&!row.continuation),'Unverified local evidence reuse');
   if(commands.some(command=>commandRuntimes(command).some(part=>part.runtime==='native-browser-v1')))
@@ -538,4 +539,34 @@ export function rebindLocalCandidate(verified, { run, attempt, receipt }) {
     localValidation: { policy: LOCAL_POLICY, digest, receipt, id: evidence.id, manifestHash: sha256(JSON.stringify(original)) } };
   return { manifest, proofs: proofs.map(proof => ({ ...proof, manifestHash: sha256(JSON.stringify(manifest)),
     localValidation: { evidence: digest, originalManifestHash: proof.manifestHash } })) };
+}
+
+// A failed preflight has no browser/image/product acceptance to inherit. Retain
+// only its unchanged checks; the migration admission and all remaining work run.
+export const CANVAS_PREFLIGHT=Object.freeze({source:'26bea59123bc9f154e5e6c0d322320b293900e6b',checkpoint:'06d49031063f6752799061f6742712499de58d8db085ad3f40327830fb20315d',retain:[1,4,5,6,7,8,9,10,11,13]});
+export function assertCanvasPreflightTree(head,read=gitBytes){
+  const p=CANVAS_PREFLIGHT;read(['merge-base','--is-ancestor',p.source,head]);
+  const files=read(['diff','--name-only',p.source,head]).toString().trim().split('\n').filter(Boolean);
+  assert(files.every(file=>['scripts/lib/backend-publication.mjs','scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs'].includes(file)),'Preflight continuation changed product/test/toolchain inputs');
+  const file='scripts/lib/backend-publication.mjs';
+  const before=read(['show',`${p.source}:${file}`]).toString(),after=read(['show',`${head}:${file}`]).toString();
+  assert.equal(after,before.replace("'0101_canvas_smooth_join_previews.sql'];","'0101_canvas_smooth_join_previews.sql','0102_canvas_workspace_dimensions.sql'];"),'Only the reviewed additive migration admission may inherit this prefix');
+}
+export function canvasPreflightPrefix(bytes,{sha,base,planHash,environment,commands},read=gitBytes){
+  assertCanvasPreflightTree(sha,read);assert.equal(sha256(bytes),CANVAS_PREFLIGHT.checkpoint,'Changed failed preflight checkpoint');
+  const original=JSON.parse(bytes);assert.equal(original.sha,CANVAS_PREFLIGHT.source);assert.equal(original.status,'failed');
+  assert.equal(original.base,base);assert.equal(original.planHash,planHash);assert.equal(original.environment.key,environment.key);
+  assert.equal(original.commands.length,15);assert.equal(original.commands[14].exitCode,1);
+  for(const i of CANVAS_PREFLIGHT.retain){assert.equal(original.commands[i].exitCode,0);assert.deepEqual(original.commands[i].command,commands[i]);assert(!original.commands[i].reusedFrom);}
+  return original;
+}
+export function verifyCanvasPreflight(directory,evidence,commands){
+  assert.deepEqual(evidence.preflightContinuation,{source:CANVAS_PREFLIGHT.source,checkpoint:CANVAS_PREFLIGHT.checkpoint});
+  const original=canvasPreflightPrefix(fs.readFileSync(path.join(directory,'reuse/preflight-checkpoint.json')),{...evidence,commands});
+  for(const [i,row]of evidence.commands.entries()){
+    if(CANVAS_PREFLIGHT.retain.includes(i)){
+      assert.deepEqual({...row,reusedFrom:undefined},original.commands[i]);assert.equal(row.reusedFrom,original.sha);
+      assert.equal(sha256(fs.readFileSync(path.join(directory,row.log))),original.commands[i].logHash);
+    }else assert(!row.reusedFrom&&!row.continuation,'Affected or unexecuted check cannot inherit preflight success');
+  }
 }
