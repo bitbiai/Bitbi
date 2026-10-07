@@ -555,12 +555,15 @@ testSmoothContinuation(AUDIO_FIT_CONTINUATION);
 testSmoothContinuation(INSPECTOR_CONTINUATION);
 
 {
- const {CANVAS_PREFLIGHT,assertCanvasPreflightTree,canvasPreflightPrefix}=await import('./lib/local-release-evidence.mjs');
- const before="audio='false',fit='false']",after=before.replace("audio='false',fit='false']","audio='false',fit='false',transitions='false']");
- const mock=(files=['scripts/test-q2-runtime-launcher.mjs'],changed=after)=>args=>Buffer.from(args[0]==='merge-base'?'':args[0]==='diff'?files.join('\n'):args[1].endsWith(':scripts/test-pages-candidate.mjs')?fs.readFileSync('scripts/test-pages-candidate.mjs'):args[1].endsWith(':scripts/test-media-activation-reuse.mjs')?'unchanged fixture':args[1].startsWith(CANVAS_PREFLIGHT.source+':')?before:changed);
+ const {CANVAS_PREFLIGHT,assertCanvasPreflightTree,canvasPreflightPrefix,canvasWorkspaceStageContinuation,verifyWorkspaceGuardUnion}=await import('./lib/local-release-evidence.mjs');
+ const mock=(files=['tests/helpers/q2-runtime/linux-hosted.mjs'],bad=false)=>args=>args[0]==='merge-base'?Buffer.from(''):args[0]==='diff'?Buffer.from(files.join('\n')):bad?Buffer.from('altered'):fs.readFileSync(args[1].split(':').slice(1).join(':'));
  assertCanvasPreflightTree('f'.repeat(40),mock());
  for(const file of ['workers/auth/src/routes/canvas.js','config/release-compat.json','services/homepage-ffmpeg-processor/canvas-full-video.mjs','tests/canvas.spec.js'])assert.throws(()=>assertCanvasPreflightTree('f'.repeat(40),mock([file])),/changed product/);
- assert.throws(()=>assertCanvasPreflightTree('f'.repeat(40),mock(undefined,after+'\nunsafe();')),/Only the actual/);
+ assert.throws(()=>assertCanvasPreflightTree('f'.repeat(40),mock(undefined,true)),/Only the reviewed/);
  assert.throws(()=>canvasPreflightPrefix(Buffer.from('{}'),{sha:'f'.repeat(40)},mock()),/Changed failed preflight/);
- console.log('Canvas preflight: only unchanged early checks retain their original source; modified inputs and forged failed checkpoints reject.');
+ const name='default native runtime plan stages every actual suite and control input',before=Array.from({length:30},(_,i)=>({title:i===14?name:`unchanged ${i}`,status:i===14?'failed':'passed'})),after=[{title:name,status:'passed'}];
+ verifyWorkspaceGuardUnion(before,after);
+ for(const changed of [[],[{title:name,status:'failed'}],[...after,...after],[{title:'other',status:'passed'}]])assert.throws(()=>verifyWorkspaceGuardUnion(before,changed));
+ assert.throws(()=>canvasWorkspaceStageContinuation('echo incomplete'));
+ console.log('Workspace continuation: 29 unchanged guard cases retained; missing, failed, duplicate, foreign, altered-source and forged-checkpoint controls reject.');
 }

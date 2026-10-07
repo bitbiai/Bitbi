@@ -67,12 +67,12 @@ exports.transitions=async({page,expect,locale,mockSharedAuth,createCanvasApiMock
   try{
     await page.goto(de?'/de/canvas/':'/canvas/');await selectEdge();
     const control=inspector.locator('.canvas-transition-controls'),select=control.getByRole('combobox',{name:de?'Effekt':'Effect',exact:true});
-    await expect(select).toHaveValue('none');await expect(select.locator('option')).toHaveCount(14);await expect(control.getByRole('spinbutton')).toHaveCount(2);
+    await expect(select).toHaveValue('none');await expect(select.locator('option')).toHaveCount(14);await expect(control.getByRole('spinbutton')).toHaveCount(0);
     await select.selectOption('fade');await expect(control.getByRole('status')).toHaveText(de?'Gespeichert':'Saved');
     await expect.poll(async()=>(await f.readProject()).edges.find(e=>e.id===f.edges[2].id).config.transition.preset).toBe('fade');expect(posts).toHaveLength(0);
     await page.reload();await selectEdge();await expect(select).toHaveValue('fade');
     await control.getByRole('button',{name:de?'Übergangsvorschau erstellen':'Preview transition',exact:true}).click();await expect.poll(()=>posts.length).toBe(1);await rendering;
-    const preview=control.locator('video');await expect(preview).toBeVisible();await preview.evaluate(v=>v.play());await expect.poll(()=>preview.evaluate(v=>({time:v.currentTime>.25,decoded:v.videoWidth===320,error:v.error?.code||0}))).toEqual({time:true,decoded:true,error:0});await preview.evaluate(v=>v.pause());
+    const preview=control.locator('video');await expect(preview).toBeVisible();await preview.scrollIntoViewIfNeeded();await preview.evaluate(v=>v.play());await expect.poll(()=>preview.evaluate(v=>({time:v.currentTime>.25,decoded:v.videoWidth===320,error:v.error?.code||0}))).toEqual({time:true,decoded:true,error:0});await preview.evaluate(v=>v.pause());
     expect(posts[0].result.data.preview.recipe.version).toBe(6);expect(posts[0].body.orderedClips).toHaveLength(2);
     await control.screenshot({path:info.outputPath(`transition-${locale}.png`)});
     if(de)await toggle.click();await page.locator(`[data-node-id="${f.last.id}"]`).press('Enter');await reveal();
@@ -84,7 +84,7 @@ exports.transitions=async({page,expect,locale,mockSharedAuth,createCanvasApiMock
     await inspector.getByRole('button',{name:de?'Gesamtes Video erstellen':'Create full video',exact:true}).click();await expect.poll(()=>posts.length).toBe(2);await rendering;
     await inspector.getByRole('button',{name:de?'Status aktualisieren':'Refresh status',exact:true}).click();
     const current=(await f.data(await f.request(f.endpoint))).current;expect(current.recipe.version).toBe(6);expect(current.duration).toBe(2.5);expect(current.recipe.originalAudioPolicy).toBe('fit-picture-v1');
-    const video=inspector.locator('.canvas-full-video > div:last-child > video');await expect(video).toHaveAttribute('src',current.asset.file_url);await video.evaluate(v=>v.play());await expect.poll(()=>video.evaluate(v=>v.currentTime)).toBeGreaterThan(.25);await video.evaluate(v=>v.pause());
+    const video=inspector.locator('.canvas-full-video > div:last-child > video');await expect(video).toHaveAttribute('src',current.asset.file_url);await video.scrollIntoViewIfNeeded();await video.evaluate(v=>v.play());await expect.poll(()=>video.evaluate(v=>v.currentTime)).toBeGreaterThan(.25);await video.evaluate(v=>v.pause());
     const data=Buffer.from(await (await f.request(current.asset.file_url)).arrayBuffer()),download=Buffer.from(await (await f.request(current.asset.file_url+'?download=1')).arrayBuffer());expect(data.equals(download)).toBe(true);
     const comparison=await f.data(await f.request(`${f.projectPath}/nodes/${f.last.id}/full-video?seamPreview=${posts[0].result.data.preview.id}`));
     expect(comparison.preview.duration).toBe(current.duration);

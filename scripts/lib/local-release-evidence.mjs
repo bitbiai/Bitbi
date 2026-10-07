@@ -543,25 +543,31 @@ export function rebindLocalCandidate(verified, { run, attempt, receipt }) {
 
 // A failed preflight has no browser/image/product acceptance to inherit. Retain
 // only its unchanged checks; the migration admission and all remaining work run.
-export const CANVAS_PREFLIGHT=Object.freeze({source:'8665a5f291b020049b3fffe2006173199e6a2fdd',checkpoint:'27ca7e4a8d9768247de19bf9adb492d80940e0473c414054a960a9b1c6c1de66',retain:[1,4,5,6,7,8,9,10,11,13,14]});
+export const CANVAS_PREFLIGHT=Object.freeze({source:'cc9010a92a52eeeb53355cadfc5b759c2565d924',checkpoint:'b940595d55f417156672bdc6ef06aeb9a6da9df936c0ec3aee6135d265d5186e',guardLog:'53b48f35d020611ff8e4a2e48d725322b7a9dc69de1dfb746fd9ea5f8281d66b',retain:[1,4,5,6,7,8,9,10,11,13,14,15,16,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32]});
 export function assertCanvasPreflightTree(head,read=gitBytes){
   const p=CANVAS_PREFLIGHT;read(['merge-base','--is-ancestor',p.source,head]);
   const files=read(['diff','--name-only',p.source,head]).toString().trim().split('\n').filter(Boolean);
-  assert(files.every(file=>['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs','scripts/test-q2-runtime-launcher.mjs','scripts/test-pages-candidate.mjs'].includes(file)),'Preflight continuation changed product/test/toolchain inputs');
-  assert.equal(sha256(read(['show',`${head}:scripts/test-pages-candidate.mjs`])), '953c078107b7b57e2d32bf116b21909bdfca189b8fdc8d15701ef87aef44964b', 'Unreviewed candidate shell fixture change');
-  const file='scripts/test-q2-runtime-launcher.mjs';
-  const before=read(['show',`${p.source}:${file}`]).toString(),after=read(['show',`${head}:${file}`]).toString();
-  const expected=before.replace("audio='false',fit='false']", "audio='false',fit='false',transitions='false']")
-    .replace("'false','false','true','false','false','false','false','false','true']])", "'false','false','true','false','false','false','false','false','true'],['false','false','true','false','false','false','false','false','false','true']])")
-    .replace("const command=script.replaceAll('${{ needs.release-compatibility.outputs.canvas_audio_fit }}',fit)", "const command=script.replaceAll('${{ needs.release-compatibility.outputs.canvas_transitions }}',transitions).replaceAll('${{ needs.release-compatibility.outputs.canvas_audio_fit }}',fit)")
-    .replace("    else if(fit==='true')", "    else if(transitions==='true'){assert.equal(passed.commands.length,2);assert.match(passed.commands[0],/canvas-workspace-transitions.test/);assert.match(passed.commands[1],/--suite canvas-transitions$/); }\n    else if(fit==='true')");
-  assert.equal(after.replace("/--suite canvas-transitions$/);}","/--suite canvas-transitions$/); }"),expected,'Only the actual new shell branch and failure countercheck may inherit this prefix');
+  assert(files.every(file=>['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs','tests/helpers/q2-runtime/linux-hosted.mjs','tests/helpers/canvas-workspace-transitions-ui.cjs'].includes(file)),'Preflight continuation changed product/test/toolchain inputs');
+  for(const [file,expected] of Object.entries({"tests/helpers/q2-runtime/linux-hosted.mjs": "78a5d0e55049ee6b4489f6fbf32917408f40e5a2c232e2700b2f0867ff4e9ad6", "tests/helpers/canvas-workspace-transitions-ui.cjs": "7326beff758492c53fa238cf76ccf30d9eb8465416768ed257e25844d5e20d96"}))assert.equal(sha256(read(['show',`${head}:${file}`])),expected,'Only the reviewed isolated-stage and new browser fixture corrections may inherit this prefix');
+}
+const workspaceStageCase='default native runtime plan stages every actual suite and control input';
+export function canvasWorkspaceStageContinuation(command){
+  const original='node --test tests/canvas-workspace-transitions.test.mjs tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs';
+  assert(command.includes(original)&&command.includes('node scripts/test-q2-runtime.mjs --suite canvas-transitions'));
+  return command.replace(original,()=>`node --test --test-name-pattern='^${workspaceStageCase}$' scripts/test-q2-runtime-launcher.mjs`);
+}
+export function verifyWorkspaceGuardUnion(before,after){
+  assert.equal(before.length,30);assert.equal(new Set(before.map(r=>r.title)).size,30);
+  assert.deepEqual(before.filter(r=>r.status!=='passed'),[{title:workspaceStageCase,status:'failed'}]);
+  assert.deepEqual(after.filter(r=>r.status!=='skipped'),[{title:workspaceStageCase,status:'passed'}]);
+  assert.equal(new Set(after.map(r=>r.title)).size,after.length);
+  assert(after.every(r=>before.some(old=>old.title===r.title)));
 }
 export function canvasPreflightPrefix(bytes,{sha,base,planHash,environment,commands},read=gitBytes){
   assertCanvasPreflightTree(sha,read);assert.equal(sha256(bytes),CANVAS_PREFLIGHT.checkpoint,'Changed failed preflight checkpoint');
   const original=JSON.parse(bytes);assert.equal(original.sha,CANVAS_PREFLIGHT.source);assert.equal(original.status,'failed');
   assert.equal(original.base,base);assert.equal(original.planHash,planHash);assert.equal(original.environment.key,environment.key);
-  assert.equal(original.commands.length,16);assert.equal(original.commands[15].exitCode,1);
+  assert.equal(original.commands.length,42);assert.equal(original.commands[41].exitCode,1);
   for(const i of CANVAS_PREFLIGHT.retain){assert.equal(original.commands[i].exitCode,0);assert.deepEqual(original.commands[i].command,commands[i]);}
   return original;
 }
@@ -572,6 +578,10 @@ export function verifyCanvasPreflight(directory,evidence,commands){
     if(CANVAS_PREFLIGHT.retain.includes(i)){
       assert.deepEqual({...row,reusedFrom:undefined},{...original.commands[i],reusedFrom:undefined});assert.equal(row.reusedFrom,original.commands[i].reusedFrom||original.sha);
       assert.equal(sha256(fs.readFileSync(path.join(directory,row.log))),original.commands[i].logHash);
+    }else if(i===41){
+      assert(!row.reusedFrom);assert.equal(row.continuation,canvasWorkspaceStageContinuation(commands[i].run));
+      const prior=fs.readFileSync(path.join(directory,'reuse/stage-guard.log'));assert.equal(sha256(prior),CANVAS_PREFLIGHT.guardLog);
+      verifyWorkspaceGuardUnion(tapResults(prior.toString()),tapResults(fs.readFileSync(path.join(directory,row.log),'utf8')));
     }else assert(!row.reusedFrom&&!row.continuation,'Affected or unexecuted check cannot inherit preflight success');
   }
 }

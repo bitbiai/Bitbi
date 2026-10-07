@@ -93,7 +93,7 @@ export function stageInputPlan() {
     'workers/ai/src', 'tests/helpers/elevenlabs-member-control.mjs', 'tests/fixtures/media/member-music.mp3', 'tests/fixtures/media/member-music.opus',
     'tests/helpers/canvas-contributors-control.mjs',
     'scripts/lib/canvas-export-readiness.mjs',
-    'tests/helpers/q2-runtime', 'tests/helpers/canvas-video-control.mjs', 'tests/helpers/canvas-music-control.mjs', 'tests/helpers/canvas-processing-control.mjs', 'tests/helpers/canvas-completion-control.mjs', 'tests/helpers/canvas-audio-control.mjs', 'tests/helpers/canvas-smooth-control.mjs', 'tests/helpers/private-media-control.mjs', 'tests/q2-runtime-native.mjs',
+    'tests/helpers/q2-runtime', 'tests/helpers/canvas-video-control.mjs', 'tests/helpers/canvas-music-control.mjs', 'tests/helpers/canvas-processing-control.mjs', 'tests/helpers/canvas-completion-control.mjs', 'tests/helpers/canvas-audio-control.mjs', 'tests/helpers/canvas-smooth-control.mjs', 'tests/helpers/canvas-workspace-transition-control.mjs', 'tests/helpers/private-media-control.mjs', 'tests/q2-runtime-native.mjs',
     'tests/q2-runtime-references.mjs', 'tests/q2-runtime-recovery.mjs',
     'tests/q4-runtime-public-video.mjs', 'tests/q4-runtime-stream.mjs', 'tests/q4-runtime-memory.mjs', 'tests/q4-runtime-video.mjs', 'tests/q4-runtime-subscription.mjs',
     'tests/helpers/q4-stream-fixture.mjs', 'tests/helpers/q4-memory-control.mjs', 'tests/helpers/q4-memory-fixture.mjs',
