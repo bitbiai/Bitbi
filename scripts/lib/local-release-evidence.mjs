@@ -547,7 +547,9 @@ export const CANVAS_PREFLIGHT=Object.freeze({source:'26bea59123bc9f154e5e6c0d322
 export function assertCanvasPreflightTree(head,read=gitBytes){
   const p=CANVAS_PREFLIGHT;read(['merge-base','--is-ancestor',p.source,head]);
   const files=read(['diff','--name-only',p.source,head]).toString().trim().split('\n').filter(Boolean);
-  assert(files.every(file=>['scripts/lib/backend-publication.mjs','scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs'].includes(file)),'Preflight continuation changed product/test/toolchain inputs');
+  assert(files.every(file=>['scripts/lib/backend-publication.mjs','scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs','scripts/test-media-activation-reuse.mjs'].includes(file)),'Preflight continuation changed product/test/toolchain inputs');
+  const fixture='scripts/test-media-activation-reuse.mjs';
+  assert.equal(read(['show',`${head}:${fixture}`]).toString(),read(['show',`${p.source}:${fixture}`]).toString().replace("'smooth-joins-decoded','audio-fit-decoded','private-drain","'smooth-joins-decoded','audio-fit-decoded','transitions-decoded','private-drain"),'Only the required transition proof field changes in the activation fixture');
   const file='scripts/lib/backend-publication.mjs';
   const before=read(['show',`${p.source}:${file}`]).toString(),after=read(['show',`${head}:${file}`]).toString();
   assert.equal(after,before.replace("'0101_canvas_smooth_join_previews.sql'];","'0101_canvas_smooth_join_previews.sql','0102_canvas_workspace_dimensions.sql'];"),'Only the reviewed additive migration admission may inherit this prefix');

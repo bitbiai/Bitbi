@@ -95,7 +95,7 @@ with tarfile.open(fileobj=sys.stdout.buffer,mode='w|') as t:
  for name,value in json.load(sys.stdin).items():
   b=base64.b64decode(value);m=tarfile.TarInfo(name);m.size=len(b);t.addfile(m,io.BytesIO(b))`],{input:JSON.stringify(Object.fromEntries(Object.entries(entries).map(([k,v])=>[k,v.toString('base64')])))});
   const inspected={Id:configId,Os:'linux',Architecture:'amd64',Config:config.config,RootFS:{Type:'layers',Layers:config.rootfs.diff_ids}};
-  const record={sha,run:'100',attempt:'1',dirty:false,sourceFiles:mediaImageInputs(),platform:'linux/amd64',image,tag:`bitbi-private-media:${sha}`,ffmpeg:'ffmpeg fixture',ffprobe:'ffprobe fixture',archiveDigest:hash(archive),tests:['two-five-clips','copy-normalize-audio','background-music-decoded','per-clip-audio-decoded','smooth-joins-decoded','audio-fit-decoded','private-drain-poster','container-process-restart','h3-video-reference']};
+  const record={sha,run:'100',attempt:'1',dirty:false,sourceFiles:mediaImageInputs(),platform:'linux/amd64',image,tag:`bitbi-private-media:${sha}`,ffmpeg:'ffmpeg fixture',ffprobe:'ffprobe fixture',archiveDigest:hash(archive),tests:['two-five-clips','copy-normalize-audio','background-music-decoded','per-clip-audio-decoded','smooth-joins-decoded','audio-fit-decoded','transitions-decoded','private-drain-poster','container-process-restart','h3-video-reference']};
   const publish=async(change=()=>{})=>{
     const input={record:structuredClone(record),active:{workerVersion:'media-v',deployment:'media-d'},inspected:structuredClone(inspected),artifact:structuredClone(source.artifact)},calls=[];change(input);
     const folder=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-media-archive-'));

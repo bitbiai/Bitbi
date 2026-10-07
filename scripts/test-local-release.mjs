@@ -557,7 +557,7 @@ testSmoothContinuation(INSPECTOR_CONTINUATION);
 {
  const {CANVAS_PREFLIGHT,assertCanvasPreflightTree,canvasPreflightPrefix}=await import('./lib/local-release-evidence.mjs');
  const before="const allowed=['0101_canvas_smooth_join_previews.sql'];",after=before.replace("'0101_canvas_smooth_join_previews.sql'];","'0101_canvas_smooth_join_previews.sql','0102_canvas_workspace_dimensions.sql'];");
- const mock=(files=['scripts/lib/backend-publication.mjs'],changed=after)=>args=>Buffer.from(args[0]==='merge-base'?'':args[0]==='diff'?files.join('\n'):args[1].startsWith(CANVAS_PREFLIGHT.source+':')?before:changed);
+ const mock=(files=['scripts/lib/backend-publication.mjs'],changed=after)=>args=>Buffer.from(args[0]==='merge-base'?'':args[0]==='diff'?files.join('\n'):args[1].endsWith(':scripts/test-media-activation-reuse.mjs')?'unchanged fixture':args[1].startsWith(CANVAS_PREFLIGHT.source+':')?before:changed);
  assertCanvasPreflightTree('f'.repeat(40),mock());
  for(const file of ['workers/auth/src/routes/canvas.js','config/release-compat.json','services/homepage-ffmpeg-processor/canvas-full-video.mjs','tests/canvas.spec.js'])assert.throws(()=>assertCanvasPreflightTree('f'.repeat(40),mock([file])),/changed product/);
  assert.throws(()=>assertCanvasPreflightTree('f'.repeat(40),mock(undefined,after+'\nunsafe();')),/Only the reviewed/);
