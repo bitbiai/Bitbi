@@ -204,14 +204,20 @@ export const WORKSPACE_CONTINUATION=Object.freeze({
   "last": 45,
   "counts": {
     "required": 8,
-    "reused": 4,
-    "executed": 4
+    "reused": 6,
+    "executed": 2
   },
   "specs": {
-    "tests/helpers/canvas-workspace-transitions-ui.cjs": "a32a02bed6a779a044925ac73b0fcefda6814ee85bef6d86d9d0a8710e96b433",
+    "tests/helpers/canvas-workspace-transitions-ui.cjs": "449c366554ee9a42d1b9232c1e1fcc61d666dacd617e881ca78d604f17f7f7de",
     "js/pages/canvas/workspace-view.js": "a7a6fc093a8d61ed1f9ce2a2ef03cae43d5a288f66dbb54d6fd32b38e05572fd"
   },
-  "reviewedSource": "3ae7203c5c6d51e1c16b09ac9df1f68b649e13b8"
+  "reviewedSource": "cf79234decd219ab11277ce59010b93f10e0c0e3",
+  "browserProgress": {
+    "sha": "38538d77a6b4c7de43b6d6ed317b9036d6fc1225",
+    "run": "38538d77a6b4c7de43b6d6ed317b9036d6fc1225-7705f9d9-845e-448d-85c8-455d7247fdb1",
+    "report": "d3e65ca94ba49321fd2afcc68b961d9ab77ed2b9cd162f94eac7d9e6fd179ff4",
+    "rows": "6443c19e4340d0b5974fe0607dd173d51fbe49ad0afdc569affa31003effbd7f"
+  }
 });
 export const smoothProfile=source=>source===WORKSPACE_CONTINUATION.source?WORKSPACE_CONTINUATION:source===INSPECTOR_CONTINUATION.source?INSPECTOR_CONTINUATION:source===AUDIO_FIT_CONTINUATION.source?AUDIO_FIT_CONTINUATION:SMOOTH_BROWSER_CONTINUATION;
 export const isSmoothContinuation=sha=>[WORKSPACE_CONTINUATION.source,INSPECTOR_CONTINUATION.source,AUDIO_FIT_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.progress,SMOOTH_BROWSER_CONTINUATION.accepted,SMOOTH_BROWSER_CONTINUATION.completed].includes(sha);
