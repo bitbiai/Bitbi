@@ -543,18 +543,18 @@ export function rebindLocalCandidate(verified, { run, attempt, receipt }) {
 
 // A failed preflight has no browser/image/product acceptance to inherit. Retain
 // only its unchanged checks; the migration admission and all remaining work run.
-export const CANVAS_PREFLIGHT=Object.freeze({source:'cc9010a92a52eeeb53355cadfc5b759c2565d924',checkpoint:'b940595d55f417156672bdc6ef06aeb9a6da9df936c0ec3aee6135d265d5186e',guardLog:'53b48f35d020611ff8e4a2e48d725322b7a9dc69de1dfb746fd9ea5f8281d66b',retain:[1,4,5,6,7,8,9,10,11,13,14,15,16,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32]});
+export const CANVAS_PREFLIGHT=Object.freeze({source:'cc9010a92a52eeeb53355cadfc5b759c2565d924',checkpoint:'b940595d55f417156672bdc6ef06aeb9a6da9df936c0ec3aee6135d265d5186e',guardProgress:'ce2dcf9af4fceab0103b57bc16a5f27c09209f64ea9e577e73612176b768ef27',guardLog:'53b48f35d020611ff8e4a2e48d725322b7a9dc69de1dfb746fd9ea5f8281d66b',retain:[1,4,5,6,7,8,9,10,11,13,14,15,16,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32]});
 export function assertCanvasPreflightTree(head,read=gitBytes){
   const p=CANVAS_PREFLIGHT;read(['merge-base','--is-ancestor',p.source,head]);
   const files=read(['diff','--name-only',p.source,head]).toString().trim().split('\n').filter(Boolean);
-  assert(files.every(file=>['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs','tests/helpers/q2-runtime/linux-hosted.mjs','tests/helpers/canvas-workspace-transitions-ui.cjs'].includes(file)),'Preflight continuation changed product/test/toolchain inputs');
-  for(const [file,expected] of Object.entries({"tests/helpers/q2-runtime/linux-hosted.mjs": "78a5d0e55049ee6b4489f6fbf32917408f40e5a2c232e2700b2f0867ff4e9ad6", "tests/helpers/canvas-workspace-transitions-ui.cjs": "7326beff758492c53fa238cf76ccf30d9eb8465416768ed257e25844d5e20d96"}))assert.equal(sha256(read(['show',`${head}:${file}`])),expected,'Only the reviewed isolated-stage and new browser fixture corrections may inherit this prefix');
+  assert(files.every(file=>['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs','tests/helpers/q2-runtime/linux-hosted.mjs','tests/helpers/canvas-workspace-transitions-ui.cjs','tests/helpers/q2-runtime/linux-bootstrap.py'].includes(file)),'Preflight continuation changed product/test/toolchain inputs');
+  for(const [file,expected] of Object.entries({"tests/helpers/q2-runtime/linux-bootstrap.py":"e22052bdb1254f7e282f1c8d137bd443e3c54484d206a5800761eb0dd36a5ba4","tests/helpers/q2-runtime/linux-hosted.mjs": "78a5d0e55049ee6b4489f6fbf32917408f40e5a2c232e2700b2f0867ff4e9ad6", "tests/helpers/canvas-workspace-transitions-ui.cjs": "7326beff758492c53fa238cf76ccf30d9eb8465416768ed257e25844d5e20d96"}))assert.equal(sha256(read(['show',`${head}:${file}`])),expected,'Only the reviewed isolated-stage and new browser fixture corrections may inherit this prefix');
 }
 const workspaceStageCase='default native runtime plan stages every actual suite and control input';
 export function canvasWorkspaceStageContinuation(command){
   const original='node --test tests/canvas-workspace-transitions.test.mjs tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs';
   assert(command.includes(original)&&command.includes('node scripts/test-q2-runtime.mjs --suite canvas-transitions'));
-  return command.replace(original,()=>`node --test --test-name-pattern='^${workspaceStageCase}$' scripts/test-q2-runtime-launcher.mjs`);
+  const at=command.indexOf(original),tail=command.slice(at+original.length),join=tail.match(/^\s*&&\s*/);assert(join);return command.slice(0,at)+tail.slice(join[0].length);
 }
 export function verifyWorkspaceGuardUnion(before,after){
   assert.equal(before.length,30);assert.equal(new Set(before.map(r=>r.title)).size,30);
@@ -581,7 +581,8 @@ export function verifyCanvasPreflight(directory,evidence,commands){
     }else if(i===41){
       assert(!row.reusedFrom);assert.equal(row.continuation,canvasWorkspaceStageContinuation(commands[i].run));
       const prior=fs.readFileSync(path.join(directory,'reuse/stage-guard.log'));assert.equal(sha256(prior),CANVAS_PREFLIGHT.guardLog);
-      verifyWorkspaceGuardUnion(tapResults(prior.toString()),tapResults(fs.readFileSync(path.join(directory,row.log),'utf8')));
+      const progress=fs.readFileSync(path.join(directory,'reuse/stage-progress.log'));assert.equal(sha256(progress),CANVAS_PREFLIGHT.guardProgress);
+      verifyWorkspaceGuardUnion(tapResults(prior.toString()),tapResults(progress.toString()));assert.equal(tapResults(fs.readFileSync(path.join(directory,row.log),'utf8')).length,0,'Passed launcher guards must not repeat');
     }else assert(!row.reusedFrom&&!row.continuation,'Affected or unexecuted check cannot inherit preflight success');
   }
 }
