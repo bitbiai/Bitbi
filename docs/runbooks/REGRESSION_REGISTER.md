@@ -1782,3 +1782,15 @@ index/install operations, transport timeouts and fail-closed errors. The existin
 update/install and timeout paths across release, Full and processor callers.
 This infrastructure correction reuses all eight passed browser cases, native
 Worker and tested-image evidence; it does not repeat or waive product acceptance.
+
+Follow-up `37675235865/1` passed that setup and applied additive migration 0102,
+then failed before media activation: the imported image ZIP contained 66 entries
+including decoded transition samples, while publication correctly requires only
+`image.json`, `image.tar`, and `test.log`. Stage exactly that shared allowlist at
+the actual import boundary; keep diagnostics in the original evidence bundle.
+`test:release-plan` exercises staging with extra diagnostic files, successful
+strict extraction, unexpected ZIP entries, missing files and symlinks. Product
+render evidence is unchanged. Read-only reconciliation confirmed both backend
+versions still predate this feature; the existing continuation retains 0102 and
+completes media/Auth/frontend publication. Never loosen the consuming archive
+contract to accommodate an incorrectly assembled artifact.

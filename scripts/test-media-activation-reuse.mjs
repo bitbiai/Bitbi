@@ -7,7 +7,7 @@ import {mediaInputsUnchanged,resolveActiveMediaSource,verifyReusedMediaReceipt} 
 import {requiredJobs,proofJobs} from './pages-candidate.mjs';
 import {mediaImageInputs} from './private-media-image.mjs';
 import {hash} from './lib/frontend-hosting.mjs';
-import {publishMedia,mediaSmoke,mediaArchiveIdentity,verifyLoadedMediaImage} from './lib/media-publication.mjs';
+import {publishMedia,mediaSmoke,mediaArchiveIdentity,verifyLoadedMediaImage,stageMediaPublication} from './lib/media-publication.mjs';
 
 const repoRoot=process.cwd(),root=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-media-reuse-'));
 const git=args=>execFileSync('git',args,{cwd:root,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
@@ -101,8 +101,14 @@ with tarfile.open(fileobj=sys.stdout.buffer,mode='w|') as t:
     const folder=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-media-archive-'));
     try {
       fs.writeFileSync(path.join(folder,'image.json'),JSON.stringify(input.record));fs.writeFileSync(path.join(folder,'image.tar'),archive);fs.writeFileSync(path.join(folder,'test.log'),'passed');
-      execFileSync('python3',['-I','-c','import pathlib,sys,zipfile\np=pathlib.Path(sys.argv[1])\nwith zipfile.ZipFile(p/"image.zip","w") as z:\n for name in ["image.json","image.tar","test.log"]: z.write(p/name,name)',folder]);
-      const bytes=fs.readFileSync(path.join(folder,'image.zip'));input.artifact.digest=`sha256:${hash(bytes)}`;
+      fs.mkdirSync(path.join(folder,'transitions'));fs.writeFileSync(path.join(folder,'transitions/result.json'),'diagnostic');
+      const staged=path.join(folder,'publication');stageMediaPublication(folder,staged);
+      assert.deepEqual(fs.readdirSync(staged).sort(),['image.json','image.tar','test.log']);
+      assert(fs.existsSync(path.join(folder,'transitions/result.json')),'Original render diagnostics remain available');
+      assert.throws(()=>stageMediaPublication(folder,staged),/Refuse to replace/);
+      if(input.extraArchive)fs.writeFileSync(path.join(staged,'unexpected.png'),'must reject');
+      execFileSync('python3',['-I','-c','import pathlib,sys,zipfile\np=pathlib.Path(sys.argv[1])\nwith zipfile.ZipFile(p/"image.zip","w") as z:\n for f in list(p.iterdir()):\n  if f.name!="image.zip": z.write(f,f.name)',staged]);
+      const bytes=fs.readFileSync(path.join(staged,'image.zip'));input.artifact.digest=`sha256:${hash(bytes)}`;
       const reuse={...source,artifact:input.artifact};
       const result=await publishMedia(c,'unused-secret',{reuse,
         listArtifacts:async endpoint=>{assert.equal(endpoint,'actions/runs/100/artifacts');return [{...artifacts.at(-1),...input.artifact}];},
@@ -118,9 +124,11 @@ with tarfile.open(fileobj=sys.stdout.buffer,mode='w|') as t:
       assert(!calls.some(c=>c.includes('push')||c.includes('deploy')));return result;
     }finally{fs.rmSync(folder,{recursive:true,force:true});}
   };
+  const stagingCheck=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-media-stage-'));
+  try{assert.throws(()=>stageMediaPublication(stagingCheck,path.join(stagingCheck,'out')));fs.symlinkSync('/dev/null',path.join(stagingCheck,'image.json'));assert.throws(()=>stageMediaPublication(stagingCheck,path.join(stagingCheck,'out')),/unsafe/);}finally{fs.rmSync(stagingCheck,{recursive:true,force:true});}
   await publish();await publish(d=>d.inspected.Id=image);await publish(d=>d.inspected.Id=manifestId);
   for(const change of [d=>d.inspected.Id='sha256:'+'f'.repeat(64),d=>d.inspected.Architecture='arm64',d=>d.inspected.RootFS.Layers=['sha256:'+'f'.repeat(64)],d=>d.inspected.Config.Cmd=['wrong'],d=>d.inspected.Config.Labels['org.opencontainers.image.revision']=head])await assert.rejects(publish(change));
-  for(const change of [d=>d.corruptArchive=true,d=>d.record.sha=head,d=>d.record.run='200',d=>d.record.attempt='2',d=>d.record.dirty=true,d=>d.record.sourceFiles['workers/media/src/index.js']='bad',d=>d.record.archiveDigest='bad',d=>d.record.tests.pop(),d=>d.active.workerVersion='replacement',d=>d.active.deployment='replacement'])await assert.rejects(publish(change));
+  for(const change of [d=>d.extraArchive=true,d=>d.corruptArchive=true,d=>d.record.sha=head,d=>d.record.run='200',d=>d.record.attempt='2',d=>d.record.dirty=true,d=>d.record.sourceFiles['workers/media/src/index.js']='bad',d=>d.record.archiveDigest='bad',d=>d.record.tests.pop(),d=>d.active.workerVersion='replacement',d=>d.active.deployment='replacement'])await assert.rejects(publish(change));
   write('workers/media/src/index.js','genuine changed implementation\n');const changed=commit('actual media edit');
   assert.equal(mediaInputsUnchanged(sha,changed),false);assert.equal(await exercise(()=>{},{...c,sha:changed}),null,'A genuine media change selects a new tested deployment');
   assert.equal(await exercise(()=>{},{...c,base:head,sha:changed}),null,'Media older than a later published frontend base must not block a genuine media change');

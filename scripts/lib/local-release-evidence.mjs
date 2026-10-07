@@ -197,7 +197,7 @@ export function canvasStageContinuation(command) {
 }
 export const PERMISSION_REFRESH=new Set([0,2,3,4,7,12,17,28,29,33,34,35]);
 export const SMOOTH_REFRESH=new Set([...PERMISSION_REFRESH,14,44]);
-export const permissionRefresh=sha=>sha===WORKSPACE_CONTINUATION.source?new Set([0,2,3,4,7,12,15,16,17,23,29,33,34,35,44]):sha===INSPECTOR_CONTINUATION.source?new Set([0,2,3,4,7,12,14,17,23,29,33,34,35,40,41]):sha===AUDIO_FIT_CONTINUATION.source?new Set([0,2,3,4,7,12,14,17,29,33,34,35,44]):sha===SMOOTH_BROWSER_CONTINUATION.completed?new Set([0,2,3,4,7,12,14,17,29,33,34,35,44,46]):sha===SMOOTH_BROWSER_CONTINUATION.accepted?new Set([0,2,3,4,12,17,33,34,35,44]):sha===SMOOTH_BROWSER_CONTINUATION.progress?new Set([0,2,3,4,12,14,17,29,33,34,35,44]):isSmoothContinuation(sha)?SMOOTH_REFRESH:PERMISSION_REFRESH;
+export const permissionRefresh=sha=>sha===WORKSPACE_CONTINUATION.source?new Set([0,2,3,4,7,12,14,15,16,17,23,29,33,34,35,44]):sha===INSPECTOR_CONTINUATION.source?new Set([0,2,3,4,7,12,14,17,23,29,33,34,35,40,41]):sha===AUDIO_FIT_CONTINUATION.source?new Set([0,2,3,4,7,12,14,17,29,33,34,35,44]):sha===SMOOTH_BROWSER_CONTINUATION.completed?new Set([0,2,3,4,7,12,14,17,29,33,34,35,44,46]):sha===SMOOTH_BROWSER_CONTINUATION.accepted?new Set([0,2,3,4,12,17,33,34,35,44]):sha===SMOOTH_BROWSER_CONTINUATION.progress?new Set([0,2,3,4,12,14,17,29,33,34,35,44]):isSmoothContinuation(sha)?SMOOTH_REFRESH:PERMISSION_REFRESH;
 export function assertPermissionContinuationTree(head,read=gitBytes,{smooth=false,source}={}) {
   if(smooth){assertSmoothContinuationTree(head,read,{source});return;}
   const p=PERMISSION_CONTINUATION;

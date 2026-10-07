@@ -1,3 +1,4 @@
+import {stageMediaPublication} from './media-publication.mjs';
 import {smoothProfile,isSmoothContinuation,verifySmoothImageReuse} from './local-release-browser.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -142,7 +143,7 @@ export async function importLocalEvidence(expected, { token = process.env.GH_TOK
       const retained=isSmoothContinuation(verified.evidence.permissionContinuation?.source);
       if(retained)verifySmoothImageReuse(original,expected.sha);
       verifyMediaImage(original,{base:expected.base,sha:retained?original.sha:expected.sha,run:retained?smoothProfile(verified.evidence.permissionContinuation.source).run:verified.evidence.id,attempt:'1',archive:path.join(mediaDir,'image.tar')});
-      fs.mkdirSync('test-results',{recursive:true});fs.cpSync(mediaDir,'test-results/private-media-image',{recursive:true});
+      stageMediaPublication(mediaDir,'test-results/private-media-image');
       fs.writeFileSync('test-results/private-media-image/image.json',JSON.stringify({...original,run:String(run),attempt:String(attempt),
         localValidation:{policy:LOCAL_POLICY,...(retained?{publicationSha:expected.sha}:{}),run:original.run,attempt:original.attempt,evidence:verified.digest,recordHash:sha256(JSON.stringify(original))}}));
     }

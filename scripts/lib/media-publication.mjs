@@ -158,6 +158,14 @@ export function mediaFixtureSha(env=process.env,options) {
   if(env.REPAIR_SOURCE_SHA===CANVAS_AUDIO_BROWSER_REPAIR.sha){mediaEvidenceRun(env,options);return undefined;}
   return env.REPAIR_SOURCE_SHA;
 }
+export const MEDIA_PUBLICATION_FILES=Object.freeze(['image.json','image.tar','test.log']);
+export function stageMediaPublication(source,destination) {
+  assert(!fs.existsSync(destination),'Refuse to replace a staged media image');
+  for(const name of MEDIA_PUBLICATION_FILES)assert(fs.lstatSync(path.join(source,name)).isFile(),'Missing/unsafe required media image file');
+  fs.mkdirSync(destination,{recursive:true});
+  for(const name of MEDIA_PUBLICATION_FILES)fs.copyFileSync(path.join(source,name),path.join(destination,name));
+  // Decoded samples and diagnostics remain in the original acceptance bundle.
+}
 // Docker's containerd store reports an OCI index/manifest ID; the classic
 // store reports the config ID after docker load. Both must resolve to the exact
 // tested archive's AMD64 config and ordered filesystem, not just a matching tag.
@@ -209,7 +217,7 @@ export async function publishMedia(c,secretFile,{reuse,listArtifacts=collection,
     command('python3',['-I','-c',`import sys,zipfile,pathlib,stat
 p=pathlib.Path(sys.argv[1])
 with zipfile.ZipFile(p/'image.zip') as z:
- assert sorted(z.namelist())==['image.json','image.tar','test.log']
+ assert sorted(z.namelist())==${JSON.stringify(MEDIA_PUBLICATION_FILES)}, "media_artifact_entries_invalid"
  assert sum(e.file_size for e in z.infolist())<1024*1024*1024
  for e in z.infolist():
   assert stat.S_IFMT(e.external_attr>>16) in (0,stat.S_IFREG)
