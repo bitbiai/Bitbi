@@ -2,7 +2,8 @@ const fs=require('node:fs'),path=require('node:path'),os=require('node:os');
 exports.workspace=async({page,expect,locale,mockSharedAuth,createCanvasApiMock,info})=>{
   const de=locale==='de',id=n=>String(n).repeat(32),now=new Date().toISOString();
   await page.setViewportSize({width:de?390:1440,height:950});await mockSharedAuth(page);
-  const state=createCanvasApiMock(page),errors=[];page.on('pageerror',e=>errors.push(e.message));
+  const state=createCanvasApiMock(page),errors=[],sizes=[];page.on('pageerror',e=>errors.push(e.message));
+  page.on('request',r=>{if(r.method()==='PATCH'&&new URL(r.url()).pathname.endsWith('/projects/'+id(1)))sizes.push(r.postDataJSON());});
   state.projects=[{id:id(1),title:'Workspace bounds',locale,created_at:now,updated_at:now}];
   state.nodes=[{id:id(2),project_id:id(1),type:'note',title:'Origin',x:100,y:80,config:{},content:{text:'Near'},created_at:now,updated_at:now},
     {id:id(3),project_id:id(1),type:'note',title:'Far node with a longer visible title',x:2076,y:1750,config:{},content:{text:'Actual full card geometry'},created_at:now,updated_at:now}];
@@ -23,14 +24,13 @@ exports.workspace=async({page,expect,locale,mockSharedAuth,createCanvasApiMock,i
   const box=await near.locator('.canvas-node__head').boundingBox(),start={x:Math.round(box.x+box.width/2),y:Math.round(box.y+box.height/2)},delta={x:Math.round(40*zoom),y:Math.round(20*zoom)};
   await page.mouse.move(start.x,start.y);await page.mouse.down();await page.mouse.move(start.x+delta.x,start.y+delta.y,{steps:4});await page.mouse.up();
   await expect.poll(()=>state.nodes[0].x).toBeCloseTo(110+delta.x/zoom,1);await expect.poll(()=>state.nodes[0].y).toBeCloseTo(80+delta.y/zoom,1);
-  await width.fill('4000');await width.press('Enter');await expect.poll(()=>state.projects[0].workspace_width).toBe(4000);
-  await height.fill('3000');await height.press('Enter');await expect.poll(()=>state.projects[0].workspace_height).toBe(3000);
+  await width.fill('4000');await width.press('Enter');await expect.poll(()=>state.projects[0].workspace_width).toBe(4000);await expect(width).toBeEnabled();
+  await height.fill('3000');await height.press('Enter');await expect.poll(()=>state.projects[0].workspace_height).toBe(3000);await expect(height).toBeEnabled();expect(sizes).toHaveLength(2);
   await width.fill('2076');await width.press('Enter');await expect(width).toHaveValue('4000');await expect(controls.locator('.canvas-workspace-minimum')).toContainText('2319');
   const minH=await height.getAttribute('min');expect(Number(minH)).toBeGreaterThan(1750);expect(Number(minH)).toBeLessThan(2300);
   await height.fill('1750');await height.press('Enter');await expect(height).toHaveValue('3000');expect(state.projects[0].workspace_height).toBe(3000);
   await page.reload();await expect(width).toHaveValue('4000');await expect(height).toHaveValue('3000');await fit.click();
   page.once('dialog',dialog=>dialog.accept());await far.press('Enter');await far.press('Delete');
-  const dialog=page.getByRole('dialog');if(await dialog.isVisible())await dialog.getByRole('button',{name:de?'Löschen':'Delete',exact:true}).click();
   await expect(far).toHaveCount(0);await expect.poll(async()=>Number(await width.getAttribute('min'))).toBeLessThan(500);
   await width.fill('500');await width.press('Enter');await expect.poll(()=>state.projects[0].workspace_width).toBe(500);
   await height.fill('400');await height.press('Enter');await expect.poll(()=>state.projects[0].workspace_height).toBe(400);

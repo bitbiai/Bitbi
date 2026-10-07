@@ -1,7 +1,7 @@
 import {workspaceBounds,workspaceSize,validWorkspaceSize,WORKSPACE_LIMIT,NODE_HANDLE} from '../../shared/canvas-workspace.mjs?v=__ASSET_VERSION__';
 
 export function createWorkspaceView({viewport,surface,nodesRoot,edgesRoot,toolbar,getState,save,measureSave,german}) {
-    let zoom=1,projectId=null,size=workspaceSize(),busy=false;
+    let zoom=1,projectId=null,size=workspaceSize(),busy=false,feedback='';
     const preferences=new Map(),wrap=document.createElement('div'),spacer=document.createElement('div');
     wrap.className='canvas-view-controls';spacer.className='canvas-view-spacer';surface.before(spacer);spacer.append(surface);
     const button=(text,label,action)=>{const b=document.createElement('button');b.type='button';b.className='canvas-button canvas-button--compact';b.textContent=text;b.setAttribute('aria-label',label);b.addEventListener('click',action);wrap.append(b);return b;};
@@ -24,7 +24,7 @@ export function createWorkspaceView({viewport,surface,nodesRoot,edgesRoot,toolba
         spacer.style.width=size.width*zoom+'px';spacer.style.height=size.height*zoom+'px';percent.value=`${zoom<.1?(zoom*100).toFixed(1):Math.round(zoom*100)}%`;
         minus.disabled=zoom<=.001;plus.disabled=zoom>=2;
         for(const key of ['width','height']){inputs[key].min=String(bounds[key]);inputs[key].disabled=busy||!state.project;if(document.activeElement!==inputs[key])inputs[key].value=String(size[key]);}
-        if(!busy)note.textContent=(german?'Minimum: ':'Minimum: ')+`${bounds.width} × ${bounds.height}`;
+        if(!busy)note.textContent=feedback||`Minimum: ${bounds.width} × ${bounds.height}`;
     }
     function scale(next) {
         const x=(viewport.scrollLeft+viewport.clientWidth/2)/zoom,y=(viewport.scrollTop+viewport.clientHeight/2)/zoom;
@@ -35,13 +35,14 @@ export function createWorkspaceView({viewport,surface,nodesRoot,edgesRoot,toolba
     function fit(){paint();const b=workspaceBounds(measured()),margin=40;zoom=Math.min(2,Math.max(.001,Math.min(viewport.clientWidth/(b.width+margin*2),viewport.clientHeight/(b.height+margin*2))));paint();viewport.scrollTo(Math.max(0,(b.left-size.left-margin)*zoom),Math.max(0,(b.top-size.top-margin)*zoom));remember();}
     async function resize(){
         if(busy||!getState().project)return;const width=Number(inputs.width.value),height=Number(inputs.height.value),nodes=measured(),bounds=workspaceBounds(nodes);
-        if(!validWorkspaceSize(width,height,bounds)){inputs.width.value=String(size.width);inputs.height.value=String(size.height);note.textContent=(german?'Nicht gespeichert. Minimum: ':'Not saved. Minimum: ')+`${bounds.width} × ${bounds.height}; Maximum: ${WORKSPACE_LIMIT}.`;return;}
-        const project=getState().project;busy=true;paint();
+        if(!validWorkspaceSize(width,height,bounds)){inputs.width.value=String(size.width);inputs.height.value=String(size.height);note.textContent=feedback=(german?'Nicht gespeichert. Minimum: ':'Not saved. Minimum: ')+`${bounds.width} × ${bounds.height}; Maximum: ${WORKSPACE_LIMIT}.`;return;}
+        if(width===size.width&&height===size.height)return; // Enter followed by blur must not resubmit the same size.
+        const project=getState().project;feedback='';busy=true;paint();
         try{await measureSave(nodes);const result=await save(project,{workspace_width:width,workspace_height:height});if(!result.ok)throw Error(result.error||'Save failed');}
-        catch(error){if(getState().project===project){inputs.width.value=String(size.width);inputs.height.value=String(size.height);note.textContent=german?'Größe nicht gespeichert. Bitte erneut versuchen.':'Size not saved. Please try again.';}return;}
+        catch(error){if(getState().project===project){inputs.width.value=String(size.width);inputs.height.value=String(size.height);note.textContent=feedback=german?'Größe nicht gespeichert. Bitte erneut versuchen.':'Size not saved. Please try again.';}return;}
         finally{busy=false;for(const input of Object.values(inputs))input.disabled=false;}
         if(getState().project===project){paint();inputs.width.value=String(size.width);inputs.height.value=String(size.height);}
     }
     const observer=new ResizeObserver(()=>paint());
-    return {refresh(){observer.disconnect();observer.observe(viewport);for(const card of nodesRoot.children)observer.observe(card);const id=getState().project?.id;if(id!==projectId){projectId=id;const pref=preferences.get(id);zoom=pref?.zoom||1;paint();viewport.scrollTo(pref?.x||0,pref?.y||0);}else paint();},get zoom(){return zoom;},placement(offsetX=70,offsetY=70){return {x:size.left+(viewport.scrollLeft+offsetX)/zoom,y:size.top+(viewport.scrollTop+offsetY)/zoom};},limits(card){return {minX:size.left+NODE_HANDLE,minY:size.top,maxX:size.left+size.width-(card?.offsetWidth||230)-NODE_HANDLE,maxY:size.top+size.height-(card?.offsetHeight||126)};}};
+    return {refresh(){observer.disconnect();observer.observe(viewport);for(const card of nodesRoot.children)observer.observe(card);const id=getState().project?.id;if(id!==projectId){projectId=id;feedback='';const pref=preferences.get(id);zoom=pref?.zoom||1;paint();viewport.scrollTo(pref?.x||0,pref?.y||0);}else paint();},get zoom(){return zoom;},placement(offsetX=70,offsetY=70){return {x:size.left+(viewport.scrollLeft+offsetX)/zoom,y:size.top+(viewport.scrollTop+offsetY)/zoom};},limits(card){return {minX:size.left+NODE_HANDLE,minY:size.top,maxX:size.left+size.width-(card?.offsetWidth||230)-NODE_HANDLE,maxY:size.top+size.height-(card?.offsetHeight||126)};}};
 }
