@@ -18,11 +18,14 @@ exports.workspace=async({page,expect,locale,mockSharedAuth,createCanvasApiMock,i
   const viewport=await page.locator('#canvasViewport').boundingBox();for(const node of [near,far]){const b=await node.boundingBox();expect(b.x).toBeGreaterThanOrEqual(viewport.x-1);expect(b.y+b.height).toBeLessThanOrEqual(viewport.y+viewport.height+1);}
   expect(state.nodes.map(n=>[n.x,n.y])).toEqual(positions);
   await near.focus();await near.press('ArrowRight');await expect.poll(()=>state.nodes[0].x).toBe(110);
-  const box=await near.locator('.canvas-node__head').boundingBox();await page.mouse.move(box.x+box.width/2,box.y+box.height/2);await page.mouse.down();await page.mouse.move(box.x+box.width/2+40*zoom,box.y+box.height/2+20*zoom,{steps:4});await page.mouse.up();
-  await expect.poll(()=>Math.round(state.nodes[0].x)).toBe(150);await expect.poll(()=>Math.round(state.nodes[0].y)).toBe(100);
+  // Native WebKit delivers integer CSS pointer coordinates. Assert the requested
+  // integer screen displacement in Canvas coordinates; unscaled dragging fails.
+  const box=await near.locator('.canvas-node__head').boundingBox(),start={x:Math.round(box.x+box.width/2),y:Math.round(box.y+box.height/2)},delta={x:Math.round(40*zoom),y:Math.round(20*zoom)};
+  await page.mouse.move(start.x,start.y);await page.mouse.down();await page.mouse.move(start.x+delta.x,start.y+delta.y,{steps:4});await page.mouse.up();
+  await expect.poll(()=>state.nodes[0].x).toBeCloseTo(110+delta.x/zoom,1);await expect.poll(()=>state.nodes[0].y).toBeCloseTo(80+delta.y/zoom,1);
   await width.fill('4000');await width.press('Enter');await expect.poll(()=>state.projects[0].workspace_width).toBe(4000);
   await height.fill('3000');await height.press('Enter');await expect.poll(()=>state.projects[0].workspace_height).toBe(3000);
-  await width.fill('2076');await width.press('Enter');await expect(width).toHaveValue('4000');await expect(controls.getByRole('status')).toContainText('2319');
+  await width.fill('2076');await width.press('Enter');await expect(width).toHaveValue('4000');await expect(controls.locator('.canvas-workspace-minimum')).toContainText('2319');
   const minH=await height.getAttribute('min');expect(Number(minH)).toBeGreaterThan(1750);expect(Number(minH)).toBeLessThan(2300);
   await height.fill('1750');await height.press('Enter');await expect(height).toHaveValue('3000');expect(state.projects[0].workspace_height).toBe(3000);
   await page.reload();await expect(width).toHaveValue('4000');await expect(height).toHaveValue('3000');await fit.click();
@@ -37,7 +40,7 @@ exports.workspace=async({page,expect,locale,mockSharedAuth,createCanvasApiMock,i
   if(de&&await projects.getAttribute('aria-expanded')!=='true')await projects.click();
   await page.locator('.canvas-project-item__open').filter({hasText:'Workspace bounds'}).click();await expect(width).toHaveValue('500');await expect(height).toHaveValue('400');
   let rejectSave=true;await page.route(`**/api/account/canvas/projects/${id(1)}`,route=>route.request().method()==='PATCH'&&rejectSave?route.fulfill({status:503,json:{ok:false,error:'Controlled save failure'}}):route.fallback());
-  await width.fill('600');await width.press('Enter');await expect(controls.getByRole('status')).toContainText(de?'nicht gespeichert':'not saved');await expect(width).toHaveValue('500');expect(state.projects[0].workspace_width).toBe(500);rejectSave=false;
+  await width.fill('600');await width.press('Enter');await expect(controls.locator('.canvas-workspace-minimum')).toContainText(de?'nicht gespeichert':'not saved');await expect(width).toHaveValue('500');expect(state.projects[0].workspace_width).toBe(500);rejectSave=false;
   await page.reload();await expect(width).toHaveValue('500');await expect(height).toHaveValue('400');
   await page.locator('#canvasNodeType').selectOption('note');await page.locator('#canvasAddNode').click();await expect.poll(()=>state.nodes.length).toBe(2);
   const added=state.nodes.at(-1);expect(added.x).toBeGreaterThanOrEqual(13);expect(added.x).toBeLessThanOrEqual(257);expect(added.y).toBeLessThanOrEqual(274);
