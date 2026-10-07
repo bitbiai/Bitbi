@@ -189,8 +189,32 @@ export const INSPECTOR_CONTINUATION=Object.freeze({
     "tests/helpers/canvas-inspector-ui.cjs": "21c2df5c038c8bd4fb300ad4a61e708aeca5319eec6268689c2c7d536d518917"
   }
 });
-export const smoothProfile=source=>source===INSPECTOR_CONTINUATION.source?INSPECTOR_CONTINUATION:source===AUDIO_FIT_CONTINUATION.source?AUDIO_FIT_CONTINUATION:SMOOTH_BROWSER_CONTINUATION;
-export const isSmoothContinuation=sha=>[INSPECTOR_CONTINUATION.source,AUDIO_FIT_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.progress,SMOOTH_BROWSER_CONTINUATION.accepted,SMOOTH_BROWSER_CONTINUATION.completed].includes(sha);
+// Only workspace controls/fixtures changed: completed media, API and transition
+// cases retain their original source; the four workspace cases execute fresh.
+export const WORKSPACE_CONTINUATION=Object.freeze({
+  "source": "3d8b108d020158033c66cfca972134b479eb2641",
+  "run": "3d8b108d020158033c66cfca972134b479eb2641-c3a18548-5d7a-464a-b5eb-11d3158163e2",
+  "checkpoint": "ec8c697dcc0328bc024a5c7b1b56e1174fa7a9112bf482a0709a3e49997b1907",
+  "report": "74606826cc84296245a859e27a57792b6fcc0aa572a0fe66acecbefaa5584c80",
+  "rows": "10c4005887a137ddc60fe74034c1c697cf6605bffb3d71759970d22cdb00c5f3",
+  "discovery": "6b651f5dc53b1116df09ede911aee97c40e3ceaf45b074be626a1088aa093b97",
+  "image": "e45ba8867a83a40720763514088731d5d2ad771889136c2358d165c899110132",
+  "manifest": "ab7ba98853c6f62764586b3cde00d4a44784c0dba9786458fa3f95bffc437c40",
+  "proof": "6e594b0404650af5b05a3529b901e37ad4a6ad5d18c37641ae170d56a98fdef5",
+  "last": 45,
+  "counts": {
+    "required": 8,
+    "reused": 4,
+    "executed": 4
+  },
+  "specs": {
+    "tests/helpers/canvas-workspace-transitions-ui.cjs": "a32a02bed6a779a044925ac73b0fcefda6814ee85bef6d86d9d0a8710e96b433",
+    "js/pages/canvas/workspace-view.js": "a7a6fc093a8d61ed1f9ce2a2ef03cae43d5a288f66dbb54d6fd32b38e05572fd"
+  },
+  "reviewedSource": "3ae7203c5c6d51e1c16b09ac9df1f68b649e13b8"
+});
+export const smoothProfile=source=>source===WORKSPACE_CONTINUATION.source?WORKSPACE_CONTINUATION:source===INSPECTOR_CONTINUATION.source?INSPECTOR_CONTINUATION:source===AUDIO_FIT_CONTINUATION.source?AUDIO_FIT_CONTINUATION:SMOOTH_BROWSER_CONTINUATION;
+export const isSmoothContinuation=sha=>[WORKSPACE_CONTINUATION.source,INSPECTOR_CONTINUATION.source,AUDIO_FIT_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.progress,SMOOTH_BROWSER_CONTINUATION.accepted,SMOOTH_BROWSER_CONTINUATION.completed].includes(sha);
 const smoothTooling=new Set(['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/lib/local-release-browser.mjs',
   'scripts/lib/local-release-transport.mjs','scripts/pages-candidate.mjs','scripts/test-local-release.mjs',
   'scripts/lib/media-publication.mjs','scripts/lib/backend-publication.mjs','scripts/test-media-activation-reuse.mjs',
@@ -227,7 +251,7 @@ export function runSmoothBrowserContinuation(env=process.env) {
   const readProgress=(profile,file)=>{if(!profile)return;const bytes=fs.readFileSync(`.local-release/reuse/${file}`);assert.equal(sha256(bytes),profile.report);return {sha:profile.sha,rows:browserRows(JSON.parse(bytes))};};
   const progress=readProgress(p.browserProgress,'smooth-progress.json'),accepted=readProgress(p.browserAccepted,'smooth-accepted-cases.json');
   const previous=browserRows(JSON.parse(raw)),retained=smoothRetained(previous,progress,p,accepted);
-  const base=p===INSPECTOR_CONTINUATION?['test:static','--','tests/canvas.spec.js','--project=chromium','--project=webkit-canvas','--grep','Canvas Inspector']:p===AUDIO_FIT_CONTINUATION?['test:static','--','tests/canvas.spec.js','--project=chromium','--project=webkit-canvas','--grep','Canvas audio fit']
+  const base=p===WORKSPACE_CONTINUATION?['test:static','--','tests/canvas.spec.js','--project=chromium','--project=webkit-canvas','--grep','Canvas workspace transitions']:p===INSPECTOR_CONTINUATION?['test:static','--','tests/canvas.spec.js','--project=chromium','--project=webkit-canvas','--grep','Canvas Inspector']:p===AUDIO_FIT_CONTINUATION?['test:static','--','tests/canvas.spec.js','--project=chromium','--project=webkit-canvas','--grep','Canvas audio fit']
     :['test:static','--','tests/canvas.spec.js','tests/oma2-q1-canvas.spec.js','--project=chromium','--project=webkit-canvas','--grep','Canvas|P13|@canvas-model-ui'];
   const run=(name,args,discovery=false)=>{
     const file=path.resolve(`test-results/smooth-${name}.json`);fs.rmSync(file,{force:true});

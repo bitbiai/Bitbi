@@ -286,7 +286,9 @@ export function verifyCanvasCandidateReports(names, reports, discovery, selectio
   assert.equal(names.filter(value => value === name).length, 1, 'Exactly one Canvas auth report required');
   if(selection.canvasTransitions){
     verifyCanvasTransitionDiscovery(flattenHomepageDiscovery(discovery));
-    verifyAdminReport(reports[names.indexOf(name)],discovery,[['canvas',['canvas.spec.js']]],canvasReleaseProject);
+    const report=reports[names.indexOf(name)];
+    if(report.policy===SMOOTH_BROWSER_POLICY){assert.deepEqual(report.discovery,browserRows(discovery,{discovery:true}));verifySmoothBrowserReport(report,report.sha);}
+    else verifyAdminReport(report,discovery,[['canvas',['canvas.spec.js']]],canvasReleaseProject);
   } else if (selection.canvasInspector) {
     verifyCanvasInspectorDiscovery(flattenHomepageDiscovery(discovery));
     const report=reports[names.indexOf(name)];
@@ -359,9 +361,9 @@ export function candidateProof(manifest, { job, reportFile, readJson = file => J
   const counts=[];
   for(const [index,report] of reports.entries()) {
     if(report.policy===SMOOTH_BROWSER_POLICY) {
-      assert.equal(job,'browser-validation');assert.equal(names[index],'test-results/candidate-auth.json');assert(manifest.selection.canvasAudio||manifest.selection.canvasAudioFit||manifest.selection.canvasInspector);
+      assert.equal(job,'browser-validation');assert.equal(names[index],'test-results/candidate-auth.json');assert(manifest.selection.canvasAudio||manifest.selection.canvasAudioFit||manifest.selection.canvasInspector||manifest.selection.canvasTransitions);
       const discovery=readJson('test-results/canvas-discovery.json');
-      (manifest.selection.canvasInspector?verifyCanvasInspectorDiscovery:manifest.selection.canvasAudioFit?verifyCanvasAudioFitDiscovery:verifyCanvasAudioDiscovery)(flattenHomepageDiscovery(discovery));
+      (manifest.selection.canvasTransitions?verifyCanvasTransitionDiscovery:manifest.selection.canvasInspector?verifyCanvasInspectorDiscovery:manifest.selection.canvasAudioFit?verifyCanvasAudioFitDiscovery:verifyCanvasAudioDiscovery)(flattenHomepageDiscovery(discovery));
       assert.deepEqual(report.discovery,browserRows(discovery,{discovery:true}));
       counts.push(verifySmoothBrowserReport(report,manifest.sha).required);continue;
     }

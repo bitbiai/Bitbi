@@ -10,7 +10,7 @@ import { environmentInputs, environmentKey, toolchainPins } from './local-releas
 import { gitSelection, tree, verifyManifest, verifyProofs, candidateProof, proofJobs, REPOSITORY } from '../pages-candidate.mjs';
 import { verifyFrontend } from './frontend-hosting.mjs';
 import { browserRows } from './browser-fixture-repair.mjs';
-import { LOCAL_BROWSER_POLICY, readMigrationBrowserPool, SMOOTH_BROWSER_POLICY, SMOOTH_BROWSER_CONTINUATION, AUDIO_FIT_CONTINUATION, INSPECTOR_CONTINUATION, smoothProfile, isSmoothContinuation, assertSmoothContinuationTree, verifySmoothBrowserReport, restoreSmoothBrowserProof } from './local-release-browser.mjs';
+import { LOCAL_BROWSER_POLICY, readMigrationBrowserPool, SMOOTH_BROWSER_POLICY, SMOOTH_BROWSER_CONTINUATION, WORKSPACE_CONTINUATION, AUDIO_FIT_CONTINUATION, INSPECTOR_CONTINUATION, smoothProfile, isSmoothContinuation, assertSmoothContinuationTree, verifySmoothBrowserReport, restoreSmoothBrowserProof } from './local-release-browser.mjs';
 
 export const LOCAL_REQUIRED_JOBS = { 'release-compatibility': [
   'Preflight complete static release plan', 'Select tests from changed files',
@@ -197,7 +197,7 @@ export function canvasStageContinuation(command) {
 }
 export const PERMISSION_REFRESH=new Set([0,2,3,4,7,12,17,28,29,33,34,35]);
 export const SMOOTH_REFRESH=new Set([...PERMISSION_REFRESH,14,44]);
-export const permissionRefresh=sha=>sha===INSPECTOR_CONTINUATION.source?new Set([0,2,3,4,7,12,14,17,23,29,33,34,35,40,41]):sha===AUDIO_FIT_CONTINUATION.source?new Set([0,2,3,4,7,12,14,17,29,33,34,35,44]):sha===SMOOTH_BROWSER_CONTINUATION.completed?new Set([0,2,3,4,7,12,14,17,29,33,34,35,44,46]):sha===SMOOTH_BROWSER_CONTINUATION.accepted?new Set([0,2,3,4,12,17,33,34,35,44]):sha===SMOOTH_BROWSER_CONTINUATION.progress?new Set([0,2,3,4,12,14,17,29,33,34,35,44]):isSmoothContinuation(sha)?SMOOTH_REFRESH:PERMISSION_REFRESH;
+export const permissionRefresh=sha=>sha===WORKSPACE_CONTINUATION.source?new Set([0,2,3,4,7,12,17,23,29,33,34,35,44]):sha===INSPECTOR_CONTINUATION.source?new Set([0,2,3,4,7,12,14,17,23,29,33,34,35,40,41]):sha===AUDIO_FIT_CONTINUATION.source?new Set([0,2,3,4,7,12,14,17,29,33,34,35,44]):sha===SMOOTH_BROWSER_CONTINUATION.completed?new Set([0,2,3,4,7,12,14,17,29,33,34,35,44,46]):sha===SMOOTH_BROWSER_CONTINUATION.accepted?new Set([0,2,3,4,12,17,33,34,35,44]):sha===SMOOTH_BROWSER_CONTINUATION.progress?new Set([0,2,3,4,12,14,17,29,33,34,35,44]):isSmoothContinuation(sha)?SMOOTH_REFRESH:PERMISSION_REFRESH;
 export function assertPermissionContinuationTree(head,read=gitBytes,{smooth=false,source}={}) {
   if(smooth){assertSmoothContinuationTree(head,read,{source});return;}
   const p=PERMISSION_CONTINUATION;
@@ -254,10 +254,10 @@ function verifyPermissionContinuation(directory,evidence,commands) {
 export function restoreCanvasHostingProof(directory,{verifyOnly=false}={}) {
   const checkpoint=path.join(directory,'reuse/test-results/permission-checkpoint.json');
   const source=fs.existsSync(checkpoint)?JSON.parse(fs.readFileSync(checkpoint)).sha:null;
-  const p=[AUDIO_FIT_CONTINUATION.source,INSPECTOR_CONTINUATION.source].includes(source)?{...smoothProfile(source),tail:source}:PERMISSION_CONTINUATION,read=(file,hash)=>{const bytes=fs.readFileSync(path.join(directory,'reuse',file));assert.equal(sha256(bytes),hash);return JSON.parse(bytes);};
+  const p=[WORKSPACE_CONTINUATION.source,AUDIO_FIT_CONTINUATION.source,INSPECTOR_CONTINUATION.source].includes(source)?{...smoothProfile(source),tail:source}:PERMISSION_CONTINUATION,read=(file,hash)=>{const bytes=fs.readFileSync(path.join(directory,'reuse',file));assert.equal(sha256(bytes),hash);return JSON.parse(bytes);};
   const original=read('hosting-manifest.json',p.manifest),oldProof=read('hosting-proof.json',p.proof);
   const manifest=JSON.parse(fs.readFileSync(path.join(directory,'candidate/manifest.json')));
-  verifyMigrationCandidateBytes(directory,original,manifest,{allowLabGuard:false});assert.deepEqual(manifest.hosting,original.hosting);
+  verifyMigrationCandidateBytes(directory,original,manifest,{allowLabGuard:false,workspaceRepair:source===WORKSPACE_CONTINUATION.source});assert.deepEqual(manifest.hosting,original.hosting);
   const proof={...oldProof,manifestHash:sha256(JSON.stringify(manifest)),reusedFrom:{sha:p.tail,manifestHash:oldProof.manifestHash}};
   if(verifyOnly)assert.deepEqual(JSON.parse(fs.readFileSync(path.join(directory,'candidate/proof-frontend-runtime.json'))),proof);
   else fs.writeFileSync(path.join(directory,'candidate/proof-frontend-runtime.json'),JSON.stringify(proof));
@@ -446,7 +446,7 @@ export function verifyLocalReuse(directory,evidence) {
   verifyProofs(oldManifest,[oldProof]);
 }
 
-export function verifyMigrationCandidateBytes(directory,oldManifest,manifest,{allowLabGuard=true}={}) {
+export function verifyMigrationCandidateBytes(directory,oldManifest,manifest,{allowLabGuard=true,workspaceRepair=false}={}) {
   assert.deepEqual(Object.keys(manifest.files),Object.keys(oldManifest.files),'Candidate membership changed');
   const oldToken=oldManifest.sha.slice(0,12),newToken=manifest.sha.slice(0,12);
   for(const [file,hash]of Object.entries(oldManifest.files)) {
@@ -455,6 +455,12 @@ export function verifyMigrationCandidateBytes(directory,oldManifest,manifest,{al
     if(sha256(bytes)===hash)continue;
     let normalized=bytes.toString().replaceAll(`?v=${newToken}`,`?v=${oldToken}`);
     if(file==='js/pages/admin/ai-lab.js')normalized=normalized.replace(`const ADMIN_AI_UI_VERSION = '${newToken}';`,`const ADMIN_AI_UI_VERSION = '${oldToken}';`);
+    if(workspaceRepair&&file==='js/pages/canvas/workspace-view.js') {
+      const p=WORKSPACE_CONTINUATION;assert.equal(oldManifest.sha,p.source);
+      const reviewed=gitBytes(['show',`${p.reviewedSource}:${file}`]);assert.equal(sha256(reviewed),p.specs[file]);
+      assert.equal(bytes.toString(),reviewed.toString().replaceAll('__ASSET_VERSION__',newToken),'Changed workspace repair');
+      normalized=gitBytes(['show',`${p.source}:${file}`]).toString().replaceAll('__ASSET_VERSION__',oldToken);
+    }
     if(allowLabGuard&&file==='js/pages/generate-lab/main.js')normalized=normalized.replace('    // Concurrent UI triggers may have awaited the same pricing refresh.\n    if (state.busy) return;\n','');
     assert.equal(sha256(normalized),hash,`Unreviewed product/build change: ${file}`);
   }

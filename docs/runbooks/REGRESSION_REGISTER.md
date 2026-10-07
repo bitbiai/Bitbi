@@ -1758,3 +1758,16 @@ preview/full output; native API cases pin accepted jobs across later edge edits.
 Actual callers and recovery are in the runbook's Canvas workspace/transition
 section. Decorative Hero coverage stays removed. These implementation notes do not
 claim live acceptance; keep final source/attempt/artifacts in the release checkpoint.
+
+The initial local acceptance at `3d8b108d` passed native admission, all thirteen
+target-image presets and the four transition browser cases. Workspace failures
+identified an ambiguous `status` query (zoom output also has that role), fractional
+WebKit pointer quantization and a test querying the auth dialog after native delete.
+Use integer pointer coordinates, actual displacement and the dimension feedback
+node; deletion remains a native confirmation. A real failed-save case also exposed
+ResizeObserver clearing the failure text. Preserve feedback across layout updates
+and avoid resubmitting unchanged dimensions on Enter/blur; the browser case checks
+last-valid dimensions and rejects missing failure feedback. The closed existing
+local continuation retains immutable image/API/transition evidence, executes only
+unresolved workspace cases and rejects altered input, missing, failed or retried
+proof. Checkpoints retain original failures; they are never relabelled as passes.
