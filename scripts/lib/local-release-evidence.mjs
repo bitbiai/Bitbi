@@ -547,7 +547,8 @@ export const CANVAS_PREFLIGHT=Object.freeze({source:'8665a5f291b020049b3fffe2006
 export function assertCanvasPreflightTree(head,read=gitBytes){
   const p=CANVAS_PREFLIGHT;read(['merge-base','--is-ancestor',p.source,head]);
   const files=read(['diff','--name-only',p.source,head]).toString().trim().split('\n').filter(Boolean);
-  assert(files.every(file=>['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs','scripts/test-q2-runtime-launcher.mjs'].includes(file)),'Preflight continuation changed product/test/toolchain inputs');
+  assert(files.every(file=>['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs','scripts/test-q2-runtime-launcher.mjs','scripts/test-pages-candidate.mjs'].includes(file)),'Preflight continuation changed product/test/toolchain inputs');
+  assert.equal(sha256(read(['show',`${head}:scripts/test-pages-candidate.mjs`])), '953c078107b7b57e2d32bf116b21909bdfca189b8fdc8d15701ef87aef44964b', 'Unreviewed candidate shell fixture change');
   const file='scripts/test-q2-runtime-launcher.mjs';
   const before=read(['show',`${p.source}:${file}`]).toString(),after=read(['show',`${head}:${file}`]).toString();
   const expected=before.replace("audio='false',fit='false']", "audio='false',fit='false',transitions='false']")
