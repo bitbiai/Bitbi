@@ -39,7 +39,10 @@ exports.examples=async options=>{
  const count=assets.length;await controls.getByRole('spinbutton',{name:de?'Überlappung (Sekunden)':'Overlap (seconds)',exact:true}).fill('1.2');await controls.getByRole('spinbutton',{name:de?'Überlappung (Sekunden)':'Overlap (seconds)',exact:true}).press('Tab');await expect.poll(()=>state.edges[0].config.transition.duration).toBe(1.2);expect(assets.length).toBe(count);
  await button.focus();await button.press('Space');await shown('light-wash','png');await button.press('Enter');await shown('light-wash');
  await page.emulateMedia({reducedMotion:'reduce'});await shown('light-wash','png');await select.selectOption('bloom');await shown('bloom','png');await button.click();await shown('bloom');
+ // Await the actual WebKit preference notification before selecting another effect.
+ if(nativeCache&&!de)await page.evaluate(()=>{window.exampleMotionSettled=new Promise(resolve=>matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change',()=>resolve(),{once:true}));});
  await page.emulateMedia({reducedMotion:'no-preference'});
+ if(nativeCache&&!de)await page.evaluate(()=>window.exampleMotionSettled);
  if(!nativeCache)await cacheControls('fade');
  if(nativeCache){await select.selectOption('fade');await shown('fade');}
  // Failed persistence keeps the actual saved effect and its matching example.

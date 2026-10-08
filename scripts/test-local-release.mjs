@@ -661,7 +661,7 @@ const historicalExportFile=file=>execFileSync('git',['show','5f0384373bd7e1505be
 
 {
  const {EXAMPLE_CACHE_CONTINUATION:p}=await import('./lib/local-release-browser.mjs');
- const blob=execFileSync('git',['cat-file','blob','c825d926d96dc3f66d9f23db7f7ec68550d7bf7b']);
+ const blob=execFileSync('git',['cat-file','blob','55602ba09ce5b71e4488b61a0c4a5efcb80f6306']);
  const read=args=>args[0]==='show'?blob:Buffer.from(args[0]==='diff'?'tests/helpers/canvas-transition-examples-ui.cjs':'');
  assertSmoothContinuationTree('f'.repeat(40),read,{source:p.source});
  for(const file of ['js/pages/canvas/transition-example.js','assets/canvas/transition-examples/fade.gif','tests/canvas-transition-examples.test.mjs','config/release-validation.yml'])assert.throws(()=>assertSmoothContinuationTree('f'.repeat(40),args=>args[0]==='diff'?Buffer.from(file):read(args),{source:p.source}));
@@ -669,11 +669,13 @@ const historicalExportFile=file=>execFileSync('git',['show','5f0384373bd7e1505be
  const rawPath='.local-release/reuse/smooth-browser.json';
  if(fs.existsSync(rawPath)&&sha256(fs.readFileSync(rawPath))===p.report){
   const raw=JSON.parse(fs.readFileSync(rawPath)),previous=browserRows(raw),discovery=browserRows(raw,{discovery:true});
-  const fresh=previous.filter(row=>!passedBrowserCase(row)).map(row=>({...row,expectedStatus:'passed',status:'expected',results:[{status:'passed',retry:0,error:false}]}));
-  const report={policy:SMOOTH_BROWSER_POLICY,sha:'f'.repeat(40),source:p.source,previous,discovery,fresh,counts:p.counts};
+  const bytes=fs.readFileSync('.local-release/reuse/smooth-progress.json');assert.equal(sha256(bytes),p.browserProgress.report);
+  const progress={sha:p.browserProgress.sha,rows:browserRows(JSON.parse(bytes))},retained=smoothRetained(previous,progress,p);
+  const fresh=previous.filter(row=>!retained.has(row.key)).map(row=>({...row,expectedStatus:'passed',status:'expected',results:[{status:'passed',retry:0,error:false}]}));
+  const report={policy:SMOOTH_BROWSER_POLICY,sha:'f'.repeat(40),source:p.source,previous,progress,discovery,fresh,counts:p.counts};
   const proof=r=>candidateProof({sha:r.sha,selection:{auth:true,canvasText:true,canvasExamples:true}},{job:'browser-validation',readJson:name=>name.endsWith('canvas-discovery.json')?raw:r});
   assert.equal(proof(report).tests,4);
-  for(const change of [r=>r.fresh.pop(),r=>r.fresh.push(r.fresh[0]),r=>r.fresh[0].results[0].status='failed',r=>r.fresh[0].results[0].retry=1,r=>r.previous.find(passedBrowserCase).status='unexpected',r=>r.discovery.pop()]){const broken=structuredClone(report);change(broken);assert.throws(()=>proof(broken));}
-  console.log('Synthetic union counterchecks: real 2 Chromium passes retained; missing, failed, retried, duplicate or substituted WebKit results block candidate acceptance.');
+  for(const change of [r=>r.fresh.pop(),r=>r.fresh.push(r.fresh[0]),r=>r.fresh[0].results[0].status='failed',r=>r.fresh[0].results[0].retry=1,r=>r.previous.find(passedBrowserCase).status='unexpected',r=>r.discovery.pop(),r=>delete r.progress,r=>r.progress.rows.find(passedBrowserCase).results[0].status='failed']){const broken=structuredClone(report);change(broken);assert.throws(()=>proof(broken));}
+  console.log('Synthetic union counterchecks: real 2 Chromium and 1 WebKit passes retained; missing, failed, retried, duplicate or substituted WebKit results block candidate acceptance.');
  }
 }
