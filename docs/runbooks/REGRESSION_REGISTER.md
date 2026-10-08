@@ -1734,6 +1734,16 @@ the reviewed inputs and before push; dirty-tree success cannot certify the new
 Git identity. Local planner counterchecks passed; fresh hosted acceptance remains
 required. No already-passed product suite from this failed run existed to reuse.
 
+Follow-up (2026-10-08): local GIF candidate `f01b86a9` stopped at
+`test:local-release` command 17: historical export-prefix positive controls read
+moving working-tree files while the verifier correctly required their frozen
+hashes. Bind all three related fixtures to accepted revision `5f038437`; retain
+forged bytes and unrelated-product counterchecks. The closed continuation pins
+the failed checkpoint, unchanged product/command/environment inputs, and repaired
+test bytes; only 13 unaffected completed checks are retained. Changed source
+checks, this failed command and unexecuted UI/asset acceptance run on final inputs.
+The local release bundle records the actual result; no failed report is relabelled.
+
 Before the corrected push, the actual currentness check also caught the copied
 Admin schema label still at 0098. Auth now bundles the canonical release manifest
 using its existing JSON-import mechanism, removing that duplicate moving number.

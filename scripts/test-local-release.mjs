@@ -584,10 +584,14 @@ testSmoothContinuation(EXPORT_BROWSER_CONTINUATION);
  console.log('Workspace continuation: 29 unchanged guard cases retained; missing, failed, duplicate, foreign, altered-source and forged-checkpoint controls reject.');
 }
 
+// Historical continuation fixtures use their immutable accepted revision, never
+// evolving working-tree files; the real verifier still pins the original hashes.
+const historicalExportFile=file=>execFileSync('git',['show','5f0384373bd7e1505beaa5f243e2f085e2958c95:'+file]);
+
 {
  const {EXPORT_PREFLIGHT,canvasPreflightProfile,assertCanvasPreflightTree,canvasPreflightPrefix}=await import('./lib/local-release-evidence.mjs');
  assert.equal(canvasPreflightProfile(EXPORT_PREFLIGHT.source),EXPORT_PREFLIGHT);assert.equal(canvasPreflightProfile('unknown'),null);
- const read=args=>args[0]==='diff'?Buffer.from('scripts/test-homepage-selection.mjs'):args[0]==='show'?fs.readFileSync('scripts/test-homepage-selection.mjs'):Buffer.from('');
+ const read=args=>args[0]==='diff'?Buffer.from('scripts/test-homepage-selection.mjs'):args[0]==='show'?historicalExportFile('scripts/test-homepage-selection.mjs'):Buffer.from('');
  assertCanvasPreflightTree('f'.repeat(40),read,EXPORT_PREFLIGHT);
  assert.throws(()=>assertCanvasPreflightTree('f'.repeat(40),args=>args[0]==='diff'?Buffer.from('js/pages/canvas/full-video.js'):read(args),EXPORT_PREFLIGHT));
  assert.throws(()=>assertCanvasPreflightTree('f'.repeat(40),args=>args[0]==='show'?Buffer.from('forged'):read(args),EXPORT_PREFLIGHT));
@@ -598,7 +602,7 @@ testSmoothContinuation(EXPORT_BROWSER_CONTINUATION);
 
 {
  const {EXPORT_NATIVE_PREFLIGHT,assertCanvasPreflightTree,verifyExportGuardUnion,canvasExportStageContinuation}=await import('./lib/local-release-evidence.mjs');
- const read=args=>args[0]==='diff'?Buffer.from('tests/helpers/q2-runtime/linux-hosted.mjs'):args[0]==='show'?fs.readFileSync(args[1].split(':').slice(1).join(':')):Buffer.from('');
+ const read=args=>args[0]==='diff'?Buffer.from('tests/helpers/q2-runtime/linux-hosted.mjs'):args[0]==='show'?historicalExportFile(args[1].split(':').slice(1).join(':')):Buffer.from('');
  assertCanvasPreflightTree('f'.repeat(40),read,EXPORT_NATIVE_PREFLIGHT);
  assert.throws(()=>assertCanvasPreflightTree('f'.repeat(40),args=>args[0]==='diff'?Buffer.from('workers/auth/src/index.js'):read(args),EXPORT_NATIVE_PREFLIGHT));
  assert.throws(()=>assertCanvasPreflightTree('f'.repeat(40),args=>args[0]==='show'?Buffer.from('forged'):read(args),EXPORT_NATIVE_PREFLIGHT));
@@ -617,10 +621,23 @@ testSmoothContinuation(EXPORT_BROWSER_CONTINUATION);
 
 {
  const {EXPORT_MEDIA_PREFLIGHT,assertCanvasPreflightTree,canvasPreflightProfile}=await import('./lib/local-release-evidence.mjs');
- const read=args=>args[0]==='diff'?Buffer.from('services/homepage-ffmpeg-processor/canvas-transitions.mjs'):args[0]==='show'?fs.readFileSync('services/homepage-ffmpeg-processor/canvas-transitions.mjs'):Buffer.from('');
+ const read=args=>args[0]==='diff'?Buffer.from('services/homepage-ffmpeg-processor/canvas-transitions.mjs'):args[0]==='show'?historicalExportFile('services/homepage-ffmpeg-processor/canvas-transitions.mjs'):Buffer.from('');
  assert.equal(canvasPreflightProfile(EXPORT_MEDIA_PREFLIGHT.source),EXPORT_MEDIA_PREFLIGHT);
  assertCanvasPreflightTree('f'.repeat(40),read,EXPORT_MEDIA_PREFLIGHT);
  for(const file of ['workers/auth/src/lib/canvas-video-processing.js','tests/helpers/canvas-workspace-transition-control.mjs','services/homepage-ffmpeg-processor/canvas-diagnostics.mjs'])assert.throws(()=>assertCanvasPreflightTree('f'.repeat(40),args=>args[0]==='diff'?Buffer.from(file):read(args),EXPORT_MEDIA_PREFLIGHT));
  assert.throws(()=>assertCanvasPreflightTree('f'.repeat(40),args=>args[0]==='show'?Buffer.from('forged'):read(args),EXPORT_MEDIA_PREFLIGHT));
  assert(EXPORT_MEDIA_PREFLIGHT.retain.includes(41));assert(!EXPORT_MEDIA_PREFLIGHT.retain.includes(42));
+}
+
+{
+ const {EXAMPLE_PREFLIGHT,assertCanvasPreflightTree,canvasPreflightProfile,canvasPreflightPrefix}=await import('./lib/local-release-evidence.mjs');
+ const read=args=>args[0]==='diff'?Buffer.from('scripts/test-local-release.mjs'):args[0]==='show'?fs.readFileSync('scripts/test-local-release.mjs'):Buffer.from('');
+ assert.equal(canvasPreflightProfile(EXAMPLE_PREFLIGHT.source),EXAMPLE_PREFLIGHT);
+ assertCanvasPreflightTree('f'.repeat(40),read,EXAMPLE_PREFLIGHT);
+ for(const file of ['js/pages/canvas/transition-example.js','assets/canvas/transition-examples/fade.gif','config/release-validation.yml','package-lock.json'])assert.throws(()=>assertCanvasPreflightTree('f'.repeat(40),args=>args[0]==='diff'?Buffer.from(file):read(args),EXAMPLE_PREFLIGHT));
+ assert.throws(()=>assertCanvasPreflightTree('f'.repeat(40),args=>args[0]==='show'?Buffer.from('forged'):read(args),EXAMPLE_PREFLIGHT));
+ assert.throws(()=>canvasPreflightPrefix(Buffer.from('{}'),{sha:'f'.repeat(40)},read));
+ for(const changed of [0,2,3,12,17])assert(!EXAMPLE_PREFLIGHT.retain.includes(changed));
+ assert.equal(EXAMPLE_PREFLIGHT.retain.length,13,'Only unchanged completed checks are retained');
+ console.log('Historical export fixtures remain pinned; GIF preflight continuation rejects changed product, commands, dependencies and forged evidence.');
 }
