@@ -581,3 +581,15 @@ testSmoothContinuation(WORKSPACE_CONTINUATION);
  assert.throws(()=>canvasWorkspaceStageContinuation('echo incomplete'));
  console.log('Workspace continuation: 29 unchanged guard cases retained; missing, failed, duplicate, foreign, altered-source and forged-checkpoint controls reject.');
 }
+
+{
+ const {EXPORT_PREFLIGHT,canvasPreflightProfile,assertCanvasPreflightTree,canvasPreflightPrefix}=await import('./lib/local-release-evidence.mjs');
+ assert.equal(canvasPreflightProfile(EXPORT_PREFLIGHT.source),EXPORT_PREFLIGHT);assert.equal(canvasPreflightProfile('unknown'),null);
+ const read=args=>args[0]==='diff'?Buffer.from('scripts/test-homepage-selection.mjs'):args[0]==='show'?fs.readFileSync('scripts/test-homepage-selection.mjs'):Buffer.from('');
+ assertCanvasPreflightTree('f'.repeat(40),read,EXPORT_PREFLIGHT);
+ assert.throws(()=>assertCanvasPreflightTree('f'.repeat(40),args=>args[0]==='diff'?Buffer.from('js/pages/canvas/full-video.js'):read(args),EXPORT_PREFLIGHT));
+ assert.throws(()=>assertCanvasPreflightTree('f'.repeat(40),args=>args[0]==='show'?Buffer.from('forged'):read(args),EXPORT_PREFLIGHT));
+ assert.throws(()=>canvasPreflightPrefix(Buffer.from(JSON.stringify({sha:EXPORT_PREFLIGHT.source})),{sha:'f'.repeat(40)},read),/Changed failed preflight checkpoint/);
+ assert(!EXPORT_PREFLIGHT.retain.includes(15),'Failed command must execute');
+ for(const affected of [0,2,3,12])assert(!EXPORT_PREFLIGHT.retain.includes(affected),'Changed source checks cannot inherit a pass');
+}

@@ -550,7 +550,17 @@ export function rebindLocalCandidate(verified, { run, attempt, receipt }) {
 // A failed preflight has no browser/image/product acceptance to inherit. Retain
 // only its unchanged checks; the migration admission and all remaining work run.
 export const CANVAS_PREFLIGHT=Object.freeze({source:'cc9010a92a52eeeb53355cadfc5b759c2565d924',checkpoint:'b940595d55f417156672bdc6ef06aeb9a6da9df936c0ec3aee6135d265d5186e',guardProgress:'ce2dcf9af4fceab0103b57bc16a5f27c09209f64ea9e577e73612176b768ef27',guardLog:'53b48f35d020611ff8e4a2e48d725322b7a9dc69de1dfb746fd9ea5f8281d66b',retain:[1,4,5,6,7,8,9,10,11,13,14,15,16,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32]});
-export function assertCanvasPreflightTree(head,read=gitBytes){
+export const EXPORT_PREFLIGHT=Object.freeze({source:'4493221379c9737eb470a4fcfd779fafde0ce132',checkpoint:'03a5e299915592e5886062d1ed70c7cb8a1c9ee8e81a6c569435bc1f6a4e06c7',retain:[1,4,5,6,7,8,9,10,11,13,14]});
+export const canvasPreflightProfile=source=>source===EXPORT_PREFLIGHT.source?EXPORT_PREFLIGHT:source===CANVAS_PREFLIGHT.source?CANVAS_PREFLIGHT:null;
+export function assertCanvasPreflightTree(head,read=gitBytes,profile=CANVAS_PREFLIGHT){
+  if(profile===EXPORT_PREFLIGHT){
+    read(['merge-base','--is-ancestor',profile.source,head]);
+    const files=read(['diff','--name-only',profile.source,head]).toString().trim().split('\n').filter(Boolean);
+    assert(files.every(file=>['scripts/test-homepage-selection.mjs','scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs'].includes(file)),'Export preflight changed product, fixture or command inputs');
+    assert.equal(sha256(read(['show',`${head}:scripts/test-homepage-selection.mjs`])),'d2f2793e66d1dd827e9a9408897bb9b0a8d3a1e70f49598e84c55bd144a74be7','Only the seven-branch discovery correction may retain this prefix');
+    return;
+  }
+
   const p=CANVAS_PREFLIGHT;read(['merge-base','--is-ancestor',p.source,head]);
   const files=read(['diff','--name-only',p.source,head]).toString().trim().split('\n').filter(Boolean);
   assert(files.every(file=>['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs','tests/helpers/q2-runtime/linux-hosted.mjs','tests/helpers/canvas-workspace-transitions-ui.cjs','tests/helpers/q2-runtime/linux-bootstrap.py','tests/helpers/q2-runtime/environment.mjs','tests/canvas-workspace-transitions.test.mjs'].includes(file)),'Preflight continuation changed product/test/toolchain inputs');
@@ -570,21 +580,23 @@ export function verifyWorkspaceGuardUnion(before,after){
   assert(after.every(r=>before.some(old=>old.title===r.title)));
 }
 export function canvasPreflightPrefix(bytes,{sha,base,planHash,environment,commands},read=gitBytes){
-  assertCanvasPreflightTree(sha,read);assert.equal(sha256(bytes),CANVAS_PREFLIGHT.checkpoint,'Changed failed preflight checkpoint');
-  const original=JSON.parse(bytes);assert.equal(original.sha,CANVAS_PREFLIGHT.source);assert.equal(original.status,'failed');
+  const original=JSON.parse(bytes),profile=canvasPreflightProfile(original.sha)||CANVAS_PREFLIGHT;
+  assertCanvasPreflightTree(sha,read,profile);assert.equal(sha256(bytes),profile.checkpoint,'Changed failed preflight checkpoint');
+  assert.equal(original.sha,profile.source);assert.equal(original.status,'failed');
   assert.equal(original.base,base);assert.equal(original.planHash,planHash);assert.equal(original.environment.key,environment.key);
-  assert.equal(original.commands.length,42);assert.equal(original.commands[41].exitCode,1);
-  for(const i of CANVAS_PREFLIGHT.retain){assert.equal(original.commands[i].exitCode,0);assert.deepEqual(original.commands[i].command,commands[i]);}
+  assert.equal(original.commands.length,profile===EXPORT_PREFLIGHT?16:42);assert.equal(original.commands[profile===EXPORT_PREFLIGHT?15:41].exitCode,1);
+  for(const i of profile.retain){assert.equal(original.commands[i].exitCode,0);assert.deepEqual(original.commands[i].command,commands[i]);}
   return original;
 }
 export function verifyCanvasPreflight(directory,evidence,commands){
-  assert.deepEqual(evidence.preflightContinuation,{source:CANVAS_PREFLIGHT.source,checkpoint:CANVAS_PREFLIGHT.checkpoint});
+  const profile=canvasPreflightProfile(evidence.preflightContinuation?.source);assert(profile,'Unknown preflight origin');
+  assert.deepEqual(evidence.preflightContinuation,{source:profile.source,checkpoint:profile.checkpoint});
   const original=canvasPreflightPrefix(fs.readFileSync(path.join(directory,'reuse/preflight-checkpoint.json')),{...evidence,commands});
   for(const [i,row]of evidence.commands.entries()){
-    if(CANVAS_PREFLIGHT.retain.includes(i)){
+    if(profile.retain.includes(i)){
       assert.deepEqual({...row,reusedFrom:undefined},{...original.commands[i],reusedFrom:undefined});assert.equal(row.reusedFrom,original.commands[i].reusedFrom||original.sha);
       assert.equal(sha256(fs.readFileSync(path.join(directory,row.log))),original.commands[i].logHash);
-    }else if(i===41){
+    }else if(i===41&&profile===CANVAS_PREFLIGHT){
       assert(!row.reusedFrom);assert.equal(row.continuation,canvasWorkspaceStageContinuation(commands[i].run));
       const prior=fs.readFileSync(path.join(directory,'reuse/stage-guard.log'));assert.equal(sha256(prior),CANVAS_PREFLIGHT.guardLog);
       const progress=fs.readFileSync(path.join(directory,'reuse/stage-progress.log'));assert.equal(sha256(progress),CANVAS_PREFLIGHT.guardProgress);
