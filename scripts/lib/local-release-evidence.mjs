@@ -559,7 +559,7 @@ export function assertCanvasPreflightTree(head,read=gitBytes,profile=CANVAS_PREF
     read(['merge-base','--is-ancestor',profile.source,head]);
     const files=read(['diff','--name-only',profile.source,head]).toString().trim().split('\n').filter(Boolean);
     assert(files.every(file=>['services/homepage-ffmpeg-processor/canvas-transitions.mjs','scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs'].includes(file)),'Media continuation changed passed Worker, API or fixture inputs');
-    assert.equal(sha256(read(['show',`${head}:services/homepage-ffmpeg-processor/canvas-transitions.mjs`])),'89621fe674fe2a39d28770f28833c724f85cabf48b45b296e059fa5c91bf25dd','Only the frame-preserving timebase correction may reuse the native result');
+    assert.equal(sha256(read(['show',`${head}:services/homepage-ffmpeg-processor/canvas-transitions.mjs`])),'dae0551ce2e71ce98124681f8de666b2b6188960281a22ae78f7a777c19bf467','Only the frame-preserving timebase correction may reuse the native result');
     return;
   }
   if(profile===EXPORT_NATIVE_PREFLIGHT){

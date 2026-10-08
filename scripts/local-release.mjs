@@ -382,7 +382,9 @@ function runLocalRelease({ base, resume }) {
           result=spawnSync(process.execPath,['scripts/private-media-image.mjs','--if-needed'],{cwd:work,
             env:{...safeEnv(),DOCKER_CONTEXT:'colima-bitbi-release',GITHUB_SHA:sha,GITHUB_RUN_ID:id,GITHUB_RUN_ATTEMPT:'1',CANDIDATE_BASE:base},
             stdio:['ignore',fd,fd],timeout:1200000});
-          if(result.status===0 && fs.existsSync(path.join(work,'test-results/private-media-image'))) {
+          // Retain failed native-image diagnostics before the Linux export replaces
+          // the source artifact directory. Failure still stops publication.
+          if(fs.existsSync(path.join(work,'test-results/private-media-image'))) {
             docker(['exec',name,'mkdir','-p','/workspace/test-results']);
             docker(['cp',path.join(work,'test-results/private-media-image'),`${name}:/workspace/test-results/`]);
           }

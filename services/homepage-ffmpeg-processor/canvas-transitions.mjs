@@ -57,7 +57,12 @@ export async function applyVideoTransitions(base,transitions,dir,{run,ffmpeg='ff
     });
     let current='v0',end=base.timeline[0].duration;
     for(let i=0;i<transitions.length;i++){
-        const next=`j${i}`,d=timing.overlaps[i];filters.push(`[${current}][v${i+1}]`+(d?transitionFilter(transitions[i],d,end-d):'concat=n=2:v=1:a=0')+`[${next}]`);
+        const next=`j${i}`,d=timing.overlaps[i];
+        // FFmpeg 5.1 may acknowledge A's EOF with its final frame still queued.
+        // Give xfade bounded lookahead beyond the overlap, where A's weight is
+        // already zero. No guard frame extends the picture/audio timeline.
+        if(d){const padded=`guard${i}`;filters.push(`[${current}]tpad=stop_mode=clone:stop=3[${padded}]`);current=padded;}
+        filters.push(`[${current}][v${i+1}]`+(d?transitionFilter(transitions[i],d,end-d):'concat=n=2:v=1:a=0')+`[${next}]`);
         const effected=effectFilters(filters,next,transitions[i],end-d,d,base,i);current=`clock${i}`;
         filters.push(`[${effected}]settb=AVTB[${current}]`);end+=base.timeline[i+1].duration-d;
     }
