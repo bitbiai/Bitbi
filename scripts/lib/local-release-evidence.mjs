@@ -552,8 +552,16 @@ export function rebindLocalCandidate(verified, { run, attempt, receipt }) {
 export const CANVAS_PREFLIGHT=Object.freeze({source:'cc9010a92a52eeeb53355cadfc5b759c2565d924',checkpoint:'b940595d55f417156672bdc6ef06aeb9a6da9df936c0ec3aee6135d265d5186e',guardProgress:'ce2dcf9af4fceab0103b57bc16a5f27c09209f64ea9e577e73612176b768ef27',guardLog:'53b48f35d020611ff8e4a2e48d725322b7a9dc69de1dfb746fd9ea5f8281d66b',retain:[1,4,5,6,7,8,9,10,11,13,14,15,16,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32]});
 export const EXPORT_PREFLIGHT=Object.freeze({source:'4493221379c9737eb470a4fcfd779fafde0ce132',checkpoint:'03a5e299915592e5886062d1ed70c7cb8a1c9ee8e81a6c569435bc1f6a4e06c7',retain:[1,4,5,6,7,8,9,10,11,13,14]});
 export const EXPORT_NATIVE_PREFLIGHT=Object.freeze({source:'6e237824ececae944aa4eaaaded13b1538b0fcbe',checkpoint:'44630f8495bee813fb782bef88526908dbf72698525f8d597dfd54bc3e4d98f6',guardLog:'5927bab36495253925156015766f104eb7e688c668fcae2eb6c3e62760d446ba',guardProgress:'d049d7cd8fefacdf8349c7990d82356f6473752435790f05a4bf5697fd14a4af',progressRun:'91d76d89ccea8c2caee616e643c60ab192f8d5b0-a16143b4-483a-408f-b91f-3fd16e82faec',retain:[1,4,5,6,7,8,9,10,11,13,14,16,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32]});
-export const canvasPreflightProfile=source=>[CANVAS_PREFLIGHT,EXPORT_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT].find(p=>p.source===source)||null;
+export const EXPORT_MEDIA_PREFLIGHT=Object.freeze({source:'dc29be7a208ec93811ba2deb01815fe7821bda9a',checkpoint:'fa4154127a67a1402f14f3cec008ed63f92fe2d3389d37e34c0fb96957d7cba9',retain:[1,4,5,6,7,8,9,10,11,13,14,16,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,40,41]});
+export const canvasPreflightProfile=source=>[CANVAS_PREFLIGHT,EXPORT_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT].find(p=>p.source===source)||null;
 export function assertCanvasPreflightTree(head,read=gitBytes,profile=CANVAS_PREFLIGHT){
+  if(profile===EXPORT_MEDIA_PREFLIGHT){
+    read(['merge-base','--is-ancestor',profile.source,head]);
+    const files=read(['diff','--name-only',profile.source,head]).toString().trim().split('\n').filter(Boolean);
+    assert(files.every(file=>['services/homepage-ffmpeg-processor/canvas-transitions.mjs','scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs'].includes(file)),'Media continuation changed passed Worker, API or fixture inputs');
+    assert.equal(sha256(read(['show',`${head}:services/homepage-ffmpeg-processor/canvas-transitions.mjs`])),'89621fe674fe2a39d28770f28833c724f85cabf48b45b296e059fa5c91bf25dd','Only the frame-preserving timebase correction may reuse the native result');
+    return;
+  }
   if(profile===EXPORT_NATIVE_PREFLIGHT){
     read(['merge-base','--is-ancestor',profile.source,head]);
     const files=read(['diff','--name-only',profile.source,head]).toString().trim().split('\n').filter(Boolean);
@@ -598,7 +606,7 @@ export function canvasPreflightPrefix(bytes,{sha,base,planHash,environment,comma
   assertCanvasPreflightTree(sha,read,profile);assert.equal(sha256(bytes),profile.checkpoint,'Changed failed preflight checkpoint');
   assert.equal(original.sha,profile.source);assert.equal(original.status,'failed');
   assert.equal(original.base,base);assert.equal(original.planHash,planHash);assert.equal(original.environment.key,environment.key);
-  assert.equal(original.commands.length,profile===EXPORT_PREFLIGHT?16:42);assert.equal(original.commands[profile===EXPORT_PREFLIGHT?15:41].exitCode,1);
+  assert.equal(original.commands.length,profile===EXPORT_PREFLIGHT?16:profile===EXPORT_MEDIA_PREFLIGHT?43:42);assert.equal(original.commands[profile===EXPORT_PREFLIGHT?15:profile===EXPORT_MEDIA_PREFLIGHT?42:41].exitCode,1);
   for(const i of profile.retain){assert.equal(original.commands[i].exitCode,0);assert.deepEqual(original.commands[i].command,commands[i]);}
   return original;
 }

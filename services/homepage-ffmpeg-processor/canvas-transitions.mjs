@@ -59,7 +59,7 @@ export async function applyVideoTransitions(base,transitions,dir,{run,ffmpeg='ff
     for(let i=0;i<transitions.length;i++){
         const next=`j${i}`,d=timing.overlaps[i];filters.push(`[${current}][v${i+1}]`+(d?transitionFilter(transitions[i],d,end-d):'concat=n=2:v=1:a=0')+`[${next}]`);
         const effected=effectFilters(filters,next,transitions[i],end-d,d,base,i);current=`clock${i}`;
-        filters.push(`[${effected}]fps=${base.fps},settb=AVTB[${current}]`);end+=base.timeline[i+1].duration-d;
+        filters.push(`[${effected}]settb=AVTB[${current}]`);end+=base.timeline[i+1].duration-d;
     }
     const hasAudio=Boolean((await inspect(base.output,{run,ffprobe})).audio);
     if(hasAudio){

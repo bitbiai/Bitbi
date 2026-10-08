@@ -612,3 +612,13 @@ testSmoothContinuation(WORKSPACE_CONTINUATION);
  const parsed=spawnSync('/bin/bash',['-n'],{input:continued,encoding:'utf8'});assert.equal(parsed.status,0,parsed.stderr);
 
 }
+
+{
+ const {EXPORT_MEDIA_PREFLIGHT,assertCanvasPreflightTree,canvasPreflightProfile}=await import('./lib/local-release-evidence.mjs');
+ const read=args=>args[0]==='diff'?Buffer.from('services/homepage-ffmpeg-processor/canvas-transitions.mjs'):args[0]==='show'?fs.readFileSync('services/homepage-ffmpeg-processor/canvas-transitions.mjs'):Buffer.from('');
+ assert.equal(canvasPreflightProfile(EXPORT_MEDIA_PREFLIGHT.source),EXPORT_MEDIA_PREFLIGHT);
+ assertCanvasPreflightTree('f'.repeat(40),read,EXPORT_MEDIA_PREFLIGHT);
+ for(const file of ['workers/auth/src/lib/canvas-video-processing.js','tests/helpers/canvas-workspace-transition-control.mjs','services/homepage-ffmpeg-processor/canvas-diagnostics.mjs'])assert.throws(()=>assertCanvasPreflightTree('f'.repeat(40),args=>args[0]==='diff'?Buffer.from(file):read(args),EXPORT_MEDIA_PREFLIGHT));
+ assert.throws(()=>assertCanvasPreflightTree('f'.repeat(40),args=>args[0]==='show'?Buffer.from('forged'):read(args),EXPORT_MEDIA_PREFLIGHT));
+ assert(EXPORT_MEDIA_PREFLIGHT.retain.includes(41));assert(!EXPORT_MEDIA_PREFLIGHT.retain.includes(42));
+}
