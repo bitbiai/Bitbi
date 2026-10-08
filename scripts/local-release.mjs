@@ -1,4 +1,4 @@
-import {CANVAS_PREFLIGHT,canvasPreflightProfile,assertCanvasPreflightTree,canvasPreflightPrefix,canvasWorkspaceStageContinuation} from './lib/local-release-evidence.mjs';
+import {CANVAS_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,canvasExportStageContinuation,canvasPreflightProfile,assertCanvasPreflightTree,canvasPreflightPrefix,canvasWorkspaceStageContinuation} from './lib/local-release-evidence.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -195,7 +195,7 @@ function runLocalRelease({ base, resume }) {
     const prior=canvasPreflightPrefix(bytes,{...state,commands});
     fs.mkdirSync(path.join(bundle,'reuse'),{recursive:true});fs.mkdirSync(path.join(bundle,'logs'),{recursive:true});
     fs.writeFileSync(path.join(bundle,'reuse/preflight-checkpoint.json'),bytes);
-    if(preflightContinuation===CANVAS_PREFLIGHT)fs.copyFileSync(path.join(originalDirectory,'bundle/logs/41.log'),path.join(bundle,'reuse/stage-guard.log'));
+    if(preflightContinuation.guardLog)fs.copyFileSync(path.join(originalDirectory,'bundle/logs/41.log'),path.join(bundle,'reuse/stage-guard.log'));
     if(preflightContinuation===CANVAS_PREFLIGHT)fs.copyFileSync(path.join(cacheRoot(),'runs/515d1dd41492ad69e632db4a5271cf710cb4f334-757f0fae-019a-42d3-8df1-78556537af92/bundle/logs/41.log'),path.join(bundle,'reuse/stage-progress.log'));
     state={...state,startedAt:prior.startedAt,preflightContinuation:{source:prior.sha,checkpoint:preflightContinuation.checkpoint},commands:prior.commands.map((row,i)=>preflightContinuation.retain.includes(i)?{...row,reusedFrom:row.reusedFrom||prior.sha}:null)};
     for(const row of state.commands.filter(Boolean))fs.copyFileSync(path.join(originalDirectory,'bundle',row.log),path.join(bundle,row.log));
@@ -423,7 +423,7 @@ function runLocalRelease({ base, resume }) {
         const q2 = /test-q2-runtime|test:workers/.test(command.run);
         const args = ['exec', '--user', q2 ? '1001:1001' : '0:0', ...Object.entries({ ...command.env, GITHUB_JOB: command.job }).filter(([key]) => key !== 'GH_TOKEN').flatMap(([key,value]) => ['--env',`${key}=${value}`]), name];
         if (!q2) args.push('/usr/bin/setpriv','--reuid=1001','--regid=1001','--clear-groups','--bounding-set=-all','--inh-caps=-all','--ambient-caps=-all','--no-new-privs');
-        const effective=state.preflightContinuation?.source===CANVAS_PREFLIGHT.source&&index===41?canvasWorkspaceStageContinuation(part.run):state.permissionContinuation?.source===PERMISSION_CONTINUATION.tail&&index===41?canvasStageContinuation(part.run):state.repair&&index===42?localWorkerContinuation():state.repair&&index===18?localRepairCommand(sha):part.run;
+        const effective=state.preflightContinuation?.source===EXPORT_NATIVE_PREFLIGHT.source&&index===41?canvasExportStageContinuation(part.run):state.preflightContinuation?.source===CANVAS_PREFLIGHT.source&&index===41?canvasWorkspaceStageContinuation(part.run):state.permissionContinuation?.source===PERMISSION_CONTINUATION.tail&&index===41?canvasStageContinuation(part.run):state.repair&&index===42?localWorkerContinuation():state.repair&&index===18?localRepairCommand(sha):part.run;
         const execution=command.name==='Restore exact candidate static site'?'node scripts/local-release.mjs restore-boundary\n'+effective:effective;
         args.push('bash','--noprofile','--norc','-euo','pipefail','-c',execution);
         result = spawnSync('docker', ['--context','colima-bitbi-release',...args], { env: safeEnv(), stdio: ['ignore',fd,fd], timeout: 60 * 60 * 1000 });
@@ -436,6 +436,7 @@ function runLocalRelease({ base, resume }) {
       record.runtimes=commandRuntimes(command).map(part=>part.runtime);
       if(state.repair&&['Run selected auth and admin tests','Run selected homepage core tests'].includes(command.name))record.browserContinuation='local-browser-continuation-v1';
       if(isSmoothContinuation(state.permissionContinuation?.source)&&command.name==='Run selected auth and admin tests')record.browserContinuation=SMOOTH_BROWSER_POLICY;
+      if(state.preflightContinuation?.source===EXPORT_NATIVE_PREFLIGHT.source&&index===41)record.continuation=canvasExportStageContinuation(command.run);
       if(state.preflightContinuation?.source===CANVAS_PREFLIGHT.source&&index===41)record.continuation=canvasWorkspaceStageContinuation(command.run);
       if(state.repair&&index===42)record.continuation=localWorkerContinuation();
       if(state.repair&&index===18)record.supplement=localRepairCommand(sha);

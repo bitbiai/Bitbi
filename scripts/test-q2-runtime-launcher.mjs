@@ -661,13 +661,15 @@ test('focused native scopes dispatch through the actual child and preserve bound
   assert.equal(selectedRuntimeSuites('canvas-audio')[0][1],(await import('../tests/helpers/q2-runtime/canvas.mjs')).runCanvasAudioTests);
   assert.equal(parseRuntimeArgs(['--suite','canvas-audio-fit'],{}).suite,'canvas-audio-fit');
   assert.equal(selectedRuntimeSuites('canvas-audio-fit')[0][1],(await import('../tests/helpers/q2-runtime/canvas.mjs')).runCanvasAudioFitTests);
+  assert.equal(parseRuntimeArgs(['--suite','canvas-transitions'],{}).suite,'canvas-transitions');
+  assert.equal(selectedRuntimeSuites('canvas-transitions')[0][1],(await import('../tests/helpers/q2-runtime/canvas.mjs')).runCanvasTransitionTests);
   assert.deepEqual(selectedRuntimeSuites('q4-stream').map(([name])=>name),['q4-stream']);
   assert.equal(parseRuntimeArgs(['--suite','q4-stream'],{}).suite,'q4-stream');
   assert.deepEqual(selectedRuntimeSuites('website-assistant').map(([name])=>name),['website-assistant']);
   assert.equal(parseRuntimeArgs(['--suite','website-assistant'],{}).suite,'website-assistant');
   assert.throws(()=>selectedRuntimeSuites('unknown'));
   const bootstrap=read('tests/helpers/q2-runtime/linux-bootstrap.py');
-  assert.match(bootstrap,/choices=\["member-generation", "model-status", "model-pricing", "appearance", "canvas", "canvas-completion", "canvas-audio", "canvas-audio-fit", "q4-stream", "website-assistant"\]/);
+  assert.match(bootstrap,/choices=\["member-generation", "model-status", "model-pricing", "appearance", "canvas", "canvas-completion", "canvas-audio", "canvas-audio-fit", "canvas-transitions", "q4-stream", "website-assistant"\]/);
   assert.match(bootstrap,/"website-assistant-result.json"/);
   // Execute the unchanged child module with synthetic process/import boundaries.
   // This checks dispatch ordering, not Linux kernel isolation (required in CI).
@@ -676,7 +678,7 @@ test('focused native scopes dispatch through the actual child and preserve bound
     import {readFileSync} from 'node:fs';
     import {SourceTextModule,SyntheticModule,createContext} from 'node:vm';
     const source=readFileSync('tests/helpers/q2-runtime/linux-runtime-child.mjs','utf8');
-    for(const suite of [undefined,'member-generation','model-status','model-pricing','appearance','canvas','canvas-completion','canvas-audio','canvas-audio-fit','q4-stream','website-assistant','unknown','',null,false]) {
+    for(const suite of [undefined,'member-generation','model-status','model-pricing','appearance','canvas','canvas-completion','canvas-audio','canvas-audio-fit','canvas-transitions','q4-stream','website-assistant','unknown','',null,false]) {
       for(const fault of [null,'platform','uid','gid']) {
         const calls=[], context=createContext({process:{platform:fault==='platform'?'darwin':'linux',
           getuid:()=>fault==='uid'?0:65534,getgid:()=>fault==='gid'?0:65534}});
@@ -689,7 +691,7 @@ test('focused native scopes dispatch through the actual child and preserve bound
           const m=new SyntheticModule(Object.keys(modules[name]),function(){for(const [k,v]of Object.entries(modules[name]))this.setExport(k,v);},{context});
           await m.link(()=>{});await m.evaluate();return m;};
         const m=new SourceTextModule(source,{context,importModuleDynamically:load});await m.link(load);
-        if(!fault && [undefined,null,'member-generation','model-status','model-pricing','appearance','canvas','canvas-completion','canvas-audio','canvas-audio-fit','q4-stream','website-assistant'].includes(suite)) {
+        if(!fault && [undefined,null,'member-generation','model-status','model-pricing','appearance','canvas','canvas-completion','canvas-audio','canvas-audio-fit','canvas-transitions','q4-stream','website-assistant'].includes(suite)) {
           await m.evaluate();assert.deepEqual(calls,['node:assert/strict','node:fs','boundary','./runner.mjs','run']);
         } else {
           await assert.rejects(m.evaluate());assert.ok(!calls.includes('./runner.mjs'));

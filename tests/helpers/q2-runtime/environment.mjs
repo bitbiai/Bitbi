@@ -59,7 +59,7 @@ export function prepareBuild(artifactParent = os.tmpdir()) {
   assert.equal(config.main, 'src/index.js');
   assert.ok(!config.build?.command, 'Custom build hooks need separate review');
   const input = path.join(workDir, 'input'), sourceLedger = [];
-  for (const relative of ['workers/auth/src', 'workers/shared', 'js/shared', 'config', 'workers/auth/package.json', 'workers/auth/package-lock.json', 'workers/auth/wrangler.jsonc', 'package.json', 'package-lock.json']) {
+  for (const relative of ['workers/auth/src', 'workers/shared', 'js/shared', 'services/homepage-ffmpeg-processor/canvas-diagnostics.mjs', 'config', 'workers/auth/package.json', 'workers/auth/package-lock.json', 'workers/auth/wrangler.jsonc', 'package.json', 'package-lock.json']) {
     copySources(path.join(repoRoot, relative), path.join(input, relative), sourceLedger, relative);
   }
   const copiedAuth = path.join(input, 'workers/auth');

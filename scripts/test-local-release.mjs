@@ -593,3 +593,16 @@ testSmoothContinuation(WORKSPACE_CONTINUATION);
  assert(!EXPORT_PREFLIGHT.retain.includes(15),'Failed command must execute');
  for(const affected of [0,2,3,12])assert(!EXPORT_PREFLIGHT.retain.includes(affected),'Changed source checks cannot inherit a pass');
 }
+
+{
+ const {EXPORT_NATIVE_PREFLIGHT,assertCanvasPreflightTree,verifyExportGuardUnion,canvasExportStageContinuation}=await import('./lib/local-release-evidence.mjs');
+ const read=args=>args[0]==='diff'?Buffer.from('tests/helpers/q2-runtime/linux-hosted.mjs'):args[0]==='show'?fs.readFileSync(args[1].split(':').slice(1).join(':')):Buffer.from('');
+ assertCanvasPreflightTree('f'.repeat(40),read,EXPORT_NATIVE_PREFLIGHT);
+ assert.throws(()=>assertCanvasPreflightTree('f'.repeat(40),args=>args[0]==='diff'?Buffer.from('workers/auth/src/index.js'):read(args),EXPORT_NATIVE_PREFLIGHT));
+ assert.throws(()=>assertCanvasPreflightTree('f'.repeat(40),args=>args[0]==='show'?Buffer.from('forged'):read(args),EXPORT_NATIVE_PREFLIGHT));
+ const names=['default native runtime plan stages every actual suite and control input','focused native scopes dispatch through the actual child and preserve boundaries'];
+ const before=Array.from({length:32},(_,i)=>({title:names[i]||'unchanged '+i,status:i<2?'failed':'passed'})),after=names.map(title=>({title,status:'passed'}));
+ verifyExportGuardUnion(before,after);
+ for(const changed of [[],after.slice(1),[...after,after[0]],after.map((r,i)=>i?r:{...r,status:'failed'}),[...after,{title:'unchanged 3',status:'passed'}]])assert.throws(()=>verifyExportGuardUnion(before,changed));
+ assert.throws(()=>canvasExportStageContinuation('echo incomplete'));
+}
