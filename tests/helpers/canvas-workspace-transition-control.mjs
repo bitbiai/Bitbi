@@ -39,7 +39,8 @@ export async function canvasWorkspaceTransitionCase(base,media) {
     check(observed.submission.found&&observed.export.id===accepted.id,'Exact accepted intent lookup');
     check(!(await f.data(await f.request(f.endpoint+'?requestKey=missing-request-0001'))).submission.found,'Absent intent is explicit');
     check((await f.request(f.endpoint+'?requestKey='+key,'GET',null,{Cookie:'__Host-bitbi_session=invalid'})).status===401,'Lookup never bypasses owner');
-    check((await f.request(f.endpoint+'?requestKey=invalid')).status===400,'Malformed lookup fails');
+    const malformed=await f.request(f.endpoint+'?requestKey=invalid');
+    check(malformed.status===409&&(await malformed.json()).code==='canvas_export_key_required','Malformed lookup preserves the export key conflict contract');
     const jobs=claim.jobs.filter(j=>j.recipeVersion===6),failurePath=j=>`/api/internal/homepage/hero-videos/canvas-exports/jobs/${j.id}/fail`;
     check(jobs.length>=2&&jobs.every(j=>j.attempt===1),'Claim exposes actual first attempt');
     const fail=(job,code)=>f.request(failurePath(job),'POST',{code,diagnostic:{stage:'transitions',errorClass:'filter',reason:'timebase_mismatch',stderr:'private-token',url:'https://private.invalid'}},{...leaseHeaders,'X-BITBI-Canvas-Claim':job.claim});

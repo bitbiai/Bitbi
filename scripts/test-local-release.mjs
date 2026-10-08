@@ -607,8 +607,8 @@ testSmoothContinuation(WORKSPACE_CONTINUATION);
  assert.throws(()=>canvasExportStageContinuation('echo incomplete'));
  const command="node --test tests/canvas-workspace-transitions.test.mjs tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs &&\nnode scripts/test-q2-runtime.mjs --suite canvas-transitions";
  const continued=canvasExportStageContinuation(command);
- assert.equal((continued.match(/node scripts\/test-q2-runtime.mjs/g)||[]).length,1,'Regex $ quote is literal, never JS replacement suffix expansion');
- assert(continued.includes("boundaries)$' scripts/test-q2-runtime-launcher.mjs &&"));
+ assert.equal((continued.match(/node scripts\/test-q2-runtime.mjs/g)||[]).length,1,'Exactly one native execution remains');
+ assert(!continued.includes('node --test'),'Already passed guards are represented by their verified report union');
  const parsed=spawnSync('/bin/bash',['-n'],{input:continued,encoding:'utf8'});assert.equal(parsed.status,0,parsed.stderr);
 
 }

@@ -551,13 +551,14 @@ export function rebindLocalCandidate(verified, { run, attempt, receipt }) {
 // only its unchanged checks; the migration admission and all remaining work run.
 export const CANVAS_PREFLIGHT=Object.freeze({source:'cc9010a92a52eeeb53355cadfc5b759c2565d924',checkpoint:'b940595d55f417156672bdc6ef06aeb9a6da9df936c0ec3aee6135d265d5186e',guardProgress:'ce2dcf9af4fceab0103b57bc16a5f27c09209f64ea9e577e73612176b768ef27',guardLog:'53b48f35d020611ff8e4a2e48d725322b7a9dc69de1dfb746fd9ea5f8281d66b',retain:[1,4,5,6,7,8,9,10,11,13,14,15,16,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32]});
 export const EXPORT_PREFLIGHT=Object.freeze({source:'4493221379c9737eb470a4fcfd779fafde0ce132',checkpoint:'03a5e299915592e5886062d1ed70c7cb8a1c9ee8e81a6c569435bc1f6a4e06c7',retain:[1,4,5,6,7,8,9,10,11,13,14]});
-export const EXPORT_NATIVE_PREFLIGHT=Object.freeze({source:'6e237824ececae944aa4eaaaded13b1538b0fcbe',checkpoint:'44630f8495bee813fb782bef88526908dbf72698525f8d597dfd54bc3e4d98f6',guardLog:'5927bab36495253925156015766f104eb7e688c668fcae2eb6c3e62760d446ba',retain:[1,4,5,6,7,8,9,10,11,13,14,16,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32]});
+export const EXPORT_NATIVE_PREFLIGHT=Object.freeze({source:'6e237824ececae944aa4eaaaded13b1538b0fcbe',checkpoint:'44630f8495bee813fb782bef88526908dbf72698525f8d597dfd54bc3e4d98f6',guardLog:'5927bab36495253925156015766f104eb7e688c668fcae2eb6c3e62760d446ba',guardProgress:'d049d7cd8fefacdf8349c7990d82356f6473752435790f05a4bf5697fd14a4af',progressRun:'91d76d89ccea8c2caee616e643c60ab192f8d5b0-a16143b4-483a-408f-b91f-3fd16e82faec',retain:[1,4,5,6,7,8,9,10,11,13,14,16,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32]});
 export const canvasPreflightProfile=source=>[CANVAS_PREFLIGHT,EXPORT_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT].find(p=>p.source===source)||null;
 export function assertCanvasPreflightTree(head,read=gitBytes,profile=CANVAS_PREFLIGHT){
   if(profile===EXPORT_NATIVE_PREFLIGHT){
     read(['merge-base','--is-ancestor',profile.source,head]);
     const files=read(['diff','--name-only',profile.source,head]).toString().trim().split('\n').filter(Boolean);
     const expected={
+      'tests/helpers/canvas-workspace-transition-control.mjs':'e08ff557e80b5d11f05bb4b707b47b8024d47587208cacb1cc2b54306e7e4f5d',
       'tests/helpers/q2-runtime/linux-hosted.mjs':'566290b6ed2c86b4f3628b4639ede33b73a0f74fbf9065d7e611dc81cc428447',
       'tests/helpers/q2-runtime/environment.mjs':'59d03b8fd837a1f832fc961e33aafe04cf3f239ab6effe56a92ce4c340d9bd0c',
       'scripts/test-q2-runtime-launcher.mjs':'079e54120c1b7e50b6a2fb8e015c54af86bae1e9d2a0176f6f582ebf6e825657',
@@ -605,7 +606,8 @@ const exportGuardCases=['default native runtime plan stages every actual suite a
 export function canvasExportStageContinuation(command){
   const original='node --test tests/canvas-workspace-transitions.test.mjs tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs';
   assert(command.includes(original)&&command.includes('node scripts/test-q2-runtime.mjs --suite canvas-transitions'));
-  return command.replace(original,()=>`node --test --test-name-pattern='^(${exportGuardCases.join('|')})$' scripts/test-q2-runtime-launcher.mjs`);
+  const at=command.indexOf(original),tail=command.slice(at+original.length),join=tail.match(/^\s*&&\s*/);assert(join);
+  return command.slice(0,at)+tail.slice(join[0].length);
 }
 export function verifyExportGuardUnion(before,after){
   assert.equal(before.length,32);assert.equal(new Set(before.map(r=>r.title)).size,32);
@@ -630,7 +632,9 @@ export function verifyCanvasPreflight(directory,evidence,commands){
     }else if(i===41&&profile===EXPORT_NATIVE_PREFLIGHT){
       assert(!row.reusedFrom);assert.equal(row.continuation,canvasExportStageContinuation(commands[i].run));
       const prior=fs.readFileSync(path.join(directory,'reuse/stage-guard.log'));assert.equal(sha256(prior),profile.guardLog);
-      verifyExportGuardUnion(tapResults(prior.toString()),tapResults(fs.readFileSync(path.join(directory,row.log),'utf8')));
+      const progress=fs.readFileSync(path.join(directory,'reuse/stage-progress.log'));assert.equal(sha256(progress),profile.guardProgress);
+      verifyExportGuardUnion(tapResults(prior.toString()),tapResults(progress.toString()));
+      assert.deepEqual(tapResults(fs.readFileSync(path.join(directory,row.log),'utf8')),[],'Passed native guards must not execute again');
     }else assert(!row.reusedFrom&&!row.continuation,'Affected or unexecuted check cannot inherit preflight success');
   }
 }
