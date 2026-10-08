@@ -15,6 +15,21 @@ exports.examples=async options=>{
  // Native macOS headless menus do not commit ArrowDown; type-ahead selects
  // the localized option using the keyboard and the existing change/save handler.
  await select.focus();await select.press(de?'w':'c');await page.keyboard.press('Tab');await expect(select).toHaveValue('fade');await shown('fade');
+ const nativeCache=info.project.name==='webkit-canvas';
+ const cacheControls=async delayed=>{
+ // A delayed old image cannot replace the newly selected illustration.
+ let release,delivered;const held=new Promise(r=>release=r),done=new Promise(r=>delivered=r);
+ await page.route(`**/assets/canvas/transition-examples/${delayed}.gif?*`,async route=>{await held;await route.fulfill({path:path.join(__dirname,`../../assets/canvas/transition-examples/${delayed}.gif`)});delivered();});
+ await select.selectOption(delayed);await expect(select).toHaveValue(delayed);await expect(image).toHaveCount(0);
+ await select.selectOption('slideright');await shown('slideright');release();await done;await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));await shown('slideright');
+ await page.unroute(`**/assets/canvas/transition-examples/${delayed}.gif?*`);
+ await page.route('**/assets/canvas/transition-examples/zoomin.gif?*',route=>route.fulfill({status:404,body:'Controlled missing example'}));
+ await select.selectOption('zoomin');await expect(example).toContainText(de?'Beispiel nicht verfügbar':'Example unavailable');await expect(image).toHaveCount(0);await expect(select).toBeEnabled();await expect(controls.getByRole('button',{name:de?'Übergangsvorschau erstellen':'Preview transition',exact:true})).toBeEnabled();
+ await page.unroute('**/assets/canvas/transition-examples/zoomin.gif?*');await select.selectOption('fade');await shown('fade');
+ };
+ // WebKit retains decoded GIFs in memory: intercept each failure/delay before
+ // its first load. Chromium keeps its already-passed sequence unchanged.
+ if(nativeCache)await cacheControls('dissolve');
  for(const effect of TRANSITIONS.filter(t=>!['none','fade'].includes(t.id))){
   await select.selectOption(effect.id);await expect(select).toHaveValue(effect.id);await expect.poll(()=>state.edges[0].config.transition.preset).toBe(effect.id);
   await shown(effect.id,effect.id==='flash'?'png':'gif');
@@ -25,15 +40,8 @@ exports.examples=async options=>{
  await button.focus();await button.press('Space');await shown('light-wash','png');await button.press('Enter');await shown('light-wash');
  await page.emulateMedia({reducedMotion:'reduce'});await shown('light-wash','png');await select.selectOption('bloom');await shown('bloom','png');await button.click();await shown('bloom');
  await page.emulateMedia({reducedMotion:'no-preference'});
- // A delayed old image cannot replace the newly selected illustration.
- let release,delivered;const held=new Promise(r=>release=r),done=new Promise(r=>delivered=r);
- await page.route('**/assets/canvas/transition-examples/fade.gif?*',async route=>{await held;await route.fulfill({path:path.join(__dirname,'../../assets/canvas/transition-examples/fade.gif')});delivered();});
- await select.selectOption('fade');await expect(select).toHaveValue('fade');await expect(image).toHaveCount(0);
- await select.selectOption('slideright');await shown('slideright');release();await done;await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));await shown('slideright');
- await page.unroute('**/assets/canvas/transition-examples/fade.gif?*');
- await page.route('**/assets/canvas/transition-examples/zoomin.gif?*',route=>route.fulfill({status:404,body:'Controlled missing example'}));
- await select.selectOption('zoomin');await expect(example).toContainText(de?'Beispiel nicht verfügbar':'Example unavailable');await expect(image).toHaveCount(0);await expect(select).toBeEnabled();await expect(controls.getByRole('button',{name:de?'Übergangsvorschau erstellen':'Preview transition',exact:true})).toBeEnabled();
- await select.selectOption('fade');await shown('fade');
+ if(!nativeCache)await cacheControls('fade');
+ if(nativeCache){await select.selectOption('fade');await shown('fade');}
  // Failed persistence keeps the actual saved effect and its matching example.
  await page.route('**/edges/'+id(5),route=>route.fulfill({status:503,json:{ok:false,error:'Controlled save failure'}}));
  await select.selectOption('none');await expect(controls.getByRole('status')).toHaveText('Controlled save failure');await expect(select).toHaveValue('fade');await shown('fade');await page.unroute('**/edges/'+id(5));

@@ -65,7 +65,7 @@ function testSmoothContinuation(p=SMOOTH_BROWSER_CONTINUATION) {
     fs.writeFileSync(path.join(target,'product.js'),'const token = '+JSON.stringify('Z'.repeat(40))+';');assert(scanRepoForSecrets(target).length>0,'Product secrets must still block after staging proof metadata');
   }finally{fs.rmSync(staging,{recursive:true,force:true});}
   const reviewedFixture=file=>{
-    if(exportRepair)return fs.readFileSync(file);
+    if(exportRepair)return execFileSync('git',['show','5f0384373bd7e1505beaa5f243e2f085e2958c95:'+file]);
     if(workspace)return execFileSync('git',['show',`${p.reviewedSource}:${file}`]);
     if(inspector) {
       if(file==='tests/canvas.spec.js')return Buffer.from(execFileSync('git',['show',`${p.source}:${file}`],{encoding:'utf8'}).replace('  // The music toggle belongs to Sound & Music; the independent join toggle is OFF.\n',"  // The music toggle belongs to Sound & Music; the independent join toggle is OFF.\n  await openCanvasSettings(page,'merge');\n"));
@@ -657,4 +657,23 @@ const historicalExportFile=file=>execFileSync('git',['show','5f0384373bd7e1505be
  assert.throws(()=>canvasExampleBrowserContinuation(original+original));assert.throws(()=>canvasExampleBrowserContinuation('echo incomplete'));
  assert(EXAMPLE_BROWSER_PREFLIGHT.retain.includes(36));assert(!EXAMPLE_BROWSER_PREFLIGHT.retain.includes(41));
  console.log('GIF keyboard continuation preserves the decoded-asset and hosting proofs while requiring all four fresh browser results.');
+}
+
+{
+ const {EXAMPLE_CACHE_CONTINUATION:p}=await import('./lib/local-release-browser.mjs');
+ const blob=execFileSync('git',['cat-file','blob','c825d926d96dc3f66d9f23db7f7ec68550d7bf7b']);
+ const read=args=>args[0]==='show'?blob:Buffer.from(args[0]==='diff'?'tests/helpers/canvas-transition-examples-ui.cjs':'');
+ assertSmoothContinuationTree('f'.repeat(40),read,{source:p.source});
+ for(const file of ['js/pages/canvas/transition-example.js','assets/canvas/transition-examples/fade.gif','tests/canvas-transition-examples.test.mjs','config/release-validation.yml'])assert.throws(()=>assertSmoothContinuationTree('f'.repeat(40),args=>args[0]==='diff'?Buffer.from(file):read(args),{source:p.source}));
+ assert.throws(()=>assertSmoothContinuationTree('f'.repeat(40),args=>args[0]==='show'?Buffer.from('forged'):read(args),{source:p.source}));
+ const rawPath='.local-release/reuse/smooth-browser.json';
+ if(fs.existsSync(rawPath)&&sha256(fs.readFileSync(rawPath))===p.report){
+  const raw=JSON.parse(fs.readFileSync(rawPath)),previous=browserRows(raw),discovery=browserRows(raw,{discovery:true});
+  const fresh=previous.filter(row=>!passedBrowserCase(row)).map(row=>({...row,expectedStatus:'passed',status:'expected',results:[{status:'passed',retry:0,error:false}]}));
+  const report={policy:SMOOTH_BROWSER_POLICY,sha:'f'.repeat(40),source:p.source,previous,discovery,fresh,counts:p.counts};
+  const proof=r=>candidateProof({sha:r.sha,selection:{auth:true,canvasText:true,canvasExamples:true}},{job:'browser-validation',readJson:name=>name.endsWith('canvas-discovery.json')?raw:r});
+  assert.equal(proof(report).tests,4);
+  for(const change of [r=>r.fresh.pop(),r=>r.fresh.push(r.fresh[0]),r=>r.fresh[0].results[0].status='failed',r=>r.fresh[0].results[0].retry=1,r=>r.previous.find(passedBrowserCase).status='unexpected',r=>r.discovery.pop()]){const broken=structuredClone(report);change(broken);assert.throws(()=>proof(broken));}
+  console.log('Synthetic union counterchecks: real 2 Chromium passes retained; missing, failed, retried, duplicate or substituted WebKit results block candidate acceptance.');
+ }
 }
