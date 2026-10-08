@@ -605,7 +605,7 @@ const exportGuardCases=['default native runtime plan stages every actual suite a
 export function canvasExportStageContinuation(command){
   const original='node --test tests/canvas-workspace-transitions.test.mjs tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs';
   assert(command.includes(original)&&command.includes('node scripts/test-q2-runtime.mjs --suite canvas-transitions'));
-  return command.replace(original,`node --test --test-name-pattern='^(${exportGuardCases.join('|')})$' scripts/test-q2-runtime-launcher.mjs`);
+  return command.replace(original,()=>`node --test --test-name-pattern='^(${exportGuardCases.join('|')})$' scripts/test-q2-runtime-launcher.mjs`);
 }
 export function verifyExportGuardUnion(before,after){
   assert.equal(before.length,32);assert.equal(new Set(before.map(r=>r.title)).size,32);

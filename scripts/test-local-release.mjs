@@ -605,4 +605,10 @@ testSmoothContinuation(WORKSPACE_CONTINUATION);
  verifyExportGuardUnion(before,after);
  for(const changed of [[],after.slice(1),[...after,after[0]],after.map((r,i)=>i?r:{...r,status:'failed'}),[...after,{title:'unchanged 3',status:'passed'}]])assert.throws(()=>verifyExportGuardUnion(before,changed));
  assert.throws(()=>canvasExportStageContinuation('echo incomplete'));
+ const command="node --test tests/canvas-workspace-transitions.test.mjs tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs &&\nnode scripts/test-q2-runtime.mjs --suite canvas-transitions";
+ const continued=canvasExportStageContinuation(command);
+ assert.equal((continued.match(/node scripts\/test-q2-runtime.mjs/g)||[]).length,1,'Regex $ quote is literal, never JS replacement suffix expansion');
+ assert(continued.includes("boundaries)$' scripts/test-q2-runtime-launcher.mjs &&"));
+ const parsed=spawnSync('/bin/bash',['-n'],{input:continued,encoding:'utf8'});assert.equal(parsed.status,0,parsed.stderr);
+
 }
