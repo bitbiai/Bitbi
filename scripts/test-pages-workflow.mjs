@@ -144,13 +144,13 @@ try {
   const run=()=>spawnSync(process.execPath,[preflightFile],{env:{PATH:mediaBin},encoding:'utf8',timeout:15000});
   const writeTool=(name,body)=>fs.writeFileSync(path.join(mediaBin,name),'#!/bin/sh\n'+body+'\n',{mode:0o700});
   const absentFfmpeg=run();assert.equal(absentFfmpeg.status,1);
-  assert.deepEqual(JSON.parse(absentFfmpeg.stderr),{code:'canvas_media_tool_failed',diagnostic:{tool:'ffmpeg',osCode:'ENOENT'}});
+  assert.equal(JSON.parse(absentFfmpeg.stderr).code,'canvas_media_configuration');assert.equal(JSON.parse(absentFfmpeg.stderr).diagnostic.osCode,'ENOENT');assert.equal(JSON.parse(absentFfmpeg.stderr).diagnostic.tool,'ffmpeg');
   writeTool('ffmpeg',"printf 'ffmpeg version fixture-1\\n'");
   const absentFfprobe=run();assert.equal(absentFfprobe.status,1);
-  assert.deepEqual(JSON.parse(absentFfprobe.stderr),{code:'canvas_media_tool_failed',diagnostic:{tool:'ffprobe',osCode:'ENOENT'}});
+  assert.equal(JSON.parse(absentFfprobe.stderr).code,'canvas_media_configuration');assert.equal(JSON.parse(absentFfprobe.stderr).diagnostic.osCode,'ENOENT');assert.equal(JSON.parse(absentFfprobe.stderr).diagnostic.tool,'ffprobe');
   writeTool('ffprobe',"printf 'private-token https://private.invalid/secret Invalid data found' >&2; exit 7");
   const failedProbe=run();assert.equal(failedProbe.status,1);
-  assert.deepEqual(JSON.parse(failedProbe.stderr),{code:'canvas_media_tool_failed',diagnostic:{exit:7,signal:null,stderr:['Invalid data found']}});
+  assert.equal(JSON.parse(failedProbe.stderr).code,'canvas_media_invalid');assert.equal(JSON.parse(failedProbe.stderr).diagnostic.exit,7);assert.equal(JSON.parse(failedProbe.stderr).diagnostic.reason,'invalid_media');assert(!/private-token|private.invalid|stderr/.test(failedProbe.stderr));
   writeTool('ffprobe',"printf 'ffprobe version fixture-2\\n'");
   const healthy=run();assert.equal(healthy.status,0,healthy.stderr);
   assert.deepEqual(JSON.parse(healthy.stdout),{mediaTools:{ffmpeg:'fixture-1',ffprobe:'fixture-2'}});

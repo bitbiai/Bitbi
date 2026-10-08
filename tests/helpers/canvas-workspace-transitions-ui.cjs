@@ -55,6 +55,17 @@ exports.transitions=async({page,expect,locale,mockSharedAuth,createCanvasApiMock
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'canvas-transitions-ui-')),files=await transitionFixture(dir),DB=new SqliteD1Database();applyAuthMigrations(DB);
   const media=name=>fs.readFileSync(path.join(__dirname,'../fixtures/media',name)).toString('base64');
   const f=await canvasAudioFixture({...createAuthTestEnv(),DB},{videoBase64:fs.readFileSync(files[0]).toString('base64'),importVideoBase64:fs.readFileSync(files[1]).toString('base64'),musicBase64:media('member-music.mp3'),imageBase64:media('h3-frame.png')});
+  // A real nine-video directed chain, with generated outputs, imported
+  // references and a late transition followed by an independent hard cut.
+  const prefix=[];
+  for(let i=0;i<5;i++){
+    const node=(await f.data(await f.request(f.projectPath+'/nodes','POST',{type:'asset_reference',title:'Earlier '+i,x:60,y:500+i*30}))).node;
+    await f.data(await f.request(`${f.projectPath}/nodes/${node.id}/asset-reference`,'POST',{asset_id:f.asset.id}));prefix.push(node.id);
+  }
+  const order=[...prefix,...f.order];
+  for(let i=0;i<5;i++)await f.data(await f.request(f.projectPath+'/edges','POST',{source_node_id:order[i],target_node_id:order[i+1]}));
+  await f.data(await f.request(`${f.projectPath}/nodes/${f.last.id}`,'PATCH',{config:{backgroundMusic:{enabled:locale==='de',gain:.2,musicAssetId:f.musicId,fadeIn:.2,fadeOut:.3}}}));
+  f.snapshot=await f.readProject();
   const de=locale==='de',errors=[],posts=[];let rendering=Promise.resolve();
   await page.setViewportSize({width:de?390:1440,height:1000});await mockSharedAuth(page);createCanvasApiMock(page);page.on('pageerror',e=>errors.push(e.message));
   const processor=()=>processCanvasExports({baseUrl:'https://bitbi.ai',limit:1,authHeaders:headers=>({Authorization:'Bearer synthetic-audio-processor',...headers}),
@@ -66,31 +77,40 @@ exports.transitions=async({page,expect,locale,mockSharedAuth,createCanvasApiMock
   });
   const toggle=page.locator('#canvasInspectorToggle'),inspector=page.locator('#canvasInspectorBody');
   const reveal=async()=>{if(de&&await toggle.getAttribute('aria-expanded')!=='true')await toggle.click();};
-  const selectEdge=async()=>{if(de&&await toggle.getAttribute('aria-expanded')==='true')await toggle.click();await page.locator(`[data-edge-id="${f.edges[2].id}"] .canvas-edge-hit`).press('Enter');await reveal();};
+  const selectEdge=async()=>{if(de&&await toggle.getAttribute('aria-expanded')==='true')await toggle.click();await page.locator(`[data-edge-id="${f.edges[1].id}"] .canvas-edge-hit`).press('Enter');await reveal();};
   try{
     await page.goto(de?'/de/canvas/':'/canvas/');await selectEdge();
     const control=inspector.locator('.canvas-transition-controls'),select=control.getByRole('combobox',{name:de?'Effekt':'Effect',exact:true});
     await expect(select).toHaveValue('none');await expect(select.locator('option')).toHaveCount(14);await expect(control.getByRole('spinbutton')).toHaveCount(0);
-    await select.selectOption('fade');await expect(control.getByRole('status')).toHaveText(de?'Gespeichert':'Saved');
-    await expect.poll(async()=>(await f.readProject()).edges.find(e=>e.id===f.edges[2].id).config.transition.preset).toBe('fade');expect(posts).toHaveLength(0);
-    await page.reload();await selectEdge();await expect(select).toHaveValue('fade');
+    await select.selectOption('flash');await expect(control.getByRole('status')).toHaveText(de?'Gespeichert':'Saved');
+    await expect.poll(async()=>(await f.readProject()).edges.find(e=>e.id===f.edges[1].id).config.transition.preset).toBe('flash');expect(posts).toHaveLength(0);
+    await page.reload();await selectEdge();await expect(select).toHaveValue('flash');
     await control.getByRole('button',{name:de?'Übergangsvorschau erstellen':'Preview transition',exact:true}).click();await expect.poll(()=>posts.length).toBe(1);await rendering;
     const preview=control.locator('video');await expect(preview).toBeVisible();await preview.scrollIntoViewIfNeeded();await preview.evaluate(v=>v.play());await expect.poll(()=>preview.evaluate(v=>({time:v.currentTime>.25,decoded:v.videoWidth===320,error:v.error?.code||0}))).toEqual({time:true,decoded:true,error:0});await preview.evaluate(v=>v.pause());
     expect(posts[0].result.data.preview.recipe.version).toBe(6);expect(posts[0].body.orderedClips).toHaveLength(2);
     await control.screenshot({path:info.outputPath(`transition-${locale}.png`)});
     if(de)await toggle.click();await page.locator(`[data-node-id="${f.last.id}"]`).press('Enter');await reveal();
     await require('./canvas-inspector-actions.cjs').openCanvasSettings(page,'merge');
-    const sequence=inspector.locator('.canvas-clip-sequence');await sequence.getByRole('radio',{name:de?'Clips und Reihenfolge auswählen':'Choose clips and order',exact:true}).check();
-    const view=await f.data(await f.request(f.endpoint)),pair=view.availableClips.filter(c=>[f.order[2],f.order[3]].includes(c.nodeId));
-    await sequence.getByRole('combobox',{name:'Clip 1',exact:true}).selectOption(pair.find(c=>c.nodeId===f.order[2]).runId);
-    await expect(sequence.locator('li')).toHaveCount(2);
-    await inspector.getByRole('button',{name:de?'Gesamtes Video erstellen':'Create full video',exact:true}).click();await expect.poll(()=>posts.length).toBe(2);await rendering;
+    const sequence=inspector.locator('.canvas-clip-sequence');
+    await sequence.getByRole('radio',{name:de?'Diese Kette zusammenfügen':'Merge this chain',exact:true}).check();
+    await expect(sequence.locator('li')).toHaveCount(9);
+    if(!de){ // Manual and automatic admission feed the same renderer.
+      await sequence.getByRole('radio',{name:'Choose clips and order',exact:true}).check();
+      const view=await f.data(await f.request(f.endpoint));
+      for(let i=0;i<9;i++){
+        if(i>=2)await sequence.getByRole('button',{name:'Add clip',exact:true}).click();
+        const clip=view.availableClips.find(c=>c.nodeId===order[i]);
+        await sequence.getByRole('combobox',{name:`Clip ${i+1}`,exact:true}).selectOption(clip.runId||'node:'+clip.nodeId);
+      }
+    }
+    await inspector.getByRole('button',{name:de?'Gesamtes Video mit Hintergrundmusik erstellen':'Create full video',exact:true}).click();await expect.poll(()=>posts.length).toBe(2);await rendering;
     await inspector.getByRole('button',{name:de?'Status aktualisieren':'Refresh status',exact:true}).click();
-    const current=(await f.data(await f.request(f.endpoint))).current;expect(current.recipe.version).toBe(6);expect(current.duration).toBe(2.5);expect(current.recipe.originalAudioPolicy).toBe('fit-picture-v1');
+    const current=(await f.data(await f.request(f.endpoint))).current;expect(current.recipe.version).toBe(6);expect(current.duration).toBe(13);expect(current.recipe.videos).toHaveLength(9);expect(current.recipe.transitions.map(t=>t.preset)).toEqual([...Array(6).fill('none'),'flash','none']);expect(current.recipe.originalAudioPolicy).toBe('fit-picture-v1');expect(current.recipe.backgroundMusic.enabled).toBe(de);
+    const identity=inspector.getByLabel(de?'Angezeigter Export':'Displayed export',{exact:true});await expect(identity).toHaveAttribute('data-export-id',current.id);await expect(identity).not.toContainText(de?'Vorherige':'Previous');
     const video=inspector.locator('.canvas-full-video > div:last-child > video');await expect(video).toHaveAttribute('src',current.asset.file_url);await video.scrollIntoViewIfNeeded();await video.evaluate(v=>v.play());await expect.poll(()=>video.evaluate(v=>v.currentTime)).toBeGreaterThan(.25);await video.evaluate(v=>v.pause());
     const data=Buffer.from(await (await f.request(current.asset.file_url)).arrayBuffer()),download=Buffer.from(await (await f.request(current.asset.file_url+'?download=1')).arrayBuffer());expect(data.equals(download)).toBe(true);
     const comparison=await f.data(await f.request(`${f.projectPath}/nodes/${f.last.id}/full-video?seamPreview=${posts[0].result.data.preview.id}`));
-    expect(comparison.preview.duration).toBe(current.duration);
+    expect(comparison.preview.duration).toBe(2.5);
     await expect(inspector.getByRole('link',{name:de?'Gesamtvideo herunterladen':'Download full video',exact:true})).toHaveAttribute('href',current.asset.file_url+'?download=1');
     await inspector.getByRole('button',{name:de?'Gesamtvideo in Assets speichern':'Save full video to Assets',exact:true}).click();await expect.poll(async()=>(await f.data(await f.request(f.endpoint))).current.storage).toBe('assets');
     const graph=await f.readProject();expect(graph.nodes.length).toBe(f.snapshot.nodes.length);expect(graph.edges.length).toBe(f.snapshot.edges.length);expect(errors).toEqual([]);expect(f.calls).toHaveLength(0);

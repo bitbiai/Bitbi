@@ -39,6 +39,7 @@ const SHARED_WORKER_FILE_MAP = new Map([
   ['js/shared/canvas-audio.mjs', ['auth']],
   ['js/shared/canvas-audio-fit.mjs', ['auth']],
   ['js/shared/canvas-transitions.mjs', ['auth']],
+  ['services/homepage-ffmpeg-processor/canvas-diagnostics.mjs', ['auth']],
   ['js/shared/canvas-workspace.mjs', ['auth']],
   ['js/shared/canvas-smooth-joins.mjs', ['auth']],
   ["js/shared/appearance-contract.js", ["auth"]],
@@ -850,7 +851,7 @@ export function isCanvasCompletionRouteChange(sources) {
 
 // Canvas media controls reuse the existing native and browser callers. Model,
 // provider, pricing, billing and unknown neighboring changes retain broader coverage.
-const CANVAS_TRANSITION_FILES=new Set(["scripts/setup-media-tools.sh","config/release-compat.json", "css/pages/canvas.css", "js/pages/canvas/main.js", "js/pages/canvas/graph.js", "js/pages/canvas/full-video.js", "js/pages/canvas/workspace-view.js", "js/pages/canvas/transition-controls.js", "js/shared/canvas-workspace.mjs", "js/shared/canvas-transitions.mjs", "js/shared/canvas-smooth-joins.mjs", "services/homepage-ffmpeg-processor/Dockerfile", "services/homepage-ffmpeg-processor/canvas-full-video.mjs", "services/homepage-ffmpeg-processor/canvas-seams.mjs", "services/homepage-ffmpeg-processor/canvas-transitions.mjs", "services/homepage-ffmpeg-processor/canvas-transition-contract.mjs", "services/homepage-ffmpeg-processor/canvas-full-video.test.mjs", "services/homepage-ffmpeg-processor/canvas-transitions.test.mjs", "workers/auth/migrations/0102_canvas_workspace_dimensions.sql", "workers/auth/src/lib/canvas-workspace.js", "workers/auth/src/lib/canvas-export-recipes.js", "workers/auth/src/lib/canvas-merge-selection.js", "workers/auth/src/lib/canvas-video-processing.js", "workers/auth/src/lib/canvas-preview-base.js", "workers/auth/src/routes/canvas.js", "workers/auth/src/routes/canvas-video-processing.js", "tests/canvas.spec.js", "tests/canvas-workspace-transitions.test.mjs", "tests/helpers/canvas-workspace-transition-control.mjs", "tests/helpers/canvas-workspace-transitions-ui.cjs", "tests/helpers/q2-runtime/canvas.mjs", "tests/helpers/q2-runtime/control.mjs", "tests/helpers/q2-runtime/environment.mjs", "tests/helpers/q2-runtime/runner.mjs", "tests/helpers/q2-runtime/linux-hosted.mjs", "tests/helpers/q2-runtime/linux-runtime-child.mjs", "tests/helpers/q2-runtime/linux-bootstrap.py", "scripts/test-q2-runtime-launcher.mjs"]);
+const CANVAS_TRANSITION_FILES=new Set(["services/homepage-ffmpeg-processor/video-reference.test.mjs","js/pages/canvas/api.js","js/pages/canvas/export-observer.js","js/pages/canvas/export-request.js","services/homepage-ffmpeg-processor/canvas-diagnostics.mjs","tests/helpers/canvas-export-lifecycle-ui.cjs","tests/helpers/canvas-inspector-ui.cjs","scripts/setup-media-tools.sh","config/release-compat.json", "css/pages/canvas.css", "js/pages/canvas/main.js", "js/pages/canvas/graph.js", "js/pages/canvas/full-video.js", "js/pages/canvas/workspace-view.js", "js/pages/canvas/transition-controls.js", "js/shared/canvas-workspace.mjs", "js/shared/canvas-transitions.mjs", "js/shared/canvas-smooth-joins.mjs", "services/homepage-ffmpeg-processor/Dockerfile", "services/homepage-ffmpeg-processor/canvas-full-video.mjs", "services/homepage-ffmpeg-processor/canvas-seams.mjs", "services/homepage-ffmpeg-processor/canvas-transitions.mjs", "services/homepage-ffmpeg-processor/canvas-transition-contract.mjs", "services/homepage-ffmpeg-processor/canvas-full-video.test.mjs", "services/homepage-ffmpeg-processor/canvas-transitions.test.mjs", "workers/auth/migrations/0102_canvas_workspace_dimensions.sql", "workers/auth/src/lib/canvas-workspace.js", "workers/auth/src/lib/canvas-export-recipes.js", "workers/auth/src/lib/canvas-merge-selection.js", "workers/auth/src/lib/canvas-video-processing.js", "workers/auth/src/lib/canvas-preview-base.js", "workers/auth/src/routes/canvas.js", "workers/auth/src/routes/canvas-video-processing.js", "tests/canvas.spec.js", "tests/canvas-workspace-transitions.test.mjs", "tests/helpers/canvas-workspace-transition-control.mjs", "tests/helpers/canvas-workspace-transitions-ui.cjs", "tests/helpers/q2-runtime/canvas.mjs", "tests/helpers/q2-runtime/control.mjs", "tests/helpers/q2-runtime/environment.mjs", "tests/helpers/q2-runtime/runner.mjs", "tests/helpers/q2-runtime/linux-hosted.mjs", "tests/helpers/q2-runtime/linux-runtime-child.mjs", "tests/helpers/q2-runtime/linux-bootstrap.py", "scripts/test-q2-runtime-launcher.mjs"]);
 export function isCanvasWorkspaceRouteChange(sources){
   if(!sources?.before||!sources?.after)return false;
   const normalize=s=>s.replace(/^import \{ updateWorkspace \} from '[^']+';\n/m,'').replace(/^(?:async )?function (?:projectRecord|requireProject|listProjects|createProject|updateProject)\([^\n]*\)[\s\S]*?^}\n/gm,'');
@@ -1111,13 +1112,14 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     return selection;
   }
 
-  if(!forceFull && changedFiles.includes('js/shared/canvas-transitions.mjs')
+  if(!forceFull && changedFiles.some(file=>['js/shared/canvas-transitions.mjs','services/homepage-ffmpeg-processor/canvas-transitions.mjs','js/pages/canvas/export-observer.js'].includes(file))
       && (!changedFiles.includes('workers/auth/src/routes/canvas.js')||isCanvasWorkspaceRouteChange(canvasRouteSources))
       && changedFiles.every(file=>isDocumentation(file)||CANVAS_TRANSITION_FILES.has(file)||RELEASE_TOOLING_FILES.has(file))) {
     selection.policy='canvas-workspace-transitions-v1';selection.canvasText=selection.canvasTransitions=true;
+    selection.canvasExportRepair=!changedFiles.some(file=>['js/shared/canvas-workspace.mjs','js/pages/canvas/workspace-view.js','js/pages/canvas/graph.js','js/pages/canvas/main.js','workers/auth/src/routes/canvas.js'].includes(file));
     selection.workers=selection.auth=selection.static=selection.runtime=true;
     selection.reasons.workers.push('Native D1 workspace bounds, immutable transition admission/protocol and target AMD64 decoded effects/audio; unchanged provider, billing and generation code');
-    selection.reasons.auth.push('Eight required EN/DE Chromium/WebKit workspace interaction and real Worker/media preview-export-download-save cases');
+    selection.reasons.auth.push('EN/DE Chromium/WebKit real Worker/media cumulative preview-export-download-save and export observation/recovery; workspace checks selected when affected');
     return selection;
   }
 

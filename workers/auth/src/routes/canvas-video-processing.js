@@ -42,8 +42,14 @@ export async function canvasExport(ctx,userId,projectId,runId) {
   };
   if(ctx.method==='GET') {
     const {availableClips,chain}=await canvasMergeView(ctx.env,userId,projectId,runId);
-    const current=head.latest?await result(head.latest):task?{export:publicCanvasProcessing(task),eligible:true}:{export:null,eligible:!chain.error};
-    return reply({...current,availableClips,chain,clips:chain.clips.length,chainError:chain.error,limits:CANVAS_VIDEO_LIMITS});
+    const requestKey=new URL(ctx.request.url).searchParams.get('requestKey');let requested=null;
+    if(requestKey!==null){
+      if(!/^[a-zA-Z0-9_-]{16,100}$/.test(requestKey))throw canvasProcessingError('canvas_export_key_required');
+      const id=await canvasExportId(userId,projectId,runId,requestKey);
+      requested=await ctx.env.DB.prepare(`SELECT * FROM canvas_video_processing WHERE id=? AND user_id=? AND project_id=? AND ${subject.column}=? AND kind='concat' AND json_extract(recipe_json,'$.preview') IS NULL`).bind(id,userId,projectId,subject.id).first();
+    }
+    const current=requested?await result(requested):head.latest?await result(head.latest):task?{export:publicCanvasProcessing(task),eligible:true}:{export:null,eligible:!chain.error};
+    return reply({...current,...(requestKey!==null?{submission:{found:Boolean(requested)}}:{}),availableClips,chain,clips:chain.clips.length,chainError:chain.error,limits:CANVAS_VIDEO_LIMITS});
   }
   const parsed=await readJsonBodyOrResponse(ctx.request,{maxBytes:BODY_LIMITS.smallJson});
   if(parsed.response) return parsed.response;
@@ -155,7 +161,7 @@ export async function handleCanvasExportProcessor(ctx) {
       if(parsed.response)return parsed.response;
       if(parsed.body?.protocol!==1) throw canvasProcessingError('canvas_processor_protocol');
       const jobs=await claimCanvasProcessing(ctx.env,'concat',Math.max(1,Math.min(3,Math.floor(Number(parsed.body.limit)||1))),backend,parsed.body.recipeProtocol);
-      return reply({protocol:1,jobs:jobs.map(row=>({id:row.id,claim:row.processing_token,limits:CANVAS_VIDEO_LIMITS,
+      return reply({protocol:1,jobs:jobs.map(row=>({id:row.id,attempt:Number(row.attempt_count)+1,claim:row.processing_token,limits:CANVAS_VIDEO_LIMITS,
         recipeVersion:row.recipe_json?JSON.parse(row.recipe_json).version:null,
         originalAudio:row.recipe_json?JSON.parse(row.recipe_json).videos.map(clip=>clip.originalAudio||{enabled:true,gain:1,fadeIn:0,fadeOut:0}):null,
         spatialPolicy:row.recipe_json?JSON.parse(row.recipe_json).spatialPolicy||'legacy-pad-v1':'legacy-pad-v1',
@@ -185,7 +191,8 @@ export async function handleCanvasExportProcessor(ctx) {
     if(match[2]==='fail' && method === 'POST') {
       const parsed=await readJsonBodyOrResponse(ctx.request,{maxBytes:BODY_LIMITS.homepageHeroProcessorJson});
       if(parsed.response)return parsed.response;
-      await failCanvasProcessing(ctx.env,job,parsed.body?.code);return reply({recorded:true});
+      const recorded=await failCanvasProcessing(ctx.env,job,parsed.body?.code,parsed.body?.diagnostic);
+      return recorded?reply({recorded:true}):json({ok:false,code:'canvas_processing_claim_lost'},{status:409});
     }
     // route-policy: internal.canvas-export.complete
     if(match[2]==='complete' && method === 'POST') {

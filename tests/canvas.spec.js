@@ -3,6 +3,9 @@ const fs = require('fs');
 const path = require('path');
 const {openCanvasSettings} = require('./helpers/canvas-inspector-actions.cjs');
 
+for(const locale of ['en','de'])test(`Canvas export lifecycle ${locale}: observation and submission recovery`,async({page},info)=>{
+    await require('./helpers/canvas-export-lifecycle-ui.cjs')({page,expect,locale,info,mockSharedAuth,createCanvasApiMock});
+});
 for(const locale of ['en','de'])for(const feature of ['workspace','transitions'])test(`Canvas workspace transitions ${locale}: ${feature}`,async({page},info)=>{
   await require('./helpers/canvas-workspace-transitions-ui.cjs')[feature]({page,expect,locale,info,mockSharedAuth,createCanvasApiMock});
 });

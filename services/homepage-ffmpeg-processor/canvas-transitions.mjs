@@ -51,11 +51,15 @@ export async function applyVideoTransitions(base,transitions,dir,{run,ffmpeg='ff
     // already fenced by admission. No generated filter expression crosses API.
     const filters=[];base.timeline.forEach((s,i)=>{
         args.push('-threads','1','-ss',String(s.start),'-t',String(s.duration),'-i',base.output);
-        filters.push(`[${i}:v]settb=AVTB,setpts=PTS-STARTPTS,fps=${base.fps},format=gbrp[v${i}]`);
+        // fps replaces its input timebase. Normalize AFTER it so concat,
+        // xfade and zoompan all meet the same rational clock at every join.
+        filters.push(`[${i}:v]setpts=PTS-STARTPTS,fps=${base.fps},settb=AVTB,format=gbrp[v${i}]`);
     });
     let current='v0',end=base.timeline[0].duration;
     for(let i=0;i<transitions.length;i++){
-        const next=`j${i}`,d=timing.overlaps[i];filters.push(`[${current}][v${i+1}]`+(d?transitionFilter(transitions[i],d,end-d):'concat=n=2:v=1:a=0')+`[${next}]`);current=effectFilters(filters,next,transitions[i],end-d,d,base,i);end+=base.timeline[i+1].duration-d;
+        const next=`j${i}`,d=timing.overlaps[i];filters.push(`[${current}][v${i+1}]`+(d?transitionFilter(transitions[i],d,end-d):'concat=n=2:v=1:a=0')+`[${next}]`);
+        const effected=effectFilters(filters,next,transitions[i],end-d,d,base,i);current=`clock${i}`;
+        filters.push(`[${effected}]fps=${base.fps},settb=AVTB[${current}]`);end+=base.timeline[i+1].duration-d;
     }
     const hasAudio=Boolean((await inspect(base.output,{run,ffprobe})).audio);
     if(hasAudio){

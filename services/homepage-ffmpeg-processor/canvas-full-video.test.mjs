@@ -9,26 +9,27 @@ import {concatenateClips,mediaCommand,inspectClip,processingTimeout,processCanva
 
 export async function testMediaCommandDiagnostics() {
   const dir=await mkdtemp(path.join(tmpdir(),'media-tool-private-fixture-'));
+  const check=(error,code,fields)=>{
+    assert.equal(error.code,code);assert(Number.isSafeInteger(error.diagnostic.elapsedMs));
+    for(const [key,value] of Object.entries(fields))assert.equal(error.diagnostic[key],value);
+    for(const value of [dir,'private-argument','private.invalid','signed-token','private-token'])assert(!(String(error.stack)+JSON.stringify(error)).includes(value));
+    assert(!('stderr' in error.diagnostic));return true;
+  };
   try {
     for(const [tool,osCode] of [['ffmpeg','ENOENT'],['ffprobe','EACCES']]) {
       const command=path.join(dir,tool);
-      if(osCode==='EACCES') {await writeFile(command,'private invalid executable');await chmod(command,0o600);}
-      await assert.rejects(mediaCommand(command,['private-argument','https://private.invalid/signed-token']),error=>{
-        assert.equal(error.code,'canvas_media_tool_failed');
-        assert.deepEqual(error.diagnostic,{tool,osCode});
-        const detail=String(error.stack)+JSON.stringify(error);
-        for(const privateValue of [dir,'private-argument','private.invalid','signed-token'])assert(!detail.includes(privateValue));
-        return true;
-      });
+      if(osCode==='EACCES'){await writeFile(command,'private invalid executable');await chmod(command,0o600);}
+      await assert.rejects(mediaCommand(command,['private-argument','https://private.invalid/signed-token']),error=>check(error,'canvas_media_configuration',{tool,osCode,errorClass:'configuration'}));
     }
-    await assert.rejects(mediaCommand(process.execPath,['-e',"console.error('private-token https://private.invalid/secret Invalid data found');process.exit(7)"]),error=>{
-      assert.deepEqual(error.diagnostic,{exit:7,signal:null,stderr:['Invalid data found']});
-      assert(!JSON.stringify(error).includes('private-token'));assert(!JSON.stringify(error).includes('private.invalid'));return true;
-    });
-    await assert.rejects(mediaCommand(process.execPath,['-e','setTimeout(()=>{},10000)'],{timeout:50}),error=>{
-      assert.deepEqual(error.diagnostic,{exit:null,signal:'SIGKILL',stderr:[]});return true;
-    });
-    console.log('Media child diagnostics: actual missing/denied executable, redacted exit and bounded termination passed.');
+    for(const [message,code,reason] of [
+      ['Invalid data found','canvas_media_invalid','invalid_media'],
+      ['First input link main timebase (1/1000000) do not match the corresponding second input link xfade timebase (1/24)','canvas_media_filter_invalid','timebase_mismatch'],
+      ['No space left on device; Error reinitializing filters','canvas_media_resource_limit','resource_limit'],
+      ['Unrecognized fixture failure','canvas_media_tool_failed','unknown'],
+    ])await assert.rejects(mediaCommand(process.execPath,['-e',`console.error(${JSON.stringify('private-token https://private.invalid/secret '+message)});process.exit(7)`]),error=>check(error,code,{exit:7,signal:null,reason}));
+    await assert.rejects(mediaCommand(process.execPath,['-e','setTimeout(()=>{},10000)'],{timeout:50}),error=>check(error,'canvas_processing_deadline',{exit:null,signal:'SIGKILL',reason:'deadline'}));
+    await assert.rejects(mediaCommand(process.execPath,['-e',"process.kill(process.pid,'SIGKILL')"]),error=>check(error,'canvas_media_tool_failed',{exit:null,signal:'SIGKILL',reason:'unknown'}));
+    console.log('Media diagnostics: missing/denied tools, timebase/media/resource classes, private-data redaction and deadline versus external signal passed.');
   } finally {await rm(dir,{recursive:true,force:true});}
 }
 

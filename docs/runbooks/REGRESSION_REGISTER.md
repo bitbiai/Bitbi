@@ -1743,6 +1743,26 @@ instruction to manually keep the Admin label aligned on every migration.
 
 ### 2026-10-07 — Canvas coordinate and transition version boundaries
 
+2026-10-08 full-export repair: the pinned Linux AMD64 FFmpeg 5.1.9 image
+reproduced pair Flash success and `[none, flash]` failure with AVTB versus 1/24.
+This matches the source defect; historical generic logs do not prove OOM or a
+deadline. Normalize timebase after fps and after each composition/effect boundary.
+Target-image decoded countercontrols cover cut/effect permutations, zoom→effect
+and nine clips with a late Flash; the real Worker/browser fixture uses generated
+and imported sources through completion/download/save. Deterministic media/filter
+failures terminate once; only classified transient export faults retry, at most
+three attempts. Preserve claim fencing and separate poster recovery. Diagnostics
+allow only stage/class/reason/tool/exit/signal/duration and job/attempt correlation.
+The per-job bounded observer now exposes a pause/reconnect state; ambiguous POSTs
+retain their request key across reopening and resolve through owner-scoped GET.
+Previous output identity/settings stay separate from a new attempt. Required EN/DE
+Chromium/WebKit lifecycle cases exercise the actual 120-read boundary, a subsequent
+job, lost response and stalled fetch. The existing transition selection/candidate
+verifier requires these cases for export repairs; workspace-only evidence is not
+repeated. Baseline release 37677932603/1 remains historical; new acceptance and live
+chain results belong to the exact repair checkpoint, never an old failed artifact.
+
+
 Baseline `746863c9` used a fixed surface and separate drag/placement clamps. The
 workspace control now shares Canvas-coordinate bounds across measured UI geometry
 and a concurrent-change-fenced D1 resize. Counterchecks exercise a node at x=2076

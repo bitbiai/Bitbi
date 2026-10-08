@@ -24,6 +24,7 @@ export async function testCanvasTransitions() {
   const root=process.env.CANVAS_TRANSITION_EVIDENCE_DIR||await mkdtemp(path.join(tmpdir(),'canvas-transitions-'));
   await mkdir(root,{recursive:true});const started=Date.now(),results=[];
   try{
+    await (await import('./canvas-full-video.test.mjs')).testMediaCommandDiagnostics();
     const dir=path.join(root,'sources'),files=await transitionFixture(dir),originals=await Promise.all(files.map(f=>readFile(f)));
     const normal=await concatenateClips(files,dir,{videoClock:true,fitAudio:true});assert.equal(normal.duration,3);
     const controls=[{enabled:true,gain:.5,fadeIn:.1,fadeOut:.1},{enabled:true,gain:.25,fadeIn:0,fadeOut:.1}];
@@ -72,6 +73,35 @@ export async function testCanvasTransitions() {
     const final=await mixBackgroundMusic(transitioned,music,.2,three,{fadeIn:.2,fadeOut:.3});
     const pcm=audio(final.output);assert(tone(pcm,2.7,3.1,880)<.001,'Muted source remains muted');assert(tone(pcm,2.7,3.1,1200)>.015,'Music loops on final shorter clock');
     assert(tone(pcm,3.5,3.58,1200)<tone(pcm,2.7,3.1,1200)*.5,'Music fades at final output end');
+    // Composition countercontrols: the real pinned image used to reject a
+    // hard cut followed by xfade, and zoompan followed by a fresh xfade input.
+    const cases=[['flash','none'],['none','flash'],['none','flash','none','fade'],['zoom-blur','flash'],[...Array(6).fill('none'),'flash','none']];
+    for(const [index,presets] of cases.entries()){
+      const folder=path.join(root,'mixed-'+index);await mkdir(folder);const inputs=[];
+      for(let i=0;i<=presets.length;i++){const file=path.join(folder,`clip-${i}.mp4`);await copyFile(files[i%2],file);inputs.push(file);}
+      const boundaries=presets.map(preset=>preset==='none'?{preset}:{preset,duration:.5,...(preset==='flash'?{strength:.7}:{})});
+      const started=Date.now(),base=await concatenateClips(inputs,folder,{videoClock:true,fitAudio:true,transitions:boundaries});
+      const envelopes=inputs.map((_,i)=>({enabled:i!==3,gain:.5,fadeIn:.1,fadeOut:.1}));
+      const fitted=await applyOriginalAudio(base,envelopes,folder);
+      const result=await applyVideoTransitions(fitted,boundaries,folder,options),info=await inspectClip(result.output);
+      const expected=inputs.length*1.5-presets.filter(p=>p!=='none').length*.5;
+      assert.equal(result.duration,expected);assert.equal(Number(info.video.nb_frames),Math.round(expected*24));
+      const times=JSON.parse(cmd('ffprobe',['-v','error','-select_streams','v:0','-show_entries','frame=best_effort_timestamp_time','-of','json',result.output])).frames;
+      times.forEach((f,i)=>assert(Math.abs(Number(f.best_effort_timestamp_time)-i/24)<.00001,'Mixed chain has one continuous frame clock'));
+      for(let i=0;i<inputs.length;i++)assert(diff(frame(result.output,result.timeline[i].start+.65),frame(inputs[i],.65))<5,'Clip order/content unchanged outside transition');
+      const flash=presets.indexOf('flash'),seam=result.timeline[flash+1].start+.25,pixels=frame(result.output,seam);
+      assert(pixels.reduce((a,b)=>a+b,0)/pixels.length>170,'Requested Flash exists at its exact boundary');
+      const signal=audio(result.output);assert(tone(signal,.4,.8,440)>.055&&tone(signal,.4,.8,440)<.07,'Original .5 gain applied once');
+      if(inputs.length===9){
+        assert(tone(signal,result.timeline[3].start+.6,result.timeline[3].start+.9,880)<.001,'Muted source stays muted in cumulative export');
+        const mixed=await mixBackgroundMusic(result,music,.2,folder,{fadeIn:.2,fadeOut:.3});const withMusic=audio(mixed.output);
+        assert(tone(withMusic,11,11.4,1200)>.015&&tone(signal,11,11.4,1200)<.001,'Fitted music appears only when enabled');
+        assert(tone(withMusic,expected-.1,expected-.02,1200)<tone(withMusic,11,11.4,1200)*.5,'Music fades on shortened full timeline');
+        assert(diff(frame(mixed.output,seam),pixels)===0,'Music preserves exact transition video');
+      }
+      ff(['-ss',String(seam),'-i',result.output,'-frames:v','1',path.join(folder,'flash-boundary.png')]);
+      results.push({sequence:presets,clips:inputs.length,elapsedMs:Date.now()-started,duration:expected,frames:times.length,decoded:true});
+    }
     // Native special effect at a representative delivery raster, bounded image.
     const hd=path.join(root,'720');const hdFiles=await transitionFixture(hd,{width:1280,height:720});
     const hdBase=await concatenateClips(hdFiles,hd,{videoClock:true,fitAudio:true});const begin=Date.now();

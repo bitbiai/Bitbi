@@ -80,6 +80,7 @@ const SHARED_WORKER_FILE_MAP = Object.freeze({
   "js/shared/canvas-audio.mjs": ["auth"],
   "js/shared/canvas-audio-fit.mjs": ["auth"],
   "js/shared/canvas-transitions.mjs": ["auth"],
+  "services/homepage-ffmpeg-processor/canvas-diagnostics.mjs": ["auth"],
   "js/shared/canvas-workspace.mjs": ["auth"],
   "js/shared/canvas-smooth-joins.mjs": ["auth"],
   "js/shared/ai-image-models.mjs": ["auth"],

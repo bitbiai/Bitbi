@@ -1,3 +1,6 @@
+import {exportObserver} from './export-observer.js?v=__ASSET_VERSION__';
+import {canvasClipIdentity,exportMusicSettings} from '../../shared/canvas-export.mjs?v=__ASSET_VERSION__';
+import {sequenceTransitions,TRANSITIONS} from '../../shared/canvas-transitions.mjs?v=__ASSET_VERSION__';
 import { clipSequence } from './merge-clips.js?v=__ASSET_VERSION__';
 import { canvasApi } from './api.js?v=__ASSET_VERSION__';
 import { createMusicPreview } from './music-preview.js?v=__ASSET_VERSION__';
@@ -73,42 +76,73 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
         if(previewMode && (auditionState==='loading'||!resultVideo?.paused) && selected.enabled && (!previous.enabled || previous.musicAssetId!==selected.musicAssetId))startPreview();else updateButtons();
     },{signal});
     const createButton=document.createElement('button');createButton.type='button';createButton.className='canvas-button canvas-button--primary';createButton.textContent=copy.create;createButton.hidden=true;
-    let sequenceBlocked=true;
+    let observer=null,preparing=false;
     const nodeId=output.nodeId||getGraph().nodes.find(node=>node.output?.runId===output.runId)?.id||output.runId;
     const mergeSettings=canvasDisclosure([projectId,nodeId,'merge'],german?'Clips zusammenfügen':'Merge clips','canvas-merge-settings');
     controls.append(mergeSettings);
-    const sequence=clipSequence(mergeSettings,anchor,german,signal,()=>{createButton.disabled=sequenceBlocked||!sequence.valid;joins?.sync();},getGraph);
+    const sequence=clipSequence(mergeSettings,anchor,german,signal,()=>{syncAvailability();joins?.sync();paintVersion();},getGraph);
     joins=smoothJoinControls({parent:mergeSettings,german,signal,projectId,anchor,read:readSmooth,write:writeSmooth,flush,sequence,settings:()=>({...selected}),getGraph,pause:()=>{video.pause();resultVideo?.pause();audition?.pause();}});
     video.addEventListener('play',()=>joins.pause(),{signal});
     controls.append(createButton);
-    createButton.addEventListener('click',()=>void update(true),{signal});
+    createButton.addEventListener('click',()=>void createExport(),{signal});
     sound.previewControls.append(previewButton,returnButton,previewStatus,previewNote);updateButtons();
     const posterStatus=document.createElement('p');posterStatus.className='canvas-muted';section.append(posterStatus);
-    let timer,reads=0,busy=false,resultVideo=null,previous=null,posterRetry=null,requestKey=null,requestSettings=null,requestSequence,requestMode,requestSmooth;
+    let resultVideo=null,previous=null,posterRetry=null;
+    const observation=document.createElement('p'),identity=document.createElement('p'),retrySubmission=document.createElement('button');
+    observation.setAttribute('role','status');observation.setAttribute('aria-label',german?'Statusverbindung':'Status connection');observation.className=identity.className='canvas-muted';
+    identity.setAttribute('aria-label',german?'Angezeigter Export':'Displayed export');
+    block.insertBefore(observation,preview);block.insertBefore(identity,preview);
+    retrySubmission.type='button';retrySubmission.className='canvas-button';retrySubmission.hidden=true;
+    retrySubmission.textContent=german?'Dieselbe Anfrage erneut senden':'Retry the same submission';controls.append(retrySubmission);
+    retrySubmission.addEventListener('click',()=>void observer.retry(),{signal});
     const originalId=output.assetId||output.asset?.id;
-    signal.addEventListener('abort',()=>{clearTimeout(timer);resultVideo?.pause();},{once:true});
-    async function update(create=false) {
-        if(signal.aborted||busy)return;busy=true;clearTimeout(timer);
-        createButton.disabled=true;
-        if(create) {
-            if(!sequence.valid){busy=false;return;}
-            if(selected.enabled && !chosen()){message.textContent=copy.ambiguous;busy=false;createButton.disabled=false;return;}
-            if(!await flush()){message.textContent=copy.savingFailed;busy=false;createButton.disabled=false;return;}
-            if(signal.aborted)return;
-            if(!sequence.valid){busy=false;message.textContent=copy.unavailable;return;}
-            if(!requestKey){requestKey=crypto.randomUUID();requestSettings={...selected};requestSequence=sequence.value;requestMode=sequence.mode;requestSmooth=joins.enabled;}
-        }
-        sequence.lock(true);
-        const result=await canvasApi.fullVideo(projectId,anchor,create,signal,{backgroundMusic:requestSettings||selected,smoothJoins:requestSmooth??joins.enabled,...(requestSequence?{orderedClips:requestSequence,...(requestMode==='chain'?{mergeMode:'chain'}:{})}:{})},requestKey);
-        if(signal.aborted)return;
-        busy=false;
-        if(create && (result.ok || (result.status>=400 && result.status<500))){requestKey=null;requestSettings=null;requestSequence=undefined;requestMode=undefined;requestSmooth=undefined;}
-        sequence.lock(Boolean(requestKey));
-        joins.lock(Boolean(requestKey));
-        createButton.disabled=!sequence.valid;
+    signal.addEventListener('abort',()=>resultVideo?.pause(),{once:true});
+    function syncAvailability(){
+        const state=observer?.state,blocked=preparing||!state?.known||state.busy||!!state.pending||['queued','processing'].includes(state.job?.status);
+        createButton.disabled=blocked||!sequence.valid;sequence.lock(blocked);joins?.lock(blocked);
+        retrySubmission.hidden=!state?.canRetry;retrySubmission.disabled=Boolean(state?.busy);
+        if(!state)return;
+        observation.textContent=state.busy?(german?'Status wird geprüft…':'Checking status…'):state.pending
+            ?(german?'Übermittlung noch nicht bestätigt. Status aktualisieren; es wird kein neuer Auftrag gestartet.':'Submission is not yet confirmed. Refresh status; no new job will be started.')
+            :state.paused?(state.known?(german?'Automatische Statusprüfung pausiert. Der Auftrag läuft möglicherweise weiter. Status aktualisieren.':'Automatic status checks paused. The job may still be running. Refresh status.')
+                :(german?'Statusverbindung unterbrochen. Status aktualisieren, bevor ein neuer Auftrag gestartet wird.':'Status connection interrupted. Refresh status before starting a new job.')):'';
+    }
+    function paintVersion(){
+        if(!completed?.asset)return;
+        let changed=true;
+        try{
+            const recipe=completed.recipe,graph=getGraph(),clips=sequence.value;
+            const withNodes=clips.map(clip=>({...clip,nodeId:clip.nodeId||graph.nodes.find(n=>n.output?.runId===clip.runId)?.id}));
+            changed=!recipe||!sequence.valid||JSON.stringify(recipe.videos.map(canvasClipIdentity))!==JSON.stringify(clips)
+                ||JSON.stringify(recipe.backgroundMusic)!==JSON.stringify(exportMusicSettings(selected))
+                ||Boolean(recipe.smoothJoins?.enabled)!==joins.enabled||changedTransitionAudio()
+                ||recipe.videos.some(clip=>JSON.stringify(originalAudioSettings(clipAudio(clip)))!==JSON.stringify(originalAudioSettings(clip.originalAudio)))
+                ||JSON.stringify(recipe.transitions||withNodes.slice(1).map(()=>({preset:'none'})))!==JSON.stringify(sequenceTransitions(withNodes,graph.edges));
+        }catch{}
+        const latest=observer?.state.job,previousVersion=changed||Boolean(latest&&latest.id!==completed.id);
+        const effects=(completed.recipe?.transitions||[]).filter(t=>t.preset!=='none').map(t=>{const name=TRANSITIONS.find(p=>p.id===t.preset);return (german?name?.de:name?.en)||t.preset;});
+        identity.dataset.exportId=completed.id;
+        identity.textContent=(previousVersion?(german?'Vorherige fertige Version':'Previous completed version'):(german?'Angezeigte fertige Version':'Displayed completed version'))+' · '+completed.id.slice(0,8)+' · '+(effects.length?effects.join(', '):(german?'Keine Übergänge':'No transitions'))
+            +(previousVersion?(german?'. Neue Einstellungen oder der neue Auftrag sind hier noch nicht enthalten.':'. New settings or the new attempt are not included here.'):'')
+            +(german?' Wiedergabe, Download und Speichern beziehen sich auf diese Version.':' Playback, Download and Save refer to this version.');
+    }
+    async function createExport(){
+        if(preparing||signal.aborted||!observer.state.known||observer.state.busy||observer.state.pending)return;
+        preparing=true;syncAvailability();
+        try{
+            if(!sequence.valid)return;
+            if(selected.enabled&&!chosen()){message.textContent=copy.ambiguous;return;}
+            if(!await flush()){message.textContent=copy.savingFailed;return;}
+            if(signal.aborted||!sequence.valid)return;
+            await observer.submit({backgroundMusic:{...selected},smoothJoins:joins.enabled,orderedClips:sequence.value,...(sequence.mode==='chain'?{mergeMode:'chain'}:{})});
+        }catch{if(!signal.aborted)message.textContent=copy.savingFailed;}
+        finally{preparing=false;if(!signal.aborted)syncAvailability();}
+    }
+    async function renderResult(result,request){
+        if(!request.current())return;
         const status=result.data?.export;
         if(result.ok)sequence.update(result.data);
-        else if(create && ['canvas_selection_changed','video_source_changed'].includes(result.code))sequence.invalidate();
+        else if(['canvas_selection_changed','video_source_changed'].includes(result.code))sequence.invalidate();
         const signature=JSON.stringify([result.ok,result.code,result.data]);
         if(signature!==previous) {
         previous=signature;
@@ -124,7 +158,7 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
             if(status?.error_code==='canvas_transition_too_long')message.textContent+=' '+(german?'Überlappung verkürzen: höchstens die halbe Länge jedes Nachbarclips. Bei kurzen mittleren Clips muss auch zwischen beiden Übergängen ein Bild bleiben.':'Shorten the overlap to at most half of each neighboring clip. Short middle clips also need at least one frame between both transitions.');
             if(status?.error_code==='canvas_audio_tail_exceeds_video')message.textContent+=' '+(german?'Diesen älteren Auftrag durch einen neuen Export ersetzen. Der Originalton wird jetzt automatisch an die Bilddauer angepasst.':'Create a new export to replace this older failed job. Original audio now fits the picture duration automatically.');
             createButton.hidden=false;createButton.textContent=status?copy.again:copy.create;
-            createButton.disabled=['queued','processing'].includes(status?.status);
+            if(status?.status==='failed')message.textContent+=' '+(german?'Dieser Versuch ist beendet. Quellen/Einstellungen prüfen und bei Bedarf eine neue Version erstellen.':'This attempt has ended. Check sources/settings, then create a new version if needed.');
             const current=result.data.current||status;
             if(current?.asset && current.storage==='assets')message.textContent+=' '+copy.saved;
             if(current?.asset) {
@@ -146,7 +180,7 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
                 const link=document.createElement('a');link.href=current.asset.file_url+'?download=1';link.textContent=copy.download;link.download='canvas-full-video.mp4';fragment.append(link);
                 if(current.storage==='canvas') {
                     const save=document.createElement('button');save.type='button';save.className='canvas-button';save.textContent=copy.save;
-                    save.addEventListener('click',async()=>{save.disabled=true;const saved=await canvasApi.fullVideo(projectId,anchor,true,signal,{saveExportId:current.id});if(signal.aborted)return;if(saved.ok){message.textContent=copy.saved;void update();}else{message.textContent=copy.unavailable;save.disabled=false;}},{signal});fragment.append(save);
+                    save.addEventListener('click',async()=>{save.disabled=true;const saved=await canvasApi.fullVideo(projectId,anchor,true,signal,{saveExportId:current.id});if(signal.aborted)return;if(saved.ok){message.textContent=copy.saved;void observer.refresh();}else{message.textContent=copy.unavailable;save.disabled=false;}},{signal});fragment.append(save);
                 }
                 preview.replaceChildren(fragment);
             }
@@ -154,23 +188,27 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
         }
         // Only the processing section changes; form drafts/selection stay intact.
         }
-        if(result.ok){sequenceBlocked=['queued','processing'].includes(status?.status);sequence.lock(sequenceBlocked||Boolean(requestKey));createButton.hidden=!result.data.eligible&&!sequence.available;createButton.disabled=!sequence.valid||sequenceBlocked;}
+        if(result.ok)createButton.hidden=!result.data.eligible&&!sequence.available;
+        paintVersion();
         if(output.runId && originalId && !output.previewUrl) {
-            const project=await canvasApi.getProject(projectId,signal);
-            if(signal.aborted)return;
+            const project=await canvasApi.getProject(projectId,request.signal,30000);
+            if(!request.current())return;
             const current=project.data?.runs?.find(r=>r.id===output.runId)?.output;
             if(current?.previewUrl) {output.previewUrl=current.previewUrl;video.poster=current.previewUrl;posterStatus.textContent='';}
             else {
               posterStatus.textContent=current?.posterStatus==='failed'?copy.posterFailed:copy.poster;
               if(current?.posterStatus==='failed' && !posterRetry) {
                 posterRetry=document.createElement('button');posterRetry.type='button';posterRetry.className='canvas-btn';posterRetry.textContent=copy.retry;
-                posterRetry.addEventListener('click',async()=>{posterRetry.disabled=true;const retry=await canvasApi.retryPoster(originalId,signal);if(signal.aborted)return;if(retry.ok){posterRetry.remove();posterRetry=null;reads=0;void update();}else{posterStatus.textContent=copy.posterFailed;posterRetry.disabled=false;}},{signal});section.append(posterRetry);
+                posterRetry.addEventListener('click',async()=>{posterRetry.disabled=true;const retry=await canvasApi.retryPoster(originalId,signal);if(signal.aborted)return;if(retry.ok){posterRetry.remove();posterRetry=null;void observer.refresh();}else{posterStatus.textContent=copy.posterFailed;posterRetry.disabled=false;}},{signal});section.append(posterRetry);
               }
             }
         }
-        if(++reads<120 && (output.runId&&!output.previewUrl || ['queued','processing','preview_pending'].includes(status?.status)))timer=setTimeout(()=>void update(),5000);
+
     }
     const refresh=document.createElement('button');refresh.type='button';refresh.className='canvas-btn';refresh.textContent=copy.refresh;
-    refresh.addEventListener('click',()=>{reads=0;void update();},{signal});section.append(refresh);
-    void update();
+    refresh.addEventListener('click',()=>void observer.refresh(),{signal});section.append(refresh);
+    document.addEventListener('canvas:merge-state',paintVersion,{signal});
+    sound.details.addEventListener('canvas:sound-change',paintVersion,{signal});
+    observer=exportObserver({projectId,anchor,signal,onState:()=>{syncAvailability();paintVersion();},onResult:renderResult,needsObservation:()=>Boolean(output.runId&&!output.previewUrl)});
+    void observer.refresh();
 }

@@ -21,7 +21,7 @@ export async function testVideoReferences() {
     const excessive=async(...args)=>JSON.stringify({streams:[{codec_type:'video',width:320,height:320,avg_frame_rate:'24/1',nb_frames:'362',duration_ts:185400,time_base:'1/12288'}],format:{duration:'15.083'}});
     await assert.rejects(prepareReference(file,dir,{run:excessive}),{stage:'source_timing'});
     await assert.rejects(mediaCommand(process.execPath,['-e',"console.error('private-token https://private.invalid/secret Invalid data found');process.exit(7)"]),error=>{
-      assert.deepEqual(error.diagnostic,{exit:7,signal:null,stderr:['Invalid data found']});return true;
+      assert.equal(error.code,'canvas_media_invalid');assert.equal(error.diagnostic.exit,7);assert.equal(error.diagnostic.reason,'invalid_media');assert(!/private-token|private.invalid|stderr/.test(JSON.stringify(error)));return true;
     });
     const fixture=async(name,frames)=>{
       const file=path.join(dir,name+'.mp4');

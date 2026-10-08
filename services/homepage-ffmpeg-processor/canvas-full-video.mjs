@@ -6,6 +6,7 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import {smoothVideoSeams,SEAM_POLICY} from './canvas-seams.mjs';
 import {AUDIO_FIT_POLICY,pictureTiming,audioFitReport,fittedSourceFilter,cutSafeSettings} from './canvas-audio-fit.mjs';
+import {classifyMediaFailure,safeCanvasDiagnostic,safeCanvasFailureCode} from './canvas-diagnostics.mjs';
 
 const failure=code=>Object.assign(new Error(code),{code});
 export function processingTimeout(deadline,now=Date.now()) {
@@ -17,16 +18,15 @@ export function processingTimeout(deadline,now=Date.now()) {
 export function mediaCommand(command,args,{cwd,timeout=600000}={}) {
   return new Promise((resolve,reject)=>{
     const tool=['ffmpeg','ffprobe'].includes(path.basename(command))?path.basename(command):'media-tool';
-    const osCodes=new Set(['ENOENT','EACCES','EPERM','ENOEXEC','EAGAIN','ENOMEM','E2BIG','EMFILE','ENFILE','ENOTDIR','EINVAL']);
-    const child=spawn(command,args,{cwd,stdio:['ignore','pipe','pipe']}),timer=setTimeout(()=>child.kill('SIGKILL'),timeout);
-    let stdout='';child.stdout.on('data',b=>{stdout+=b;if(stdout.length>1000000) child.kill('SIGKILL');});
+    const started=Date.now();let deadline=false,outputLimit=false;
+    const child=spawn(command,args,{cwd,stdio:['ignore','pipe','pipe']}),timer=setTimeout(()=>{deadline=true;child.kill('SIGKILL');},timeout);
+    let stdout='';child.stdout.on('data',b=>{stdout+=b;if(stdout.length>1000000){outputLimit=true;child.kill('SIGKILL');}});
     // Retain only bounded, known tool diagnostics. Never echo paths, URLs,
     // media metadata or arbitrary stderr (which can contain private content).
     let stderr='';child.stderr.on('data',b=>{stderr=(stderr+b).slice(-4096);});
-    child.on('error',error=>{clearTimeout(timer);reject(Object.assign(failure('canvas_media_tool_failed'),{diagnostic:{tool,
-      osCode:osCodes.has(error.code)?error.code:'unknown'}}));});
-    child.on('close',(code,signal)=>{clearTimeout(timer);code===0?resolve(stdout):reject(Object.assign(failure('canvas_media_tool_failed'),{diagnostic:{exit:code,signal,
-      stderr:['Invalid data found','No such file or directory','Unknown encoder','Error initializing output stream','Conversion failed','Cannot allocate memory','No space left on device'].filter(text=>stderr.includes(text))}}));});
+    const rejectFailure=details=>{const classified=classifyMediaFailure({stderr,deadline,outputLimit,...details});reject(Object.assign(failure(classified.code),{diagnostic:safeCanvasDiagnostic({tool,...details,...classified,elapsedMs:Date.now()-started})}));};
+    child.on('error',error=>{clearTimeout(timer);rejectFailure({osCode:error.code});});
+    child.on('close',(exit,signal)=>{clearTimeout(timer);exit===0&&!deadline&&!outputLimit?resolve(stdout):rejectFailure({exit,signal});});
   });
 }
 export async function inspectClip(file,{ffprobe='ffprobe',run=mediaCommand}={}) {
@@ -270,7 +270,8 @@ export async function processCanvasExports({requestJson,authHeaders,baseUrl,limi
   const capability=Number.isInteger(protocol.data.recipeProtocol)?Math.min(7,protocol.data.recipeProtocol):4;
   const jobs=(await json(base+'/claim',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({protocol:1,recipeProtocol:capability,limit:Math.min(1,limit)})})).data.jobs;
   for(const job of jobs) {
-    const deadline=Date.now()+12*60_000;
+    const started=Date.now(),deadline=started+12*60_000,stages={};let stage='sources',stageStart=started;
+    const enter=name=>{stages[stage]=(stages[stage]||0)+Date.now()-stageStart;stage=name;stageStart=Date.now();};
     const boundedRun=(cmd,args,options={})=>{const remaining=deadline-Date.now();if(remaining<=0)throw failure('canvas_processing_deadline');return mediaCommand(cmd,args,{...options,timeout:remaining});};
     const dir=await mkdtemp(path.join(tmpdir(),'bitbi-canvas-full-'));
     const headers=authHeaders({'X-BITBI-Canvas-Claim':job.claim});
@@ -280,7 +281,7 @@ export async function processCanvasExports({requestJson,authHeaders,baseUrl,limi
         const url=new URL(job.sources[i].url,baseUrl);
         if(url.origin!==new URL(baseUrl).origin || url.pathname!==`${base}/${job.id}/source/${i}`) throw failure('canvas_source_route_invalid');
         const response=await fetchImpl(url,{headers,redirect:'error',signal:AbortSignal.timeout(processingTimeout(deadline))});
-        if(!response.ok) throw failure('canvas_source_unavailable');
+        if(!response.ok) throw failure(response.status===429||response.status>=500?'canvas_processing_transient':'canvas_source_invalid');
         const chunks=[];let size=0;
         for await(const chunk of response.body) {size+=chunk.length;total+=chunk.length;if(size>80000000 || total>job.limits.sourceBytes)throw failure('canvas_source_size');chunks.push(chunk);}
         if(size!==job.sources[i].size)throw failure('canvas_source_changed');
@@ -294,40 +295,48 @@ export async function processCanvasExports({requestJson,authHeaders,baseUrl,limi
       if(job.recipeVersion>=5&&job.originalAudioPolicy!==AUDIO_FIT_POLICY)throw failure('canvas_audio_fit_policy_invalid');
       if(job.recipeVersion===6&&(job.transitionPolicy!==TRANSITION_POLICY||!Array.isArray(job.transitions)||job.transitions.length!==files.length-1))throw failure('canvas_transition_invalid');
       const options={ffmpeg,ffprobe,limits:job.limits,run:boundedRun};
+      enter('normalize');
       let result=await concatenateClips(files,dir,{...options,spatialPolicy:job.spatialPolicy||'legacy-pad-v1',videoClock:job.recipeVersion>=4,fitAudio:job.recipeVersion>=5,
         transitions:job.recipeVersion===6?job.transitions:null,smooth:job.smoothJoins?.enabled===true,previewSeam:job.preview?.seamIndex??null});
       const withAudio=async input=>{
         let output=job.recipeVersion===6?input:await applyOriginalAudio(input,job.originalAudio,dir,options);
         if(job.backgroundMusic?.enabled) {
+          enter('music');
           if(!music)throw failure('canvas_music_unavailable');
           output=await mixBackgroundMusic(output,music,job.backgroundMusic.gain,dir,{...options,...job.backgroundMusic});
         }else if(music)throw failure('canvas_music_settings');
         return output;
       };
       const uploadBase=async input=>{
+        const previousStage=stage;enter('preview_upload');
         const clean=new FormData();clean.set('video',new Blob([await readFile(input.output)],{type:'video/mp4'}),'clean-base.mp4');
         for(const key of ['duration','width','height'])clean.set(key,String(input[key]));
         if(job.recipeVersion>=3)clean.set('audioTimeline',JSON.stringify(input.timeline));
         await json(`${base}/${job.id}/complete?part=preview-base`,{method:'POST',headers,body:clean,signal:AbortSignal.timeout(processingTimeout(deadline))});
+        enter(previousStage);
       };
-      if(job.recipeVersion===6)result=await applyOriginalAudio(result,job.originalAudio,dir,options);
+      enter('source_audio');if(job.recipeVersion===6)result=await applyOriginalAudio(result,job.originalAudio,dir,options);
       if(job.preview&&job.recipeVersion!==6)await uploadBase(await withAudio(result));
-      if(job.smoothJoins?.enabled)result=await smoothVideoSeams(result,dir,{...options,skipSeams:new Set((job.preview?[job.transitions?.[job.preview.seamIndex]]:job.transitions||[]).flatMap((t,i)=>t&&t.preset!=='none'?[i]:[])),...(job.preview?{originalSeamIndex:job.preview.seamIndex}:{})});
-      if(job.recipeVersion===6)result=await applyVideoTransitions(result,job.preview?[job.transitions[job.preview.seamIndex]]:job.transitions,dir,{...options,inspect:inspectClip});
+      enter('smooth');if(job.smoothJoins?.enabled)result=await smoothVideoSeams(result,dir,{...options,skipSeams:new Set((job.preview?[job.transitions?.[job.preview.seamIndex]]:job.transitions||[]).flatMap((t,i)=>t&&t.preset!=='none'?[i]:[])),...(job.preview?{originalSeamIndex:job.preview.seamIndex}:{})});
+      enter('transitions');if(job.recipeVersion===6)result=await applyVideoTransitions(result,job.preview?[job.transitions[job.preview.seamIndex]]:job.transitions,dir,{...options,inspect:inspectClip});
       // Reuse this job's already-created clean base. Never another render/job.
       // Separate bounded upload keeps the existing completion body limit intact.
       if(!job.preview && protocol.data.previewBase===1 && (job.backgroundMusic?.enabled && job.backgroundMusic.gain>0 || job.originalAudio?.some(modifiedAudio)||result.timeline.some(c=>c.originalAudioFit&&(c.originalAudioFit.trimStart>1/48000||c.originalAudioFit.trimEnd>1/48000))))await uploadBase(result);
       result=await withAudio(result);
+      enter('complete');
       const form=new FormData();form.set('video',new Blob([await readFile(result.output)],{type:'video/mp4'}),'full-video.mp4');
       for(const key of ['duration','width','height'])form.set(key,String(result[key]));
       if(job.recipeVersion>=3)form.set('audioTimeline',JSON.stringify(result.timeline));
       if(job.recipeVersion>=4)form.set('seamResult',JSON.stringify(result.seams?{policy:SEAM_POLICY,improved:result.seams.improved,seams:result.seams.seams}:{policy:SEAM_POLICY,improved:0,seams:[]}));
       await json(`${base}/${job.id}/complete`,{method:'POST',headers,body:form,signal:AbortSignal.timeout(processingTimeout(deadline))});
-      console.log(JSON.stringify({phase:'canvas_full_video',status:'stored',mode:result.mode}));
+      stages[stage]=(stages[stage]||0)+Date.now()-stageStart;
+      console.log(JSON.stringify({phase:'canvas_full_video',job:job.id,attempt:job.attempt,status:'stored',mode:result.mode,elapsedMs:Date.now()-started,stages}));
     } catch(error) {
-      const code=/^canvas_[a-z_]+$/.test(error.code||'')?error.code:'canvas_processing_failed';
-      await json(`${base}/${job.id}/fail`,{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({code})});
-      console.error(JSON.stringify({phase:'canvas_full_video',code}));process.exitCode=1;
+      const code=error.code?safeCanvasFailureCode(error.code):['TypeError','TimeoutError','AbortError'].includes(error.name)?'canvas_processing_transient':'canvas_processing_failed';
+      const diagnostic=safeCanvasDiagnostic({stage,errorClass:code==='canvas_processing_transient'?'transient':code==='canvas_processing_deadline'?'deadline':'unknown',...error.diagnostic,elapsedMs:Date.now()-started});
+      console.error(JSON.stringify({phase:'canvas_full_video',job:job.id,attempt:job.attempt,code,diagnostic}));process.exitCode=1;
+      try{await json(`${base}/${job.id}/fail`,{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({code,diagnostic})});}
+      catch{console.error(JSON.stringify({phase:'canvas_full_video',job:job.id,attempt:job.attempt,code:'canvas_failure_report_unconfirmed'}));}
     } finally {await rm(dir,{recursive:true,force:true});}
   }
 }

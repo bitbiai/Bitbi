@@ -35,6 +35,7 @@ jobs:
       canvas_completion: ${{ steps.selection.outputs.canvas_completion }}
       canvas_audio: ${{ steps.selection.outputs.canvas_audio }}
       canvas_transitions: ${{ steps.selection.outputs.canvas_transitions }}
+      canvas_export_repair: ${{ steps.selection.outputs.canvas_export_repair }}
       canvas_audio_fit: ${{ steps.selection.outputs.canvas_audio_fit }}
       canvas_inspector: ${{ steps.selection.outputs.canvas_inspector }}
       media_lifecycle: ${{ steps.selection.outputs.media_lifecycle }}
@@ -601,6 +602,10 @@ jobs:
             rm -f test-results/model-pricing-discovery.json test-results/candidate-auth.json
             PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/model-pricing-discovery.json npm run test:static -- --config playwright.model-pricing.config.js --list --reporter=json
             PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:static -- --config playwright.model-pricing.config.js --reporter=list,json
+          elif [ "${{ needs.release-compatibility.outputs.canvas_export_repair }}" = 'true' ]; then
+            rm -f test-results/canvas-discovery.json test-results/candidate-auth.json
+            PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/canvas-discovery.json npm run test:static -- tests/canvas.spec.js --project=chromium --project=webkit-canvas --grep 'Canvas workspace transitions .*: transitions|Canvas export lifecycle' --list --reporter=json
+            PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:static -- tests/canvas.spec.js --project=chromium --project=webkit-canvas --grep 'Canvas workspace transitions .*: transitions|Canvas export lifecycle' --output=test-results/canvas-artifacts --retries=0 --reporter=list,json
           elif [ "${{ needs.release-compatibility.outputs.canvas_transitions }}" = 'true' ]; then
             rm -f test-results/canvas-discovery.json test-results/candidate-auth.json
             PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/canvas-discovery.json npm run test:static -- tests/canvas.spec.js --project=chromium --project=webkit-canvas --grep 'Canvas workspace transitions' --list --reporter=json

@@ -1213,3 +1213,11 @@ console.log('Seedance: real durable Worker/native and workspace/pricing callers 
  assert.notEqual(selectCiTests(files).canvasTransitions,true,'Missing source proof widens route changes');
  assert.notEqual(selectCiTests(files,{canvasRouteSources,forceFull:true}).canvasTransitions,true);
 }
+
+{
+ const files=['services/homepage-ffmpeg-processor/canvas-transitions.mjs','services/homepage-ffmpeg-processor/canvas-diagnostics.mjs','js/pages/canvas/api.js','js/pages/canvas/export-observer.js','js/pages/canvas/export-request.js','js/pages/canvas/full-video.js','workers/auth/src/routes/canvas-video-processing.js','tests/helpers/canvas-export-lifecycle-ui.cjs'];
+ const selection=selectCiTests(files);assert.equal(selection.canvasTransitions,true);assert.equal(selection.canvasExportRepair,true);assert.equal(selection.full,false);
+ for(const extra of ['workers/auth/src/lib/billing.js','workers/ai/src/index.js','js/pages/canvas/workflow.js'])assert.notEqual(selectCiTests([...files,extra]).canvasTransitions,true);
+ assert.notEqual(selectCiTests(files,{forceFull:true}).canvasExportRepair,true);
+ assert.equal(selectCiTests([...files,'js/pages/canvas/workspace-view.js']).canvasExportRepair,false,'Changed workspace keeps its own browser acceptance');
+}

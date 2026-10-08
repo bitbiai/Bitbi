@@ -31,3 +31,12 @@ test('Canvas native migration checkpoint rejects missing, duplicate and undeclar
     for(const altered of [rows.slice(1),rows.slice(0,-1),[...rows,rows.at(-1)],rows.filter((_,i)=>i!==4)])assert.throws(()=>verifyNativeMigrationSequence(altered,latest));
     assert.throws(()=>verifyNativeMigrationSequence(rows,'0102_other.sql'));
 });
+
+test('Canvas failure contract rejects private diagnostics and retries only classified transient export failures',async()=>{
+    const {safeCanvasDiagnostic,safeCanvasFailureCode,canvasFailureCanRetry}=await import('../services/homepage-ffmpeg-processor/canvas-diagnostics.mjs');
+    assert.deepEqual(safeCanvasDiagnostic({stage:'transitions',errorClass:'filter',reason:'timebase_mismatch',tool:'ffmpeg',exit:1,elapsedMs:50,stderr:'private',arguments:['secret'],url:'https://private.invalid'}),{stage:'transitions',errorClass:'filter',reason:'timebase_mismatch',tool:'ffmpeg',elapsedMs:50,exit:1});
+    assert.deepEqual(safeCanvasDiagnostic({stage:'private',errorClass:'private',reason:'private',tool:'/private/ffmpeg',exit:-1,elapsedMs:Infinity}),{});
+    assert.equal(safeCanvasFailureCode('canvas_private_secret'),'canvas_processing_failed');
+    for(const code of ['canvas_media_tool_failed','canvas_processing_failed','canvas_processing_deadline','canvas_media_filter_invalid','canvas_media_invalid','canvas_media_configuration'])assert.equal(canvasFailureCanRetry(code),false);
+    assert.equal(canvasFailureCanRetry('canvas_processing_transient'),true);
+});

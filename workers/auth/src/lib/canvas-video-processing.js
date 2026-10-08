@@ -5,6 +5,7 @@ import { ownedCanvasVideo } from './canvas-video-input.js';
 import { canvasExportSubject } from '../../../../js/shared/canvas-export.mjs';
 import { hasAudioEffects } from '../../../../js/shared/canvas-audio.mjs';
 import {audioWasFitted} from '../../../../js/shared/canvas-audio-fit.mjs';
+import {canvasFailureCanRetry,safeCanvasDiagnostic,safeCanvasFailureCode} from '../../../../services/homepage-ffmpeg-processor/canvas-diagnostics.mjs';
 
 export const CANVAS_VIDEO_LIMITS = Object.freeze({ sourceBytes: 400_000_000, outputBytes: 80_000_000, durationSeconds: 600, leaseMs: 15*60_000 });
 export const parseCanvasJson = value => { try { return JSON.parse(value || '{}'); } catch { return {}; } };
@@ -94,6 +95,10 @@ export async function claimCanvasProcessing(env,kind,limit,backend='github',reci
         continue;
       }
     }
+    if(kind==='concat'&&row.attempt_count>=3){
+      await env.DB.prepare("UPDATE canvas_video_processing SET status='failed',error_code='canvas_processing_exhausted',locked_until=NULL,updated_at=? WHERE id=? AND status=? AND (locked_until IS NULL OR locked_until<=?)").bind(now,row.id,row.status,now).run();
+      continue;
+    }
     const token=randomTokenHex(16);
     const result=await env.DB.prepare(`UPDATE canvas_video_processing SET status=?,processing_token=?,locked_until=?,attempt_count=attempt_count+1,updated_at=?
       WHERE id=? AND status=? AND (locked_until IS NULL OR locked_until<=?)`)
@@ -109,11 +114,26 @@ export async function canvasProcessingClaim(env,id,token,status='processing') {
     .bind(id,token,status,nowIso()).first();
 }
 
-export async function failCanvasProcessing(env,row,code='canvas_processing_failed') {
-  await env.DB.prepare(`UPDATE canvas_video_processing SET status=?,error_code=?,locked_until=NULL,next_attempt_at=?,updated_at=?
+export async function failCanvasProcessing(env,row,code='canvas_processing_failed',diagnostic) {
+  // Completion can commit its private asset before the response/head write is
+  // lost. Reconcile that receipt before declaring a terminal render failure.
+  if(row.kind==='concat'&&row.status==='processing'){
+    const saved=await env.DB.prepare('SELECT id,poster_r2_key FROM ai_text_assets WHERE id=? AND user_id=? AND canvas_processing_token IS NOT NULL').bind(row.id,row.user_id).first();
+    if(saved){
+      const recovered=await env.DB.prepare("UPDATE canvas_video_processing SET asset_id=?,status=?,attempt_count=0,locked_until=NULL,error_code=NULL,next_attempt_at=?,updated_at=? WHERE id=? AND processing_token=? AND status='processing' AND locked_until>?")
+        .bind(saved.id,saved.poster_r2_key?'ready':'preview_pending',nowIso(),nowIso(),row.id,row.processing_token,nowIso()).run();
+      if(recovered.meta?.changes&&!saved.poster_r2_key)await notifyPrivateMedia(env,row.thumbnail_backend);
+      return Boolean(recovered.meta?.changes);
+    }
+  }
+  const safeCode=safeCanvasFailureCode(code);
+  const retry=row.kind==='poster'||row.status==='preview_pending'?row.attempt_count<7:canvasFailureCanRetry(safeCode)&&row.attempt_count<3;
+  const result=await env.DB.prepare(`UPDATE canvas_video_processing SET status=?,error_code=?,locked_until=NULL,next_attempt_at=?,updated_at=?
     WHERE id=? AND processing_token=? AND status IN ('processing','preview_pending') AND locked_until>?`)
-    .bind(row.attempt_count>=7||['canvas_audio_tail_exceeds_video','canvas_transition_invalid','canvas_transition_too_long'].includes(code)?'failed':row.asset_id?'preview_pending':'queued',/^[a-z_]{1,80}$/.test(code)?code:'canvas_processing_failed',
+    .bind(retry?(row.asset_id?'preview_pending':'queued'):'failed',safeCode,
       new Date(Date.now()+5*60_000).toISOString(),nowIso(),row.id,row.processing_token,nowIso()).run();
+  if(result.meta?.changes)console.warn(JSON.stringify({phase:'canvas_export_failure',job:row.id,attempt:row.attempt_count,code:safeCode,retry,diagnostic:safeCanvasDiagnostic(diagnostic)}));
+  return Boolean(result.meta?.changes);
 }
 
 // A bounded resumable scan of completed Canvas originals only. Missing/unknown

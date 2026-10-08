@@ -111,6 +111,18 @@ try {
   verifyInspector(inspectorProof);
   for(const status of ['failed','skipped','timedOut']){setResults(inspectorProof,status);assert.throws(()=>verifyInspector(inspectorProof));}
   assert.throws(()=>verifyCanvasCandidateReports([],[],inspectorReport,{canvasInspector:true}));
+  const repairLine=allDiscovery.find(line=>line.includes("--grep 'Canvas workspace transitions .*: transitions|Canvas export lifecycle'"));assert(repairLine);
+  assert.equal(repairLine.split(' npm ')[1].replace(' --list --reporter=json',''),allExecution.find(line=>line.includes("--grep 'Canvas workspace transitions .*: transitions|Canvas export lifecycle'")).split(' npm ')[1].replace(' --output=test-results/canvas-artifacts --retries=0 --reporter=list,json',''));
+  const repairOutput=path.join(discoveryDirectory,'canvas-export-repair.json');
+  const repairRun=spawnSync('/bin/bash',['--noprofile','--norc','-e','-c',repairLine],{cwd:root,env:{...process.env,PLAYWRIGHT_JSON_OUTPUT_FILE:repairOutput},encoding:'utf8',maxBuffer:16*1024*1024});
+  assert.equal(repairRun.status,0,repairRun.stderr);
+  const repairReport=JSON.parse(fs.readFileSync(repairOutput)),repairCases=flattenHomepageDiscovery(repairReport),repairSelection={canvasTransitions:true,canvasExportRepair:true};
+  verifyCanvasTransitionDiscovery(repairCases,repairSelection);
+  for(const rows of [repairCases.slice(1),[...repairCases,repairCases[0]],repairCases.map((row,i)=>i?row:{...row,expectedStatus:'skipped'})])assert.throws(()=>verifyCanvasTransitionDiscovery(rows,repairSelection));
+  const repairProof=structuredClone(repairReport);setResults(repairProof,'passed');
+  const verifyRepair=report=>verifyCanvasCandidateReports(['test-results/candidate-auth.json'],[report],repairReport,repairSelection);verifyRepair(repairProof);
+  for(const status of ['failed','skipped','timedOut']){setResults(repairProof,status);assert.throws(()=>verifyRepair(repairProof));}
+  assert.throws(()=>verifyCanvasCandidateReports([],[],repairReport,repairSelection));
   const transitionLine=allDiscovery.find(line=>line.includes("--grep 'Canvas workspace transitions'"));
   assert(transitionLine);assert.equal(transitionLine.split(' npm ')[1].replace(' --list --reporter=json',''),allExecution.find(line=>line.includes("--grep 'Canvas workspace transitions'")).split(' npm ')[1].replace(' --output=test-results/canvas-artifacts --retries=0 --reporter=list,json',''));
   const transitionOutput=path.join(discoveryDirectory,'canvas-transitions-ci.json');

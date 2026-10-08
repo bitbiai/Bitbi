@@ -152,3 +152,6 @@ exports.icons = async options => {
   expect(picker.assignments).toHaveLength(4);expect(errors).toEqual([]);
   await page.screenshot({path:info.outputPath(`icons-${locale}.png`)});
 };
+
+// Shared Canvas fixture, also used by export lifecycle boundary acceptance.
+exports.fixture={setup,nodeFor,outputFor,id,project,now};

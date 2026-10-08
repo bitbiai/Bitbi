@@ -34,6 +34,46 @@ export async function canvasWorkspaceTransitionCase(base,media) {
     const leaseHeaders={Authorization:'Bearer synthetic-audio-processor'};
     const oldClaim=await f.data(await f.request('/api/internal/homepage/hero-videos/canvas-exports/jobs/claim','POST',{protocol:1,recipeProtocol:6,limit:3},leaseHeaders));check(oldClaim.jobs.every(j=>j.recipeVersion!==6),'Old processor cannot claim transition recipe');
     const claim=await f.data(await f.request('/api/internal/homepage/hero-videos/canvas-exports/jobs/claim','POST',{protocol:1,recipeProtocol:7,limit:3},leaseHeaders));check(claim.jobs.some(j=>j.recipeVersion===6&&j.transitionPolicy==='overlap-v1'),'New processor receives immutable policy');
+    // Lost POST reconciliation is a read, owner/project/subject scoped.
+    const observed=await f.data(await f.request(f.endpoint+'?requestKey='+key));
+    check(observed.submission.found&&observed.export.id===accepted.id,'Exact accepted intent lookup');
+    check(!(await f.data(await f.request(f.endpoint+'?requestKey=missing-request-0001'))).submission.found,'Absent intent is explicit');
+    check((await f.request(f.endpoint+'?requestKey='+key,'GET',null,{Cookie:'__Host-bitbi_session=invalid'})).status===401,'Lookup never bypasses owner');
+    check((await f.request(f.endpoint+'?requestKey=invalid')).status===400,'Malformed lookup fails');
+    const jobs=claim.jobs.filter(j=>j.recipeVersion===6),failurePath=j=>`/api/internal/homepage/hero-videos/canvas-exports/jobs/${j.id}/fail`;
+    check(jobs.length>=2&&jobs.every(j=>j.attempt===1),'Claim exposes actual first attempt');
+    const fail=(job,code)=>f.request(failurePath(job),'POST',{code,diagnostic:{stage:'transitions',errorClass:'filter',reason:'timebase_mismatch',stderr:'private-token',url:'https://private.invalid'}},{...leaseHeaders,'X-BITBI-Canvas-Claim':job.claim});
+    await f.data(await fail(jobs[0],'canvas_media_filter_invalid'));
+    let failedRow=await db.prepare('SELECT status,attempt_count,error_code FROM canvas_video_processing WHERE id=?').bind(jobs[0].id).first();
+    check(failedRow.status==='failed'&&failedRow.attempt_count===1,'Deterministic filter failure terminates once');
+    check((await fail(jobs[0],'canvas_processing_transient')).status===409,'A stale failure cannot resurrect terminal work');
+    let transient=jobs[1];
+    for(let attempt=1;attempt<=3;attempt++){
+      await f.data(await fail(transient,'canvas_processing_transient'));
+      const row=await db.prepare('SELECT status,attempt_count FROM canvas_video_processing WHERE id=?').bind(transient.id).first();
+      check(row.attempt_count===attempt&&row.status===(attempt<3?'queued':'failed'),'Transient retries stop at three actual attempts');
+      if(attempt<3){
+        await db.prepare("UPDATE canvas_video_processing SET next_attempt_at='2000-01-01' WHERE id=?").bind(transient.id).run();
+        const renewed=await f.data(await f.request('/api/internal/homepage/hero-videos/canvas-exports/jobs/claim','POST',{protocol:1,recipeProtocol:7,limit:3},leaseHeaders));
+        const previous=transient;transient=renewed.jobs.find(j=>j.id===previous.id);
+        check(transient?.attempt===attempt+1,'Retry claim correlation increments');
+        check((await fail(previous,'canvas_media_filter_invalid')).status===409,'Late old claim cannot fail new attempt');
+      }
+    }
+    // A lost process lease is bounded too, but a committed private asset is
+    // recovered before that budget is applied (no blind render or deletion).
+    await db.prepare("UPDATE canvas_video_processing SET status='processing',locked_until='2000-01-01',next_attempt_at='2000-01-01' WHERE id=?").bind(transient.id).run();
+    const exhausted=await f.data(await f.request('/api/internal/homepage/hero-videos/canvas-exports/jobs/claim','POST',{protocol:1,recipeProtocol:7,limit:3},leaseHeaders));
+    check(!exhausted.jobs.some(j=>j.id===transient.id),'Expired third lease cannot dispatch a fourth render');
+    check((await db.prepare('SELECT status FROM canvas_video_processing WHERE id=?').bind(transient.id).first()).status==='failed','Lease exhaustion is terminal');
+    const recovery=(await f.data(await post(body,'transition-stored-response'))).export;
+    const recoveryClaim=(await f.data(await f.request('/api/internal/homepage/hero-videos/canvas-exports/jobs/claim','POST',{protocol:1,recipeProtocol:7,limit:3},leaseHeaders))).jobs.find(j=>j.id===recovery.id);
+    const {saveGeneratedVideoAsset}=await import('../../workers/auth/src/lib/ai-text-assets.js');
+    await saveGeneratedVideoAsset(f.env,{userId:f.owner,title:'Synthetic accepted export',videoBytes:Uint8Array.from(atob(media.videoBase64),c=>c.charCodeAt(0)),mimeType:'video/mp4',processingClaim:{id:recovery.id,token:recoveryClaim.claim}});
+    await f.data(await fail(recoveryClaim,'canvas_processing_failed'));
+    const recovered=await db.prepare('SELECT status,asset_id,attempt_count FROM canvas_video_processing WHERE id=?').bind(recovery.id).first();
+    check(recovered.status==='preview_pending'&&recovered.asset_id===recovery.id&&recovered.attempt_count===0,'Unknown completion response preserves stored output and independent poster lifecycle');
+    check((await f.request(`/api/ai/text-assets/${recovery.id}/file`)).status===200,'Recovered output remains owner-readable');
     check(f.calls.length===0,'No paid generation');
     return {provider:'synthetic',workspace:true,owner:true,immutable:true,manual:true,protocol:true,providerCalls:0};
 }

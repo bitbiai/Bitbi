@@ -889,8 +889,16 @@ implement the actual radial blur instead of a radial wipe.
 
 The closed `canvas-workspace-transitions-v1` selection runs native D1 schema,
 resize-race, admission/immutability/protocol cases; all offered effects with decoded
-frames, audio and short-middle counterchecks in the target AMD64 image; and eight
-EN/DE Chromium/WebKit workspace and real preview/export/download/save cases.
+frames, audio, short-middle and mixed cut/effect cumulative counterchecks in the
+target AMD64 image. Export-only repairs select eight EN/DE Chromium/WebKit real
+preview/cumulative-export/download/save and observation/recovery cases; workspace
+changes retain the workspace interaction cases. Observation stops explicitly after
+120 reads per job; Refresh reconnects without declaring backend failure. Unconfirmed
+submissions retain one request identity and are reconciled through an owner-scoped
+read before another new export. Previous completed artifacts remain separately
+labelled. Deterministic render failures terminate once; classified transient export
+faults retry at most three times. Use sanitized stage/attempt diagnostics; never infer
+historical stderr, OOM or deadline from a generic error.
 Discovery/candidate checks reject missing, skipped, failed or duplicate cases.
 Generation/billing changes outside the reviewed route sections widen selection.
 Full retains these cases independently; no additional Full dispatch is required.

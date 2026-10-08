@@ -33,8 +33,10 @@ export function verifyCanvasAudioDiscovery(actual, standard=actual) {
   }
   for(const row of actual)assert.equal(row.expectedStatus,'passed','Selected Canvas audio case must execute');
 }
-export function verifyCanvasTransitionDiscovery(actual) {
-  const expected=['chromium','webkit-canvas'].flatMap(project=>['en','de'].flatMap(locale=>['workspace','transitions'].map(feature=>`${project}:canvas.spec.js:Canvas workspace transitions ${locale}: ${feature}`)));
+export function verifyCanvasTransitionDiscovery(actual,selection={}) {
+  const expected=['chromium','webkit-canvas'].flatMap(project=>['en','de'].flatMap(locale=>selection.canvasExportRepair
+    ?[`Canvas workspace transitions ${locale}: transitions`,`Canvas export lifecycle ${locale}: observation and submission recovery`].map(title=>`${project}:canvas.spec.js:${title}`)
+    :['workspace','transitions'].map(feature=>`${project}:canvas.spec.js:Canvas workspace transitions ${locale}: ${feature}`)));
   assert.deepEqual(actual.map(row=>`${row.project}:${row.file}:${row.title}`).sort(),expected.sort(),'Workspace/transition discovery requires both features, languages and engines');
   for(const row of actual)assert.equal(row.expectedStatus,'passed','Required feature case must execute');
 }
