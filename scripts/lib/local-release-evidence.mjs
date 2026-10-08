@@ -252,9 +252,10 @@ function verifyPermissionContinuation(directory,evidence,commands) {
   }
 }
 export function restoreCanvasHostingProof(directory,{verifyOnly=false}={}) {
-  const checkpoint=path.join(directory,'reuse/test-results/permission-checkpoint.json');
+  const preflight=path.join(directory,'reuse/preflight-checkpoint.json');
+  const checkpoint=fs.existsSync(preflight)?preflight:path.join(directory,'reuse/test-results/permission-checkpoint.json');
   const source=fs.existsSync(checkpoint)?JSON.parse(fs.readFileSync(checkpoint)).sha:null;
-  const p=[EXPORT_BROWSER_CONTINUATION.source,WORKSPACE_CONTINUATION.source,AUDIO_FIT_CONTINUATION.source,INSPECTOR_CONTINUATION.source].includes(source)?{...smoothProfile(source),tail:source}:PERMISSION_CONTINUATION,read=(file,hash)=>{const bytes=fs.readFileSync(path.join(directory,'reuse',file));assert.equal(sha256(bytes),hash);return JSON.parse(bytes);};
+  const p=source===EXAMPLE_BROWSER_PREFLIGHT.source?{...EXAMPLE_BROWSER_PREFLIGHT,tail:source}:[EXPORT_BROWSER_CONTINUATION.source,WORKSPACE_CONTINUATION.source,AUDIO_FIT_CONTINUATION.source,INSPECTOR_CONTINUATION.source].includes(source)?{...smoothProfile(source),tail:source}:PERMISSION_CONTINUATION,read=(file,hash)=>{const bytes=fs.readFileSync(path.join(directory,'reuse',file));assert.equal(sha256(bytes),hash);return JSON.parse(bytes);};
   const original=read('hosting-manifest.json',p.manifest),oldProof=read('hosting-proof.json',p.proof);
   const manifest=JSON.parse(fs.readFileSync(path.join(directory,'candidate/manifest.json')));
   verifyMigrationCandidateBytes(directory,original,manifest,{allowLabGuard:false,workspaceRepair:source===WORKSPACE_CONTINUATION.source});assert.deepEqual(manifest.hosting,original.hosting);
@@ -554,8 +555,21 @@ export const EXPORT_PREFLIGHT=Object.freeze({source:'4493221379c9737eb470a4fcfd7
 export const EXPORT_NATIVE_PREFLIGHT=Object.freeze({source:'6e237824ececae944aa4eaaaded13b1538b0fcbe',checkpoint:'44630f8495bee813fb782bef88526908dbf72698525f8d597dfd54bc3e4d98f6',guardLog:'5927bab36495253925156015766f104eb7e688c668fcae2eb6c3e62760d446ba',guardProgress:'d049d7cd8fefacdf8349c7990d82356f6473752435790f05a4bf5697fd14a4af',progressRun:'91d76d89ccea8c2caee616e643c60ab192f8d5b0-a16143b4-483a-408f-b91f-3fd16e82faec',retain:[1,4,5,6,7,8,9,10,11,13,14,16,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32]});
 export const EXPORT_MEDIA_PREFLIGHT=Object.freeze({source:'dc29be7a208ec93811ba2deb01815fe7821bda9a',checkpoint:'fa4154127a67a1402f14f3cec008ed63f92fe2d3389d37e34c0fb96957d7cba9',retain:[1,4,5,6,7,8,9,10,11,13,14,16,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,40,41]});
 export const EXAMPLE_PREFLIGHT=Object.freeze({source:'f01b86a9c31bedbf7ee86a865dfc68b3d55d4586',checkpoint:'bab4842dcb5f1667b32b430dba8756c48ef645c83f316fa0497f4060ee2aac62',retain:[1,4,5,6,7,8,9,10,11,13,14,15,16]});
-export const canvasPreflightProfile=source=>[CANVAS_PREFLIGHT,EXPORT_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,EXAMPLE_PREFLIGHT].find(p=>p.source===source)||null;
+export const EXAMPLE_BROWSER_PREFLIGHT=Object.freeze({source:'39023dadfc72786cf641ecc911cce8b5733120f8',checkpoint:'8396c2799e716cfb68acee6a67be69eaa32b9847f2fee065b7fe09e2695e31d0',manifest:'3888814901cdc0452493fe44dfeebee42196a6dba71cd6906591ad0fab9051e3',proof:'05f4b71df385a0b5e0428eb1f82afe205e2924ac679a2e0ab33e4e52f88c8ba9',assetLog:'719002717e2c040584a2359e09bf0c71c24fe0bef62cc644dfd7ac0bd00122b9',retain:[1,4,5,6,7,8,9,10,11,13,14,15,16,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,35,36,37,38,39]});
+export function canvasExampleBrowserContinuation(command){
+  const passed='  node --test tests/canvas-transition-examples.test.mjs\n';
+  assert.equal(command.split(passed).length,2);assert(command.includes("--grep 'Canvas transition examples'"));
+  return command.replace(passed,''); // Pinned decoded-asset pass remains in the archived original log.
+}
+export const canvasPreflightProfile=source=>[CANVAS_PREFLIGHT,EXPORT_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,EXAMPLE_PREFLIGHT,EXAMPLE_BROWSER_PREFLIGHT].find(p=>p.source===source)||null;
 export function assertCanvasPreflightTree(head,read=gitBytes,profile=CANVAS_PREFLIGHT){
+  if(profile===EXAMPLE_BROWSER_PREFLIGHT){
+    read(['merge-base','--is-ancestor',profile.source,head]);
+    const files=read(['diff','--name-only',profile.source,head]).toString().trim().split('\n').filter(Boolean);
+    assert(files.every(file=>['tests/helpers/canvas-transition-examples-ui.cjs','scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs'].includes(file)),'Example keyboard continuation changed product or unrelated acceptance');
+    assert.equal(sha256(read(['show',`${head}:tests/helpers/canvas-transition-examples-ui.cjs`])),'2a5beedfa8614b4ea8bc6fadc9eb6689d4ad5b8e652fe7943d465cba1327c0eb','Only the native keyboard fixture correction may reuse these passes');
+    return;
+  }
   if(profile===EXAMPLE_PREFLIGHT){
     read(['merge-base','--is-ancestor',profile.source,head]);
     const files=read(['diff','--name-only',profile.source,head]).toString().trim().split('\n').filter(Boolean);
@@ -615,7 +629,7 @@ export function canvasPreflightPrefix(bytes,{sha,base,planHash,environment,comma
   assertCanvasPreflightTree(sha,read,profile);assert.equal(sha256(bytes),profile.checkpoint,'Changed failed preflight checkpoint');
   assert.equal(original.sha,profile.source);assert.equal(original.status,'failed');
   assert.equal(original.base,base);assert.equal(original.planHash,planHash);assert.equal(original.environment.key,environment.key);
-  assert.equal(original.commands.length,profile===EXAMPLE_PREFLIGHT?18:profile===EXPORT_PREFLIGHT?16:profile===EXPORT_MEDIA_PREFLIGHT?43:42);assert.equal(original.commands[profile===EXAMPLE_PREFLIGHT?17:profile===EXPORT_PREFLIGHT?15:profile===EXPORT_MEDIA_PREFLIGHT?42:41].exitCode,1);
+  assert.equal(original.commands.length,profile===EXAMPLE_BROWSER_PREFLIGHT?42:profile===EXAMPLE_PREFLIGHT?18:profile===EXPORT_PREFLIGHT?16:profile===EXPORT_MEDIA_PREFLIGHT?43:42);assert.equal(original.commands[profile===EXAMPLE_BROWSER_PREFLIGHT?41:profile===EXAMPLE_PREFLIGHT?17:profile===EXPORT_PREFLIGHT?15:profile===EXPORT_MEDIA_PREFLIGHT?42:41].exitCode,1);
   for(const i of profile.retain){assert.equal(original.commands[i].exitCode,0);assert.deepEqual(original.commands[i].command,commands[i]);}
   return original;
 }
@@ -637,10 +651,17 @@ export function verifyCanvasPreflight(directory,evidence,commands){
   const profile=canvasPreflightProfile(evidence.preflightContinuation?.source);assert(profile,'Unknown preflight origin');
   assert.deepEqual(evidence.preflightContinuation,{source:profile.source,checkpoint:profile.checkpoint});
   const original=canvasPreflightPrefix(fs.readFileSync(path.join(directory,'reuse/preflight-checkpoint.json')),{...evidence,commands});
+  if(profile===EXAMPLE_BROWSER_PREFLIGHT){
+    const log=fs.readFileSync(path.join(directory,'reuse/example-asset-pass.log'));assert.equal(sha256(log),profile.assetLog);
+    assert(log.toString().includes('ok 1 - Every offered transition has a small distinct decoded GIF'));
+    restoreCanvasHostingProof(directory,{verifyOnly:true});
+  }
   for(const [i,row]of evidence.commands.entries()){
     if(profile.retain.includes(i)){
       assert.deepEqual({...row,reusedFrom:undefined},{...original.commands[i],reusedFrom:undefined});assert.equal(row.reusedFrom,original.commands[i].reusedFrom||original.sha);
       assert.equal(sha256(fs.readFileSync(path.join(directory,row.log))),original.commands[i].logHash);
+    }else if(i===41&&profile===EXAMPLE_BROWSER_PREFLIGHT){
+      assert(!row.reusedFrom);assert.equal(row.continuation,canvasExampleBrowserContinuation(commands[i].run));
     }else if(i===41&&profile===CANVAS_PREFLIGHT){
       assert(!row.reusedFrom);assert.equal(row.continuation,canvasWorkspaceStageContinuation(commands[i].run));
       const prior=fs.readFileSync(path.join(directory,'reuse/stage-guard.log'));assert.equal(sha256(prior),CANVAS_PREFLIGHT.guardLog);

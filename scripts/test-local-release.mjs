@@ -631,7 +631,7 @@ const historicalExportFile=file=>execFileSync('git',['show','5f0384373bd7e1505be
 
 {
  const {EXAMPLE_PREFLIGHT,assertCanvasPreflightTree,canvasPreflightProfile,canvasPreflightPrefix}=await import('./lib/local-release-evidence.mjs');
- const read=args=>args[0]==='diff'?Buffer.from('scripts/test-local-release.mjs'):args[0]==='show'?fs.readFileSync('scripts/test-local-release.mjs'):Buffer.from('');
+ const read=args=>args[0]==='diff'?Buffer.from('scripts/test-local-release.mjs'):args[0]==='show'?execFileSync('git',['show','39023dadfc72786cf641ecc911cce8b5733120f8:scripts/test-local-release.mjs']):Buffer.from('');
  assert.equal(canvasPreflightProfile(EXAMPLE_PREFLIGHT.source),EXAMPLE_PREFLIGHT);
  assertCanvasPreflightTree('f'.repeat(40),read,EXAMPLE_PREFLIGHT);
  for(const file of ['js/pages/canvas/transition-example.js','assets/canvas/transition-examples/fade.gif','config/release-validation.yml','package-lock.json'])assert.throws(()=>assertCanvasPreflightTree('f'.repeat(40),args=>args[0]==='diff'?Buffer.from(file):read(args),EXAMPLE_PREFLIGHT));
@@ -640,4 +640,21 @@ const historicalExportFile=file=>execFileSync('git',['show','5f0384373bd7e1505be
  for(const changed of [0,2,3,12,17])assert(!EXAMPLE_PREFLIGHT.retain.includes(changed));
  assert.equal(EXAMPLE_PREFLIGHT.retain.length,13,'Only unchanged completed checks are retained');
  console.log('Historical export fixtures remain pinned; GIF preflight continuation rejects changed product, commands, dependencies and forged evidence.');
+}
+
+{
+ const {EXAMPLE_BROWSER_PREFLIGHT,assertCanvasPreflightTree,canvasExampleBrowserContinuation}=await import('./lib/local-release-evidence.mjs');
+ const file='tests/helpers/canvas-transition-examples-ui.cjs';
+ const corrected=execFileSync('git',['show',EXAMPLE_BROWSER_PREFLIGHT.source+':'+file]).toString()
+  .replace('// Real keyboard selection, retaining the existing save operation.','// Native macOS headless menus do not commit ArrowDown; type-ahead selects\n // the localized option using the keyboard and the existing change/save handler.')
+  .replace("await select.press('ArrowDown');await select.press('Tab');","await select.press(de?'w':'c');await page.keyboard.press('Tab');");
+ const read=args=>Buffer.from(args[0]==='diff'?file:args[0]==='show'?corrected:'');
+ assertCanvasPreflightTree('f'.repeat(40),read,EXAMPLE_BROWSER_PREFLIGHT);
+ for(const path of ['js/pages/canvas/transition-example.js','tests/canvas-transition-examples.test.mjs','assets/canvas/transition-examples/fade.gif','config/release-validation.yml'])assert.throws(()=>assertCanvasPreflightTree('f'.repeat(40),args=>args[0]==='diff'?Buffer.from(path):read(args),EXAMPLE_BROWSER_PREFLIGHT));
+ assert.throws(()=>assertCanvasPreflightTree('f'.repeat(40),args=>args[0]==='show'?Buffer.from('forged'):read(args),EXAMPLE_BROWSER_PREFLIGHT));
+ const original="  node --test tests/canvas-transition-examples.test.mjs\n  npm run test:static -- --grep 'Canvas transition examples' --retries=0";
+ assert.equal(canvasExampleBrowserContinuation(original),"  npm run test:static -- --grep 'Canvas transition examples' --retries=0");
+ assert.throws(()=>canvasExampleBrowserContinuation(original+original));assert.throws(()=>canvasExampleBrowserContinuation('echo incomplete'));
+ assert(EXAMPLE_BROWSER_PREFLIGHT.retain.includes(36));assert(!EXAMPLE_BROWSER_PREFLIGHT.retain.includes(41));
+ console.log('GIF keyboard continuation preserves the decoded-asset and hosting proofs while requiring all four fresh browser results.');
 }

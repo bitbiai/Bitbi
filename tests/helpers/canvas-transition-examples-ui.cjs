@@ -12,8 +12,9 @@ exports.examples=async options=>{
  const shown=async(id,ext='gif')=>{await expect(example.locator('strong')).toHaveText((de?'Beispiel':'Example')+' · '+TRANSITIONS.find(t=>t.id===id)[de?'de':'en']);await expect(image).toHaveAttribute('src',new RegExp('/'+id+'\\.'+ext+'\\?'));await expect(image).toHaveJSProperty('naturalWidth',160);};
  await shown('none');expect(assets).toEqual(['/assets/canvas/transition-examples/none.gif']);
  await expect(example).toContainText(de?'Nicht deine Clips':'Not your clips');await expect(controls.getByRole('button',{name:de?'Übergangsvorschau erstellen':'Preview transition',exact:true})).toBeDisabled();
- // Real keyboard selection, retaining the existing save operation.
- await select.focus();await select.press('ArrowDown');await select.press('Tab');await expect(select).toHaveValue('fade');await shown('fade');
+ // Native macOS headless menus do not commit ArrowDown; type-ahead selects
+ // the localized option using the keyboard and the existing change/save handler.
+ await select.focus();await select.press(de?'w':'c');await page.keyboard.press('Tab');await expect(select).toHaveValue('fade');await shown('fade');
  for(const effect of TRANSITIONS.filter(t=>!['none','fade'].includes(t.id))){
   await select.selectOption(effect.id);await expect(select).toHaveValue(effect.id);await expect.poll(()=>state.edges[0].config.transition.preset).toBe(effect.id);
   await shown(effect.id,effect.id==='flash'?'png':'gif');

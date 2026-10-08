@@ -1,4 +1,4 @@
-import {CANVAS_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,canvasExportStageContinuation,canvasPreflightProfile,assertCanvasPreflightTree,canvasPreflightPrefix,canvasWorkspaceStageContinuation} from './lib/local-release-evidence.mjs';
+import {EXAMPLE_BROWSER_PREFLIGHT,canvasExampleBrowserContinuation,CANVAS_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,canvasExportStageContinuation,canvasPreflightProfile,assertCanvasPreflightTree,canvasPreflightPrefix,canvasWorkspaceStageContinuation} from './lib/local-release-evidence.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -202,6 +202,11 @@ function runLocalRelease({ base, resume }) {
       fs.cpSync(path.join(originalDirectory,'runtime'),path.join(directory,'runtime'),{recursive:true});
       fs.cpSync(path.join(originalDirectory,'runtime'),path.join(bundle,'runtime'),{recursive:true});
     }
+    if(preflightContinuation===EXAMPLE_BROWSER_PREFLIGHT){
+      for(const [from,to]of [['candidate/manifest.json','hosting-manifest.json'],['candidate/proof-frontend-runtime.json','hosting-proof.json'],['logs/41.log','example-asset-pass.log']])fs.copyFileSync(path.join(originalDirectory,'bundle',from),path.join(bundle,'reuse',to));
+      assert.equal(sha256(fs.readFileSync(path.join(bundle,'reuse/example-asset-pass.log'))),preflightContinuation.assetLog);
+      fs.mkdirSync(path.join(bundle,'test-results'),{recursive:true});fs.copyFileSync(path.join(originalDirectory,'bundle/test-results/frontend-runtime.log'),path.join(bundle,'test-results/frontend-runtime.log'));
+    }
     state={...state,startedAt:prior.startedAt,preflightContinuation:{source:prior.sha,checkpoint:preflightContinuation.checkpoint},commands:prior.commands.map((row,i)=>preflightContinuation.retain.includes(i)?{...row,reusedFrom:row.reusedFrom||prior.sha}:null)};
     for(const row of state.commands.filter(Boolean))fs.copyFileSync(path.join(originalDirectory,'bundle',row.log),path.join(bundle,row.log));
   }else if(permissionContinuation) {
@@ -310,7 +315,7 @@ function runLocalRelease({ base, resume }) {
     execFileSync('git', ['clone','--local','--no-hardlinks','--no-checkout','.',work], { stdio: 'pipe' });
     git(['checkout','--detach',sha], work);
     git(['remote','set-url','origin','https://github.com/bitbiai/Bitbi.git'], work);
-    if(state.permissionContinuation&&state.permissionContinuation.source!==PERMISSION_CONTINUATION.source)fs.cpSync(path.join(bundle,'test-results'),path.join(work,'test-results'),{recursive:true});
+    if(state.preflightContinuation?.source===EXAMPLE_BROWSER_PREFLIGHT.source||state.permissionContinuation&&state.permissionContinuation.source!==PERMISSION_CONTINUATION.source)fs.cpSync(path.join(bundle,'test-results'),path.join(work,'test-results'),{recursive:true});
     if(originalDirectory&&!permissionContinuation&&!preflightContinuation)for(const name of ['candidate','_site','test-results'])fs.cpSync(path.join(originalDirectory,'source',name),path.join(work,name),{recursive:true});
     if(originalDirectory&&!permissionContinuation&&!preflightContinuation)for(const report of LOCAL_HOMEPAGE_REPORTS)fs.copyFileSync(path.join(bundle,'test-results',report),path.join(work,'test-results',report));
     // Exact committed source; unrelated owner's worktree edits are never copied.
@@ -352,7 +357,7 @@ function runLocalRelease({ base, resume }) {
       docker(['exec',name,'chown','-R','1001:1001','/tmp/bitbi-release']);
     }
     const unprivileged=['exec',name,'/usr/bin/setpriv','--reuid=1001','--regid=1001','--clear-groups','--bounding-set=-all','--inh-caps=-all','--ambient-caps=-all','--no-new-privs'];
-    if(state.repair||state.permissionContinuation) {
+    if(state.repair||state.permissionContinuation||state.preflightContinuation?.source===EXAMPLE_BROWSER_PREFLIGHT.source) {
       const tooling=path.join(directory,'tooling-inputs');fs.rmSync(tooling,{recursive:true,force:true});copyEvidenceToolInputs(bundle,tooling);
       docker(['cp',tooling,`${name}:/workspace/.local-release`]);fs.rmSync(tooling,{recursive:true,force:true});
       docker(['exec',name,'chown','-R','1001:1001','/workspace/.local-release']);
@@ -411,7 +416,7 @@ function runLocalRelease({ base, resume }) {
           // Each fresh browser invocation has a fresh profile/server. Shared
           // dependency installations are persistent, never browser/account state.
           const scope=command.name==='Run selected auth and admin tests'?'auth':command.name==='Run selected homepage core tests'?'homepage':null;
-          const browserRun=isSmoothContinuation(state.permissionContinuation?.source)&&scope==='auth'?'node scripts/local-release.mjs smooth-browser-continuation':state.repair&&scope?`node scripts/local-release.mjs browser-continuation ${scope}`:part.run;
+          const browserRun=state.preflightContinuation?.source===EXAMPLE_BROWSER_PREFLIGHT.source&&scope==='auth'?canvasExampleBrowserContinuation(part.run):isSmoothContinuation(state.permissionContinuation?.source)&&scope==='auth'?'node scripts/local-release.mjs smooth-browser-continuation':state.repair&&scope?`node scripts/local-release.mjs browser-continuation ${scope}`:part.run;
           result=spawnSync('/bin/bash',['--noprofile','--norc','-euo','pipefail','-c',browserRun],{cwd:work,
             env:{...safeEnv(),...env,...command.env,HOME:nativeHome,GITHUB_JOB:command.job,
               WRANGLER_SEND_METRICS:'false',npm_config_userconfig:path.join(nativeHome,'.npmrc'),
@@ -443,6 +448,7 @@ function runLocalRelease({ base, resume }) {
       record.runtimes=commandRuntimes(command).map(part=>part.runtime);
       if(state.repair&&['Run selected auth and admin tests','Run selected homepage core tests'].includes(command.name))record.browserContinuation='local-browser-continuation-v1';
       if(isSmoothContinuation(state.permissionContinuation?.source)&&command.name==='Run selected auth and admin tests')record.browserContinuation=SMOOTH_BROWSER_POLICY;
+      if(state.preflightContinuation?.source===EXAMPLE_BROWSER_PREFLIGHT.source&&index===41)record.continuation=canvasExampleBrowserContinuation(command.run);
       if(state.preflightContinuation?.source===EXPORT_NATIVE_PREFLIGHT.source&&index===41)record.continuation=canvasExportStageContinuation(command.run);
       if(state.preflightContinuation?.source===CANVAS_PREFLIGHT.source&&index===41)record.continuation=canvasWorkspaceStageContinuation(command.run);
       if(state.repair&&index===42)record.continuation=localWorkerContinuation();
@@ -450,7 +456,7 @@ function runLocalRelease({ base, resume }) {
       if(state.permissionContinuation?.source===PERMISSION_CONTINUATION.tail&&index===41)record.continuation=canvasStageContinuation(command.run);
       state.commands[index] = record; state.status = record.exitCode === 0 ? 'running' : 'failed'; save(checkpoint, state);
       assert.equal(record.exitCode, 0, `Local check failed: ${command.name}. Evidence: ${logFile}. Resume this exact source with --resume ${directory}`);
-      if(state.permissionContinuation&&state.permissionContinuation.source!==PERMISSION_CONTINUATION.source&&index===34)docker([...unprivileged,'node','--input-type=module','-e',"import fs from 'node:fs';import{restoreCanvasHostingProof}from'./scripts/lib/local-release-evidence.mjs';fs.cpSync('.local-release/reuse','reuse',{recursive:true});restoreCanvasHostingProof('.');fs.rmSync('reuse',{recursive:true});"]);
+      if((state.preflightContinuation?.source===EXAMPLE_BROWSER_PREFLIGHT.source||state.permissionContinuation&&state.permissionContinuation.source!==PERMISSION_CONTINUATION.source)&&index===34)docker([...unprivileged,'node','--input-type=module','-e',"import fs from 'node:fs';import{restoreCanvasHostingProof}from'./scripts/lib/local-release-evidence.mjs';fs.cpSync('.local-release/reuse','reuse',{recursive:true});restoreCanvasHostingProof('.');fs.rmSync('reuse',{recursive:true});"]);
       if([SMOOTH_BROWSER_CONTINUATION.accepted,SMOOTH_BROWSER_CONTINUATION.completed].includes(state.permissionContinuation?.source)&&index===44)docker([...unprivileged,'node','--input-type=module','-e',"import fs from 'node:fs';import{restoreSmoothBrowserProof}from'./scripts/lib/local-release-browser.mjs';fs.cpSync('.local-release/reuse','reuse',{recursive:true});restoreSmoothBrowserProof('.',{sha:process.env.GITHUB_SHA});fs.rmSync('reuse',{recursive:true});"]);
       if(state.repair&&index===35) {
         // Candidate source metadata is new; the tested package remains byte-identical.
