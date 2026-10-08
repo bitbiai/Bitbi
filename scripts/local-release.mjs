@@ -10,7 +10,7 @@ import { ensureEnvironment, docker, PACKAGES, cacheRoot, TOOL_PREFLIGHT, toolcha
 import { LOCAL_POLICY, validationPlan, selectedCommands, sha256, commandRuntimes, nativeBrowserKey } from './lib/local-release-plan.mjs';
 import { gitSelection, tree, REPOSITORY, publishedBase } from './pages-candidate.mjs';
 import { verifyLocalEvidence, LOCAL_WORKER_REPAIR, LOCAL_IMPORT_REPAIR, localRepairCommand, verifyImportRepairEvidence, LOCAL_REPAIR_REFRESH, LOCAL_CORE_REUSE, LOCAL_HOMEPAGE_REPORTS, verifyRetainedHomepageReports, assertLocalRepairTree, verifyLocalWorkerRepair, localWorkerContinuation } from './lib/local-release-evidence.mjs';
-import { BROWSER_ORIGINS, readMigrationBrowserPool, runMigrationBrowserContinuation, SMOOTH_BROWSER_CONTINUATION, WORKSPACE_CONTINUATION, AUDIO_FIT_CONTINUATION, INSPECTOR_CONTINUATION, smoothProfile, SMOOTH_BROWSER_POLICY, isSmoothContinuation, runSmoothBrowserContinuation } from './lib/local-release-browser.mjs';
+import { BROWSER_ORIGINS, readMigrationBrowserPool, runMigrationBrowserContinuation, SMOOTH_BROWSER_CONTINUATION, WORKSPACE_CONTINUATION, AUDIO_FIT_CONTINUATION, INSPECTOR_CONTINUATION,EXPORT_BROWSER_CONTINUATION, smoothProfile, SMOOTH_BROWSER_POLICY, isSmoothContinuation, runSmoothBrowserContinuation } from './lib/local-release-browser.mjs';
 import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,SMOOTH_REFRESH,permissionRefresh,assertPermissionContinuationTree,permissionContinuationPrefix,canvasStageContinuation} from './lib/local-release-evidence.mjs';
 
 const git = (args, cwd = '.') => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore','pipe','pipe'] }).trim();
@@ -215,7 +215,7 @@ function runLocalRelease({ base, resume }) {
     for(const row of state.commands.filter(Boolean))fs.copyFileSync(path.join(originalDirectory,'bundle',row.log),path.join(bundle,row.log));
     if(smooth) {
       if(fs.existsSync(path.join(originalDirectory,'bundle/reuse')))fs.cpSync(path.join(originalDirectory,'bundle/reuse'),reuse,{recursive:true});
-      if([WORKSPACE_CONTINUATION.source,AUDIO_FIT_CONTINUATION.source,INSPECTOR_CONTINUATION.source].includes(prior.sha))for(const [from,to]of [['candidate/manifest.json','hosting-manifest.json'],['candidate/proof-frontend-runtime.json','hosting-proof.json']])fs.copyFileSync(path.join(originalDirectory,'bundle',from),path.join(reuse,to));
+      if([EXPORT_BROWSER_CONTINUATION.source,WORKSPACE_CONTINUATION.source,AUDIO_FIT_CONTINUATION.source,INSPECTOR_CONTINUATION.source].includes(prior.sha))for(const [from,to]of [['candidate/manifest.json','hosting-manifest.json'],['candidate/proof-frontend-runtime.json','hosting-proof.json']])fs.copyFileSync(path.join(originalDirectory,'bundle',from),path.join(reuse,to));
       fs.rmSync(path.join(reuse,'permission-checkpoint.json'),{force:true});
       fs.writeFileSync(path.join(reuse,'test-results/permission-checkpoint.json'),bytes);
       if(!fs.existsSync(path.join(reuse,'smooth-browser.json')))fs.copyFileSync(path.join(originalDirectory,'source/test-results/candidate-auth.json'),path.join(reuse,'smooth-browser.json'));

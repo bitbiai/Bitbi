@@ -1747,6 +1747,14 @@ instruction to manually keep the Admin label aligned on every migration.
 reproduced pair Flash success and `[none, flash]` failure with AVTB versus 1/24.
 This matches the source defect; historical generic logs do not prove OOM or a
 deadline. Normalize timebase after fps and after each composition/effect boundary.
+An independent decoded-source countercheck also exposed FFmpeg 5.1.9 xfade EOF
+dropping an input timestamp and shifting later source pictures by one frame.
+Three internal lookahead frames, after first-input weight is zero, preserve the
+original output duration and source alignment without visible padding. Target
+image evidence at `044404c0` passed all 19 sequences, including nine clips in
+50.6 seconds (13 seconds / 312 frames); full matrix peak memory was 482 MB.
+The browser preview must be queried under its transition target, independently
+of a later full-export endpoint; a wrong-subject request must still return 404.
 Target-image decoded countercontrols cover cut/effect permutations, zoom→effect
 and nine clips with a late Flash; the real Worker/browser fixture uses generated
 and imported sources through completion/download/save. Deterministic media/filter

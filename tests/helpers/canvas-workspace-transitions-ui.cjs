@@ -73,7 +73,7 @@ exports.transitions=async({page,expect,locale,mockSharedAuth,createCanvasApiMock
   await page.route(/\/api\/(account\/canvas\/|ai\/(generation-jobs\/|text-assets\/|images\/|audio\/))/,async route=>{
     const req=route.request(),url=new URL(req.url()),response=await f.request(url.pathname+url.search,req.method(),req.postData(),{...(req.headers()['idempotency-key']?{'Idempotency-Key':req.headers()['idempotency-key']}:{}),...(req.headers().range?{Range:req.headers().range}:{})});
     const bytes=Buffer.from(await response.arrayBuffer());await route.fulfill({status:response.status,headers:Object.fromEntries(response.headers),body:bytes});
-    if(req.method()==='POST'&&url.pathname.endsWith('/full-video')&&req.postDataJSON()?.backgroundMusic){posts.push({body:req.postDataJSON(),result:JSON.parse(bytes)});rendering=rendering.then(processor);}
+    if(req.method()==='POST'&&url.pathname.endsWith('/full-video')&&req.postDataJSON()?.backgroundMusic){posts.push({endpoint:url.pathname,body:req.postDataJSON(),result:JSON.parse(bytes)});rendering=rendering.then(processor);}
   });
   const toggle=page.locator('#canvasInspectorToggle'),inspector=page.locator('#canvasInspectorBody');
   const reveal=async()=>{if(de&&await toggle.getAttribute('aria-expanded')!=='true')await toggle.click();};
@@ -109,7 +109,12 @@ exports.transitions=async({page,expect,locale,mockSharedAuth,createCanvasApiMock
     const identity=inspector.getByLabel(de?'Angezeigter Export':'Displayed export',{exact:true});await expect(identity).toHaveAttribute('data-export-id',current.id);await expect(identity).not.toContainText(de?'Vorherige':'Previous');
     const video=inspector.locator('.canvas-full-video > div:last-child > video');await expect(video).toHaveAttribute('src',current.asset.file_url);await video.scrollIntoViewIfNeeded();await video.evaluate(v=>v.play());await expect.poll(()=>video.evaluate(v=>v.currentTime)).toBeGreaterThan(.25);await video.evaluate(v=>v.pause());
     const data=Buffer.from(await (await f.request(current.asset.file_url)).arrayBuffer()),download=Buffer.from(await (await f.request(current.asset.file_url+'?download=1')).arrayBuffer());expect(data.equals(download)).toBe(true);
-    const comparison=await f.data(await f.request(`${f.projectPath}/nodes/${f.last.id}/full-video?seamPreview=${posts[0].result.data.preview.id}`));
+    // A pair preview belongs to its transition target, not the later export endpoint.
+    // Cross-subject lookup must remain rejected even for the same owner/project.
+    const wrongSubject=await f.request(`${f.endpoint}?seamPreview=${posts[0].result.data.preview.id}`);
+    expect(wrongSubject.status).toBe(404);expect((await wrongSubject.json()).code).toBe('canvas_preview_unavailable');
+    const comparison=await f.data(await f.request(`${posts[0].endpoint}?seamPreview=${posts[0].result.data.preview.id}`));
+    expect(comparison.preview.id).toBe(posts[0].result.data.preview.id);
     expect(comparison.preview.duration).toBe(2.5);
     await expect(inspector.getByRole('link',{name:de?'Gesamtvideo herunterladen':'Download full video',exact:true})).toHaveAttribute('href',current.asset.file_url+'?download=1');
     await inspector.getByRole('button',{name:de?'Gesamtvideo in Assets speichern':'Save full video to Assets',exact:true}).click();await expect.poll(async()=>(await f.data(await f.request(f.endpoint))).current.storage).toBe('assets');
