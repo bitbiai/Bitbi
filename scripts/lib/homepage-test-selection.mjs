@@ -33,6 +33,11 @@ export function verifyCanvasAudioDiscovery(actual, standard=actual) {
   }
   for(const row of actual)assert.equal(row.expectedStatus,'passed','Selected Canvas audio case must execute');
 }
+export function verifyCanvasExampleDiscovery(actual) {
+  const expected=['chromium','webkit-canvas'].flatMap(project=>['en','de'].map(locale=>`${project}:canvas.spec.js:Canvas transition examples ${locale}: isolated illustrations and motion controls`));
+  assert.deepEqual(actual.map(row=>`${row.project}:${row.file}:${row.title}`).sort(),expected.sort(),'Examples require both locales and engines exactly once');
+  for(const row of actual)assert.equal(row.expectedStatus,'passed','Required example case must execute');
+}
 export function verifyCanvasTransitionDiscovery(actual,selection={}) {
   const expected=['chromium','webkit-canvas'].flatMap(project=>['en','de'].flatMap(locale=>selection.canvasExportRepair
     ?[`Canvas workspace transitions ${locale}: transitions`,`Canvas export lifecycle ${locale}: observation and submission recovery`].map(title=>`${project}:canvas.spec.js:${title}`)

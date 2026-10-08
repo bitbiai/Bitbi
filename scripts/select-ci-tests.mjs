@@ -92,6 +92,7 @@ function writeGithubOutput(selection) {
     canvas_transitions: selection.canvasTransitions === true,
     canvas_export_repair: selection.canvasExportRepair === true,
     canvas_audio_fit: selection.canvasAudioFit === true,
+    canvas_examples: selection.canvasExamples === true,
     canvas_inspector: selection.canvasInspector === true,
     media_lifecycle: selection.mediaLifecycle === true,
     workspace_help: selection.workspaceHelp === true,

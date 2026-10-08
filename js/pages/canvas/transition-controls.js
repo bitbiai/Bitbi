@@ -1,3 +1,4 @@
+import {transitionExample} from './transition-example.js?v=__ASSET_VERSION__';
 import {TRANSITIONS,transitionSettings} from '../../shared/canvas-transitions.mjs?v=__ASSET_VERSION__';
 import {canvasClipIdentity,canvasNodeMediaKind,exportMusicSettings,sameCanvasClip} from '../../shared/canvas-export.mjs?v=__ASSET_VERSION__';
 import {canvasApi} from './api.js?v=__ASSET_VERSION__';
@@ -19,9 +20,10 @@ export function transitionControls({parent,edge,nodes,projectId,german,signal,on
     const status=document.createElement('p');status.setAttribute('role','status');status.className='canvas-muted';
     const preview=document.createElement('button');preview.type='button';preview.className='canvas-button';preview.textContent=german?'Übergangsvorschau erstellen':'Preview transition';
     const output=document.createElement('div');output.className='canvas-transition-preview';fieldset.append(explanation,status,preview,output);parent.append(fieldset);
+    const example=transitionExample({parent:fieldset,german,signal});
     let saved=transitionSettings(edge.config?.transition),pending=false,key=null,job=null,timer=null,reads=0,revision=0;
     function invalidate(){revision++;clearTimeout(timer);output.querySelector('video')?.pause();output.replaceChildren();key=null;job=null;reads=0;}
-    function paint(){select.value=saved.preset;duration.value=String(saved.duration||.5);const preset=TRANSITIONS.find(p=>p.id===saved.preset);durationField.hidden=preset.id==='none';strengthField.hidden=!preset.parameter;if(preset.parameter){strength.min=String(preset.min);strength.max=String(preset.max);strength.step=preset.min<1?'.01':'1';strength.value=String(saved.strength??preset.default);}preview.disabled=pending||saved.preset==='none';select.disabled=duration.disabled=strength.disabled=pending;}
+    function paint(){select.value=saved.preset;duration.value=String(saved.duration||.5);const preset=TRANSITIONS.find(p=>p.id===saved.preset);durationField.hidden=preset.id==='none';strengthField.hidden=!preset.parameter;if(preset.parameter){strength.min=String(preset.min);strength.max=String(preset.max);strength.step=preset.min<1?'.01':'1';strength.value=String(saved.strength??preset.default);}preview.disabled=pending||saved.preset==='none';select.disabled=duration.disabled=strength.disabled=pending;example.show(saved.preset);}
     async function save(changedPreset=false){
         if(pending)return;let next;
         try{const preset=TRANSITIONS.find(p=>p.id===select.value);next=transitionSettings({preset:preset.id,...(preset.id!=='none'?{duration:Number(duration.value)}:{}),...(preset.parameter?{strength:changedPreset?preset.default:Number(strength.value)}:{})});}

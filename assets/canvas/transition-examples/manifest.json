@@ -1,0 +1,199 @@
+{
+  "version": 1,
+  "synthetic": true,
+  "description": "Fixed A/B illustrations; not user clips or current controls. Neutral A-to-B slate marks loop restart.",
+  "tool": "ffmpeg version 8.1.1 Copyright (c) 2000-2026 the FFmpeg developers",
+  "sourceHashes": {
+    "js/shared/canvas-transitions.mjs": "96d7c65e3a51fd2d18132538770e22d4ca1f84185b837a980381f8f7f74f0603",
+    "services/homepage-ffmpeg-processor/canvas-transitions.mjs": "dae0551ce2e71ce98124681f8de666b2b6188960281a22ae78f7a777c19bf467"
+  },
+  "entries": [
+    {
+      "id": "none",
+      "settings": {
+        "preset": "none"
+      },
+      "width": 160,
+      "height": 90,
+      "gifBytes": 14590,
+      "gifSha256": "3274d2d3ef4679610a0aeca9513c75046816bef1eb1aef4213763b2f2bde68b9",
+      "posterBytes": 10402,
+      "posterSha256": "78641f69a9d8fc213e3979229ce2de338bb587c396827f9a6b7869c45c88216d"
+    },
+    {
+      "id": "fade",
+      "settings": {
+        "preset": "fade",
+        "duration": 0.8
+      },
+      "width": 160,
+      "height": 90,
+      "gifBytes": 55898,
+      "gifSha256": "5fdbf6f7e18e6fb78ad5dcfa0568387c9b10791cbe04ff426e6689d67c16b00e",
+      "posterBytes": 21109,
+      "posterSha256": "e714508ecada30e9799ee5102e768ccac70069e022a4f7c80c93e1105a8512aa"
+    },
+    {
+      "id": "dissolve",
+      "settings": {
+        "preset": "dissolve",
+        "duration": 0.8
+      },
+      "width": 160,
+      "height": 90,
+      "gifBytes": 77312,
+      "gifSha256": "02be1450b9bd944697b6cf13b290a1b142b339c8ca98503ad5cf6a6924440888",
+      "posterBytes": 35088,
+      "posterSha256": "7d94499ada49a61dd46336c3074a2bae776f684528f878b5de06bb4ab7a0efdc"
+    },
+    {
+      "id": "fadeblack",
+      "settings": {
+        "preset": "fadeblack",
+        "duration": 0.8
+      },
+      "width": 160,
+      "height": 90,
+      "gifBytes": 39850,
+      "gifSha256": "80f4d336652b27873f7fba0e9498e3ca1d37fd9137f27fb076876b3febaf3501",
+      "posterBytes": 9389,
+      "posterSha256": "5d9f31169941b47b8651068659f2c7d2365a716d12831cadc50b7f8ed9c79865"
+    },
+    {
+      "id": "fadewhite",
+      "settings": {
+        "preset": "fadewhite",
+        "duration": 0.8
+      },
+      "width": 160,
+      "height": 90,
+      "gifBytes": 34674,
+      "gifSha256": "8a46949c8615464960395b8fe01f7d3feb7ffeb95c2e79f8ccca0c05bdc2910c",
+      "posterBytes": 9209,
+      "posterSha256": "79cbdb026fc5b2a255ed5985416ce815c6ca22690d67fc84d985fb4c3c94f382"
+    },
+    {
+      "id": "directional",
+      "settings": {
+        "preset": "directional",
+        "duration": 0.8,
+        "strength": 12
+      },
+      "width": 160,
+      "height": 90,
+      "gifBytes": 48796,
+      "gifSha256": "a5798f6cf531a13c6ac550120d6b7496e59eec213f67454eac76eb7debb60398",
+      "posterBytes": 15477,
+      "posterSha256": "a26ab5fcf6ac4bf0ca242f04d9c15ebb9b0c7131b0d6284681886afd9008a933"
+    },
+    {
+      "id": "radial-blur",
+      "settings": {
+        "preset": "radial-blur",
+        "duration": 0.8,
+        "strength": 5
+      },
+      "width": 160,
+      "height": 90,
+      "gifBytes": 53360,
+      "gifSha256": "6ff235cb2a5ee54d297017c60287caff92cdbccad5acac181e065b5748300c97",
+      "posterBytes": 19214,
+      "posterSha256": "ffe8da4eba1ed5e358155cda46f66d356013b08a33a70239ca421130db89fd96"
+    },
+    {
+      "id": "zoom-blur",
+      "settings": {
+        "preset": "zoom-blur",
+        "duration": 0.8,
+        "strength": 0.08
+      },
+      "width": 160,
+      "height": 90,
+      "gifBytes": 54204,
+      "gifSha256": "d68d139cf1ff6488b5202eab4b73bc3128b2feb54fecb5710d0d179700355ce2",
+      "posterBytes": 19000,
+      "posterSha256": "99a93b938fa2a76a464a01bbbc92a4b21c9520de65d9421d0e057d6307e3ed33"
+    },
+    {
+      "id": "zoomin",
+      "settings": {
+        "preset": "zoomin",
+        "duration": 0.8
+      },
+      "width": 160,
+      "height": 90,
+      "gifBytes": 46240,
+      "gifSha256": "70669d288b7273bd4a2206c03b171c691e20a748fa70eaa8c8b677a39e23100e",
+      "posterBytes": 822,
+      "posterSha256": "fef5227d708b7152f6c08a5174c724eca807b4b537600676a344d50863526ce7"
+    },
+    {
+      "id": "slideleft",
+      "settings": {
+        "preset": "slideleft",
+        "duration": 0.8
+      },
+      "width": 160,
+      "height": 90,
+      "gifBytes": 70020,
+      "gifSha256": "4674cd7bf6c8421dbdbe16790fa4f75349f66320d096512849dea6c82a31b1b7",
+      "posterBytes": 16298,
+      "posterSha256": "26280f476395cd2d3ce2a03ec7776db89ff9fbc98750ad35c3078717bfcaaf59"
+    },
+    {
+      "id": "slideright",
+      "settings": {
+        "preset": "slideright",
+        "duration": 0.8
+      },
+      "width": 160,
+      "height": 90,
+      "gifBytes": 75537,
+      "gifSha256": "0a151d42abb0489d37f6913a8de86dbe7c6ce8b77ea35e2ca685bef427c91aa0",
+      "posterBytes": 16396,
+      "posterSha256": "81a3efac6b388344f3ac71f12772b771ed2d131f01fda168d6006d92cb920c1a"
+    },
+    {
+      "id": "bloom",
+      "settings": {
+        "preset": "bloom",
+        "duration": 0.8,
+        "strength": 0.5
+      },
+      "width": 160,
+      "height": 90,
+      "gifBytes": 52945,
+      "gifSha256": "9fe74e7b123a7970e186faec2a3f909a6639fbd66615d97262d90c277e1c6567",
+      "posterBytes": 20754,
+      "posterSha256": "abd30479759c31c76ea0f06d6e5eb9809868bdbb22bb901c478f990f3c24fa2a"
+    },
+    {
+      "id": "flash",
+      "settings": {
+        "preset": "flash",
+        "duration": 0.8,
+        "strength": 0.7
+      },
+      "width": 160,
+      "height": 90,
+      "gifBytes": 45878,
+      "gifSha256": "86f95f55d661df493bb56657295ebbfb99c1af656122ea2a89b40e3988094bbd",
+      "posterBytes": 14221,
+      "posterSha256": "c2606f7c05b445aee7cc35ebf139e71c060dd9dba04ab04eb47b1dc5bb89ba0e"
+    },
+    {
+      "id": "light-wash",
+      "settings": {
+        "preset": "light-wash",
+        "duration": 0.8,
+        "strength": 0.6
+      },
+      "width": 160,
+      "height": 90,
+      "gifBytes": 57366,
+      "gifSha256": "5d38e4193b8054918905f993311cb56bdb5d8cb266438a36c50c8a49f2bf9c4f",
+      "posterBytes": 21881,
+      "posterSha256": "4d7ebf08522b9d1e8626d38816fca3571eefbd369ffa9b2fedc66fc38c313794"
+    }
+  ]
+}

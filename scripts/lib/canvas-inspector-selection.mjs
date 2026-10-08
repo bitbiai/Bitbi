@@ -5,7 +5,7 @@ export function canvasInspectorSources(base,head,cwd=process.cwd()) {
   try {
     const git=args=>execFileSync('git',args,{cwd,encoding:'utf8',stdio:['ignore','pipe','pipe']});
     const ancestor=git(['merge-base',base,head]).trim();
-    return Object.fromEntries(files.map(file=>[file,{before:git(['show',`${ancestor}:${file}`]),after:git(['show',`${head}:${file}`])}]));
+    return Object.fromEntries([...files,'js/pages/canvas/transition-controls.js'].map(file=>[file,{before:git(['show',`${ancestor}:${file}`]),after:git(['show',`${head}:${file}`])}]));
   } catch { return null; }
 }
 
@@ -28,4 +28,15 @@ function withoutPresentation(source,file) {
 }
 export function isCanvasInspectorChange(sources) {
   return files.every(file=>sources?.[file]?.before && sources[file].after && withoutPresentation(sources[file].before,file)===withoutPresentation(sources[file].after,file));
+}
+
+// Illustrative GIF wiring cannot inherit this small scope if the existing
+// selection, persistence or real preview action changes.
+export function isCanvasTransitionExampleChange(sources) {
+  const clean=(source,file)=>file.endsWith('.css')
+    ?source.split('\n').filter(line=>!/^  \.canvas-transition-example(?:[ _{.]|__)/.test(line)).join('\n')
+    :source.replace("import {transitionExample} from './transition-example.js?v=__ASSET_VERSION__';\n",'')
+      .replace('    const example=transitionExample({parent:fieldset,german,signal});\n','')
+      .replace('example.show(saved.preset);','');
+  return ['js/pages/canvas/transition-controls.js','css/pages/canvas.css'].every(file=>sources?.[file]?.before&&sources[file].after&&clean(sources[file].before,file)===clean(sources[file].after,file));
 }

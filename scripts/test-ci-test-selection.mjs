@@ -12,7 +12,7 @@ import {
 } from "./lib/fast-deploy-paths.mjs";
 import { selectCiTests, requiresPrivateMediaImage, isDurableImageTestChange, isFluxReviewTestChange, isCanvasCompletionRouteChange, isCanvasWorkspaceRouteChange } from "./lib/ci-test-selection.mjs";
 import { requiredJobs } from "./pages-candidate.mjs";
-import {isCanvasInspectorChange} from './lib/canvas-inspector-selection.mjs';
+import {isCanvasInspectorChange,isCanvasTransitionExampleChange} from './lib/canvas-inspector-selection.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
@@ -1220,4 +1220,19 @@ console.log('Seedance: real durable Worker/native and workspace/pricing callers 
  for(const extra of ['workers/auth/src/lib/billing.js','workers/ai/src/index.js','js/pages/canvas/workflow.js'])assert.notEqual(selectCiTests([...files,extra]).canvasTransitions,true);
  assert.notEqual(selectCiTests(files,{forceFull:true}).canvasExportRepair,true);
  assert.equal(selectCiTests([...files,'js/pages/canvas/workspace-view.js']).canvasExportRepair,false,'Changed workspace keeps its own browser acceptance');
+}
+
+// Additive examples cannot route a neighbouring render/API/audio change into the
+// small static-only browser scope. Exercise the actual source/diff reader too.
+{
+ const {canvasInspectorSources}=await import('./lib/canvas-inspector-selection.mjs');
+ const sources=canvasInspectorSources('HEAD','HEAD');
+ const files=['js/pages/canvas/transition-example.js','js/pages/canvas/transition-controls.js','css/pages/canvas.css','assets/canvas/transition-examples/flash.gif','tests/canvas-transition-examples.test.mjs','tests/helpers/canvas-transition-examples-ui.cjs'];
+ const selected=selectCiTests(files,{inspectorSources:sources});
+ assert.equal(selected.canvasExamples,true);assert(selected.auth&&selected.static&&selected.runtime&&!selected.workers&&!selected.dependencies&&!selected.full);
+ for(const key of ['workers/auth/src/routes/canvas.js','js/shared/canvas-transitions.mjs','services/homepage-ffmpeg-processor/canvas-transitions.mjs','js/pages/canvas/full-video.js'])assert.notEqual(selectCiTests([...files,key],{inspectorSources:sources}).canvasExamples,true);
+ assert(!isCanvasTransitionExampleChange(null));assert.notEqual(selectCiTests(files).canvasExamples,true);assert.notEqual(selectCiTests(files,{inspectorSources:sources,forceFull:true}).canvasExamples,true);
+ for(const file of ['js/pages/canvas/transition-controls.js','css/pages/canvas.css']){
+  const wrong=structuredClone(sources);wrong[file].after+='\n/* changed actual control */';assert(!isCanvasTransitionExampleChange(wrong));assert.notEqual(selectCiTests(files,{inspectorSources:wrong}).canvasExamples,true);
+ }
 }

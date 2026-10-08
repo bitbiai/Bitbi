@@ -1,7 +1,7 @@
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { isMemberModelFastDeployPath } from "./fast-deploy-paths.mjs";
-import {isCanvasInspectorChange} from './canvas-inspector-selection.mjs';
+import {isCanvasInspectorChange,isCanvasTransitionExampleChange} from './canvas-inspector-selection.mjs';
 
 const DOCUMENTATION_FILENAMES = new Set([
   "AGENTS.md",
@@ -1094,6 +1094,19 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     selection.workers = changedFiles.some(file=>file.startsWith('workers/') || file.includes('q2-runtime') || file==='tests/admin-model-status.spec.js' || file==='tests/admin-model-status-runtime.mjs' || file==='playwright.workers.config.js');
     selection.reasons.auth.push('Read-only Admin model status: Chromium/WebKit, EN/DE, navigation/session denial, stale data, cleanup and build identity');
     if(selection.workers) selection.reasons.workers.push('Model status catalog/evidence/query tests and native guarded Admin/MFA/D1 route; no inference, generation or accounting changes');
+    return selection;
+  }
+
+  if (!forceFull && changedFiles.some(file=>file==='js/pages/canvas/transition-example.js'||file.startsWith('assets/canvas/transition-examples/'))
+      && isCanvasTransitionExampleChange(inspectorSources)
+      && changedFiles.every(file=>isDocumentation(file)||RELEASE_TOOLING_FILES.has(file)||/^assets\/canvas\/transition-examples\/[a-z-]+\.(?:gif|png|json)$/.test(file)||[
+        'scripts/lib/canvas-inspector-selection.mjs','scripts/generate-canvas-transition-examples.mjs',
+        'js/pages/canvas/transition-controls.js','js/pages/canvas/transition-example.js','css/pages/canvas.css',
+        'tests/canvas.spec.js','tests/helpers/canvas-transition-examples-ui.cjs','tests/canvas-transition-examples.test.mjs',
+      ].includes(file))) {
+    selection.policy='canvas-transition-examples-v1';selection.canvasText=selection.canvasExamples=true;
+    selection.auth=selection.static=selection.runtime=true;
+    selection.reasons.auth.push('Static GIF membership/decoding and EN/DE Chromium/WebKit examples, motion controls, races and zero render requests; existing transition actions remain source-checked');
     return selection;
   }
 

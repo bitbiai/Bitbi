@@ -8,7 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { flattenHomepageDiscovery, HOMEPAGE_CORE_FILES, CANVAS_WEBKIT_FILES, CANVAS_RELEASE_SCOPES, canvasReleaseProject, verifyCanvasReleaseDiscovery, verifyCanvasCompletionDiscovery, verifyCanvasAudioDiscovery, verifyCanvasAudioFitDiscovery, HOMEPAGE_CORE_WEBKIT_FILES, homepageCoreArguments, verifyHomepageCoreDiscovery, HOMEPAGE_FUNCTIONAL_MINIMUMS, HOMEPAGE_PERFORMANCE_REQUIRED, verifyHomepageDiscovery, verifyHomepageReport } from './lib/homepage-test-selection.mjs';
 import { verifyCanvasCandidateReports } from './pages-candidate.mjs';
-import {verifyCanvasInspectorDiscovery,verifyCanvasTransitionDiscovery} from './lib/homepage-test-selection.mjs';
+import {verifyCanvasInspectorDiscovery,verifyCanvasTransitionDiscovery,verifyCanvasExampleDiscovery} from './lib/homepage-test-selection.mjs';
 import { validateHomepageRuntime } from './check-homepage-runtime.mjs';
 
 const require = createRequire(import.meta.url);
@@ -67,7 +67,7 @@ try {
   const lines = workflow.split('\n').map(line => line.trim());
   const allDiscovery = lines.filter(line => line.includes('PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/canvas-discovery.json npm run test:static'));
   const allExecution = lines.filter(line => line.includes('PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:static') && line.includes('tests/canvas.spec.js'));
-  assert.equal(allDiscovery.length, 7); assert.equal(allExecution.length, 7);
+  assert.equal(allDiscovery.length, 8); assert.equal(allExecution.length, 8);
   const focused = allDiscovery.find(line => line.includes("--grep 'Canvas completion metadata'"));
   assert(focused);
   assert.equal(focused.split(' npm ')[1].replace(' --list --reporter=json', ''),
@@ -99,6 +99,16 @@ try {
   const verifyFit=report=>verifyCanvasCandidateReports(['test-results/candidate-auth.json'],[report],fitReport,{canvasAudioFit:true});
   verifyFit(fitProof);setResults(fitProof,'failed');assert.throws(()=>verifyFit(fitProof));
   assert.throws(()=>verifyCanvasCandidateReports([],[],fitReport,{canvasAudioFit:true}));
+  const exampleLine=allDiscovery.find(line=>line.includes("--grep 'Canvas transition examples'"));assert(exampleLine);
+  assert.equal(exampleLine.split(' npm ')[1].replace(' --list --reporter=json',''),allExecution.find(line=>line.includes("--grep 'Canvas transition examples'")).split(' npm ')[1].replace(' --output=test-results/canvas-artifacts --retries=0 --reporter=list,json',''));
+  const exampleOutput=path.join(discoveryDirectory,'canvas-examples-ci.json');
+  const exampleRun=spawnSync('/bin/bash',['--noprofile','--norc','-e','-c',exampleLine],{cwd:root,env:{...process.env,PLAYWRIGHT_JSON_OUTPUT_FILE:exampleOutput},encoding:'utf8',maxBuffer:16*1024*1024});assert.equal(exampleRun.status,0,exampleRun.stderr);
+  const exampleReport=JSON.parse(fs.readFileSync(exampleOutput)),exampleCases=flattenHomepageDiscovery(exampleReport);verifyCanvasExampleDiscovery(exampleCases);
+  for(const altered of [exampleCases.slice(1),[...exampleCases,exampleCases[0]],exampleCases.map((row,i)=>i?row:{...row,expectedStatus:'skipped'})])assert.throws(()=>verifyCanvasExampleDiscovery(altered));
+  const exampleProof=structuredClone(exampleReport);setResults(exampleProof,'passed');
+  const verifyExamples=report=>verifyCanvasCandidateReports(['test-results/candidate-auth.json'],[report],exampleReport,{canvasExamples:true});verifyExamples(exampleProof);
+  for(const status of ['failed','skipped','timedOut']){setResults(exampleProof,status);assert.throws(()=>verifyExamples(exampleProof));}
+  assert.throws(()=>verifyCanvasCandidateReports([],[],exampleReport,{canvasExamples:true}));
   const inspectorLine=allDiscovery.find(line=>line.includes("--grep 'Canvas Inspector'"));assert(inspectorLine);
   assert.equal(inspectorLine.split(' npm ')[1].replace(' --list --reporter=json',''),allExecution.find(line=>line.includes("--grep 'Canvas Inspector'")).split(' npm ')[1].replace(' --output=test-results/canvas-artifacts --retries=0 --reporter=list,json',''));
   const inspectorOutput=path.join(discoveryDirectory,'canvas-inspector-ci.json');

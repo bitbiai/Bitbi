@@ -880,6 +880,15 @@ job; old exports and None/version-5 jobs retain their behavior. Changed original
 sound on an already mixed transition export needs a new export for full-video
 audition; the connection preview uses current settings. Music remains adjustable.
 
+The transition selector has 160×90 first-party GIF illustrations and stills,
+generated from synthetic A/B scenes with `scripts/generate-canvas-transition-examples.mjs`.
+Regeneration is a development action, never a build/runtime render. Keep the
+catalog/asset manifest aligned with the actual renderer semantics. The existing
+`canvas-transition-examples-v1` selection verifies exact additive control wiring,
+decoded assets and EN/DE Chromium/WebKit selection, motion, stale-load and failure
+boundaries without provider/export requests or unchanged backend/media suites.
+Reduced motion and Flash begin as stills; replay is explicit and affects no job.
+
 No downloaded transition pack/shader is used. Effects compose stock FFmpeg 5.1.9
 filters from the existing pinned GPL-enabled/x264 image. Keep its existing package
 copyright/source notices; see [FFmpeg licensing](https://ffmpeg.org/legal.html) and

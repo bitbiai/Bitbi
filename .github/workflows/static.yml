@@ -86,6 +86,7 @@ jobs:
       canvas_transitions: ${{ steps.selection.outputs.canvas_transitions }}
       canvas_export_repair: ${{ steps.selection.outputs.canvas_export_repair }}
       canvas_audio_fit: ${{ steps.selection.outputs.canvas_audio_fit }}
+      canvas_examples: ${{ steps.selection.outputs.canvas_examples }}
       canvas_inspector: ${{ steps.selection.outputs.canvas_inspector }}
       media_lifecycle: ${{ steps.selection.outputs.media_lifecycle }}
       workspace_help: ${{ steps.selection.outputs.workspace_help }}
