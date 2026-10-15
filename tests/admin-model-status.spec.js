@@ -69,11 +69,23 @@ test('area policy covers the complete offered catalog, keeps defaults, and saves
   expect(()=>checkCatalog([...catalog,catalog[0]])).toThrow();
   expect(()=>checkCatalog([{...catalog[0],id:'unapproved/model'},...catalog.slice(1)])).toThrow();
   expect(()=>checkCatalog(catalog.map(row=>row.id==='bytedance/seedance-2.0'?{...row,areas:['generation','canvas']}:row))).toThrow();
+  expect(()=>checkCatalog(catalog.map(row=>row.id==='xai/grok-4.7'?{...row,areas:['generation','canvas']}:row))).toThrow();
   const pricingBefore=(await DB.prepare('SELECT * FROM model_pricing_changes ORDER BY revision').all()).results;
   const publicBefore=await m.publicModelAvailability(env);expect(require('./fixtures/model-availability.json')).toEqual(publicBefore);expect(Object.values(publicBefore.models).every(v=>Object.values(v).every(Boolean))).toBe(true);
   const save=(area,enabled,revision,modelId='minimax/h3')=>m.changeModelAvailability(env,actor,{modelId,area,enabled,revision});
   await Promise.all([save('generation',false,0),save('canvas',false,0)]);
   await save('canvas',true,1);expect((await m.publicModelAvailability(env)).models['minimax/h3']).toEqual({generation:false,canvas:true});
+  // The production reasoner has its own Canvas switch. It does not join the
+  // Generation Lab or replace the existing one-shot Canvas text model.
+  const canvasModels=(await import('../js/shared/canvas-model-contract.mjs')).listCanvasModelsForRole('member');
+  expect(canvasModels.some(model=>model.id==='xai/grok-4.6')).toBe(true);
+  expect(canvasModels.some(model=>model.id==='xai/grok-4.7')).toBe(false);
+  await save('canvas',false,0,'xai/grok-4.7');
+  await expect(m.assertModelArea(env,'xai/grok-4.7','canvas')).rejects.toMatchObject({code:'model_area_disabled'});
+  expect((await m.publicModelAvailability(env)).models['xai/grok-4.6']).toEqual({canvas:true});
+  await expect(save('generation',true,0,'xai/grok-4.7')).rejects.toMatchObject({code:'model_availability_invalid'});
+  await save('canvas',true,1,'xai/grok-4.7');
+  await m.assertModelArea(env,'xai/grok-4.7','canvas');
   await expect(save('generation',true,0)).rejects.toMatchObject({code:'model_availability_conflict'});
   await expect(save('main',true,0)).rejects.toMatchObject({code:'model_availability_invalid'});
   await expect(m.changeModelAvailability(env,actor,{modelId:'minimax/h3',area:'generation',enabled:true,revision:1,reason:'not needed'})).rejects.toMatchObject({status:400});

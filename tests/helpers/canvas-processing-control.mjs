@@ -248,17 +248,26 @@ async function selectionCases({env,owner,other,project,runs,sources,request,payl
   check(automatic.id!==created.id && automatic.recipe.mergeMode==='chain','Explicit chain intent creates its own immutable version');
   const automaticJob=(await payload(await request(internal+'/claim','POST',{protocol:1,recipeProtocol:6,limit:1},{container:true}))).jobs[0];
   check(automaticJob.id===automatic.id && automaticJob.sources.length===2 && automaticJob.spatialPolicy==='center-crop-v1','Automatic and manual modes use the same real processor admission');
-  await db.prepare('UPDATE canvas_video_processing SET attempt_count=7 WHERE id=?').bind(automaticJob.id).run();
+  // Unknown render failures are terminal, even on the first attempt. Only a
+  // classified transient failure may exercise the retry/lease path below.
   await payload(await request(automaticJob.completion.failure_url,'POST',{code:'canvas_synthetic_retry'},{container:true,token:automaticJob.claim}));
-  await payload(await request(job.completion.failure_url,'POST',{code:'canvas_synthetic_retry'},{container:true,token:job.claim}));
+  const terminal=await db.prepare('SELECT status,error_code,attempt_count FROM canvas_video_processing WHERE id=?').bind(automaticJob.id).first();
+  check(terminal.status==='failed'&&terminal.error_code==='canvas_processing_failed'&&terminal.attempt_count===1,'Unknown processor failure cannot become an automatic retry');
+  await db.prepare("UPDATE canvas_video_processing SET next_attempt_at='2000-01-01' WHERE id=?").bind(automaticJob.id).run();
+  await payload(await request(job.completion.failure_url,'POST',{code:'canvas_processing_transient'},{container:true,token:job.claim}));
+  check((await db.prepare('SELECT status FROM canvas_video_processing WHERE id=?').bind(job.id).first()).status==='queued','Known transient processor failure queues the same immutable export');
   await db.prepare("UPDATE canvas_video_processing SET next_attempt_at='2000-01-01' WHERE id=?").bind(job.id).run();
   const retry=(await payload(await request(internal+'/claim','POST',{protocol:1,recipeProtocol:6,limit:1},{container:true}))).jobs[0];
-  check(retry.id===job.id&&retry.claim!==job.claim&&retry.spatialPolicy==='center-crop-v1','Processing retry preserves crop recipe and replaces lease');
+  check(retry&&retry.id===job.id&&retry.claim!==job.claim&&retry.spatialPolicy==='center-crop-v1','Processing retry preserves crop recipe and replaces lease');
   check((await request(job.sources[0].url,'GET',null,{container:true,token:job.claim})).status===409,'Prior crop lease cannot read after retry');
   for(const ended of [retry,old]){
-    await db.prepare('UPDATE canvas_video_processing SET attempt_count=7 WHERE id=?').bind(ended.id).run();
-    await payload(await request(ended.completion.failure_url,'POST',{code:'canvas_synthetic_end'},{container:true,token:ended.claim}));
+    await db.prepare('UPDATE canvas_video_processing SET attempt_count=3 WHERE id=?').bind(ended.id).run();
+    await payload(await request(ended.completion.failure_url,'POST',{code:'canvas_processing_transient'},{container:true,token:ended.claim}));
+    const exhausted=await db.prepare('SELECT status,error_code,attempt_count FROM canvas_video_processing WHERE id=?').bind(ended.id).first();
+    check(exhausted.status==='failed'&&exhausted.error_code==='canvas_processing_transient'&&exhausted.attempt_count===3,'Both legacy and crop recipes stop after three transient processing attempts');
+    await db.prepare("UPDATE canvas_video_processing SET next_attempt_at='2000-01-01' WHERE id=?").bind(ended.id).run();
   }
+  check((await payload(await request(internal+'/claim','POST',{protocol:1,recipeProtocol:6,limit:3},{container:true}))).jobs.length===0,'Unknown and exhausted jobs cannot be reclaimed even when their retry time is due');
   await db.prepare('UPDATE canvas_runs SET model_id=?,input_json=? WHERE id=?').bind(before.model_id,before.input_json,run).run();
   check((await db.prepare('SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=?').bind(owner).first()).n===0,'Selection/merging never debits credits');
 }

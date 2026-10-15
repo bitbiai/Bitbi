@@ -1267,6 +1267,7 @@ class MockD1 {
       canvasNodes: [],
       canvasEdges: [],
       canvasRuns: [],
+      canvasAgentRuns: [],
       canvasMediaOutputs: [],
       canvasExportVersions: [],
       ...deepClone(seed),
@@ -13643,6 +13644,18 @@ class MockD1 {
       this.state.canvasEdges = this.state.canvasEdges.filter((item) => !projectIds.includes(item.project_id));
       this.state.canvasRuns = this.state.canvasRuns.filter((item) => !projectIds.includes(item.project_id));
       return { success: true, meta: { changes: before - this.state.canvasProjects.length } };
+    }
+
+    if (query === "UPDATE canvas_projects SET revision=revision+1 WHERE id=? AND user_id=? AND deleted_at IS NULL AND EXISTS(SELECT 1 FROM canvas_agent_runs a WHERE a.project_id=canvas_projects.id AND a.status IN ('queued','planning','running','exporting'))") {
+      const [projectId, userId] = bindings;
+      const project = this.state.canvasProjects.find(row => row.id === projectId && row.user_id === userId && !row.deleted_at);
+      const active = this.state.canvasAgentRuns.filter(row => row.project_id === projectId && ['queued','planning','running','exporting'].includes(row.status));
+      if (!project || !active.length) return { success: true, meta: { changes: 0 } };
+      project.revision = Number(project.revision || 0) + 1;
+      // Mirror the revision trigger for these route fixtures; the native API
+      // controls independently execute the actual migration and SQL trigger.
+      for (const run of active) Object.assign(run, { status: 'paused', error_code: 'canvas_agent_project_changed', lease_token: null, lease_until: null });
+      return { success: true, meta: { changes: 1 } };
     }
 
     if (query.startsWith('UPDATE canvas_projects SET title = ?')) {

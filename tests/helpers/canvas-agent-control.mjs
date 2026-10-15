@@ -431,3 +431,41 @@ export async function canvasAgentUnknownProviderCase(env,media) {
   check(f.calls.length===1,'Duplicate recovery wakes never repeat uncertain paid work');
   return {providerCalls:1,reviewRequired:true,reservationRetained:true};
 }
+
+// Calibrates the ordinary manual-run boundary against real migrations/triggers:
+// rejection and recovery are read-only; an explicitly new generation pauses AI.
+export async function canvasAgentManualTakeoverCase(env, media) {
+  const { canvasAudioFixture } = await import('./canvas-audio-control.mjs');
+  const f = await canvasAudioFixture(env, { ...media, scope: 'agent-manual-takeover' });
+  const node = (await f.data(await f.request(f.projectPath + '/nodes', 'POST', {
+    type: 'video_generation', model_id: 'minimax/h3', title: 'Manual generation',
+    config: { prompt: 'A manual creative choice.', duration: 4, resolution: '768P', aspectRatio: '16:9' },
+  }))).node;
+  const revision = (await f.db.prepare('SELECT revision FROM canvas_projects WHERE id=?').bind(f.project).first()).revision;
+  const agentId = (await sha256Hex(f.owner + ':active-agent')).slice(0,32), now = new Date().toISOString();
+  await f.db.prepare(`INSERT INTO canvas_agent_runs(id,project_id,user_id,request_key,input_json,status,expected_revision,budget_credits,next_attempt_at,created_at,updated_at,expires_at)
+    VALUES(?,?,?,?,'{}','queued',?,100,?,?,?,?)`).bind(agentId,f.project,f.owner,agentId,revision,now,now,now,new Date(Date.now()+3600000).toISOString()).run();
+  const state = () => f.db.prepare('SELECT p.revision,a.status FROM canvas_projects p JOIN canvas_agent_runs a ON a.project_id=p.id WHERE a.id=?').bind(agentId).first();
+  const endpoint = `${f.projectPath}/nodes/${node.id}/run`, key = 'agent-manual-takeover-generation';
+  const headers = { 'Idempotency-Key': key, 'X-Bitbi-Tariff-Revision': String((await getModelTariff(f.env)).revision) };
+  check((await f.request(endpoint,'POST',{})).status===428,'Missing manual idempotency key is rejected');
+  check((await f.request(`${f.projectPath}/nodes/${'0'.repeat(32)}/run`,'POST',{},headers)).status===404,'Missing manual node is rejected');
+  check((await f.request(endpoint,'POST','{',headers)).status===400,'Malformed manual body is rejected');
+  check(JSON.stringify(await state())===JSON.stringify({revision,status:'queued'}),'Invalid manual requests cannot pause production or change the project');
+  check((await f.request(endpoint,'POST',{},headers)).status===202,'New ordinary manual generation is durably admitted');
+  check(JSON.stringify(await state())===JSON.stringify({revision:revision+1,status:'paused'}),'New manual generation pauses the active agent before provider dispatch');
+  check(f.calls.length===0,'Takeover happens before the queued provider is invoked');
+  const receipt = await f.db.prepare('SELECT id,usage_attempt_id,output_json FROM canvas_runs WHERE user_id=? AND idempotency_key=?').bind(f.owner,key).first();
+  // A newer production has now deliberately adopted the current project.
+  await f.db.prepare("UPDATE canvas_agent_runs SET status='queued',expected_revision=?,error_code=NULL WHERE id=?").bind(revision+1,agentId).run();
+  check((await f.request(endpoint,'POST',{},headers)).status===202,'Pending result recovery retains the original manual run');
+  check(JSON.stringify(await state())===JSON.stringify({revision:revision+1,status:'queued'}),'Pending status/storage recovery cannot take over a newer production');
+  const repeated = await f.db.prepare('SELECT id,usage_attempt_id,output_json FROM canvas_runs WHERE user_id=? AND idempotency_key=?').bind(f.owner,key).first();
+  check(JSON.stringify(repeated)===JSON.stringify(receipt),'Pending recovery preserves the exact original job and billing receipt');
+  await f.deliver();
+  const completed = await f.request(endpoint,'POST',{},headers);
+  check(completed.status===200 && (await completed.json()).data.idempotent_replay===true,'Completed manual generation replays its stored output');
+  check(JSON.stringify(await state())===JSON.stringify({revision:revision+1,status:'queued'}),'Completed replay remains read-only for the current agent');
+  check(f.calls.length===1,'All retries and replays use one synthetic provider invocation');
+  return { invalidRequestsReadOnly:true,newRunPaused:true,pendingRecoveryReadOnly:true,completedReplayReadOnly:true,providerCalls:1 };
+}

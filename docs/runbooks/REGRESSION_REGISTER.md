@@ -1865,3 +1865,19 @@ identity after reset. Only a server-owned pre-dispatch limiter marker with no
 prior usage/job receipt is resumable; generic 429 and uncertain acceptance remain
 review-required. Actual caller: `tests/q2-canvas-agent.spec.js` through the Worker
 suite; the existing limiter and credit limits are unchanged.
+
+The full local candidate `8589fe09` failed the Worker caller with 23 failures
+(`bundle/logs/43.log`, run suffix `9a161799-f8c7-41b2-952b-4df48f78d5be`).
+Twenty-one Canvas failures came from MockD1 lacking the exact manual-takeover
+revision query. The fixture now implements that query; native SQLite checks
+independently prove that invalid requests, pending recovery and completed replays
+remain read-only, while a newly claimed manual generation pauses the agent before
+dispatch. The 56 existing Canvas cases and the native takeover case passed.
+The model-status fixture now includes the separate Grok 4.7 Canvas switch, with
+wrong-area, OFF/ON and unchanged Grok 4.6 controls; its eight cases passed.
+The processor retry fixture had used an invented error code that correctly became
+terminal under bounded recovery. It now uses the actual transient classification
+and independently rejects unknown failures and exhausted three-attempt jobs for
+both legacy and crop recipes; the original Worker case passed without retries.
+These repairs preserve the failed evidence and require a fresh integrated local
+release check; they do not establish live-provider or deployment acceptance.

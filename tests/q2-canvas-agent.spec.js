@@ -155,3 +155,13 @@ test('Canvas generic provider429 remains uncertain and is never retried as an in
     expect(await canvasAgentUnknownProviderCase({...createAuthTestEnv(),DB},media)).toEqual({providerCalls:1,reviewRequired:true,reservationRetained:true});
   } finally {DB.close();}
 });
+
+test('Canvas manual generation takeover excludes invalid requests and pending/completed replays', async () => {
+  const fs = require('node:fs'), path = require('node:path'), DB = new SqliteD1Database(); applyAuthMigrations(DB);
+  const media = Object.fromEntries([['videoBase64','canvas-end-frame.mp4'], ['imageBase64','h3-frame.png'], ['musicBase64','member-music.mp3']].map(([key,name]) => [key, fs.readFileSync(path.join(__dirname,'fixtures/media',name)).toString('base64')]));
+  try {
+    const { canvasAgentManualTakeoverCase } = await import('./helpers/canvas-agent-control.mjs');
+    expect(await canvasAgentManualTakeoverCase({ ...createAuthTestEnv(), DB },media)).toEqual({ invalidRequestsReadOnly:true,newRunPaused:true,pendingRecoveryReadOnly:true,completedReplayReadOnly:true,providerCalls:1 });
+    expect((await DB.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);
+  } finally { DB.close(); }
+});

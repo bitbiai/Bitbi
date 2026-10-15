@@ -1033,14 +1033,6 @@ function safeRunOutput(model, payload, imageAsset = null, { runId, createdAt } =
 
 async function runNode(ctx, session, projectId, nodeId) {
   const userId = session.user.id;
-  if(!canvasAgentAuthority(ctx.env)) {
-    // An intentional manual run takes precedence over an autonomous producer,
-    // even when the prompt itself was unchanged. Already accepted pixels remain
-    // in their immutable run history.
-    await ctx.env.DB.prepare(`UPDATE canvas_projects SET revision=revision+1 WHERE id=? AND user_id=? AND deleted_at IS NULL
-      AND EXISTS(SELECT 1 FROM canvas_agent_runs a WHERE a.project_id=canvas_projects.id AND a.status IN ('queued','planning','running','exporting'))`)
-      .bind(projectId,userId).run();
-  }
   const limited = await enforceWriteLimit(ctx, userId, { run: true });
   if (limited) return limited;
   if (!await requireProject(ctx.env, userId, projectId)) return respond(ctx, { ok: false, error: "Canvas project not found.", code: "project_not_found" }, { status: 404 });
@@ -1148,6 +1140,15 @@ async function runNode(ctx, session, projectId, nodeId) {
   ctx = {...ctx, env:canvasMediaEnvironment(ctx.env,runId)};
   const claimed = await ctx.env.DB.prepare("UPDATE canvas_runs SET status = 'running', updated_at = ? WHERE id = ? AND user_id = ? AND (status = 'queued' OR (status = 'failed' AND (error_code IN ('canvas_image_save_pending', 'canvas_video_pending') OR (error_code='canvas_agent_admission_wait' AND ?=1))))").bind(nowIso(), runId, userId,admissionWait?1:0).run();
   if (claimed.meta?.changes !== 1) return respond(ctx, { ok: false, code: "canvas_run_in_progress", error: "This Canvas run is already in progress." }, { status: 409 });
+
+  if(!existing && !canvasAgentAuthority(ctx.env)) {
+    // Only a successfully claimed manual run takes precedence over an autonomous
+    // producer. Invalid requests and idempotent replays must not mutate the
+    // project or pause production. Already accepted pixels remain in history.
+    await ctx.env.DB.prepare(`UPDATE canvas_projects SET revision=revision+1 WHERE id=? AND user_id=? AND deleted_at IS NULL
+      AND EXISTS(SELECT 1 FROM canvas_agent_runs a WHERE a.project_id=canvas_projects.id AND a.status IN ('queued','planning','running','exporting'))`)
+      .bind(projectId,userId).run();
+  }
 
   let capturedUsageAttemptId = safeJsonParse(existing?.output_json, {}).usageAttemptId || null;
   let videoJobId = existing?.error_code === "canvas_video_pending" ? safeJsonParse(existing.output_json, {}).videoJobId : null;
