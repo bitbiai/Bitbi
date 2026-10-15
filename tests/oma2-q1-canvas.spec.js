@@ -138,6 +138,24 @@ async function open(page, locale) {
   await expect(page.locator('#canvasApp')).toHaveJSProperty('inert', false);
 }
 
+async function fixedCardGeometry(page) {
+  // Rendered CSS pixels are Canvas units at unit scale; do not read PATCH data.
+  const geometry = await card(page, NODE_A).evaluate((node) => {
+    const box = node.getBoundingClientRect();
+    const scale = new DOMMatrixReadOnly(getComputedStyle(document.getElementById('canvasSurface')).transform);
+    return { width: box.width, height: box.height, scaleX: scale.a, scaleY: scale.d };
+  });
+  expect(geometry).toEqual({ width: 230, height: 126, scaleX: 1, scaleY: 1 });
+}
+
+function exactMovementPatch(actual, expected) {
+  expect(actual).toEqual(expected);
+  const missingGeometry = clone(actual); delete missingGeometry.width;
+  const broken = [missingGeometry, { ...actual, height: actual.height + 1 }, { ...actual, x: 50, y: 80 }];
+  if (actual.content) { const missingContent = clone(actual); delete missingContent.content; broken.push(missingContent); }
+  for (const patch of broken) expect(() => expect(patch).toEqual(expected)).toThrow();
+}
+
 for (const locale of ['en', 'de']) {
   const labels = locale === 'de'
     ? { title: 'Titel', text: 'Text', tokens: 'Max. Tokens', run: 'Ausführen' }
@@ -146,6 +164,7 @@ for (const locale of ['en', 'de']) {
   test(`P13 ${locale}: rapid same/different nodes, content/config/title/move survive reload`, async ({ page, baseURL }) => {
     const state = await fixture(page, baseURL);
     await open(page, locale);
+    await fixedCardGeometry(page);
     // One browser turn guarantees all real DOM input/keyboard handlers run
     // inside the unmodified debounce window, independent of host load.
     await page.evaluate(({ a, b, generator }) => {
@@ -165,7 +184,7 @@ for (const locale of ['en', 'de']) {
     expect(findNode(state, NODE_A)).toMatchObject({ title: 'Changed A', content: { text: 'Changed content' }, x: 60, y: 80 });
     expect(findNode(state, NODE_B).title).toBe('Changed B');
     expect(findNode(state, GENERATOR)).toMatchObject({ title: 'Changed generator', config: { prompt: 'Changed prompt', maxTokens: 700, temperature: 0.7 } });
-    expect(state.patches.find((patch) => patch.id === NODE_A).body).toEqual({ title: 'Changed A', content: { text: 'Changed content' }, x: 60, y: 80 });
+    exactMovementPatch(state.patches.find((patch) => patch.id === NODE_A).body, { title: 'Changed A', content: { text: 'Changed content' }, x: 60, y: 80, width: 230, height: 126 });
     await page.reload();
     await expect(card(page, NODE_A)).toContainText('Changed A');
     await expect(card(page, NODE_B)).toContainText('Changed B');
@@ -202,6 +221,7 @@ for (const locale of ['en', 'de']) {
     await card(page, NODE_A).click();
     await inspector(page).getByLabel(labels.title, { exact: true }).fill('Edited and dragged');
     await edit.reached;
+    await fixedCardGeometry(page);
     const head = await card(page, NODE_A).locator('.canvas-node__head').boundingBox();
     await page.mouse.move(head.x + 70, head.y + 20);
     await page.mouse.down();
@@ -215,7 +235,7 @@ for (const locale of ['en', 'de']) {
     await page.mouse.up();
     await saved(page);
     expect(findNode(state, NODE_A)).toMatchObject({ title: 'Edited and dragged', x: 140, y: 140 });
-    expect(state.patches.find((patch) => Object.hasOwn(patch.body, 'x')).body).toEqual({ x: 140, y: 140 });
+    exactMovementPatch(state.patches.find((patch) => Object.hasOwn(patch.body, 'x')).body, { x: 140, y: 140, width: 230, height: 126 });
     await page.reload();
     await expect(card(page, NODE_A)).toContainText('Edited and dragged');
     expect(await card(page, NODE_A).evaluate((node) => {

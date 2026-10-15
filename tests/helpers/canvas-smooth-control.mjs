@@ -1,12 +1,42 @@
 import {canvasAudioFixture} from './canvas-audio-control.mjs';
 import {validAudioFit,cutSafeAudio,audioFitResultText} from '../../js/shared/canvas-audio-fit.mjs';
+import {effectiveAudio} from '../../js/shared/canvas-audio.mjs';
 import {enqueueCanvasProcessing} from '../../workers/auth/src/lib/canvas-video-processing.js';
 import {canvasClipIdentity} from '../../js/shared/canvas-export.mjs';
 const check=(value,message)=>{if(!value)throw new Error(message);};
+export function canvasAudioFitSettingsCase() {
+  // Exercise the exact worklet composition: a generated node can omit its
+  // unchanged defaults, while the processor still reports a valid audio fit.
+  const unity={enabled:true,gain:1,fadeIn:0,fadeOut:0};
+  const uncut={policy:'fit-picture-v1',trimStart:0,trimEnd:0};
+  const fitted={...uncut,trimStart:.2,trimEnd:.3};
+  const actual=(value,fit)=>effectiveAudio(cutSafeAudio(value,fit),8);
+  const equal=(value,expected,message)=>check(JSON.stringify(value)===JSON.stringify(expected),message);
+  equal(actual(undefined,uncut),unity,'Omitted source settings retain unity in the worklet timeline');
+  equal(actual(undefined,fitted),{...unity,fadeIn:.005,fadeOut:.005},'Omitted source settings receive only the bounded cut-edge ramps');
+  equal(actual(undefined,undefined),unity,'Absent legacy fit keeps normal default playback');
+  equal(actual(undefined,{...uncut,trimStart:1/48000,trimEnd:1/48000}),unity,'One-sample fit threshold remains unchanged');
+  const explicit={enabled:false,gain:.37,fadeIn:.4,fadeOut:.7},before=JSON.stringify(explicit);
+  equal(actual(explicit,fitted),explicit,'Explicit mute, gain and fades are preserved');
+  equal(actual({...explicit,enabled:true,fadeOut:0},fitted),{...explicit,enabled:true,fadeOut:.005},'Only an absent outgoing fade receives the cut-edge ramp');
+  check(JSON.stringify(explicit)===before,'Preparing audition never mutates saved settings');
+  const invalidFades=[NaN,false,'',null,-1,601].flatMap(value=>[{...unity,fadeIn:value},{...unity,fadeOut:value}]);
+  for(const invalid of [null,{},[],false,'bad',{gain:.3},{...unity,gain:NaN},{...unity,gain:-1},{...unity,gain:1.1},{...unity,enabled:'yes'},{...unity,extra:true},...invalidFades]) {
+    for(const fit of [uncut,fitted,undefined]) {
+      let rejected=false;try{actual(invalid,fit);}catch(error){rejected=error.code==='canvas_audio_settings';}
+      check(rejected,'Malformed settings must not become valid defaults');
+    }
+  }
+  for(const invalid of [null,{...fitted,trimStart:-1},{...fitted,trimEnd:null},{...fitted,extra:true}]) {
+    check(!validAudioFit(invalid)&&cutSafeAudio(explicit,invalid)===explicit,'Invalid fit metadata cannot add edge fades');
+  }
+  return {omittedDefaults:true,explicitSettings:true,malformedRejected:true};
+}
 export async function canvasSmoothCase(base,media) {
+  canvasAudioFitSettingsCase();
   const fitted={policy:'fit-picture-v1',trimStart:0,trimEnd:.2};
   check(validAudioFit(fitted)&&!validAudioFit({...fitted,trimEnd:null})&&!validAudioFit({...fitted,private:'forbidden'}),'Strict fit report');
-  check(cutSafeAudio({gain:.5,fadeOut:.3},fitted).fadeOut===.3&&cutSafeAudio({gain:.5,fadeOut:0},fitted).fadeOut===.005,'Audition uses the same single edge ramp and retains gain');
+  check(cutSafeAudio({enabled:true,gain:.5,fadeOut:.3},fitted).fadeOut===.3&&cutSafeAudio({enabled:true,gain:.5,fadeOut:0},fitted).fadeOut===.005,'Audition uses the same single edge ramp and retains gain');
   check(audioFitResultText([{originalAudioFit:fitted}],true).includes('gekürzt')&&audioFitResultText([{originalAudioFit:fitted}],false).includes('trimmed'),'Both languages disclose shortened audio');
   const f=await canvasAudioFixture(base,{...media,scope:'smooth'}),internal='/api/internal/homepage/hero-videos/canvas-exports/jobs';
   const ledger=JSON.stringify((await f.db.prepare('SELECT * FROM member_credit_ledger WHERE user_id=? ORDER BY id').bind(f.owner).all()).results);

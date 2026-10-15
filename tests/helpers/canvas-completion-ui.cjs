@@ -3,6 +3,12 @@ const path = require('node:path');
 const { SqliteD1Database, applyAuthMigrations } = require('./sqlite-d1.js');
 const { createAuthTestEnv } = require('./auth-worker-harness.js');
 
+async function openCompletedMerge({ page, inspector, expect }) {
+  // A successful job-status read precedes /run attachment and Inspector rendering.
+  await expect(inspector.locator('.canvas-merge-settings > summary')).toBeVisible();
+  await require('./canvas-inspector-actions.cjs').openCanvasSettings(page, 'merge');
+}
+
 exports.completionUi = async ({ page, expect, locale, mockSharedAuth, createCanvasApiMock, info }) => {
   const { canvasCompletionFixture } = await import('./canvas-completion-control.mjs');
   const DB = new SqliteD1Database(); applyAuthMigrations(DB);
@@ -11,6 +17,9 @@ exports.completionUi = async ({ page, expect, locale, mockSharedAuth, createCanv
     videoBase64: media('canvas-end-frame.mp4'), imageBase64: media('h3-frame.png'), musicBase64: media('member-music.mp3'),
   });
   const de = locale === 'de', errors = [], admissions = []; let stripped = 0, delivered = 0;
+  const attachments = new Map(f.nodes.slice(7).map(id => [id, {
+    reached: Promise.withResolvers(), release: Promise.withResolvers(),
+  }]));
   page.on('pageerror', error => errors.push(error.message));
   await page.setViewportSize({ width: de ? 390 : 1440, height: 900 });
   await mockSharedAuth(page); createCanvasApiMock(page);
@@ -31,6 +40,9 @@ exports.completionUi = async ({ page, expect, locale, mockSharedAuth, createCanv
         // Exact observed browser state, with canonical storage deliberately intact.
         delete body.data.run.output.sourceVersion; stripped++;
       }
+      const attachment = attachments.get(body.data.run.node_id);
+      attachment.reached.resolve();
+      await attachment.release.promise;
       return route.fulfill({ status, headers, body: JSON.stringify(body) });
     }
     if (url.pathname.endsWith('/full-video') && method === 'POST') {
@@ -60,7 +72,21 @@ exports.completionUi = async ({ page, expect, locale, mockSharedAuth, createCanv
       const run = inspector.getByRole('button', { name: de ? 'Ausführen' : 'Run', exact: true }); await expect(run).toBeEnabled();
       const observed = page.waitForResponse(response => response.url().includes('/api/ai/generation-jobs/'));
       await run.click(); await observed;
-      await require('./canvas-inspector-actions.cjs').openCanvasSettings(page,'merge');
+      const attachment = attachments.get(f.nodes[index]);
+      await attachment.reached.promise;
+      const summary = inspector.locator('.canvas-merge-settings > summary');
+      await expect(summary).toHaveCount(0);
+      // Calibrate the exact readiness assertion: missing controls must reject,
+      // while the legacy count probe returns before attachment creates them.
+      if (index === 7) await expect(openCompletedMerge({ page, inspector, expect: expect.configure({ timeout: 100 }) })).rejects.toThrow(/toBeVisible/);
+      await require('./canvas-inspector-actions.cjs').openCanvasSettings(page, 'merge');
+      await expect(summary).toHaveCount(0);
+      let opened = false;
+      const opening = openCompletedMerge({ page, inspector, expect }).then(() => { opened = true; });
+      await expect(summary).toHaveCount(0);
+      expect(opened).toBe(false);
+      attachment.release.resolve();
+      await opening;
       const group = inspector.locator('.canvas-clip-sequence');
       await expect(group.getByRole('radio', { name: de ? 'Diese Kette zusammenfügen' : 'Merge this chain' })).toBeChecked();
       await expect(group.locator('li')).toHaveCount(index + 1);
@@ -104,5 +130,8 @@ exports.completionUi = async ({ page, expect, locale, mockSharedAuth, createCanv
     expect(f.calls).toHaveLength(2); expect(errors).toEqual([]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: info.outputPath(`completion-${locale}.png`) });
-  } finally { if (!page.isClosed()) await page.unrouteAll({ behavior: 'ignoreErrors' }); DB.close(); }
+  } finally {
+    for (const attachment of attachments.values()) attachment.release.resolve();
+    if (!page.isClosed()) await page.unrouteAll({ behavior: 'ignoreErrors' }); DB.close();
+  }
 };

@@ -472,6 +472,20 @@ acceptance, explicitly excludes a media image rebuild, and rejects unknown/auth
 neighbors. No processor/schema/model/pricing change. Protected Auth then frontend
 publication and final live readback remain separate evidence in the task checkpoint.
 
+2026-10-15 full static fixture checks at `f2d89d96`, attempt 1 (local run
+`0aaa789c-8929-48f1-b514-2aabdfed110e`, `bundle/logs/53.log`), confirmed three
+boundary mismatches. Seed unassigned nodes with the actual API's `asset_id:null`;
+omission had triggered `undefined.availability` before strand assertions. Export
+GET fixtures must include canonical `assembly:null` and `revision`, including after
+a rejected submission, so refresh can reconcile the current project. Select the
+exact localized Merge clips group; Saved film assembly is a separate legitimate
+group. Preserve every chain/history/deletion/reload/first-409/exact-two-POST check.
+Focused EN/DE Chromium/WebKit passed four contributor and eight export cases with
+zero retries. Independent mutants reproduce the missing-asset graph error,
+missing-assembly recovery failure and wrong-group control failure. Evidence:
+local cache `diagnostics/{contributors,merge-fixtures}-f2d89d96`; no product change.
+Final-source full acceptance remains required.
+
 Native shared-fixture follow-up: `370364ac` / `37150166111/1` passed all 315
 Worker cases and 37 native Canvas cases, then the following private-media fixture
 hit `canvas_projects.id` uniqueness. The added cross-project control had reused
@@ -508,6 +522,17 @@ into a misleading one-clip message. The alternate browser attachment serializer
 also omitted the owned R2 version. Its omission is reproduced through real
 Worker/queue/D1/R2 callers with a controlled projection gap; the original incident's
 response/timing was not captured, so that ingress is not claimed as proven history.
+
+The 2026-10-15 full static run at `f2d89d96` also exposed an Inspector readiness
+race: a successful job GET precedes the final `/run` attachment/render. A count
+probe could return before the merge disclosure existed, leaving the completed
+Inspector closed. The completion fixture now waits for that visible summary,
+with final attachment deliberately gated after the status response. The same
+waiter rejects permanently absent controls; an old-count mutant returns too early
+and fails the held-response control. All four EN/DE Chromium/WebKit cases passed
+without retries, retaining exact eight/nine clips, ownership/version/endpoint
+controls and two provider calls. Evidence: local cache
+`diagnostics/completion-readiness-f2d89d96`. No timeout increase or product change.
 
 The attachment route now returns the verified owned original version. Ordinary
 Inspector status reconciliation fills only absent versions for the same project,
@@ -694,6 +719,32 @@ runs only the two unresolved DE cases. Candidate/import countercontrols reject
 missing, failed, retried or changed cases and any product/image drift; unchanged
 processor/API proofs are retained with their original source identity. These
 fixture and local results alone do not establish successful live publication.
+
+2026-10-15 full static follow-up at `f2d89d96`, attempt 1 (local run
+`0aaa789c-8929-48f1-b514-2aabdfed110e`, `candidate-static.json`): both WebKit
+asset-audio cases decoded the correct saved export but observed unity in the
+reduced-gain merged preview. Instrumentation confirmed the correct four-segment
+message and advancing clock, yet an empty Worklet timeline. `cutSafeAudio` spread
+omitted source settings into an object missing `enabled`/`gain`; validation threw
+inside the message handler before timeline assignment. Normalize with the existing
+strict `originalAudioSettings` before adding cut ramps. Undefined defaults retain
+unity; malformed falsy values remain rejected. Existing smooth Worker/native
+controls cover defaults, cut thresholds, explicit settings and malformed values;
+all four unchanged EN/DE Chromium/WebKit asset-audio cases passed without retries.
+Routing only the old helper into the repaired build reproduces the empty timeline
+and fails the unchanged decoded gain check. Evidence: local cache
+`diagnostics/audio-defaults-f2d89d96`. No gain threshold, timeout, processor or
+accepted-export change; final-source full acceptance remains required.
+
+The same full report recorded a separate native HTTP control race: MP3 had valid
+metadata and a playing event but advanced only 0.082792 seconds after a fixed
+700ms sleep; the retry observed 0.249793. Wait for actual playback beyond the
+unchanged 0.2-second threshold using the normal assertion deadline, preserving
+3-second metadata, exact HTTP bytes/Range/416 and invalid-audio error checks.
+The same waiter must reject a loaded but paused source. Both native engines
+passed without retries; the controlled Chromium MP3 needed 941.7ms to observe
+0.280835 seconds. Evidence: `diagnostics/native-audio-wait-f2d89d96`. This corrects
+the observer, not browser playback latency, and does not increase the test timeout.
 
 The actual target-container 1280 × 720 sample used one CPU, about 23 seconds additional
 seam processing and 0.88 GB peak container memory (6 GB limit). These controlled
@@ -1015,6 +1066,23 @@ Actual callers: selected Worker `Canvas MiniMax H3 rejection diagnostics`; nativ
 ### Canvas shared Assets picker (2026-09-21)
 
 Canvas's immediate-assignment, first-page dropdown now hosts the existing Generate Lab saved-assets browser and modal styles. The opt-in folder-first entry preserves Generate Lab's all-assets reference entry. Only explicit confirmation calls the owned Canvas asset-reference API; the existing node-save queue persists a display-only name/preview snapshot. Source URLs and downstream identity remain the API's result. Cancel/loading races, failed assignment, stale node/project identity and late responses cannot produce a success on a different selection. File/text previews no longer fall through to a video element. The existing Generate Lab picker fixture explicitly selects PixVerse for its image-input scenario; H3 becoming the default had invalidated that implicit precondition.
+
+2026-10-15 full static follow-up, candidate `f2d89d96`, attempt 1 (local run
+`0aaa789c-8929-48f1-b514-2aabdfed110e`, `bundle/logs/53.log`): the EN/DE picker
+fixture timed out selecting PixVerse because its actual `/api/model-pricing`
+response was only `{ok:true,data:{}}`. The recorded browser trace and empty model
+selector confirm missing availability, not a changed Generate Lab runtime. The
+fixture must supply the existing versioned per-area availability contract even
+when testing only saved references. Keep explicit model selection and all card,
+picker and no-write assertions. Countercheck a missing policy and disabled
+PixVerse Generation permission while Canvas remains enabled; allowed H3 remains
+selectable. Await the actual pricing reader before asserting model absence.
+The existing static entrypoint with the Assets Chromium/WebKit projects passed
+all 12 focused EN/DE positive/negative cases with zero retries/skips on an isolated
+build/server. Evidence: local cache `diagnostics/assets-availability-f2d89d96`
+(inputs, config, report and log). Product admission, pricing and Generate Lab code
+remain unchanged; the failed full run remains failed pending final-source acceptance.
+
 
 Callers: `playwright.assets.config.js` executes existing Canvas/save-coordination specs and shared cards/Generate Lab picker in Chromium/WebKit. `tests/canvas.spec.js` covers EN/DE, mobile touch, keyboard/cancel, reload, all asset types, denied assignment and stale callbacks using synthetic owned assets. `test:ci-selection` retains the closed member-assets frontend mapping and rejects API/workflow/model/backend/unknown neighbors; candidate proof requires both Canvas files in both engines and exact successful execution matching discovery. No Worker or provider change; ordinary protected static publication consumes the same tested build.
 
@@ -1862,6 +1930,20 @@ workspace control now shares Canvas-coordinate bounds across measured UI geometr
 and a concurrent-change-fenced D1 resize. Counterchecks exercise a node at x=2076
 plus its actual width/port, independent bottom bounds, legacy migration, failed
 save, moving/deleting, reload and project switching.
+
+The 2026-10-15 `f2d89d96` full static run identified two older workspace gaps.
+At 1280×600, the toolbar consumed 176px and left only 270.55px of graph, below the
+unchanged 55% usability gate. A short-desktop grid keeps every control and restores
+338.55–339px. Ten original EN/DE Chromium/WebKit viewport/mobile/workspace cases
+and four keyboard/overflow controls passed; an injected extra toolbar height
+still fails the original ratio. Separately, P13 exact movement payload fixtures
+omitted the already-persisted dimensions. Observe the fixed card at 230×126 CSSpx
+and scale 1 before movement, then require those Canvas-unit fields in the exact
+PATCH. Eight original rapid-edit/drag cases passed; missing/wrong dimensions,
+stale coordinates and dropped content remain rejected. Preserve all stale-reply,
+request-count and reload checks. Evidence: local cache
+`diagnostics/{viewport,p13-geometry}-f2d89d96`; source/run/attempt as above. Final
+committed-source acceptance remains required.
 
 A transition recipe increment must not bypass the existing audio-fit correction:
 processor v6 retains fit-policy validation, source windows and exactly-once source

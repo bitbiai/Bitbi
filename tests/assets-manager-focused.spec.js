@@ -146,7 +146,7 @@ function buildWavBuffer({ durationSeconds = 4, sampleRate = 8000 } = {}) {
 }
 
 
-async function mockAssetsManagerApi(page, { authenticated = true, assets = [], requests = [] } = {}) {
+async function mockAssetsManagerApi(page, { authenticated = true, assets = [], requests = [], availability = require('./fixtures/model-availability.json') } = {}) {
   assets = structuredClone(assets);
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url());
@@ -170,6 +170,10 @@ async function mockAssetsManagerApi(page, { authenticated = true, assets = [], r
             user: { id: 'assets-ci-user', email: 'assets-ci@example.com', role: 'user' },
           }
         : { loggedIn: false, user: null };
+    } else if (url.pathname === '/api/model-pricing') {
+      // Model selectors require the server's explicit per-area policy, even
+      // when this fixture only exercises saved media and never generates it.
+      body = { ok: true, revision: 0, rules: {}, ...(availability === null ? {} : { availability }) };
     } else if (url.pathname === '/api/ai/folders') {
       body = {
         ok: true,
@@ -477,6 +481,7 @@ for(const locale of ['en','de']) test(`shared asset cards ${locale}: Generate La
   await video.focus();
   await page.keyboard.press('Escape');
   await page.locator('[data-media-type="video"]').click();
+  await expect(page.locator('#labImageModel option[value="pixverse/v6"]')).toHaveCount(1);
   await page.locator('#labImageModel').selectOption('pixverse/v6');
   await page.locator('#labVideoReferenceTrigger').click();
   await page.locator('[data-reference-source-action="assets"]').click();
@@ -492,6 +497,37 @@ for(const locale of ['en','de']) test(`shared asset cards ${locale}: Generate La
   await expect(page.locator('#labVideoReferenceLabel')).toHaveText(CARD_ASSETS[0].title);
   expect(requests.filter(r=>r.method!=='GET')).toEqual([]);
   expect(requests.filter(r=>r.path.includes('/text-assets/')&&r.path.endsWith('/file'))).toEqual([]);
+});
+
+for (const locale of ['en','de']) for (const policy of ['missing','disabled']) test(`shared asset cards ${locale}: Generate Lab excludes references model with ${policy} generation availability`, async ({page}) => {
+  await seedCookieConsent(page);
+  const availability = policy === 'missing' ? null : structuredClone(require('./fixtures/model-availability.json'));
+  if (availability) availability.models['pixverse/v6'].generation = false;
+  const requests = [];
+  await mockAssetsManagerApi(page, {assets:CARD_ASSETS,requests,availability});
+  await page.goto(`${locale==='de'?'/de':''}/generate-lab/`);
+  // Await the real pricing reader before asserting absence: an initial empty
+  // selector alone would also pass while an enabled policy is still loading.
+  await page.evaluate(async () => {
+    await (await import('/js/shared/model-pricing-client.js')).refreshModelPricing();
+  });
+  await page.locator('[data-media-type="video"]').click();
+  await expect(page.locator('#labImageModel option[value="pixverse/v6"]')).toHaveCount(0);
+  expect(requests.some(r=>r.path==='/api/model-pricing'&&r.method==='GET')).toBe(true);
+  if (policy === 'missing') {
+    await expect(page.locator('#labImageModel option')).toHaveCount(1);
+    await expect(page.locator('#labImageModel option')).toHaveText(locale==='de'?'Modell wählen':'Choose a model');
+    await expect(page.locator('#labGenerate')).toBeDisabled();
+  } else {
+    // A disabled PixVerse generation area must not hide other allowed models
+    // or inherit PixVerse's still-enabled Canvas permission.
+    expect(availability.models['pixverse/v6'].canvas).toBe(true);
+    await expect(page.locator('#labImageModel option[value="minimax/h3"]')).toHaveCount(1);
+    await page.locator('#labImageModel').selectOption('minimax/h3');
+    await expect(page.locator('#labImageModel')).toHaveValue('minimax/h3');
+  }
+  expect(requests.filter(r=>r.method!=='GET')).toEqual([]);
+  expect(requests.filter(r=>r.path.endsWith('/file'))).toEqual([]);
 });
 
 for (const locale of ['en','de']) test(`typed music cards ${locale}: mobile playback and keyboard owner action`, async ({ page }) => {

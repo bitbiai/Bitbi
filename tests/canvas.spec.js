@@ -295,19 +295,41 @@ test('Canvas music native HTTP control decodes and plays MP3 and Opus, rejects i
   const video=await page.request.get('/api/plain/file',{headers:{Range:'bytes=3-31'}});
   expect(video.status()).toBe(206);expect(video.headers()['content-type']).toBe('video/mp4');
   expect(await video.body()).toEqual(fs.readFileSync(path.join(__dirname,'fixtures/media/test-video.mp4')).subarray(3,32));
-  const results=[];
-  for(const format of ['mp3','opus','invalid']) {
-    const state=await page.evaluate(async format=>{
-      const audio=document.createElement('audio');audio.controls=true;document.body.append(audio);
-      const events=[];for(const name of ['loadedmetadata','loadeddata','playing','ended','error'])audio.addEventListener(name,()=>events.push({name,duration:String(audio.duration),time:audio.currentTime,error:audio.error?.code}));
-      audio.src=`/api/plain/music/${format}/file`;
-      try { await audio.play(); } catch (error) { events.push({name:'play-rejected',error:error.name}); }
-      await new Promise(resolve=>setTimeout(resolve,700));
-      const result={format,duration:audio.duration,time:audio.currentTime,error:audio.error?.code,events};audio.pause();audio.remove();return result;
-    },format);
-    results.push(state);
+  const results=[],controls=[];
+  const waitForPlayback=(audio,options)=>expect.poll(()=>audio.evaluate(a=>a.currentTime),options).toBeGreaterThan(.2);
+  const readState=audio=>audio.evaluate(a=>({format:a.dataset.format,duration:a.duration,time:a.currentTime,error:a.error?.code,paused:a.paused,ready:a.readyState,network:a.networkState,elapsedMs:performance.now()-a.controlStartedAt,events:a.controlEvents}));
+  try {
+    for(const format of ['mp3','opus','invalid']) {
+      const audio=await page.evaluateHandle(format=>{
+        const audio=document.createElement('audio');audio.controls=true;audio.dataset.format=format;document.body.append(audio);
+        audio.controlEvents=[];audio.controlStartedAt=performance.now();
+        for(const name of ['loadedmetadata','loadeddata','playing','ended','error'])audio.addEventListener(name,()=>audio.controlEvents.push({name,duration:String(audio.duration),time:audio.currentTime,error:audio.error?.code}));
+        audio.src=`/api/plain/music/${format}/file`;return audio;
+      },format);
+      try {
+        await audio.evaluate(async a=>{try{await a.play();}catch(error){a.controlEvents.push({name:'play-rejected',error:error.name});}});
+        if(format==='invalid')await expect.poll(()=>audio.evaluate(a=>a.error?.code)).toBe(4);
+        else await waitForPlayback(audio);
+        results.push(await readState(audio));
+        if(format==='mp3') {
+          // Loaded metadata alone cannot satisfy the playback observation.
+          await audio.evaluate(a=>{a.pause();a.currentTime=0;});
+          await expect.poll(()=>audio.evaluate(a=>a.seeking)).toBe(false);
+          const before=await readState(audio),started=Date.now();
+          expect(before.paused).toBe(true);expect(before.duration).toBeGreaterThan(2.9);expect(before.ready).toBeGreaterThanOrEqual(2);
+          await expect(waitForPlayback(audio,{timeout:300,intervals:[50]})).rejects.toThrow(/toBeGreaterThan/);
+          const after=await readState(audio);controls.push({kind:'loaded-paused',before,after,observationMs:Date.now()-started});
+          expect(after.paused).toBe(true);expect(after.time).toBe(before.time);
+        }
+      } finally {
+        controls.push({kind:'final-state',...await readState(audio)});
+        await audio.evaluate(a=>{a.pause();a.remove();});await audio.dispose();
+      }
+    }
+  } finally {
+    await info.attach('http-audio-control',{contentType:'application/json',body:JSON.stringify(results)});
+    await info.attach('http-audio-readiness-controls',{contentType:'application/json',body:JSON.stringify(controls)});
   }
-  await info.attach('http-audio-control',{contentType:'application/json',body:JSON.stringify(results)});
   for(const state of results.slice(0,2)) {expect(state.error).toBeUndefined();expect(state.duration).toBeGreaterThan(2.9);expect(state.time).toBeGreaterThan(.2);}
   expect(results[2].error).toBe(4);
 });
@@ -370,15 +392,19 @@ for(const locale of ['en','de']) for(const width of [1440,390]) test(`Canvas mem
 
 for(const locale of ['en','de']) test(`Canvas contributors ${locale}: current strand ignores historical ancestry and unrelated references`,async({page},info)=>{
   await page.setViewportSize({width:1600,height:1000});await mockSharedAuth(page);
+  const pageErrors=[];page.on('pageerror',error=>pageErrors.push(error.message));
   const state=createCanvasApiMock(page),pid='1'.repeat(32),now=new Date().toISOString(),run='a'.repeat(32),old='b'.repeat(32);
-  const id=n=>String(n).repeat(32),node=(n,type,x,y)=>({id:id(n),project_id:pid,type,title:'Node '+n,model_id:type==='video_generation'?'pixverse/v6':null,x,y,config:{prompt:'Own prompt'},content:{text:'Reference'},created_at:now,updated_at:now});
+  // nodeRecord always serializes an unassigned asset as null, never omission.
+  const id=n=>String(n).repeat(32),node=(n,type,x,y)=>({id:id(n),project_id:pid,type,title:'Node '+n,model_id:type==='video_generation'?'pixverse/v6':null,asset_id:null,x,y,config:{prompt:'Own prompt'},content:{text:'Reference'},created_at:now,updated_at:now});
   state.projects=[{id:pid,title:'Branched strand',locale,created_at:now,updated_at:now}];
   state.nodes=[node(2,'video_generation',10,20),node(3,'video_generation',270,20),node(4,'asset_reference',10,200),node(5,'video_generation',530,100),node(6,'video_generation',270,390)];
   const output={kind:'video',runId:run,assetId:'synthetic',sourceVersion:'a'.repeat(64),fileUrl:'/tests/fixtures/media/test-video-changing.mp4'};state.nodes[3].output=output;
   state.edges=[[2,3],[3,5],[4,5],[3,6]].map(([a,b],i)=>({id:id(i+2),source_node_id:id(a),target_node_id:id(b),config:{}}));
   state.runs=[{id:old,node_id:id(5),status:'completed',output:{...output,runId:old},model_id:'pixverse/v6',updated_at:now}];
   const reads=[];await page.route('**/runs/*/contributors',route=>{reads.push(route.request().url());return route.fulfill({status:500,json:{ok:false}});});
-  await page.goto(`${locale==='de'?'/de':''}/canvas/`);await page.locator(`[data-node-id="${id(5)}"]`).press('Enter');
+  await page.goto(`${locale==='de'?'/de':''}/canvas/`);
+  await expect(page.locator('.canvas-node')).toHaveCount(5);expect(pageErrors).toEqual([]);
+  await page.locator(`[data-node-id="${id(5)}"]`).press('Enter');
   await expect(page.locator('.canvas-node.is-contributor')).toHaveCount(3);await expect(page.locator('.canvas-edge.is-contributor')).toHaveCount(2);
   for(const n of [4,6])await expect(page.locator(`[data-node-id="${id(n)}"]`)).not.toHaveClass(/is-contributor/);
   await page.screenshot({path:info.outputPath(`contributors-${locale}.png`)});
@@ -386,6 +412,11 @@ for(const locale of ['en','de']) test(`Canvas contributors ${locale}: current st
   await expect(page.locator('.canvas-edge.is-contributor')).toHaveCount(2);expect(reads).toEqual([]);
   await page.locator(`[data-node-id="${id(5)}"]`).press('ArrowRight');await expect(page.locator('.canvas-edge.is-contributor')).toHaveCount(2);
   await page.locator(`[data-node-id="${id(4)}"]`).press('Enter');await expect(page.locator('.canvas-edge.is-contributor')).toHaveCount(0);
+  await expect(page.locator(`[data-node-id="${id(4)}"]`)).toHaveAttribute('data-capability','asset');
+  await expect(page.locator('#canvasInspectorToggle')).toHaveAttribute('aria-expanded','true');
+  await expect(page.locator('#canvasAssetChoose')).toBeVisible();await expect(page.locator('#canvasAssetChoose')).toBeEnabled();
+  await expect(page.locator('.canvas-asset-name')).toHaveCount(0);
+  expect(pageErrors).toEqual([]);expect(state.requests.filter(request=>request.pathname.endsWith('/run'))).toEqual([]);
 });
 
 test.describe('BITBI Canvas static and protected workspace', () => {
@@ -1059,7 +1090,7 @@ for(const locale of ['en','de']) test(`Canvas full video ordered clips ${locale}
       if(reject)return route.fulfill({status:409,json:{ok:false,code:'video_source_changed'}});
       task={id:'export',status:'queued',recipe:{version:2,spatialPolicy:'center-crop-v1',sequence:'explicit',videos:body.orderedClips}};
     }
-    return route.fulfill({json:{ok:true,data:{eligible:Boolean(task),clips:1,availableClips,export:task}}});
+    return route.fulfill({json:{ok:true,data:{eligible:Boolean(task),assembly:null,revision:0,clips:1,availableClips,export:task}}});
   });
   await page.route('**/api/ai/text-assets/*/file',route=>route.fulfill({contentType:'video/mp4',body:fs.readFileSync(path.join(__dirname,'fixtures/media/canvas-end-frame.mp4'))}));
   await page.route('**/api/ai/text-assets/*/poster',route=>route.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"/>'}));
@@ -1098,8 +1129,11 @@ for (const locale of ['en','de']) test(`Canvas merge selection ${locale}: curren
     return route.fulfill({json:{ok:true,data:{eligible:true,availableClips,export:task}}});
   });
   const open=async()=>{await page.goto(de?'/de/canvas/':'/canvas/');await page.locator(`[data-node-id="${id(4)}"]`).press('Enter');if(de)await page.locator('#canvasInspectorToggle').click();};
-  await open();await openCanvasSettings(page,'merge');const block=page.locator('.canvas-full-video'),group=block.getByRole('group'),manual=group.getByRole('radio',{name:de?'Clips und Reihenfolge auswählen':'Choose clips and order'}),chain=group.getByRole('radio',{name:de?'Diese Kette zusammenfügen':'Merge this chain'});
+  await open();await openCanvasSettings(page,'merge');const block=page.locator('.canvas-full-video'),group=block.getByRole('group',{name:de?'Clips zusammenfügen':'Merge clips',exact:true}),manual=group.getByRole('radio',{name:de?'Clips und Reihenfolge auswählen':'Choose clips and order'}),chain=group.getByRole('radio',{name:de?'Diese Kette zusammenfügen':'Merge this chain'});
   const create=block.getByRole('button',{name:de?'Gesamtes Video erstellen':'Create full video',exact:true});
+  await expect(group).toHaveCount(1);
+  const assemblyGroup=block.getByRole('group',{name:de?'Gespeicherter Filmschnitt':'Saved film assembly',exact:true});
+  await expect(assemblyGroup).toBeVisible();await expect(assemblyGroup.getByRole('radio')).toHaveCount(0);
   await expect(chain).toBeChecked();await expect(group.locator('li')).toHaveCount(3);expect(posts).toEqual([]);
   await expect(group.locator('li').nth(0)).toContainText('Same title · PixVerse V6');
   await expect(group.locator('li').nth(2)).toContainText(de?'Videogenerierung':'Video generation');
