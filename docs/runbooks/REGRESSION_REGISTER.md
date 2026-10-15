@@ -1872,7 +1872,8 @@ Twenty-one Canvas failures came from MockD1 lacking the exact manual-takeover
 revision query. The fixture now implements that query; native SQLite checks
 independently prove that invalid requests, pending recovery and completed replays
 remain read-only, while a newly claimed manual generation pauses the agent before
-dispatch. The 56 existing Canvas cases and the native takeover case passed.
+dispatch. The 56 existing Canvas cases and the SQLite takeover case passed; the same
+countercheck is registered in the actual native workerd/D1 caller.
 The model-status fixture now includes the separate Grok 4.7 Canvas switch, with
 wrong-area, OFF/ON and unchanged Grok 4.6 controls; its eight cases passed.
 The processor retry fixture had used an invented error code that correctly became
@@ -1881,3 +1882,16 @@ and independently rejects unknown failures and exhausted three-attempt jobs for
 both legacy and crop recipes; the original Worker case passed without retries.
 These repairs preserve the failed evidence and require a fresh integrated local
 release check; they do not establish live-provider or deployment acceptance.
+
+Candidate `6ffed2a9` then passed 1,429 Worker cases but exposed the existing REL-01
+body-stall fixture in both its initial attempt and retry (`bundle/logs/43.log`,
+run suffix `723e9136-430f-4215-b6a3-2c55d809c3ac`). A default ReadableStream pulls
+before any reader exists; twenty `setImmediate` turns do not establish that the
+route has completed authentication/admission and acquired its reader. The fixture
+now uses zero high-water mark and waits for actual reader demand. Independent
+controls prove the eager-pull false positive and hold a real route response beyond
+the former turn limit. All five focused `tests/rel01/routes/workers.spec.js` cases
+pass without retries, retaining timeout, cancellation, unknown-outcome, billing
+and replay assertions. The original isolated Mac case passed; only the recorded
+Linux failure establishes the historical scheduling outcome. Final Linux/native
+acceptance remains the existing release command's responsibility.

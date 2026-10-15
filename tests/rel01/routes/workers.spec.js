@@ -65,22 +65,66 @@ for (const late of ['success', 'failure']) {
   });
 }
 
-test('REL-01 actual member image route: response body stall expires and cancels the owned reader', async () => {
-  let calls = 0, cancellations = 0;
+function stalledBody() {
   const reading = deferred();
-  const stream = new ReadableStream({ pull() { reading.resolve(); }, cancel() { cancellations += 1; } });
-  const { env, send } = await fixture(async () => { calls += 1; return new Response(stream, { headers: { 'content-type': 'image/png' } }); });
+  let cancellations = 0;
+  // HWM0 has no constructor prefetch: pull means an actual reader requested
+  // bytes. This observes ownership, independent of crypto/I/O scheduling speed.
+  const stream = new ReadableStream({ pull() { reading.resolve(); }, cancel() { cancellations += 1; } }, { highWaterMark: 0 });
+  return { stream, reading, get cancellations() { return cancellations; } };
+}
+
+test('REL-01 stalled-body fixture distinguishes eager pulls from owned reads', async () => {
+  const eagerPull = deferred();
+  const eager = new ReadableStream({ pull() { eagerPull.resolve(); } });
+  await eagerPull.promise;
+  expect(eager.locked).toBe(false); // The former signal fires without a reader.
+  const body = stalledBody();
+  let observedRead = false;
+  body.reading.promise.then(() => { observedRead = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  expect(observedRead).toBe(false);
+  expect(body.stream.locked).toBe(false);
+  const reader = body.stream.getReader(), pending = reader.read();
+  await body.reading.promise;
+  expect(observedRead).toBe(true);
+  expect(body.stream.locked).toBe(true);
+  await reader.cancel();
+  expect((await pending).done).toBe(true);
+  reader.releaseLock();
+  expect(body.cancellations).toBe(1);
+  expect(body.stream.locked).toBe(false);
+  await eager.cancel();
+});
+
+for (const delayed of [false, true]) test(`REL-01 actual member image route: response body stall expires and cancels the owned reader${delayed ? ' after delayed provider response' : ''}`, async () => {
+  let calls = 0;
+  const body = stalledBody(), started = deferred(), release = deferred();
+  const { stream, reading } = body;
+  const { env, send } = await fixture(async () => {
+    calls += 1; started.resolve();
+    if (delayed) await release.promise;
+    return new Response(stream, { headers: { 'content-type': 'image/png' } });
+  });
   await withDeadlineClock(async (clock) => {
     const initial = send();
+    if (delayed) {
+      await started.promise;
+      let observedRead = false;
+      reading.promise.then(() => { observedRead = true; });
+      // Hold the response beyond the former twenty-turn polling boundary. No
+      // elapsed number of event-loop turns can establish reader ownership.
+      for (let turn = 0; turn < 20; turn += 1) await new Promise(resolve => setImmediate(resolve));
+      expect(observedRead).toBe(false);
+      expect(stream.locked).toBe(false);
+      release.resolve();
+    }
     await reading.promise;
-    // Wait until actual extraction has acquired the stream, not merely its
-    // eager constructor pull, before expiring the manually controlled deadline.
-    for (let turn = 0; turn < 20 && !stream.locked; turn += 1) await new Promise(resolve => setImmediate(resolve));
     expect(stream.locked).toBe(true);
     clock.expire();
     expect((await initial).status).toBe(504);
     await new Promise(resolve => setImmediate(resolve));
-    expect(cancellations).toBe(1);
+    expect(body.cancellations).toBe(1);
     expect(stream.locked).toBe(false);
     expect((await send()).status).toBe(409);
     expect(calls).toBe(1);

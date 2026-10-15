@@ -1,5 +1,5 @@
 import {canvasWorkspaceTransitionCase} from '../canvas-workspace-transition-control.mjs';
-import { canvasAgentAuthorityCase, canvasAgentApiCase, canvasAgentDispatchCase, canvasAgentCapabilityCase, canvasAgentLateCompletionCase,canvasAgentUnknownProviderCase } from '../canvas-agent-control.mjs';
+import { canvasAgentAuthorityCase, canvasAgentApiCase, canvasAgentDispatchCase, canvasAgentCapabilityCase, canvasAgentLateCompletionCase,canvasAgentUnknownProviderCase, canvasAgentManualTakeoverCase } from '../canvas-agent-control.mjs';
 import { canvasAssemblyCase, canvasInspectionCase } from '../canvas-assembly-control.mjs';
 import {memberGenerationCase} from '../member-generation-control.mjs';
 import { modelPricingCase } from '../model-pricing-control.mjs';
@@ -36,6 +36,7 @@ export default {
     if (path === '/canvas-agent-capabilities') return Response.json(await canvasAgentCapabilityCase(env));
     if (path === '/canvas-agent-late-completion') return Response.json(await canvasAgentLateCompletionCase(env,body));
     if (path === '/canvas-agent-unknown-provider') return Response.json(await canvasAgentUnknownProviderCase(env,body));
+    if (path === '/canvas-agent-manual-takeover') return Response.json(await canvasAgentManualTakeoverCase(env,body));
     if (path === '/canvas-assembly') return Response.json(await canvasAssemblyCase(env,body));
     if (path === '/canvas-inspection') return Response.json(await canvasInspectionCase(env,body));
     if(path==='/model-area-generation'&&['area-queued','area-running'].includes(body.name))return Response.json(await memberGenerationCase(env,body.name,body));

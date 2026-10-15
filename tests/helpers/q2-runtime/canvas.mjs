@@ -524,6 +524,16 @@ export async function runCanvasTests(f) {
     assert.equal(response.status, 200, await response.clone().text());
     assert.deepEqual(await response.json(), { atomicAllocations: 1, existingUsageAttempts: 2, providerSubmissions: 0, walletDebits: 0, manualEditPaused: true });
   });
+  await f.test('canvas_agent_native_manual_generation_takeover_excludes_invalid_requests_and_pending_completed_replays', async () => {
+    const response = await f.control('/canvas-agent-manual-takeover', {
+      videoBase64: fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4', import.meta.url)).toString('base64'),
+      imageBase64: fs.readFileSync(new URL('../../fixtures/media/h3-frame.png', import.meta.url)).toString('base64'),
+      musicBase64: fs.readFileSync(new URL('../../fixtures/media/member-music.mp3', import.meta.url)).toString('base64'),
+    });
+    assert.equal(response.status, 200, await response.clone().text());
+    assert.deepEqual(await response.json(), { invalidRequestsReadOnly: true, newRunPaused: true, pendingRecoveryReadOnly: true, completedReplayReadOnly: true, providerCalls: 1 });
+    assert.deepEqual(await f.rows('PRAGMA foreign_key_check'), []);
+  });
   await f.test('canvas_agent_native_duration_clarification_duplicate_starts_controls_and_manual_takeover', async () => {
     const response = await f.control('/canvas-agent-api', {});
     assert.equal(response.status, 200, await response.clone().text());
