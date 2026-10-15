@@ -1781,6 +1781,26 @@ repeated. Baseline release 37677932603/1 remains historical; new acceptance and 
 chain results belong to the exact repair checkpoint, never an old failed artifact.
 
 
+2026-10-15 soundtrack follow-up: candidate `85005cbd` passed all 1,432 Worker
+cases, then the actual processor caller failed at its late-fade measurement
+(`bundle/logs/43.log`, local run suffix `2a91b59b-95d1-4022-9ad9-877a93f60d1f`).
+On the pinned local Linux ARM64 FFmpeg 6.1.1 runtime, the 3.6-second transition
+retained full video/audio before music mixing, but shared-input video copy plus
+audio filtering produced only 3.541 seconds of audio. Decoding yielded 169,984
+mono float32 samples at 48 kHz, so the requested [3.5,3.58]-second observation was
+missing, not silence. Give original audio its own demuxer, preserve the complete
+signal, and validate audio duration independently of container/video duration.
+The actual tone helper now rejects missing windows and is calibrated with known
+decoded sine and silent/truncated controls. The repaired soundtrack matches every
+decoded sample of an independent audio-only render, including a nonzero final
+fade. All 19 existing transition sequences pass in that Linux runtime. Actual
+AMD64 processor-image acceptance remains a separate required release check.
+An isolated Mac FFmpeg 8.1.1 zoom-to-Flash probe still yields 2.5 seconds/60 frames;
+the unchanged compositor yields 3.5 seconds/84 frames with correct source windows,
+timestamps and Flash under Linux 6.1.1. This is an unresolved non-target runtime
+compatibility limit, not evidence of a new deployed compositor regression.
+
+
 Baseline `746863c9` used a fixed surface and separate drag/placement clamps. The
 workspace control now shares Canvas-coordinate bounds across measured UI geometry
 and a concurrent-change-fenced D1 resize. Counterchecks exercise a node at x=2076

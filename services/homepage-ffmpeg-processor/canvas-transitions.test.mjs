@@ -8,7 +8,12 @@ import {smoothVideoSeams} from './canvas-seams.mjs';
 const cmd=(bin,args)=>{const r=spawnSync(bin,args,{maxBuffer:32e6});assert.equal(r.status,0,String(r.stderr));return r.stdout;};
 const ff=args=>cmd('ffmpeg',['-y','-v','error','-nostdin',...args]);
 const limits={outputBytes:80e6,durationSeconds:600},options={run:mediaCommand,inspect:inspectClip,limits};
-const tone=(pcm,start,end,hz)=>{let re=0,im=0,n=0;for(let i=Math.round(start*48000);i<Math.round(end*48000);i++){const v=pcm.readFloatLE(i*4);assert(Number.isFinite(v));re+=v*Math.cos(2*Math.PI*hz*i/48000);im+=v*Math.sin(2*Math.PI*hz*i/48000);n++;}return 2*Math.hypot(re,im)/n;};
+const tone=(pcm,start,end,hz)=>{
+  const first=Math.round(start*48000),last=Math.round(end*48000);
+  assert(pcm.length%4===0&&Number.isInteger(first)&&Number.isInteger(last)&&first>=0&&last>first&&last<=pcm.length/4,
+    `Missing mono float32/48000Hz audio for [${start},${end}]s; decoded ${pcm.length/4} samples`);
+  let re=0,im=0,n=0;for(let i=first;i<last;i++){const v=pcm.readFloatLE(i*4);assert(Number.isFinite(v));re+=v*Math.cos(2*Math.PI*hz*i/48000);im+=v*Math.sin(2*Math.PI*hz*i/48000);n++;}return 2*Math.hypot(re,im)/n;
+};
 const audio=file=>ff(['-i',file,'-vn','-ar','48000','-ac','1','-f','f32le','-']);
 const frame=(file,t)=>ff(['-ss',String(t),'-i',file,'-frames:v','1','-pix_fmt','rgb24','-f','rawvideo','-']);
 const diff=(a,b)=>a.reduce((sum,v,i)=>sum+Math.abs(v-b[i]),0)/a.length;
@@ -24,6 +29,10 @@ export async function testCanvasTransitions() {
   const root=process.env.CANVAS_TRANSITION_EVIDENCE_DIR||await mkdtemp(path.join(tmpdir(),'canvas-transitions-'));
   await mkdir(root,{recursive:true});const started=Date.now(),results=[];
   try{
+    const calibration=ff(['-f','lavfi','-i','sine=frequency=1200:sample_rate=48000:duration=0.2','-ac','1','-f','f32le','-']);
+    assert(Math.abs(tone(calibration,.05,.15,1200)-.125)<.001,'Known decoded tone calibrates the actual measurement');
+    assert.throws(()=>tone(calibration.subarray(0,4800*4),.05,.15,1200),/Missing mono float32/,'Truncated observations are unknown, never silence');
+    assert.throws(()=>assert(tone(Buffer.alloc(calibration.length),.05,.15,1200)>.1),'Present but silent samples fail the signal oracle');
     await (await import('./canvas-full-video.test.mjs')).testMediaCommandDiagnostics();
     const dir=path.join(root,'sources'),files=await transitionFixture(dir),originals=await Promise.all(files.map(f=>readFile(f)));
     const normal=await concatenateClips(files,dir,{videoClock:true,fitAudio:true});assert.equal(normal.duration,3);
@@ -73,6 +82,12 @@ export async function testCanvasTransitions() {
     const final=await mixBackgroundMusic(transitioned,music,.2,three,{fadeIn:.2,fadeOut:.3});
     const pcm=audio(final.output);assert(tone(pcm,2.7,3.1,880)<.001,'Muted source remains muted');assert(tone(pcm,2.7,3.1,1200)>.015,'Music loops on final shorter clock');
     assert(tone(pcm,3.5,3.58,1200)<tone(pcm,2.7,3.1,1200)*.5,'Music fades at final output end');
+    assert(tone(pcm,3.54,3.58,1200)>.001,'The final fade contains real music, not substituted silence');
+    const reference=path.join(three,'music-audio-only.m4a');
+    ff(['-i',transitioned.output,'-f','f32le','-ar','48000','-ac','2','-i',path.join(three,'music-bed.f32'),
+      '-filter_complex','[0:a]aresample=48000,apad,atrim=duration=3.6[a];[1:a]volume=0.2,afade=t=in:st=0:d=0.2,afade=t=out:st=3.3:d=0.3[m];[a][m]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95:level=false:latency=true[out]',
+      '-map','[out]','-c:a','aac','-b:a','192k','-ac','2','-ar','48000','-t','3.6',reference]);
+    assert.deepEqual(pcm,audio(reference),'Video muxing retains the complete independently rendered soundtrack');
     // Composition countercontrols: the real pinned image used to reject a
     // hard cut followed by xfade, and zoompan followed by a fresh xfade input.
     const cases=[['flash','none'],['none','flash'],['none','flash','none','fade'],['zoom-blur','flash'],[...Array(6).fill('none'),'flash','none']];

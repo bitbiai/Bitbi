@@ -283,13 +283,18 @@ export async function mixBackgroundMusic(base,music,gain,dir,{ffmpeg='ffmpeg',ff
   if(!bytes || bytes>600*48000*8)throw failure('canvas_music_invalid');
   await writeFile(bed,loopMusicPcm(await readFile(decoded),frames).subarray(Math.round(offset*48000)*8));
   const args=['-y','-v','error','-nostdin','-protocol_whitelist','file,pipe','-i',base.output,'-f','f32le','-ar','48000','-ac','2','-i',bed];
-  const original=clip.audio?'[0:a:0]aresample=48000,apad,atrim=duration='+duration+'[original];':'anullsrc=r=48000:cl=stereo,atrim=duration='+duration+'[original];';
+  // Keep filtered audio on its own demuxer. FFmpeg 6.1 can lose the filtered
+  // audio tail when stream-copying video from the same input. A separate audio
+  // input preserves the complete signal without padding the mixed soundtrack.
+  if(clip.audio)args.push('-vn','-i',base.output);
+  const original=clip.audio?'[2:a:0]aresample=48000,apad,atrim=duration='+duration+'[original];':'anullsrc=r=48000:cl=stereo,atrim=duration='+duration+'[original];';
   args.push('-filter_complex',`${original}[1:a:0]volume=${gain}${fadeFilter}[music];[original][music]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95:level=false:latency=true[audio]`,
     '-map','0:v:0','-map','[audio]','-c:v','copy','-c:a','aac','-b:a','192k','-ac','2','-ar','48000','-t',String(duration),'-fs',String(limits.outputBytes+1),'-movflags','+faststart',output);
   await run(ffmpeg,args,{cwd:dir});
   if((await stat(output)).size>limits.outputBytes)throw failure('canvas_output_size_limit');
   const result=await inspectClip(output,{ffprobe,run});
-  if(!result.audio || Math.abs(result.duration-duration)>0.05)throw failure('canvas_output_incomplete');
+  if(!result.audio || Math.abs(result.duration-duration)>0.05 || !Number.isFinite(Number(result.audio.duration))
+    || Number(result.audio.duration)<duration-1024/48000-.001)throw failure('canvas_output_incomplete');
   return {...base,output,duration:base.clock==='video'?base.duration:result.duration,mode:base.mode+'+music'};
 }
 
