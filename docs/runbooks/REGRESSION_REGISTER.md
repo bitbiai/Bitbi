@@ -1819,6 +1819,16 @@ clock checks use independently selected original frames, a same-frame codec
 control and a deliberately shifted frame, alongside scene-order, repetition,
 missing-observation, black-output and 114.5-second shortfall counterchecks.
 Full selected acceptance must still match the final committed candidate.
+The complete target-image call then reached its unchanged 600-second process
+limit at 600.121 seconds without a media assertion failure (`full-final.log` and
+`full-final-runtime.json` in the same diagnostic directory). Core checks consumed
+about 370 seconds before the separately measured 360.438-second transition matrix.
+Run the fixed core, transition and private-lifecycle/reference groups sequentially
+on the same inspected image, retaining each 600-second process bound and the
+outer 1,200-second release bound. The ordinary full test entry remains unconditional;
+complete image proof must reject missing, duplicate, reordered or failed groups,
+and a failed rerun must not leave a current success receipt. This is test-runner
+capacity, not a relaxed product-duration, source-clock or processing-deadline check.
 
 
 Baseline `746863c9` used a fixed surface and separate drag/placement clamps. The

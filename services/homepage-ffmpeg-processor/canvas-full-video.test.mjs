@@ -35,6 +35,13 @@ export async function testMediaCommandDiagnostics() {
 }
 
 export async function testCanvasConcatenation() {
+  await testCanvasConcatenationCore();
+  await (await import('./canvas-transitions.test.mjs')).testCanvasTransitions();
+}
+
+// The image runner executes these complete groups in separate bounded processes.
+// The ordinary public caller above always executes both; there is no skip option.
+export async function testCanvasConcatenationCore() {
   await testCanvasAssemblyProcessing();
   await testMediaCommandDiagnostics();
   assert.equal(processingTimeout(720000,0),120000);
@@ -102,7 +109,6 @@ export async function testCanvasConcatenation() {
     await testCanvasAudioControls();
     await testSmoothJoins();
   await testAudioFit();
-  await (await import('./canvas-transitions.test.mjs')).testCanvasTransitions();
     await assert.rejects(concatenateClips(files,dir,{limits:{durationSeconds:1,outputBytes:80000000}}),/canvas_duration_limit/);
     await assert.rejects(concatenateClips(files.slice(0,1),dir),/canvas_sources_invalid/);
     assert((await readFile(full.output)).byteLength>1000);

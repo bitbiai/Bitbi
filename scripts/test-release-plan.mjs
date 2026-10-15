@@ -1087,7 +1087,7 @@ await import('./test-canvas-agent-release.mjs');
 }
 
 {
- const {verifyMediaImage,mediaImageInputs,mediaTestMounts,mediaFullTestProof}=await import('./private-media-image.mjs');
+ const {verifyMediaImage,mediaImageInputs,mediaTestMounts,mediaFullTestProof,mediaTestGroups,executeMediaTestGroups,verifyMediaTestGroups,MEDIA_TEST_TIMEOUT_MS}=await import('./private-media-image.mjs');
  const mounts=mediaTestMounts(),assemblyMount=`type=bind,source=${path.join(repoRoot,'services/homepage-ffmpeg-processor/canvas-assembly.test.mjs')},target=/app/canvas-assembly.test.mjs,readonly`;
  assert(mounts.includes(assemblyMount),'Actual Linux image runner mounts the imported assembly fixture');
  const testFiles=mounts.filter(value=>value!=='--mount').map(value=>/target=\/app\/([^,]+)/.exec(value)[1]);
@@ -1095,15 +1095,61 @@ await import('./test-canvas-agent-release.mjs');
  assert.throws(()=>mediaTestMounts(['../unowned.test.mjs']),/Invalid processor test mount/);
  assert(!mediaFullTestProof({}).includes('assembly-duration-decoded'),'Historical source receipts retain their original proof contract');
  const {hash}=await import('./lib/frontend-hosting.mjs');const os=await import('node:os');
- const dir=fs.mkdtempSync(path.join(os.tmpdir(),'media-identity-')),archive=path.join(dir,'image.tar');fs.writeFileSync(archive,'synthetic archive bytes');
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'media-identity-')),archive=path.join(dir,'image.tar');
  try {
    const sha='a'.repeat(40),expected={sha,run:'123',attempt:'1',archive};
-   const record={sha,run:'123',attempt:'1',dirty:false,sourceFiles:mediaImageInputs(),platform:'linux/amd64',ffmpeg:'synthetic-version',ffprobe:'synthetic-version',image:`sha256:${'b'.repeat(64)}`,archiveDigest:hash(fs.readFileSync(archive)),tests:['two-five-clips','copy-normalize-audio','background-music-decoded','per-clip-audio-decoded','smooth-joins-decoded','audio-fit-decoded','transitions-decoded','assembly-duration-decoded','owned-frame-inspection','private-drain-poster','container-process-restart','h3-video-reference']};
+   const image=`sha256:${'b'.repeat(64)}`,sourceFiles=mediaImageInputs(),calls=[],removed=[];
+   const entries=[['canvas-full-video.test.mjs','testCanvasConcatenationCore','core'],['canvas-transitions.test.mjs','testCanvasTransitions','transitions'],
+     ['private-media-runner.test.mjs','testPrivateMediaRunner','private'],['private-media-runner.test.mjs','testContainerLifecycle','restart'],['video-reference.test.mjs','testVideoReferences','references']];
+   for(const [file,fn,label] of entries)fs.appendFileSync(path.join(dir,file),`export async function ${fn}(){(await import('node:fs')).appendFileSync('calls.log',${JSON.stringify(label+'\n')});console.log(${JSON.stringify(label)});}\n`);
+   const runtime=['run','--rm','--network','none','--env','MEMBER_GENERATION_POSTERS_ONLY=1','--platform','linux/amd64','--read-only','--cpus','1','--memory','6g','--tmpfs','/tmp:rw,size=2g'];
+   assert.equal(MEDIA_TEST_TIMEOUT_MS,600000,'Each actual Docker command retains its existing deadline');
+   assert.deepEqual(mediaTestGroups().map(group=>group.id),['canvas-core','canvas-transitions','private-runtime-references']);
+   assert.throws(()=>mediaTestGroups('skip-transitions'),/Unknown media test policy/);
+   const execute={policy:'full',image,sourceFiles,mounts:[],directory:dir,cleanup:name=>removed.push(name),run:args=>{
+     calls.push(args);assert.deepEqual(args.slice(0,runtime.length),runtime);assert.equal(args[runtime.length],'--name');
+     assert.match(args[runtime.length+1],/^bitbi-media-test-\d+-[a-f0-9-]+-(canvas-core|canvas-transitions|private-runtime-references)$/);
+     assert.equal(args[runtime.length+2],image,'Every group uses the exact inspected image, never a mutable tag');
+     assert.deepEqual(args.slice(runtime.length+3,runtime.length+6),['node','--input-type=module','-e']);
+     // Execute the actual generated Node entry scripts. Only their media fixture
+     // bodies are synthetic here; actual image/FFmpeg acceptance remains separate.
+     return execFileSync(process.execPath,args.slice(runtime.length+4),{cwd:dir,encoding:'utf8'});
+   }};
+   const execution=executeMediaTestGroups(execute);
+   assert.equal(calls.length,3);assert.equal(new Set(calls.map(args=>args[runtime.length+1])).size,3);assert.deepEqual(removed,[]);
+   assert.deepEqual(fs.readFileSync(path.join(dir,'calls.log'),'utf8').trim().split('\n'),['core','transitions','private','restart','references']);
+   fs.writeFileSync(archive,'synthetic archive bytes');
+   const record={sha,run:'123',attempt:'1',dirty:false,sourceFiles,platform:'linux/amd64',ffmpeg:'synthetic-version',ffprobe:'synthetic-version',image,archiveDigest:hash(fs.readFileSync(archive)),...execution,tests:['two-five-clips','copy-normalize-audio','background-music-decoded','per-clip-audio-decoded','smooth-joins-decoded','audio-fit-decoded','transitions-decoded','assembly-duration-decoded','owned-frame-inspection','private-drain-poster','container-process-restart','h3-video-reference']};
    verifyMediaImage(record,expected);
    for(const patch of [{sha:'wrong'},{run:'124'},{attempt:'2'},{dirty:true},{sourceFiles:{}},{archiveDigest:'wrong'},{platform:'linux/arm64'},{tests:[]}])assert.throws(()=>verifyMediaImage({...record,...patch},expected));
    for(const missing of ['assembly-duration-decoded','owned-frame-inspection'])assert.throws(()=>verifyMediaImage({...record,tests:record.tests.filter(test=>test!==missing)},expected));
+   const log=fs.readFileSync(path.join(dir,'test.log'));
+   for(const groups of [undefined,[],record.testGroups.slice(0,2),[record.testGroups[0],record.testGroups[0],record.testGroups[2]],record.testGroups.toReversed()])
+     assert.throws(()=>verifyMediaImage({...record,testGroups:groups},expected),/media groups/);
+   for(const patch of [{status:'failed'},{image:'sha256:'+'c'.repeat(64)},{sourceDigest:'changed'},{commandDigest:'changed'},{elapsedMs:-1},{outputDigest:'d'.repeat(64)}]) {
+     const bad=structuredClone(record);Object.assign(bad.testGroups[1],patch);assert.throws(()=>verifyMediaImage(bad,expected));
+   }
+   assert.throws(()=>verifyMediaImage({...record,testExecution:undefined},expected),/Missing fixed media group execution/);
+   assert.throws(()=>verifyMediaImage({...record,testPolicy:'unknown'},expected),/Unknown media test policy/);
+   for(const corrupted of [Buffer.from(''),Buffer.from(log.toString().replace('"event":"passed"','"event":"failed"')),Buffer.concat([log,Buffer.from('extra')])])
+     assert.throws(()=>verifyMediaTestGroups({...record,testLogDigest:hash(corrupted)},corrupted),'A recomputed total hash cannot hide missing/failed/extra observations');
+   for(const policy of ['canvas-workspace-transitions-v1','canvas-audio-fit-v1']) {
+     const group=mediaTestGroups(policy);assert.equal(group.length,1);
+     assert(group[0].script.includes(policy==='canvas-workspace-transitions-v1'?'testCanvasTransitions()':'testAudioFit()'));
+     assert(group[0].script.includes('testPrivateMediaRunner()'));assert(group[0].script.includes('testContainerLifecycle()'));assert(!group[0].script.includes('testVideoReferences()'));
+   }
    assert.throws(()=>verifyMediaImage({...record,testPolicy:'canvas-audio-fit-v1',tests:['audio-fit-decoded','private-drain-poster','container-process-restart']},expected),/verified release base/);
    fs.appendFileSync(archive,'changed');assert.throws(()=>verifyMediaImage(record,expected));
+   for(const failedAt of [0,1,2]) {
+     fs.writeFileSync(path.join(dir,'image.json'),JSON.stringify(record));fs.writeFileSync(archive,'previous success');
+     const attempts=[],cleanup=[],failure=Object.assign(Error('synthetic invocation failure'),{code:failedAt===1?'ETIMEDOUT':'EIO',signal:failedAt===1?'SIGTERM':null,stdout:'partial group output',stderr:'failure detail'});
+     assert.throws(()=>executeMediaTestGroups({...execute,cleanup:name=>cleanup.push(name),run:args=>{attempts.push(args);if(attempts.length===failedAt+1)throw failure;return execute.run(args);}}),error=>error===failure);
+     assert.equal(attempts.length,failedAt+1,'Failure stops all later groups');assert.deepEqual(cleanup,[attempts.at(-1)[runtime.length+1]],'Only the failed invocation’s unique container is removed');
+     assert(!fs.existsSync(path.join(dir,'image.json')),'Failed rerun cannot leave a stale success receipt');assert(!fs.existsSync(archive),'Failed rerun cannot leave an old publishable image archive');
+     const partial=fs.readFileSync(path.join(dir,'test.log'));assert(partial.toString().includes('partial group output'));assert(partial.toString().includes('"event":"failed"'));
+     assert.throws(()=>verifyMediaTestGroups({...record,testLogDigest:hash(partial)},partial),'A partial invocation log cannot become complete acceptance');
+   }
+   console.log('Private media image: fixed complete groups, actual entry scripts, unchanged resource/deadline limits, exact receipts, partial/failure cleanup and stale-success rejection passed.');
  }finally{fs.rmSync(dir,{recursive:true,force:true});}
 }
 
