@@ -138,6 +138,41 @@ test('Q2 L01 failure in a later account mutation rolls back sources and cleanup 
   } finally { f.db.close(); }
 });
 
+test('Q2 L01 native D1 statement fields stay prepared through labeled operational deletion', async () => {
+  const f = fixture();
+  try {
+    // workerd's prepared object exposes its SQL as .statement. The SQLite
+    // adapter's .sql field alone cannot reproduce an accidental second unwrap.
+    const prepare = f.db.prepare.bind(f.db), batch = f.db.batch.bind(f.db);
+    const nativeShape = statement => {
+      statement.statement = statement.sql;
+      const bind = statement.bind.bind(statement);
+      statement.bind = (...values) => nativeShape(bind(...values));
+      return statement;
+    };
+    f.db.prepare = sql => nativeShape(prepare(sql));
+    f.db.batch = statements => {
+      expect(statements.every(statement => typeof statement === 'object' && typeof statement.runSync === 'function')).toBe(true);
+      return batch(statements);
+    };
+    f.db.exec('CREATE TABLE q2_native_account_guard (value INTEGER CHECK(value = 1))');
+    const additional = value => [{ statement: f.db.prepare('INSERT INTO q2_native_account_guard VALUES (?)').bind(value), label: 'native_account_guard', category: 'account' }];
+    let failure;
+    try { await lifecycle.deleteAllUserAiAssets({ env: f.env, userId: USER, additionalStatements: additional(2) }); }
+    catch (error) { failure = error; }
+    expect(String(failure?.cause)).toContain('CHECK constraint failed');
+    expect(counts(f)).toEqual({ sources: 1, cleanup: 0 });
+    expect(f.calls.deletes).toEqual([]);
+    expect(f.objects.size).toBe(3);
+    f.controls.failDelete = true;
+    const result = await lifecycle.deleteAllUserAiAssets({ env: f.env, userId: USER, additionalStatements: additional(1) });
+    expect(result.deletedAiImagesCount).toBe(1);
+    expect(counts(f)).toEqual({ sources: 0, cleanup: 3 });
+    expect(f.db.database.prepare('SELECT value FROM q2_native_account_guard').all()).toEqual([{ value: 1 }]);
+    expect(f.objects.size).toBe(3);
+  } finally { f.db.close(); }
+});
+
 test('Q2 L01 confirmed source deletion survives R2 failure and scheduled retry deletes only its objects', async () => {
   const f = fixture();
   try {

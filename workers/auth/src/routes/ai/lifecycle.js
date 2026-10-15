@@ -168,7 +168,9 @@ function toBatchFailure(error, {
 }
 
 function normalizeLifecycleStatement(entry, fallbackIndex) {
-  if (entry?.statement) {
+  // Native D1PreparedStatement.statement is its SQL string, not our labeled
+  // wrapper. Keep that prepared object intact when mixing both entry forms.
+  if (entry?.statement && typeof entry.statement === "object") {
     return {
       statement: entry.statement,
       branch: entry.branch || `lifecycle_statement_${fallbackIndex}_failed`,

@@ -1,5 +1,30 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
+
+// Independent reviewed identities, not a count or a projection of the product
+// registry under test. Kept here because the isolated native staging boundary
+// intentionally includes this fixture without the browser fixtures directory.
+const offeredInBothAreas = [
+ '@cf/black-forest-labs/flux-1-schnell', '@cf/black-forest-labs/flux-2-klein-9b',
+ 'black-forest-labs/flux-2-max', 'openai/gpt-image-2', 'openai/gpt-image-2.5-flare',
+ 'openai/gpt-image-2.5-sunburst', 'xai/grok-imagine-image-2.0', 'google/gemini-omni-flash',
+ 'elevenlabs/music-v2', 'minimax/h3', 'pixverse/v6', 'alibaba/hh1-t2v',
+ 'bytedance/seedance-2.0-fast', 'xai/grok-imagine-video', 'xai/grok-imagine-video-1.5-preview',
+ 'minimax/music-2.6', 'bytedance/seedance-2.5',
+];
+const offeredInCanvas = [
+ 'xai/grok-4.6', 'xai/grok-4.7', '@cf/meta/llama-3.1-8b-instruct-fast',
+ '@cf/meta/llama-3.3-70b-instruct-fp8-fast', '@cf/google/gemma-4-26b-a4b-it',
+ 'anthropic/claude-fable-5', '@cf/openai/gpt-oss-20b', '@cf/openai/gpt-oss-120b',
+ 'bytedance/seedance-2.0',
+];
+const expectedAreaCatalog = [
+ ...offeredInBothAreas.map(id=>({id,areas:['canvas','generation']})),
+ ...offeredInCanvas.map(id=>({id,areas:['canvas']})),
+ {id:'@cf/swiss-ai/apertus-v1.5-8b',areas:['main']},
+].sort((a,b)=>a.id.localeCompare(b.id));
+const checkAreaCatalog = models => assert.deepEqual(models.map(model=>({id:model.id,areas:Object.keys(model.switches).sort()})).sort((a,b)=>a.id.localeCompare(b.id)),expectedAreaCatalog);
+
 export async function runModelStatusTests(f) {
  for(const m of f.migrations)await f.db.batch(m.statements.map(s=>f.db.prepare(s)));
  const pricingAuditBaseline=await f.scalar('SELECT COUNT(*) AS value FROM model_pricing_changes');
@@ -43,7 +68,12 @@ export async function runModelStatusTests(f) {
   for(const session of ['',member]){assert.ok([401,403].includes((await call(session)).status));assert.ok([401,403].includes((await call(session,'PATCH',{})).status));}
   assert.equal((await call(admin,'PATCH',{},'https://untrusted.invalid')).status,403);
   const r=await call(admin);assert.equal(r.status,200);assert.match(r.headers.get('cache-control'),/no-store/);
-  const {data}=await r.json();assert.equal(data.models.length,26);assert.equal(data.models.filter(m=>m.switches.generation).length,17);assert.equal(data.models.filter(m=>m.switches.canvas).length,25);
+  const {data}=await r.json();checkAreaCatalog(data.models);
+  assert.throws(()=>checkAreaCatalog(data.models.slice(1)),assert.AssertionError);
+  assert.throws(()=>checkAreaCatalog([...data.models,data.models[0]]),assert.AssertionError);
+  assert.throws(()=>checkAreaCatalog([{...data.models[0],id:'unapproved/model'},...data.models.slice(1)]),assert.AssertionError);
+  assert.throws(()=>checkAreaCatalog(data.models.map(model=>model.id==='xai/grok-4.7'?{...model,switches:{...model.switches,generation:{enabled:true}}}:model)),assert.AssertionError);
+  for(const id of ['xai/grok-4.6','xai/grok-4.7'])assert.equal(data.models.find(model=>model.id===id).switches.canvas.enabled,true);
   const seedance=data.models.find(m=>m.id==='bytedance/seedance-2.5');assert.ok(seedance.switches.generation.enabled && seedance.switches.canvas.enabled);assert.equal(Object.hasOwn(seedance.switches,'main'),false);
   assert.deepEqual(data.models.filter(m=>m.switches.main).map(m=>[m.id,m.switches.main.enabled]),[['@cf/swiss-ai/apertus-v1.5-8b',false]]);
   assert.equal(await f.scalar("SELECT COUNT(*) AS value FROM app_settings WHERE key LIKE 'model_area:%'"),0);

@@ -1915,3 +1915,23 @@ pass without retries, retaining timeout, cancellation, unknown-outcome, billing
 and replay assertions. The original isolated Mac case passed; only the recorded
 Linux failure establishes the historical scheduling outcome. Final Linux/native
 acceptance remains the existing release command's responsibility.
+
+Native follow-up at `5115f986` passed 265 cases before two suite failures
+(`bundle/logs/43.log`, run suffix `5da7f6b5-d752-4979-9a88-8d7677f8ea24`).
+The Admin fixture's stale totals now use an independent exact identity/area oracle
+with missing, duplicate, substitution and wrong-area controls. The smoothing
+fixture confused a shared queue's compatible `arrived-after-claim` legacy job with
+new-policy admission. Its prioritized incompatible jobs and compatible control
+prove exclusion while preserving unrelated claim state; widening the actual SQL
+protocol filter makes the countercheck fail. Compare D1 row results, excluding
+variable execution metadata.
+The newly reached inspection cleanup then exposed a real adapter defect: native
+D1PreparedStatement exposes SQL text as `.statement`, which lifecycle normalization
+mistook for a labeled wrapper and sent as strings to `DB.batch`. Only object-valued
+wrappers are unwrapped now. A native-shaped outgoing-batch control fails on the
+old code; rollback controls require their intended SQL constraint/path failure,
+not any transport exception. Focused isolated workerd/D1 callers passed Canvas
+100/100 and model-status 7/7; five focused SQLite/handler controls also passed.
+Sources: `tests/admin-model-status-runtime.mjs`, `canvas-smooth-control.mjs`,
+`canvas-assembly-control.mjs`, `tests/q2-lifecycle.spec.js` and the existing
+`test:q2-runtime` caller. Exact final-source release evidence remains separate.

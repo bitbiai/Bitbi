@@ -43,15 +43,31 @@ export async function canvasSmoothCase(base,media) {
   check(changed.id!==preview.id,'Changed audio invalidates cached comparison');
   for(const key of ['smooth-preview-acceptance','smooth-preview-second'])check((await f.data(await post(previewBody,key))).preview.id===preview.id,'Original and cached request keys retain their accepted snapshot after editing');
   check(preview.recipe.videos.at(-1).originalAudio.enabled===true,'Accepted preview is not changed by later sound editing');
+  const compatible=await enqueueCanvasProcessing(f.env,{userId:f.owner,projectId:f.project,runId:{nodeId:f.last.id},kind:'concat',sources:legacyRecipe.videos,recipe:legacyRecipe,requestKey:'audio-fit-compatible-control'});
+  const newPolicyIds=[normal.id,smooth.id,preview.id,changed.id];
+  // The native suite shares a real backend queue with earlier fixtures. Put
+  // these incompatible jobs first, then one compatible positive control;
+  // protocol exclusion must skip them without claiming unrelated queued work.
+  for(const id of newPolicyIds)await f.db.prepare("UPDATE canvas_video_processing SET next_attempt_at='1900-01-01T00:00:00.000Z' WHERE id=?").bind(id).run();
+  await f.db.prepare("UPDATE canvas_video_processing SET next_attempt_at='1901-01-01T00:00:00.000Z' WHERE id=?").bind(compatible.id).run();
+  const unrelated=async()=>(await f.db.prepare('SELECT id,status,attempt_count,processing_token FROM canvas_video_processing WHERE user_id<>? ORDER BY id').bind(f.owner).all()).results;
+  const unrelatedBefore=JSON.stringify(await unrelated());
   const head=await f.db.prepare('SELECT latest_id,current_id FROM canvas_export_heads WHERE node_id=?').bind(f.last.id).first();
   const auth={Authorization:'Bearer synthetic-audio-processor'};
-  check(!(await f.data(await f.request(internal+'/claim','POST',{protocol:1,recipeProtocol:5,limit:3},auth))).jobs.length,'Old processor cannot claim new policy');
+  const oldJobs=(await f.data(await f.request(internal+'/claim','POST',{protocol:1,recipeProtocol:5,limit:1},auth))).jobs;
+  check(oldJobs.length===1&&oldJobs[0].id===compatible.id&&oldJobs[0].recipeVersion===4,'Old processor cannot claim new policy and still claims its compatible recipe');
+  for(const id of newPolicyIds){
+    const row=await f.db.prepare('SELECT status,attempt_count,processing_token FROM canvas_video_processing WHERE id=?').bind(id).first();
+    check(row.status==='queued'&&row.attempt_count===0&&row.processing_token===null,'Old processor leaves every new-policy job unclaimed');
+  }
+  const remaining=new Set(newPolicyIds);
   let previewJob;
   for(let i=0;i<4;i++) {
     const job=(await f.data(await f.request(internal+'/claim','POST',{protocol:1,recipeProtocol:6,limit:1},auth))).jobs[0];
-    check(job?.recipeVersion===5&&job.originalAudioPolicy==='fit-picture-v1'&&job.smoothJoins.policy==='motion-anchors-v1','New processor receives policy');
+    check(remaining.delete(job?.id)&&job.recipeVersion===5&&job.originalAudioPolicy==='fit-picture-v1'&&job.smoothJoins.policy==='motion-anchors-v1','New processor receives each exact new-policy job once');
     if(job.id===preview.id)previewJob=job;
   }
+  check(remaining.size===0&&JSON.stringify(await unrelated())===unrelatedBefore,'Policy probes preserve unrelated shared-queue jobs');
   check(previewJob.preview.seamIndex===1,'Real claim receives the same requested seam');
   const form=(report=true,fit=true)=>{const form=new FormData();form.set('video',new Blob([Uint8Array.from(atob(media.videoBase64),c=>c.charCodeAt(0))],{type:'video/mp4'}),'preview.mp4');
     form.set('duration','2');form.set('width','320');form.set('height','180');form.set('audioTimeline',JSON.stringify([0,1].map(start=>({start,duration:1,...(fit?{originalAudioFit:{policy:'fit-picture-v1',trimStart:0,trimEnd:start?.2:0}}:{})}))));

@@ -94,7 +94,9 @@ export async function canvasInspectionCase(env,media) {
     await f.db.prepare(`INSERT INTO canvas_agent_steps(id,run_id,step_key,kind,input_json,allocation_credits,created_at,updated_at) VALUES(?,?,'cleanup','plan','{}',1,?,?)`).bind('a9'.repeat(16),agentId,now,now).run();
     await f.db.prepare("INSERT INTO canvas_agent_controls(run_id,request_key,action,created_at) VALUES(?,'cleanup-control','pause',?)").bind(agentId,now).run();
     const beforeAssetStatements=[{statement:f.db.prepare('DELETE FROM canvas_projects WHERE id=? AND user_id=?').bind(f.project,f.owner),label:'canvas_projects_delete'}];
-    let rolledBack=false;try{await deleteAllUserAiAssets({env:f.env,userId:f.owner,beforeAssetStatements,additionalStatements:[f.db.prepare("SELECT json_extract('[]','$[')")]});}catch{rolledBack=true;}
+    let rolledBack=false;try{await deleteAllUserAiAssets({env:f.env,userId:f.owner,beforeAssetStatements,additionalStatements:[f.db.prepare("SELECT json_extract('[]','$[')")]});}catch(error){
+        rolledBack=[error,error?.cause,error?.cause?.cause].some(cause=>/json path/i.test(String(cause?.message||cause)));
+    }
     check(rolledBack&&(await readCanvasMediaInspection(f.env,f.owner,f.project,queued.id)).status==='queued','Later operational-delete failure restores source and project authority atomically');
     await deleteAllUserAiAssets({env:f.env,userId:f.owner,beforeAssetStatements});
     for(const [table,column,value] of [['canvas_projects','id',f.project],['canvas_agent_runs','id',agentId],['canvas_agent_steps','run_id',agentId],['canvas_agent_controls','run_id',agentId],['canvas_media_inspections','project_id',f.project]])
