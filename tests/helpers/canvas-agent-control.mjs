@@ -318,11 +318,29 @@ export async function canvasAgentCapabilityCase(env) {
     const eligible = profile.provisionalCandidates.filter(id => inventory.models.some(model => model.id === id && model.capability === 'video'));
     check(eligible.includes('minimax/h3'), 'Known positive capability fixture');
     const plan = freshCanvasAgentPlan(); plan.continuity = profile.continuity.join('; '); plan.nodes.forEach(node => { node.prompt = profile.style + ': ' + node.prompt; });
+    const ordinaryAudio={enabled:false,gain:.4,fadeIn:.2,fadeOut:.3};
+    plan.nodes[0].config.originalAudio=ordinaryAudio;
+    const textModel=inventory.models.find(model=>model.capability==='text'&&!model.controls.reasoningEffort);
+    check(textModel,'Known positive ordinary one-shot text capability');
+    const textNode={key:'creativeNotes',type:'text_generation',modelId:textModel.id,title:'Editable creative notes',prompt:'Describe the house.',config:{textPurpose:'video_prompt',maxTokens:128,temperature:.7},dependencies:[]};
+    plan.nodes.push(textNode);
+    // Existing IDs are schema-valid regardless of medium. The authoritative
+    // source kind must fail before even quoting newly planned media.
+    const existingId='e'.repeat(32),existingKey=`existing:${existingId}`;
+    const noAdmissionEnv={...env,DB:{prepare(){throw new Error('Invalid assembly reached a quote/allocation');},batch(){throw new Error('Invalid assembly mutated the graph');}}};
+    for(const [type,assetType,asMusic] of [['note',null,false],['asset_reference','image',false],['video_generation',null,true]]){
+      const current={...view,nodes:[{id:existingId,type,model_id:null,config_json:'{}',content_json:JSON.stringify(assetType?{asset:{asset_type:assetType}}:{}),output_json:null}]};
+      const broken={...plan,assembly:{...plan.assembly,...(asMusic?{musicKey:existingKey}:{clips:plan.assembly.clips.map((clip,index)=>index?clip:{...clip,key:existingKey})})}};
+      await rejected(()=>prepareCanvasAgentGraph(noAdmissionEnv,run,current,inventory,broken),asMusic?'canvas_agent_assembly_music_invalid':'canvas_agent_assembly_clip_invalid');
+    }
     for (const [broken, code] of [
       [{ ...plan, nodes: plan.nodes.map(node => ({ ...node, modelId: 'outside/arbitrary-generator' })) }, 'canvas_agent_model_ineligible'],
       [{ ...plan, nodes: plan.nodes.map(node => ({ ...node, modelId: 'google/gemini-omni-flash' })) }, 'canvas_agent_model_ineligible'],
       [{ ...plan, nodes: plan.nodes.map(node => ({ ...node, config: { ...node.config, duration: 16 } })) }, 'canvas_agent_duration_unsupported'],
       [{ ...plan, assembly: { ...plan.assembly, targetDurationSeconds: 11 } }, 'canvas_agent_plan_invalid'],
+      ...['maxTokens','temperature','reasoningEffort','textPurpose'].map(field=>[{...plan,nodes:plan.nodes.map((node,index)=>index?node:{...node,config:{...node.config,[field]:({maxTokens:128,temperature:.7,reasoningEffort:'medium',textPurpose:'video_prompt'})[field]}})},'canvas_agent_parameter_unsupported']),
+      [{...plan,nodes:plan.nodes.map(node=>node===textNode?{...node,config:{...node.config,originalAudio:ordinaryAudio}}:node)},'canvas_agent_parameter_unsupported'],
+      [{...plan,nodes:plan.nodes.map(node=>node===textNode?{...node,config:{...node.config,reasoningEffort:'high'}}:node)},'canvas_agent_parameter_unsupported'],
     ]) {
       await rejected(() => prepareCanvasAgentGraph(env,run,view,inventory,broken),code);
       check((await canvasAgentProject(env,owner,project)).nodes.length === 0, 'Broken plans have no partial graph writes');
@@ -336,6 +354,9 @@ export async function canvasAgentCapabilityCase(env) {
     await prepareCanvasAgentGraph(env,run,view,inventory,plan);
     const stored = await canvasAgentProject(env,owner,project);
     check(stored.nodes.filter(node => node.type === 'video_generation').length === 3 && stored.nodes.every(node => !node.asset_id), 'Eligible creative plan creates editable ungenerated nodes only');
+    check(stored.nodes.some(node=>node.type==='video_generation'&&JSON.parse(node.config_json).originalAudio?.gain===.4),'Supported ordinary source sound remains editable');
+    const storedText=JSON.parse(stored.nodes.find(node=>node.type==='text_generation').config_json);
+    check(storedText.maxTokens===128&&storedText.temperature===.7&&storedText.textPurpose==='video_prompt','Supported ordinary text controls remain in the saved node');
     check((await env.DB.prepare('SELECT COUNT(*) AS n FROM member_ai_usage_attempts_v2 WHERE user_id=?').bind(owner).first()).n === 0, 'Graph validation and editing never submits paid work');
     cases++;
   }

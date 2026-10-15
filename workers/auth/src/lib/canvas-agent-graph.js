@@ -19,9 +19,13 @@ function validateConfig(model,config,prompt) {
     for(const [key,options] of Object.entries(choices))if(config[key]!==undefined&&(!options?.length||!options.includes(config[key])))agentFail('canvas_agent_parameter_unsupported');
     const flags={steps:c.supportsSteps,seed:c.supportsSeed,width:c.supportsDimensions,height:c.supportsDimensions,negativePrompt:c.supportsNegativePrompt,generateAudio:c.supportsAudioToggle,watermark:c.supportsWatermark,safetyTolerance:c.supportsSafetyTolerance};
     for(const [key,supported] of Object.entries(flags))if(config[key]!==undefined&&!supported)agentFail('canvas_agent_parameter_unsupported');
+    for(const key of ['maxTokens','temperature','reasoningEffort','textPurpose']){
+        if(config[key]!==undefined&&(model.capability!=='text'||key!=='textPurpose'&&!c[key]))agentFail('canvas_agent_parameter_unsupported');
+    }
+    if(config.reasoningEffort!==undefined&&!c.reasoningEffort.options.includes(config.reasoningEffort))agentFail('canvas_agent_parameter_unsupported');
     if(config.duration!==undefined&&(!c.duration||c.supportsDuration===false||!Number.isInteger(config.duration)||config.duration<c.duration.min||config.duration>c.duration.max))agentFail('canvas_agent_duration_unsupported');
     for(const key of ['width','height'])if(config[key]!==undefined&&(!Number.isInteger(config[key])||config[key]<c.minDimension||config[key]>c.maxDimension))agentFail('canvas_agent_parameter_unsupported');
-    if(config.originalAudio!==undefined)originalAudioSettings(config.originalAudio);
+    if(config.originalAudio!==undefined){if(model.capability!=='video')agentFail('canvas_agent_parameter_unsupported');originalAudioSettings(config.originalAudio);}
     if(config.seedance25!==undefined&&model.id!=='bytedance/seedance-2.5')agentFail('canvas_agent_parameter_unsupported');
     if(['inputMode','musicLengthMs','compositionPlan','forceInstrumental','storeForInpainting','signWithC2pa'].some(key=>config[key]!==undefined)&&model.id!=='elevenlabs/music-v2')agentFail('canvas_agent_parameter_unsupported');
     if(['instrumental','generateLyrics','lyrics'].some(key=>config[key]!==undefined)&&model.capability!=='music')agentFail('canvas_agent_parameter_unsupported');
@@ -41,6 +45,10 @@ export async function prepareCanvasAgentGraph(env,run,view,inventory,rawPlan,rep
         });
         specs.set(`existing:${old.id}`,{key:`existing:${old.id}`,id:old.id,type:old.type,modelId:old.model_id,prompt:Object.hasOwn(config,'prompt')?config.prompt:JSON.parse(old.content_json).prompt||'',config,dependencies});
     }
+    // Schema validation knows new node types. Existing IDs must resolve against
+    // the saved graph before any new media allocation or graph mutation.
+    if(plan.assembly.clips.some(clip=>canvasAgentDependencyKind(specs.get(clip.key),view.nodes)!=='video'))agentFail('canvas_agent_assembly_clip_invalid');
+    if(plan.assembly.musicKey&&!['audio','music'].includes(canvasAgentDependencyKind(specs.get(plan.assembly.musicKey),view.nodes)))agentFail('canvas_agent_assembly_music_invalid');
     if(repairNodes){
         const current=JSON.parse(view.project.assembly_json),anchor=view.nodes.find(n=>n.id===current.anchorNodeId),config={...JSON.parse(anchor?.config_json||'{}'),...(current.backgroundMusic?{backgroundMusic:current.backgroundMusic}:{}),...(current.smoothJoins!==undefined?{smoothJoins:current.smoothJoins}:{})};
         const proposed=canvasAssembly({version:1,clips:plan.assembly.clips.map(c=>({nodeId:ids.get(c.key),trim:c.trim,transition:c.transition})),target:current.target}).clips;
