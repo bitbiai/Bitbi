@@ -63,11 +63,8 @@ Pause/cancel stop new admission; they do not promise provider cancellation or
 reimbursement. Bounded visual rejection can produce up to two explicitly new
 variants of affected shots and genuine dependents, with at most two evaluations.
 Larger repairs or an insufficient cap stop with a partial, actionable result.
-Existing hourly generation limits remain unchanged. A definite local rejection
-before dispatch persists a waiting phase and resumes the original node/run/key
-after the limiter window resets. Generic provider throttling or ambiguous
-acceptance never enters this retry path. A two-minute film can therefore wait
-across an hourly admission window; target film duration is not production latency.
+A two-minute film can wait across an hourly admission window; target film duration
+is not production latency.
 
 ## Capability coverage
 

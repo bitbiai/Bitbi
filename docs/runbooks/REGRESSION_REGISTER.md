@@ -1793,12 +1793,32 @@ signal, and validate audio duration independently of container/video duration.
 The actual tone helper now rejects missing windows and is calibrated with known
 decoded sine and silent/truncated controls. The repaired soundtrack matches every
 decoded sample of an independent audio-only render, including a nonzero final
-fade. All 19 existing transition sequences pass in that Linux runtime. Actual
-AMD64 processor-image acceptance remains a separate required release check.
-An isolated Mac FFmpeg 8.1.1 zoom-to-Flash probe still yields 2.5 seconds/60 frames;
-the unchanged compositor yields 3.5 seconds/84 frames with correct source windows,
-timestamps and Flash under Linux 6.1.1. This is an unresolved non-target runtime
-compatibility limit, not evidence of a new deployed compositor regression.
+fade. All 19 existing transition sequences pass under Linux 6.1.1 and in the
+actual AMD64 FFmpeg 5.1.9 image. Before the following compositor repair, an isolated
+Mac FFmpeg 8.1.1 zoom-to-Flash probe yielded 2.5 seconds/60 frames, while Linux
+6.1.1 yielded 3.5 seconds/84 frames with correct source windows and Flash. That
+non-target probe is historical evidence, not acceptance for the repaired bytes.
+
+The same release's final image caller then exposed a separate chained-transition
+fault at candidate `8ff7027d` (`bundle/logs/44.log`, run suffix
+`9800e131-642e-433e-8c15-267156ff8f81`): all 13 sources were valid, totaling
+126 seconds/3,024 frames, but composition produced only 19.75 seconds/474 frames.
+[FFmpeg 5.1.9 xfade](https://raw.githubusercontent.com/FFmpeg/FFmpeg/n5.1.9/libavfilter/vf_xfade.c)
+forwards later B frames while reporting EOF at an earlier transition timestamp;
+[downstream tpad](https://raw.githubusercontent.com/FFmpeg/FFmpeg/n5.1.9/libavfilter/vf_tpad.c)
+then clones from that obsolete timestamp. Place the existing three zero-weight
+lookahead frames on decoded sources with an outgoing overlap, never on composed
+prefixes, hard-cut sources or the final source. Do not remove the lookahead or
+hide a shortfall with visible padding. The focused target-image repair produces
+120 seconds/2,880 frames with all 13 independently observed sources; its unchanged
+19-sequence matrix passes in 360.438 seconds, including zoom-to-Flash and nine
+clips. Evidence: local release cache `diagnostics/assembly-8ff7027d`, image
+`sha256:25b941e54c4320e4ed3219950acf6c2033e8ce5701b00c99cabeb0ec418ca0cd`.
+The ordinary full-video caller includes the 120-second assembly test. Its source
+clock checks use independently selected original frames, a same-frame codec
+control and a deliberately shifted frame, alongside scene-order, repetition,
+missing-observation, black-output and 114.5-second shortfall counterchecks.
+Full selected acceptance must still match the final committed candidate.
 
 
 Baseline `746863c9` used a fixed surface and separate drag/placement clamps. The

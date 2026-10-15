@@ -53,15 +53,16 @@ export async function applyVideoTransitions(base,transitions,dir,{run,ffmpeg='ff
         args.push('-threads','1','-ss',String(s.start),'-t',String(s.duration),'-i',base.output);
         // fps replaces its input timebase. Normalize AFTER it so concat,
         // xfade and zoompan all meet the same rational clock at every join.
-        filters.push(`[${i}:v]setpts=PTS-STARTPTS,fps=${base.fps},settb=AVTB,format=gbrp[v${i}]`);
+        // Keep three lookahead frames after this source's outgoing overlap,
+        // where its picture weight is zero. Pad decoded sources, not composed
+        // xfade outputs: FFmpeg 5.1 reports their EOF at the earlier A/B join,
+        // so a downstream tpad would create timestamps in the past.
+        const guard=timing.overlaps[i]?',tpad=stop_mode=clone:stop=3':'';
+        filters.push(`[${i}:v]setpts=PTS-STARTPTS,fps=${base.fps},settb=AVTB,format=gbrp${guard}[v${i}]`);
     });
     let current='v0',end=base.timeline[0].duration;
     for(let i=0;i<transitions.length;i++){
         const next=`j${i}`,d=timing.overlaps[i];
-        // FFmpeg 5.1 may acknowledge A's EOF with its final frame still queued.
-        // Give xfade bounded lookahead beyond the overlap, where A's weight is
-        // already zero. No guard frame extends the picture/audio timeline.
-        if(d){const padded=`guard${i}`;filters.push(`[${current}]tpad=stop_mode=clone:stop=3[${padded}]`);current=padded;}
         filters.push(`[${current}][v${i+1}]`+(d?transitionFilter(transitions[i],d,end-d):'concat=n=2:v=1:a=0')+`[${next}]`);
         const effected=effectFilters(filters,next,transitions[i],end-d,d,base,i);current=`clock${i}`;
         filters.push(`[${effected}]settb=AVTB[${current}]`);end+=base.timeline[i+1].duration-d;
