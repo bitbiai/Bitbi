@@ -13,6 +13,7 @@ import { isGrokVideo, snapshotGrokVideoSources, resolveAdminAiGrokPreviewMediaSo
 import { promptAssetTitle } from '../../lib/asset-names.js';
 import { existingGenerationAsset, cacheGenerationDownload } from '../../lib/member-generation-storage.js';
 import { acceptMemberGeneration, generationUser, generationExecution, usesPersonalGenerationCredits } from "../../lib/member-generation-jobs.js";
+import { canvasAgentAdmissionWaitResponse } from '../../lib/canvas-agent-admission-wait.js';
 import {
   HAPPYHORSE_T2V_DEFAULT_DURATION,
   HAPPYHORSE_T2V_DEFAULT_RATIO,
@@ -1083,7 +1084,7 @@ export async function handleGenerateVideo(ctx) {
     })
   );
   if (limit.unavailable) return rateLimitUnavailableResponse(correlationId);
-  if (limit.limited) return rateLimitResponse();
+  if (limit.limited) return canvasAgentAdmissionWaitResponse(env, GENERATION_WINDOW_MS, correlationId) || rateLimitResponse();
 
   const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.aiGenerateVideoJson });
   if (parsed.response) return withCorrelationId(parsed.response, correlationId);

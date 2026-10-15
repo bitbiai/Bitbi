@@ -1,3 +1,4 @@
+import {assertCanvasAgentAiConfig,canvasAgentActivationFlags,canvasAgentFlagArguments,verifyCanvasAgentActivationFlags} from './canvas-agent-release.mjs';
 import {smoothReceiptImageSource,isSmoothContinuation} from './local-release-browser.mjs';
 import os from 'node:os';
 import {verifyCanvasExportSchema} from './canvas-export-readiness.mjs';
@@ -121,10 +122,10 @@ export async function ensurePrivateVideoLogging({read=readBackend,patch=async bo
   const expected=structuredClone(settings);expected.observability.logs.invocation_logs=false;
   assert.deepEqual(actual,expected,'Unrelated Auth script settings changed');
 }
-export async function activateAuthVersion({sha,mediaSourceSha=sha,secretFile,assertCurrent,command=run}) {
+export async function activateAuthVersion({sha,mediaSourceSha=sha,secretFile,assertCurrent,featureFlags={},command=run}) {
   // Routes, crons and consumers are unchanged and independently checked. A
   // version publication must not rewrite them or require new zone-write rights.
-  const output=command(['versions','upload','--keep-vars','--secrets-file',secretFile,'--var',`PRIVATE_MEDIA_SOURCE_SHA:${mediaSourceSha}`,'--message',`bitbi-auth:${sha}`]);
+  const output=command(['versions','upload','--keep-vars','--secrets-file',secretFile,'--var',`PRIVATE_MEDIA_SOURCE_SHA:${mediaSourceSha}`,...canvasAgentFlagArguments(featureFlags),'--message',`bitbi-auth:${sha}`]);
   const id=output.match(/Worker Version ID:\s*([a-f0-9-]{36})\b/)?.[1];assert(id,'Missing uploaded Auth version identity');
   await assertCurrent();command(['versions','deploy',`${id}@100%`,'--yes','--message',`bitbi-auth:${sha}`]);return id;
 }
@@ -184,7 +185,7 @@ function prerequisites(plan,version,config,settings=true) {
   for(const name of ['MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET','GITHUB_ACTIONS_DISPATCH_TOKEN'])assert(bindings.some(b=>b.name===name&&b.type==='secret_text'),`Missing processor credential ${name}`);
   if(settings)for(const [key,value] of Object.entries(config.vars).filter(([k])=>k.startsWith('GITHUB_ACTIONS_DISPATCH_')||k==='ENABLE_MEMVID_STREAM_PREVIEW_AUTO_DISPATCH'))assert(bindings.some(b=>b.name===key&&b.text===value),`Processor setting mismatch ${key}`);
 }
-export async function verifyAiActivation(receipt,sha,read=readBackend) {
+export async function verifyAiActivation(receipt,sha,read=readBackend,config=null) {
   assert.equal(receipt.sha,sha,'Wrong AI source');
   const deployment=(await read('workers/scripts/bitbi-ai/deployments')).deployments[0];
   assert.equal(deployment.id,receipt.deployment,'AI activation changed');
@@ -193,30 +194,33 @@ export async function verifyAiActivation(receipt,sha,read=readBackend) {
   assert.equal(version.annotations?.['workers/message'],`bitbi-ai:${sha}`,'Wrong AI version');
   for(const [name,type] of [['AI','ai'],['SERVICE_AUTH_REPLAY','durable_object_namespace'],['AI_SERVICE_AUTH_SECRET','secret_text']])assert(version.resources.bindings.some(b=>b.name===name&&b.type===type),`Missing AI binding ${name}`);
   assert(version.resources.bindings.some(b=>b.name==='ENABLE_GROK_4_6'&&b.text==='true'),'Grok is disabled');
+  if(config)await verifyCanvasAgentActivationFlags(receipt.featureFlags,config,version,'ai',id=>read(`workers/scripts/bitbi-ai/versions/${id}`));
 }
 async function publishAi(c,directory) {
   // Existing service, bindings and triggers only; no AI inference during upload.
-  assert.equal(execFileSync('git',['show',`${c.base}:workers/ai/wrangler.jsonc`],{encoding:'utf8'}),fs.readFileSync('workers/ai/wrangler.jsonc','utf8'),'AI configuration changes need a separate release review');
+  const config=JSON.parse(fs.readFileSync('workers/ai/wrangler.jsonc','utf8'));
+  assertCanvasAgentAiConfig(JSON.parse(execFileSync('git',['show',`${c.base}:workers/ai/wrangler.jsonc`],{encoding:'utf8'})),config);
   const command=args=>backendCommand(args,execFileSync,undefined,'workers/ai');
   command(['versions','upload','--dry-run','--keep-vars','--outdir',directory]);
   const digest=createHash('sha256').update(fs.readFileSync(path.join(directory,'index.js'))).digest('hex');
   let deployment=(await readBackend('workers/scripts/bitbi-ai/deployments')).deployments[0];
   assert(deployment.versions.length===1&&deployment.versions[0].percentage===100,'Ambiguous AI traffic');
   const before=await readBackend(`workers/scripts/bitbi-ai/versions/${deployment.versions[0].version_id}`);
-  const probe={sha:c.sha,version:before.id,deployment:deployment.id};
+  const featureFlags=canvasAgentActivationFlags(config,before,'ai');
+  const probe={sha:c.sha,version:before.id,deployment:deployment.id,featureFlags};
   // Verify current required bindings before any mutation (annotation is checked after activation).
   for(const name of ['AI','SERVICE_AUTH_REPLAY','AI_SERVICE_AUTH_SECRET'])assert(before.resources.bindings.some(b=>b.name===name),`Missing AI prerequisite ${name}`);
   assert(before.resources.bindings.some(b=>b.name==='ENABLE_GROK_4_6'&&b.text==='true'),'Existing Grok activation required');
   if(before.annotations?.['workers/message']!==`bitbi-ai:${c.sha}`) {
     await current(c.sha);
-    const output=command(['versions','upload','--keep-vars','--message',`bitbi-ai:${c.sha}`]);
+    const output=command(['versions','upload','--keep-vars',...canvasAgentFlagArguments(featureFlags),'--message',`bitbi-ai:${c.sha}`]);
     const id=output.match(/Worker Version ID:\s*([a-f0-9-]{36})\b/)?.[1];assert(id,'Missing uploaded AI version');
     await current(c.sha);command(['versions','deploy',`${id}@100%`,'--yes','--message',`bitbi-ai:${c.sha}`]);
     deployment=(await readBackend('workers/scripts/bitbi-ai/deployments')).deployments[0];
     probe.version=id;probe.deployment=deployment.id;
   }
   const receipt={...probe,bundleDigest:digest};
-  await verifyAiActivation(receipt,c.sha);await verifyAuthBundle(digest,undefined,'bitbi-ai');return receipt;
+  await verifyAiActivation(receipt,c.sha,readBackend,config);await verifyAuthBundle(digest,undefined,'bitbi-ai');return receipt;
 }
 // A tooling repair preserves the independently recorded backend identity. The
 // authenticated Actions archive, not a mutable local receipt, authorizes reuse.
@@ -342,12 +346,14 @@ export async function verifyBackendReceipt(file=process.env.BACKEND_RELEASE_RECE
   const migration=JSON.parse(fs.readFileSync('config/release-compat.json')).release.schemaCheckpoints.auth.latest;
   assert((await query(c.db,'SELECT name FROM d1_migrations WHERE name=?',[migration])).length===1,'Required schema not active');
   prerequisites(c.plan,state.version,c.config);
+  const flagConfig=JSON.parse(execFileSync('git',['show',`${c.sha}:workers/auth/wrangler.jsonc`],{encoding:'utf8'}));
+  await verifyCanvasAgentActivationFlags(receipt.featureFlags,flagConfig,state.version,'auth',id=>readBackend(`workers/scripts/bitbi-auth/versions/${id}`));
   await verifyCanvasExportSchema(sql=>query(c.db,sql));
   if(c.plan.changedFiles.includes('workers/auth/src/lib/image-delivery-recovery.js'))verifyImageDeliveryEvidence(receipt.imageDelivery);
   await verifyAuthTriggers(c.config);
   await ensurePrivateVideoLogging({verifyOnly:true});
   await verifyAuthBundle(receipt.authBundleDigest);
-  if(c.plan.workerDeploys.some(s=>s.worker==='ai')) {assert(receipt.ai,'Missing AI prerequisite receipt');await verifyAiActivation(receipt.ai,c.sha);await verifyAuthBundle(receipt.ai.bundleDigest,undefined,'bitbi-ai');}
+  if(c.plan.workerDeploys.some(s=>s.worker==='ai')) {assert(receipt.ai,'Missing AI prerequisite receipt');const aiConfig=JSON.parse(execFileSync('git',['show',`${c.sha}:workers/ai/wrangler.jsonc`],{encoding:'utf8'}));await verifyAiActivation(receipt.ai,c.sha,readBackend,aiConfig);await verifyAuthBundle(receipt.ai.bundleDigest,undefined,'bitbi-ai');}
   if(requiresPrivateMediaImage(c.plan.changedFiles)) {
     const reuse=receipt.media?.reusedActivation?await resolveActiveMediaSource(c,{readCloudflare:readBackend}):null;
     if(receipt.media?.reusedActivation)verifyReusedMediaReceipt(receipt,c,reuse);
@@ -382,7 +388,7 @@ export async function advanceBackend({sha,pending,activeVersion,assertCurrent,ap
 }
 
 export function assertSupportedBackendMigrations(pending) {
-  const allowed=['0088_add_canvas_video_processing.sql','0089_add_private_media_services.sql','0090_add_canvas_private_outputs.sql','0091_separate_thumbnail_processing.sql','0092_pin_video_source_inputs.sql','0093_add_private_video_references.sql','0094_model_pricing.sql','0095_retained_image_delivery.sql','0096_canvas_export_versions.sql','0097_canvas_preview_base.sql','0098_model_area_availability.sql','0099_seedance_25_custom_tariffs.sql','0100_canvas_asset_audio_exports.sql','0101_canvas_smooth_join_previews.sql','0102_canvas_workspace_dimensions.sql'];
+  const allowed=['0088_add_canvas_video_processing.sql','0089_add_private_media_services.sql','0090_add_canvas_private_outputs.sql','0091_separate_thumbnail_processing.sql','0092_pin_video_source_inputs.sql','0093_add_private_video_references.sql','0094_model_pricing.sql','0095_retained_image_delivery.sql','0096_canvas_export_versions.sql','0097_canvas_preview_base.sql','0098_model_area_availability.sql','0099_seedance_25_custom_tariffs.sql','0100_canvas_asset_audio_exports.sql','0101_canvas_smooth_join_previews.sql','0102_canvas_workspace_dimensions.sql','0103_canvas_assembly.sql','0104_canvas_agent.sql','0105_canvas_media_inspections.sql'];
   assert(pending.every(f=>allowed.includes(f)),`Unexpected pending migrations: ${pending.filter(f=>!allowed.includes(f)).map(f=>String(f).replace(/[^a-zA-Z0-9_.-]/g,'').slice(0,100)).join(', ')}`);
 }
 export function assertModelAreaSchemaResume(version,sha,env=process.env) {
@@ -406,6 +412,7 @@ export async function publishBackend() {
   if(mediaRequired)await readBackend('containers/applications');
 
   const before=await active();prerequisites(c.plan,before.version,c.config,false);
+  const featureFlags=canvasAgentActivationFlags(c.config,before.version,'auth');
   if(process.env.REPAIR_SOURCE_SHA&&isModelAreaSchemaRepair(repairDelta(process.env.REPAIR_SOURCE_SHA,c.sha,c.base)))assertModelAreaSchemaResume(before.version,c.sha);
   const imageTargets=c.plan.changedFiles.includes('workers/auth/src/lib/image-delivery-recovery.js')?await captureImageDeliveryRecovery((sql,params)=>query(c.db,sql,params),imageDeliveryObject):[];
   await ensurePrivateVideoLogging();
@@ -438,14 +445,15 @@ export async function publishBackend() {
       assertSchema:async()=>{assert((await query(c.db,'SELECT name FROM d1_migrations WHERE name=?',[migration])).length===1,'Migration did not apply');await verifyCanvasExportSchema(sql=>query(c.db,sql));},
       prepareAi:c.plan.workerDeploys.some(s=>s.worker==='ai')?async()=>{ai=await publishAi(c,path.join(temporary,'ai-bundle'));}:undefined,
       prepareMedia:mediaRequired?async()=>{media=await publishMedia(c,mediaSecretFile,{reuse:mediaReuse});}:undefined,
-      deploy:()=>activateAuthVersion({sha:c.sha,mediaSourceSha,secretFile,assertCurrent:()=>current(c.sha)}),
+      deploy:()=>activateAuthVersion({sha:c.sha,mediaSourceSha,secretFile,featureFlags,assertCurrent:()=>current(c.sha)}),
       readActive:async()=>{const result=await active();await verifyAuthBundle(c.authBundleDigest);return result;},
       verifyMedia:mediaRequired?async()=>{smoke=await mediaSmoke(c,secret,media);}:undefined,
     });
   }finally{fs.rmSync(temporary,{recursive:true,force:true});}
   prerequisites(c.plan,state.version,c.config);
+  await verifyCanvasAgentActivationFlags(featureFlags,c.config,state.version,'auth',id=>readBackend(`workers/scripts/bitbi-auth/versions/${id}`));
   const imageDelivery=c.plan.changedFiles.includes('workers/auth/src/lib/image-delivery-recovery.js')?await verifyImageDeliveryRecovery(imageTargets,{query:(sql,params)=>query(c.db,sql,params),object:imageDeliveryObject,current:()=>current(c.sha)}):undefined;
-  const receipt={sha:c.sha,base:c.base,run:c.runId,attempt:c.attempt,worker,migration,version:state.version.id,deployment:state.deployment.id,
+  const receipt={sha:c.sha,base:c.base,run:c.runId,attempt:c.attempt,worker,migration,version:state.version.id,deployment:state.deployment.id,featureFlags,
     ...(media?{media,smoke,...(mediaReuse?{mediaAcceptance:{publicationSha:c.sha,run:c.runId,attempt:c.attempt}}:{})}:{}),...(ai?{ai}:{}),...(c.plan.changedFiles.includes('workers/auth/src/lib/image-delivery-recovery.js')?{imageDelivery}:{}),mediaSourceSha,authBundleDigest:c.authBundleDigest,processorRef:c.sha,sourceTree:execFileSync('git',['rev-parse',`${c.sha}:workers/auth`],{encoding:'utf8'}).trim()};
   verifyBackendActivation(receipt,{...c,...state,migration,processorSha:c.sha});
   storeBackendReceipt(receipt);

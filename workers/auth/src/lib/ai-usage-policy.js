@@ -3,6 +3,7 @@ import { pinModelTariff, settlePinnedModelTariff } from './model-tariffs.js';
 import { fetchMemberAttemptByIdempotency } from './member-ai-usage-attempts.js';
 import { fetchOrgAttemptByIdempotency } from './ai-usage-attempts.js';
 import { generationExecution } from './member-generation-jobs.js';
+import { canvasAgentUsageMetadata } from './canvas-agent-authority.js';
 import { checkpointReleasedImageDelivery } from './image-delivery-recovery.js';
 import { checkpointAiDispatchImage } from './ai-dispatch-state.js';
 import {
@@ -291,6 +292,7 @@ async function prepareMemberGatewayPolicy({
     creditCost: resolvedOperation.credits,
     quantity: resolvedOperation.quantity || 1,
     metadata: {
+      ...await canvasAgentUsageMetadata(env,request,{userId:user.id,modelId:resolvedOperation.modelId || body.model,credits:resolvedOperation.credits}),
       model_tariff: pinnedPricing,
       ...(availabilityKey ? {model_area:{key:availabilityKey}} : {}),
       gateway_version: gatewayPlan.gatewayVersion,

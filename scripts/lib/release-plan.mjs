@@ -1,3 +1,4 @@
+import {reviewedCanvasAgentConfigFiles} from './canvas-agent-release.mjs';
 import {backendContinuationSupported} from './backend-continuation.mjs';
 import { workerToolingPatchEvidence } from './worker-tooling-impact.mjs';
 import { selectCiTests } from './ci-test-selection.mjs';
@@ -58,6 +59,7 @@ const SHARED_WORKER_FILE_MAP = Object.freeze({
   "workers/shared/fable-chat-contract.mjs": ["auth", "ai"],
   "workers/shared/fable-chat-memory-contract.mjs": ["auth", "ai"],
   "workers/shared/grok-chat-contract.mjs": ["auth", "ai"],
+  "workers/shared/canvas-agent-plan.mjs": ["auth", "ai"],
   "workers/shared/gpt-image-25.mjs": ["auth", "ai"],
   "js/shared/gpt-image-25-contract.mjs": ["auth", "ai"],
   "js/shared/gpt-image-25-pricing.mjs": ["auth"],
@@ -65,6 +67,9 @@ const SHARED_WORKER_FILE_MAP = Object.freeze({
   "js/shared/flux-2-max-identity.mjs": ["auth"],
   "js/shared/admin-ai-contract.mjs": ["auth", "ai"],
   "js/shared/canvas-model-contract.mjs": ["auth"],
+  "js/shared/canvas-agent-contract.mjs": ["auth"],
+  "js/shared/canvas-assembly.mjs": ["auth"],
+  "js/shared/canvas-generation-settings.mjs": ["auth"],
   "js/shared/model-area-contract.mjs": ["auth"],
   "js/shared/appearance-contract.js": ["auth"],
   "js/shared/model-pricing-catalog.mjs": ["auth"],
@@ -662,6 +667,7 @@ export function createReleasePlan(context, { changedFiles, source = { mode: "exp
     changedFiles: normalizedFiles,
     toolingOnlyWorkerPackageFiles,
     reviewedToolingPatchFiles,
+    reviewedCanvasAgentConfigFiles: reviewedCanvasAgentConfigFiles(context.repoRoot,source,normalizedFiles),
     impacts: {
       workers: Object.fromEntries(
         Object.entries(impacts.workers).map(([workerId, data]) => [

@@ -815,12 +815,6 @@ function buildAdminUserOperationalDeleteStatements(env, {
     label: "member_ai_usage_attempts_delete",
     category: "ai_attempt_cleanup",
   });
-  pushOptional("canvas_projects", {
-    statement: env.DB.prepare("DELETE FROM canvas_projects WHERE user_id = ?").bind(userId),
-    branch: "canvas_projects_delete_failed",
-    label: "canvas_projects_delete",
-    category: "canvas_workspace_cleanup",
-  });
   pushOptional("organization_memberships", {
     statement: env.DB.prepare("DELETE FROM organization_memberships WHERE user_id = ?").bind(userId),
     branch: "organization_memberships_delete_failed",
@@ -1801,6 +1795,12 @@ export async function handleAdmin(ctx) {
         env,
         userId: targetUserId,
         createdAt: now,
+        beforeAssetStatements: dependencySummary.unavailable.includes("canvas_projects") ? [] : [adminUserLifecycleStatement({
+          statement: env.DB.prepare("DELETE FROM canvas_projects WHERE user_id = ?").bind(targetUserId),
+          branch: "canvas_projects_delete_failed",
+          label: "canvas_projects_delete",
+          category: "canvas_workspace_cleanup",
+        })],
         additionalStatements: buildAdminUserOperationalDeleteStatements(env, {
           userId: targetUserId,
           deletedEmail,

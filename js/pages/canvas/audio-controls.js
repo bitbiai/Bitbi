@@ -54,15 +54,16 @@ export function canvasAudioControls({section,video,german,signal,original,backgr
             number.addEventListener('change',()=>{update(number);paint(false);},{signal});
             row.append(slider,number,unit);box.append(row);rows.push({paint,key,slider,number});paint();
         }
+        let musicSelect=null;
         if(kind==='music') {
             const select=document.createElement('select'),label=document.createElement('label');label.className='canvas-field';label.append(document.createTextNode(copy.type),select);box.append(label);
             const empty=document.createElement('option');empty.value='';empty.textContent=copy.choose;select.append(empty);
             for(const track of tracks){const option=document.createElement('option');option.value=track.assetId;option.textContent=track.sourceTitle;select.append(option);}
-            select.value=value.musicAssetId|| (tracks.length===1?tracks[0].assetId:'');select.disabled=!tracks.length;
+            select.value=value.musicAssetId|| (tracks.length===1?tracks[0].assetId:'');select.disabled=!tracks.length;musicSelect=select;
             select.addEventListener('change',()=>{if(select.value)value.musicAssetId=select.value;else delete value.musicAssetId;notify();},{signal});
             if(!tracks.length){const note=document.createElement('p');note.className='canvas-muted';note.textContent=copy.none;box.append(note);}
         }
-        groups.push({kind,refresh(){if(kind==='original'){value=effectiveAudio({...value,enabled:toggle.checked},video.duration);originalValue=value;rows.filter(row=>row.key!=='gain').forEach(row=>{row.slider.max=row.number.max=String(Math.min(600,video.duration||600));});rows.forEach(row=>row.paint());audition.setAudio({originalAudio:value});}}});
+        groups.push({kind,set(next){value={...next};toggle.checked=value.enabled;rows.forEach(row=>row.paint());if(musicSelect)musicSelect.value=value.musicAssetId||(tracks.length===1?tracks[0].assetId:'');},refresh(){if(kind==='original'){value=effectiveAudio({...value,enabled:toggle.checked},video.duration);originalValue=value;rows.filter(row=>row.key!=='gain').forEach(row=>{row.slider.max=row.number.max=String(Math.min(600,video.duration||600));});rows.forEach(row=>row.paint());audition.setAudio({originalAudio:value});}}});
     }
     group('original',copy.original,originalValue);group('music',copy.music,musicValue);
     // Keep actionable buttons above metadata-dependent notes so late duration
@@ -72,6 +73,7 @@ export function canvasAudioControls({section,video,german,signal,original,backgr
     video.addEventListener('loadedmetadata',()=>{groups.forEach(group=>group.refresh());reflectMusic();},{signal});
     for(const event of ['loadeddata','playing'])video.addEventListener(event,()=>{if(video.audioTracks?.length===0)status.textContent=copy.silent;else if(status.textContent===copy.silent)status.textContent='';},{signal});
     return {details,previewControls, get original(){return originalValue;}, get music(){return musicValue;}, chosen,
+        setMusic(next){musicValue={enabled:false,gain:1,fadeIn:0,fadeOut:0,...next};groups.find(g=>g.kind==='music').set(musicValue);reflectMusic();},
         setExportDuration(duration){exportDuration=duration;reflectMusic();},
         setSilent(value){if(value)status.textContent=copy.silent;}};
 }

@@ -11,6 +11,7 @@ import { calculateElevenLabsMusicV2ProviderCost } from './elevenlabs-music-v2-pr
 import { canonicalPricingModel, mediaTariffBasis, tariffConfiguration, textTariffBasis, FACTORY_TARIFF_VERSION } from './model-tariff.mjs';
 import { isGptImage25Model, normalizeGptImage25Options } from './gpt-image-25-contract.mjs';
 import { gptImage25FactoryPrice, isGptImage25PricingAvailable } from './gpt-image-25-pricing.mjs';
+import { creditsForProviderCostUsd } from './model-credit-pricing.mjs';
 
 export function modelPricingCatalog() {
     const canvas = listCanvasModels(), members = getMemberExposedModels(), byId = new Map();
@@ -32,6 +33,10 @@ export function modelPricingCatalog() {
         tokenRates: c.id === GROK_4_6_MODEL_ID ? GROK_TEXT_PRICING : null,
         sourceUrl: `https://developers.cloudflare.com/ai/models/${c.id}/`,
     });
+    byId.set('xai/grok-4.7', {id:'xai/grok-4.7',label:'Grok 4.7 · Canvas agent',provider:'xAI',kind:'text',
+        controls:{maxTokens:{min:1,max:16384,default:16384}},tokenRates:{input:2,output:6,fundingMultiplier:1.05},
+        member:true,enabled:true,billingPaths:['member_credits'],factoryVersion:FACTORY_TARIFF_VERSION,
+        sourceUrl:'https://developers.cloudflare.com/ai/models/xai/grok-4.7/'});
     return [...byId.values()];
 }
 
@@ -66,9 +71,11 @@ export function modelFactoryPrice(modelId, input = {}, { credits, context = 'can
             ? getGrokMaxCompletionTokens(reasoningEffort) : Math.max(1, Number(input.maxTokens ?? input.max_tokens ?? model.controls?.maxTokens?.default ?? 500));
         if (!Number.isSafeInteger(outputTokens) || outputTokens > 200_000) throw new TypeError('Invalid token limit.');
         const rates = model.tokenRates;
+        if(model.id==='xai/grok-4.7'&&(!Number.isSafeInteger(inputTokens)||inputTokens+outputTokens>500000))throw new TypeError('Invalid Grok 4.7 context bound.');
+        const contextRateMultiplier=model.id==='xai/grok-4.7'&&inputTokens>=200000?2:1;
         const providerCostUsd = rates && Number.isFinite(rates.input) && Number.isFinite(rates.output ?? 0)
-            ? (inputTokens * rates.input + outputTokens * (rates.output || 0)) / 1e6 * (rates.fundingMultiplier || 1) : null;
-        const baseCredits = credits ?? (context === 'canvas' ? (estimateCanvasTextCredits(model.id, input) ?? 0) : 0);
+            ? (inputTokens * rates.input + outputTokens * (rates.output || 0)) / 1e6 * (rates.fundingMultiplier || 1)*contextRateMultiplier : null;
+        const baseCredits = credits ?? (model.id==='xai/grok-4.7' ? creditsForProviderCostUsd(providerCostUsd) : context === 'canvas' ? (estimateCanvasTextCredits(model.id, input) ?? 0) : 0);
         const configuration = model.id === GROK_4_6_MODEL_ID ? { reasoningEffort } : {};
         return { model, price: { modelId: model.id, credits: baseCredits, providerCostUsd, normalized: configuration, formula: { billingMode: 'token_estimate', pricingVersion: FACTORY_TARIFF_VERSION } },
             basis: { configuration, units: { inputToken: inputTokens, ...(model.kind === 'embeddings' ? {} : {outputToken: outputTokens}) } } };

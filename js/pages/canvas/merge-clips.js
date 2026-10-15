@@ -113,6 +113,7 @@ export function clipSequence(controls, runId, german, signal, onChange, getGraph
         get valid() { reconcile(); return initialized && valid(); },
         get value() { return (mode === 'chain' ? chain.clips : selected).map(canvasClipIdentity); },
         get mode() { return mode; },
+        get element() { return box; },
         lock(value) { box.disabled = value; },
     };
 }

@@ -1,3 +1,4 @@
+import { canvasAgentAuthority } from './canvas-agent-authority.js';
 import { MEDIA_BACKEND_SQL, THUMBNAIL_BACKEND_SQL, notifyPrivateMedia } from './private-media-service.js';
 import { nowIso, sha256Hex, randomTokenHex } from './tokens.js';
 import { CANVAS_MERGE_ADMISSION_SQL } from './canvas-merge-selection.js';
@@ -49,12 +50,20 @@ export const canvasExportId=async(userId,projectId,runId,requestKey)=>(await sha
 export async function enqueueCanvasProcessing(env,{userId,projectId,runId,kind,sources,assetId=null,recipe=null,requestKey=null,admission=null,requestAlias=null}) {
   const subject=canvasExportSubject(runId);
   const id=(await sha256Hex(JSON.stringify(recipe?['canvas-export-v2',userId,projectId,runId,requestKey]:['canvas-processing-v1',userId,projectId,kind,assetId,sources]))).slice(0,32),now=nowIso();
+  const authority=canvasAgentAuthority(env);
+  if(authority&&(!admission||authority.projectId!==projectId||authority.userId!==userId))throw canvasProcessingError('canvas_agent_authority_revoked');
   const nodeState=admission?JSON.stringify(admission.nodes):null, edgeState=admission?.edges?JSON.stringify(admission.edges):null;
   const insert=env.DB.prepare(`INSERT OR IGNORE INTO canvas_video_processing
     (id,user_id,project_id,run_id,node_id,kind,sources_json,asset_id,next_attempt_at,created_at,updated_at,processing_backend,thumbnail_backend,recipe_json) SELECT ?,?,?,?,?,?,?,?,?,?,?,${recipe?"'cloudflare'":kind==='concat'?MEDIA_BACKEND_SQL:THUMBNAIL_BACKEND_SQL},${THUMBNAIL_BACKEND_SQL},? ${admission?'WHERE '+CANVAS_MERGE_ADMISSION_SQL:''}
+    ${admission?.projectRevision!==undefined?'AND EXISTS(SELECT 1 FROM canvas_projects WHERE id=? AND user_id=? AND revision=? AND assembly_json=? AND deleted_at IS NULL)':''}
+    ${authority?`AND EXISTS(SELECT 1 FROM canvas_agent_runs r JOIN canvas_projects p ON p.id=r.project_id JOIN users u ON u.id=r.user_id
+      WHERE r.id=? AND r.user_id=? AND r.project_id=? AND r.status='exporting' AND r.lease_token=? AND r.lease_until>?
+      AND r.expires_at>? AND p.revision=r.expected_revision AND p.deleted_at IS NULL AND u.status='active')`:''}
     ${requestAlias?(admission?'AND':'WHERE')+' NOT EXISTS(SELECT 1 FROM canvas_preview_requests WHERE request_id=? AND job_id<>?)':''}`)
     .bind(id,userId,projectId,subject.runId,subject.nodeId,kind,JSON.stringify(sources),assetId,now,now,now,recipe?JSON.stringify(recipe):null,
-      ...(admission?[nodeState,userId,projectId,edgeState,userId,projectId,nodeState,userId,projectId,edgeState,edgeState,userId,projectId]:[]),...(requestAlias?[requestAlias,id]:[]));
+      ...(admission?[nodeState,userId,projectId,edgeState,userId,projectId,nodeState,userId,projectId,edgeState,edgeState,userId,projectId]:[]),
+      ...(admission?.projectRevision!==undefined?[projectId,userId,admission.projectRevision,admission.assemblyJson]:[]),
+      ...(authority?[authority.runId,userId,projectId,authority.leaseToken,now,now]:[]),...(requestAlias?[requestAlias,id]:[]));
   if(requestAlias)await env.DB.batch([insert,env.DB.prepare('INSERT OR IGNORE INTO canvas_preview_requests(request_id,job_id) SELECT ?,id FROM canvas_video_processing WHERE id=? AND user_id=?').bind(requestAlias,id,userId)]);
   else await insert.run();
   const row=await env.DB.prepare('SELECT * FROM canvas_video_processing WHERE id=? AND user_id=?').bind(id,userId).first();
@@ -70,7 +79,7 @@ export function publicCanvasProcessing(row) {
     && !parseCanvasJson(row.audio_timeline_json)?.some?.(clip=>audioWasFitted(clip.originalAudioFit));
   const subject=canvasExportSubject(row.node_id?{nodeId:row.node_id}:row.run_id);
   return {id:row.id,run_id:row.run_id,status:row.status,error_code:row.error_code||null,storage:row.recipe_json?(row.export_state==='saved'?'assets':'canvas'):'assets',recipe:row.recipe_json?JSON.parse(row.recipe_json):null,
-    ...(recipe?.version===6&&row.audio_timeline_json?{duration:(()=>{const t=JSON.parse(row.audio_timeline_json);return t.at(-1).start+t.at(-1).duration;})()}:{}),
+    ...(recipe?.version>=6&&row.audio_timeline_json?{duration:(()=>{const t=JSON.parse(row.audio_timeline_json);return t.at(-1).start+t.at(-1).duration;})()}:{}),
     node_id:row.node_id||null,audio_timeline:row.audio_timeline_json?JSON.parse(row.audio_timeline_json):null,seam_result:row.seam_result_json?JSON.parse(row.seam_result_json):null,
     preview_base:row.asset_id && (clean || row.preview_base_etag)?{export_id:row.id,file_url:clean?`/api/ai/text-assets/${row.asset_id}/file`:`/api/account/canvas/projects/${row.project_id}/${subject.path}/full-video?previewBase=${row.id}`}:null,
     asset:row.asset_id?{id:row.asset_id,file_url:`/api/ai/text-assets/${row.asset_id}/file`,poster_url:row.status==='ready'?`/api/ai/text-assets/${row.asset_id}/poster`:null}:null};
@@ -80,7 +89,7 @@ export async function claimCanvasProcessing(env,kind,limit,backend='github',reci
   const now=nowIso();
   const rows=await env.DB.prepare(`SELECT * FROM canvas_video_processing WHERE
     ${kind==='poster'?"((kind='poster' AND status IN ('queued','processing')) OR status='preview_pending')":"kind='concat' AND status IN ('queued','processing')"}
-    AND ${kind==='poster'?'1=1':recipeProtocol===7?"(recipe_json IS NULL OR json_extract(recipe_json,'$.version') IN (1,2,3,4,5,6))":recipeProtocol===6?"(recipe_json IS NULL OR json_extract(recipe_json,'$.version') IN (1,2,3,4,5))":recipeProtocol===5?"(recipe_json IS NULL OR json_extract(recipe_json,'$.version') IN (1,2,3,4))":recipeProtocol===4?"(recipe_json IS NULL OR json_extract(recipe_json,'$.version') IN (1,2,3))":recipeProtocol===3?"(recipe_json IS NULL OR json_extract(recipe_json,'$.version') IN (1,2))":recipeProtocol===2?"(recipe_json IS NULL OR json_extract(recipe_json,'$.version')=1)":'recipe_json IS NULL'}
+    AND ${kind==='poster'?'1=1':recipeProtocol===8?"(recipe_json IS NULL OR json_extract(recipe_json,'$.version') IN (1,2,3,4,5,6,7))":recipeProtocol===7?"(recipe_json IS NULL OR json_extract(recipe_json,'$.version') IN (1,2,3,4,5,6))":recipeProtocol===6?"(recipe_json IS NULL OR json_extract(recipe_json,'$.version') IN (1,2,3,4,5))":recipeProtocol===5?"(recipe_json IS NULL OR json_extract(recipe_json,'$.version') IN (1,2,3,4))":recipeProtocol===4?"(recipe_json IS NULL OR json_extract(recipe_json,'$.version') IN (1,2,3))":recipeProtocol===3?"(recipe_json IS NULL OR json_extract(recipe_json,'$.version') IN (1,2))":recipeProtocol===2?"(recipe_json IS NULL OR json_extract(recipe_json,'$.version')=1)":'recipe_json IS NULL'}
     AND ${kind==='poster'?"CASE WHEN status='preview_pending' THEN thumbnail_backend ELSE processing_backend END":'processing_backend'}=? AND next_attempt_at<=? AND (locked_until IS NULL OR locked_until<=?) AND attempt_count<8 ORDER BY next_attempt_at LIMIT ?`).bind(backend,now,now,limit).all();
   const claimed=[];
   for(const row of rows.results||[]) {

@@ -1,4 +1,6 @@
 import { isGptImage25Model, normalizeGptImage25Options, GPT_IMAGE_25_MAX_PROMPT_LENGTH } from '../../../../../js/shared/gpt-image-25-contract.mjs';
+import { canvasPrivateImageUser } from '../../lib/canvas-private-image-context.js';
+import { canvasAgentAdmissionWaitResponse } from '../../lib/canvas-agent-admission-wait.js';
 import { callImage25Provider, image25Output, image25DeliveryError } from '../../../../shared/gpt-image-25.mjs';
 import { FLUX_SCHNELL, callFluxSchnell } from '../../lib/flux-schnell-provider.js';
 import { normalizeMultipartImageDimensions } from '../../../../../js/shared/image-dimensions.mjs';
@@ -799,7 +801,7 @@ export async function handleGenerateImage(ctx) {
     return rateLimitUnavailableResponse(correlationId);
   }
   if (limit.limited) {
-    return rateLimitResponse();
+    return canvasAgentAdmissionWaitResponse(env, GENERATION_WINDOW_MS, correlationId) || rateLimitResponse();
   }
 
   const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.aiGenerateImageJson });
@@ -1505,7 +1507,8 @@ export async function handleSaveImage(ctx) {
   const { request, env } = ctx;
   const correlationId = ctx.correlationId || null;
   const respond = (body, init) => withCorrelationId(json(body, init), correlationId);
-  const session = generationUser(ctx) ? {user:generationUser(ctx)} : await requireUser(request,env);
+  const trustedUser=generationUser(ctx)||canvasPrivateImageUser(ctx);
+  const session = trustedUser ? {user:trustedUser} : await requireUser(request,env);
   if (session instanceof Response) return session;
   // Trusted Canvas route context only; request JSON cannot choose an image ID.
   const canvasImageId = /^[a-f0-9]{32}$/.test(ctx.canvasImageId || "") ? ctx.canvasImageId : null;

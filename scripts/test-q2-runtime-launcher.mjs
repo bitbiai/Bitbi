@@ -409,7 +409,7 @@ test('default native runtime plan stages every actual suite and control input', 
     ...expected.map(([, filename]) => filename), ...controls, 'tests/admin-model-status-runtime.mjs', 'tests/model-pricing-runtime.mjs', 'tests/appearance-runtime.mjs', 'tests/helpers/model-pricing-control.mjs', 'tests/asset-preview-details-runtime.mjs',
     'tests/helpers/q4-stream-fixture.mjs', 'tests/helpers/q4-memory-fixture.mjs',
     'tests/helpers/q4-subscription-payloads.cjs', 'tests/helpers/canvas-video-control.mjs', 'tests/helpers/canvas-music-control.mjs',
-    'tests/helpers/elevenlabs-member-control.mjs', 'tests/helpers/canvas-contributors-control.mjs', 'workers/ai/src/routes/music.js',
+    'tests/helpers/elevenlabs-member-control.mjs', 'tests/helpers/canvas-contributors-control.mjs', 'tests/helpers/canvas-agent-control.mjs', 'tests/fixtures/canvas-agent-profiles.mjs', 'tests/helpers/canvas-assembly-control.mjs', 'workers/ai/src/routes/music.js',
     'tests/website-assistant-runtime.mjs', 'tests/helpers/website-assistant-policy.mjs',
     'js/shared/flux-2-max-identity.mjs', 'tests/helpers/canvas-smooth-control.mjs',
   ]) {

@@ -28,6 +28,8 @@ import { estimateCanvasTextCredits, CANVAS_TEXT_PURPOSES, CANVAS_TEXT_DEFAULT_PU
 import { initSiteHeader } from '../../shared/site-header.js?v=__ASSET_VERSION__';
 import { initAuthEntryActions } from '../../shared/auth-entry-actions.js?v=__ASSET_VERSION__';
 import { canvasApi } from './api.js?v=__ASSET_VERSION__';
+import { createCanvasAgentPanel } from './agent.js?v=__ASSET_VERSION__';
+import { generationEditState, generationEditMessage } from './generation-edit-state.js?v=__ASSET_VERSION__';
 import { createCanvasAssetPicker } from './asset-picker.js?v=__ASSET_VERSION__';
 import { createCanvasState, createCanvasSaveQueue } from './state.js?v=__ASSET_VERSION__';
 import { createCanvasGraph } from './graph.js?v=__ASSET_VERSION__';
@@ -100,11 +102,12 @@ let projectTransition = false;
 let toastTimer = 0;
 const pendingRunKeys = new Map();
 let workflowAnalysis = { byNode: new Map(), edgeStates: new Map() };
+let agentPanel = null;
 
 // Panel state is presentation-only: retain mounted inputs, media and graph scroll.
 const compactWorkspace = window.matchMedia('(max-width: 900px)');
 const panelState = { projects: true, detail: 'inspector', mobile: 'graph' };
-const panels = Object.fromEntries(['projects', 'graph', 'inspector', 'history'].map((name) => {
+const panels = Object.fromEntries(['projects', 'graph', 'inspector', 'history', 'agent'].map((name) => {
     const key = name[0].toUpperCase() + name.slice(1);
     return [name, { panel: document.getElementById(`canvas${key}Panel`), button: document.getElementById(`canvas${key}Toggle`) }];
 }));
@@ -121,6 +124,7 @@ function syncPanels() {
         if (!visible && panel.contains(active)) (compact ? panels.graph.button : button).focus({ preventScroll: true });
     }
     if (!compact && active === panels.graph.button) dom.viewport.focus({ preventScroll: true });
+    agentPanel?.setVisible(!panels.agent.panel.hidden);
 }
 
 function showPanel(name, toggle = false) {
@@ -419,17 +423,20 @@ function renderOutput(node) {
         // differently shaped poster arrives. object-fit preserves the source.
         video.style.aspectRatio = '16 / 9';
         if (output.previewUrl || output.asset.preview_url) video.poster = output.previewUrl || output.asset.preview_url;
-        const music=store.state.edges.filter(edge=>edge.target_node_id===node.id && isExportMusic(edge.config))
-            .map(edge=>nodeOutputValue(store.state.nodes.find(source=>source.id===edge.source_node_id)));
+        const assembly=store.state.project?.assembly;
+        const music=assembly?store.state.nodes.map(nodeOutputValue).filter(value=>value.kind==='audio_asset'):
+            store.state.edges.filter(edge=>edge.target_node_id===node.id && isExportMusic(edge.config))
+                .map(edge=>nodeOutputValue(store.state.nodes.find(source=>source.id===edge.source_node_id)));
         const settingsNode=store.state.nodes.find(item=>item.id===node.id)||node;
         const sound=canvasAudioControls({section,video,german:isGerman,signal:inspectorAbort.signal,original:node.config?.originalAudio,
-            backgroundMusic:node.config?.backgroundMusic,tracks:music.filter(track=>track.kind==='audio_asset'&&track.assetId),
-            onChange:values=>scheduleNode(settingsNode,{config:{...settingsNode.config,...values}})});
+            backgroundMusic:assembly?.backgroundMusic??node.config?.backgroundMusic,tracks:music.filter(track=>track.kind==='audio_asset'&&track.assetId),
+            onChange:values=>{const next=store.state.project?.assembly?{originalAudio:values.originalAudio}:values;if(Object.entries(next).some(([key,value])=>JSON.stringify(settingsNode.config?.[key])!==JSON.stringify(value)))scheduleNode(settingsNode,{config:{...settingsNode.config,...next}});}});
         renderCanvasFullVideo({ section, output, projectId: store.state.project.id, german: isGerman, signal: inspectorAbort.signal, video,
             music, sound,readSmooth:()=>settingsNode.config?.smoothJoins===true,
             writeSmooth:value=>scheduleNode(settingsNode,{config:{...settingsNode.config,smoothJoins:value}}),
             flush:()=>nodeSave.flush(),
-            getGraph:()=>({projectId:store.state.project?.id,nodes:store.state.nodes,edges:store.state.edges,models:store.state.models}) });
+            onAssemblySaved:(saved,revision)=>{const created=!store.state.project.assembly&&saved;store.state.project.assembly=saved;if(revision!==null)store.state.project.revision=revision;if(created)queueMicrotask(renderInspector);},
+            getGraph:()=>({projectId:store.state.project?.id,assembly:store.state.project?.assembly,nodes:store.state.nodes,edges:store.state.edges,models:store.state.models}) });
     } else if (output.kind === 'audio' && output.asset?.file_url) {
         const audio = el('audio'); audio.src = output.asset.file_url; audio.controls = true; audio.preload = 'metadata'; section.append(audio);
     } else if (output.kind === 'file' && output.asset?.file_url) {
@@ -642,7 +649,7 @@ function renderInspector() {
             window.addEventListener('bitbi:model-pricing', updateCost, { signal: inspectorAbort.signal });
             dom.inspector.append(cost);
         }
-        const prompt = textareaControl(node.config?.prompt || '');
+        const prompt = textareaControl(Object.hasOwn(node.config||{},'prompt')?node.config.prompt:node.content?.prompt||'');
         prompt.maxLength = Number(model?.controls?.maxPromptLength || 12000);
         bindConfig(node, prompt, 'prompt');
         if (capability === 'image') {
@@ -748,10 +755,12 @@ function renderInspector() {
         }
         const videoState = canvasVideoRunState(store.state.runs, node.id, videoCopy);
         const status = el('div', 'canvas-run-status', runningNodeId === node.id ? copy.running : inspectorRunError(node) || videoState.message); status.id = 'canvasNodeRunStatus'; status.setAttribute('role', 'status'); dom.inspector.append(status);
+        const editState=el('p','canvas-muted');editState.setAttribute('role','status');editState.setAttribute('aria-label',isGerman?'Stand der Generierung':'Generation freshness');dom.inspector.append(editState);
         const run = el('button', 'canvas-button canvas-button--primary', runningNodeId === node.id ? copy.running : copy.run);
         run.type = 'button'; run.disabled = runningNodeId === node.id || canvasVideoRunState(store.state.runs, node.id, videoCopy).blocked || !model?.runnable || model.areaEnabled===false || omniCanvasBlocked(node) || Boolean(inputContext.validation); run.addEventListener('click', () => void runSelectedNode(node)); dom.inspector.append(run);
         const updateRun = () => {
             const current = analyzeWorkflow(store.state.nodes, store.state.edges, store.state.models, copy).byNode.get(node.id);
+            editState.dataset.state=generationEditState(node,current,store.state.runs);editState.textContent=generationEditMessage(editState.dataset.state,isGerman);editState.hidden=!editState.textContent;
             run.disabled = runningNodeId === node.id || canvasVideoRunState(store.state.runs, node.id, videoCopy).blocked || !model?.runnable || model.areaEnabled===false || omniCanvasBlocked(node) || Boolean(validationForNode(node, current, copy));
             if (node.model_id === OMNI_MODEL) {
                 run.textContent = omniCanvasBlocked(node) ? (isGerman ? 'Tarif oder Freigabe fehlt' : 'Tariff or acceptance required') : copy.run;
@@ -764,7 +773,7 @@ function renderInspector() {
         if (hasCompletedMedia(node)) {
             const settings = canvasDisclosure([store.state.project.id, node.id, 'generation'], isGerman ? 'Generierungseinstellungen' : 'Generation settings', 'canvas-generation-settings');
             const content = el('div', 'canvas-generation-settings__body');
-            content.append(...[...dom.inspector.children].filter(child => child !== status));
+            content.append(...[...dom.inspector.children].filter(child => child !== status && child !== editState));
             settings.append(content); dom.inspector.prepend(settings);
         }
     }
@@ -811,7 +820,7 @@ function renderNewNodeChoices() {
     if([...dom.nodeType.options].some(option=>option.value===current))dom.nodeType.value=current;
     dom.quickTextImageVideo.hidden=!['text','image','video'].every(supported);
 }
-function renderAll() { renderNewNodeChoices(); renderProjects(); renderGraph(); renderInspector(); renderHistory(); }
+function renderAll() { renderNewNodeChoices(); renderProjects(); renderGraph(); renderInspector(); renderHistory(); agentPanel?.projectChanged(); }
 
 const graph = createCanvasGraph({
     nodesRoot: dom.nodes, edgesRoot: dom.edges, emptyState: dom.empty, copy,
@@ -1151,6 +1160,8 @@ async function loadCredits() {
 }
 
 function bindEvents() {
+    agentPanel = createCanvasAgentPanel({root:document.getElementById('canvasAgentBody'),german:isGerman,getState:()=>store.state,flush:flushSaves,
+        newProject:()=>void createProject(),openProject:async projectId=>{await openProject(projectId);showPanel(compactWorkspace.matches?'graph':'inspector');}});
     bindPanels();
     document.getElementById('canvasReload').addEventListener('click', () => window.location.reload());
     dom.newProject.addEventListener('click', () => void createProject());

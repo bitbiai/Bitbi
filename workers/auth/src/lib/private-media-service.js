@@ -67,8 +67,10 @@ export async function duePrivateMedia(env,backend) {
     (SELECT COUNT(*) FROM canvas_video_processing WHERE (CASE WHEN status='preview_pending' THEN thumbnail_backend ELSE processing_backend END)=? AND status IN ('queued','processing','preview_pending')
       AND attempt_count<8 AND next_attempt_at<=? AND (locked_until IS NULL OR locked_until<=?)) +
     (SELECT COUNT(*) FROM private_video_references WHERE processing_backend=? AND status IN ('queued','processing')
-      AND attempt_count<3 AND next_attempt_at<=? AND (locked_until IS NULL OR locked_until<=?)) AS count`)
-    .bind(backend,now,now,backend,now,now,backend,now,now).first();
+      AND attempt_count<3 AND next_attempt_at<=? AND (locked_until IS NULL OR locked_until<=?)) +
+    (SELECT COUNT(*) FROM canvas_media_inspections WHERE processing_backend=? AND status IN ('queued','processing')
+      AND next_attempt_at<=? AND (locked_until IS NULL OR locked_until<=?)) AS count`)
+    .bind(backend,now,now,backend,now,now,backend,now,now,backend,now,now).first();
   return Number(row?.count||0) + await duePublicPreviews(env,backend);
 }
 

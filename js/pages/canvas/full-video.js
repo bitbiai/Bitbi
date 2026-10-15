@@ -9,9 +9,11 @@ import {smoothJoinControls} from './smooth-joins.js?v=__ASSET_VERSION__';
 import {smoothJoinResultText} from '../../shared/canvas-smooth-joins.mjs?v=__ASSET_VERSION__';
 import {audioFitResultText} from '../../shared/canvas-audio-fit.mjs?v=__ASSET_VERSION__';
 import {canvasDisclosure} from './inspector-disclosure.js?v=__ASSET_VERSION__';
+import {assemblySequence} from './assembly-editor.js?v=__ASSET_VERSION__';
 
-export function renderCanvasFullVideo({section,output,projectId,german,signal,video,music=[],sound,readSmooth=()=>false,writeSmooth=()=>{},flush=async()=>true,getGraph}) {
-    const anchor=output.runId || (output.nodeId?{nodeId:output.nodeId}:null);
+export function renderCanvasFullVideo({section,output,projectId,german,signal,video,music=[],sound,readSmooth=()=>false,writeSmooth=()=>{},flush=async()=>true,getGraph,onAssemblySaved=()=>{}}) {
+    const assemblyAnchor=getGraph().assembly?.anchorNodeId||getGraph().assembly?.clips?.at(-1)?.nodeId;
+    const anchor=assemblyAnchor?{nodeId:assemblyAnchor}:output.runId || (output.nodeId?{nodeId:output.nodeId}:null);
     if (!anchor) return;
     const copy=german?{
         create:'Gesamtes Video erstellen',retry:'Verarbeitung wiederholen',queued:'Gesamtvideo wartet auf Verarbeitung.',processing:'Gesamtvideo wird zusammengefügt.',
@@ -28,7 +30,7 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
     message.setAttribute('role','status');message.setAttribute('aria-label',german?'Exportstatus':'Export status');block.append(controls,message,preview);
     let selected={...sound.music},joins;
     const tracks=music.filter(m=>m.kind==='audio_asset'&&m.assetId);
-    const chosen=()=>selected.musicAssetId?tracks.find(m=>m.assetId===selected.musicAssetId):(music.length===1?tracks[0]:null);
+    const chosen=()=>selected.musicAssetId?tracks.find(m=>m.assetId===selected.musicAssetId):getGraph().assembly?.musicNodeId?tracks.find(m=>m.sourceNodeId===getGraph().assembly.musicNodeId):(music.length===1?tracks[0]:null);
     let audition=null,auditionState='idle',completed=null,previewMode=false;
     const previewButton=document.createElement('button'),returnButton=document.createElement('button'),previewStatus=document.createElement('p'),previewNote=document.createElement('p');
     previewNote.className='canvas-muted';previewNote.textContent=german?'Herunterladen und Speichern verwenden die zuletzt erstellte Version.':'Download and Save use the last completed export.';
@@ -41,7 +43,7 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
         const version=node?.type==='asset_reference'?node.content?.asset?.sourceVersion:node?.output?.sourceVersion;
         return node&&assetId===clip.assetId&&version===clip.version?node.config?.originalAudio:clip.originalAudio;
     };
-    const changedTransitionAudio=()=>completed?.recipe?.version===6&&completed.recipe.videos.some(clip=>JSON.stringify(originalAudioSettings(clipAudio(clip)))!==JSON.stringify(originalAudioSettings(clip.originalAudio)));
+    const changedTransitionAudio=()=>completed?.recipe?.version>=6&&completed.recipe.videos.some(clip=>JSON.stringify(originalAudioSettings(clipAudio(clip)))!==JSON.stringify(originalAudioSettings(clip.originalAudio)));
     const needsAudioTimeline=()=>Boolean(changedTransitionAudio()||completed&&!completed.audio_timeline?.length &&
         (completed.recipe?.videos||[{runId:output.runId,nodeId:output.nodeId,assetId:output.assetId,version:output.sourceVersion}]).some(clip=>hasAudioEffects(clipAudio(clip))));
     const updateButtons=()=>{
@@ -57,7 +59,7 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
     };
     const restore=()=>{previewMode=false;audition?.reset();auditionState='idle';if(resultVideo&&completed?.asset){resultVideo.src=completed.asset.file_url;resultVideo.load();}updateButtons();};
     const previewTimeline=()=>{
-        if(completed?.recipe?.version===6)return []; // The transition base contains each source envelope exactly once.
+        if(completed?.recipe?.version>=6)return []; // The transition base contains each source envelope exactly once.
         return completed?.audio_timeline?.map((segment,index)=>({...segment,originalAudio:clipAudio(completed.recipe.videos[index])}));
     };
     const startPreview=()=>{
@@ -69,7 +71,8 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
     previewButton.addEventListener('click',()=>['playing','loading'].includes(auditionState)?audition.pause():startPreview(),{signal});
     returnButton.addEventListener('click',restore,{signal});
     sound.details.addEventListener('canvas:sound-change',()=>{
-        const previous=selected;selected={...sound.music};audition?.setGain(selected.enabled?selected.gain:0);
+        const previous=selected;selected={...sound.music};
+        sequence?.setSettings({backgroundMusic:exportMusicSettings(selected),musicNodeId:chosen()?.sourceNodeId||null});audition?.setGain(selected.enabled?selected.gain:0);
         joins?.sync();
         if(needsAudioTimeline()){if(previewMode)restore();else updateButtons();return;}
         audition?.setAudio({music:selected,timeline:previewTimeline()});
@@ -80,8 +83,9 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
     const nodeId=output.nodeId||getGraph().nodes.find(node=>node.output?.runId===output.runId)?.id||output.runId;
     const mergeSettings=canvasDisclosure([projectId,nodeId,'merge'],german?'Clips zusammenfügen':'Merge clips','canvas-merge-settings');
     controls.append(mergeSettings);
-    const sequence=clipSequence(mergeSettings,anchor,german,signal,()=>{syncAvailability();joins?.sync();paintVersion();},getGraph);
-    joins=smoothJoinControls({parent:mergeSettings,german,signal,projectId,anchor,read:readSmooth,write:writeSmooth,flush,sequence,settings:()=>({...selected}),getGraph,pause:()=>{video.pause();resultVideo?.pause();audition?.pause();}});
+    const legacySequence=clipSequence(mergeSettings,anchor,german,signal,()=>{syncAvailability();joins?.sync();paintVersion();},getGraph);
+    const sequence=assemblySequence({legacy:legacySequence,parent:mergeSettings,projectId,german,signal,getGraph,onSaved:onAssemblySaved,settings:()=>({backgroundMusic:exportMusicSettings(selected),smoothJoins:joins?.enabled??readSmooth(),musicNodeId:chosen()?.sourceNodeId||null}),onChange:()=>{syncAvailability();joins?.sync();paintVersion();}});
+    joins=smoothJoinControls({parent:mergeSettings,german,signal,projectId,anchor,read:()=>getGraph().assembly?.smoothJoins??readSmooth(),write:value=>{if(sequence.assembly)sequence.setSettings({smoothJoins:value});else writeSmooth(value);},flush,sequence,settings:()=>({...selected}),getGraph,pause:()=>{video.pause();resultVideo?.pause();audition?.pause();}});
     video.addEventListener('play',()=>joins.pause(),{signal});
     controls.append(createButton);
     createButton.addEventListener('click',()=>void createExport(),{signal});
@@ -117,7 +121,8 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
                 ||JSON.stringify(recipe.backgroundMusic)!==JSON.stringify(exportMusicSettings(selected))
                 ||Boolean(recipe.smoothJoins?.enabled)!==joins.enabled||changedTransitionAudio()
                 ||recipe.videos.some(clip=>JSON.stringify(originalAudioSettings(clipAudio(clip)))!==JSON.stringify(originalAudioSettings(clip.originalAudio)))
-                ||JSON.stringify(recipe.transitions||withNodes.slice(1).map(()=>({preset:'none'})))!==JSON.stringify(sequenceTransitions(withNodes,graph.edges));
+                ||JSON.stringify(recipe.transitions||withNodes.slice(1).map(()=>({preset:'none'})))!==JSON.stringify(sequence.assembly?sequence.assembly.clips.slice(0,-1).map(clip=>clip.transition):sequenceTransitions(withNodes,graph.edges))
+                ||JSON.stringify(recipe.assembly||null)!==JSON.stringify(sequence.assembly);
         }catch{}
         const latest=observer?.state.job,previousVersion=changed||Boolean(latest&&latest.id!==completed.id);
         const effects=(completed.recipe?.transitions||[]).filter(t=>t.preset!=='none').map(t=>{const name=TRANSITIONS.find(p=>p.id===t.preset);return (german?name?.de:name?.en)||t.preset;});
@@ -132,16 +137,16 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
         try{
             if(!sequence.valid)return;
             if(selected.enabled&&!chosen()){message.textContent=copy.ambiguous;return;}
-            if(!await flush()){message.textContent=copy.savingFailed;return;}
+            if(!await flush()||!await sequence.flush()){message.textContent=copy.savingFailed;return;}
             if(signal.aborted||!sequence.valid)return;
-            await observer.submit({backgroundMusic:{...selected},smoothJoins:joins.enabled,orderedClips:sequence.value,...(sequence.mode==='chain'?{mergeMode:'chain'}:{})});
+            await observer.submit({backgroundMusic:{...selected},smoothJoins:joins.enabled,...(sequence.mode==='assembly'?{assemblyRevision:sequence.revision}:{orderedClips:sequence.value,...(sequence.mode==='chain'?{mergeMode:'chain'}:{})})});
         }catch{if(!signal.aborted)message.textContent=copy.savingFailed;}
         finally{preparing=false;if(!signal.aborted)syncAvailability();}
     }
     async function renderResult(result,request){
         if(!request.current())return;
         const status=result.data?.export;
-        if(result.ok)sequence.update(result.data);
+        if(result.ok){sequence.update(result.data);if(sequence.assembly?.backgroundMusic){selected={...sequence.assembly.backgroundMusic};sound.setMusic({...selected,...(chosen()?{musicAssetId:chosen().assetId}:{})});}joins?.setEnabled(sequence.assembly?.smoothJoins??readSmooth());}
         else if(['canvas_selection_changed','video_source_changed'].includes(result.code))sequence.invalidate();
         const signature=JSON.stringify([result.ok,result.code,result.data]);
         if(signature!==previous) {
@@ -156,6 +161,7 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
             if(status?.seam_result)message.textContent+=' '+smoothJoinResultText(status.seam_result,german);
             if(status?.audio_timeline)message.textContent+=' '+audioFitResultText(status.audio_timeline,german);
             if(status?.error_code==='canvas_transition_too_long')message.textContent+=' '+(german?'Überlappung verkürzen: höchstens die halbe Länge jedes Nachbarclips. Bei kurzen mittleren Clips muss auch zwischen beiden Übergängen ein Bild bleiben.':'Shorten the overlap to at most half of each neighboring clip. Short middle clips also need at least one frame between both transitions.');
+            if(status?.error_code==='canvas_duration_target_missed')message.textContent+=' '+(german?'Die gemessene Dauer liegt außerhalb der Zieltoleranz von ±0,5 s. Ausschnitte, Übergänge oder Zieldauer anpassen. Es wird keine erfolgreiche Produktion gemeldet.':'Measured duration misses the target tolerance of ±0.5 s. Adjust trims, transitions or the target duration. This production is not reported as successful.');
             if(status?.error_code==='canvas_audio_tail_exceeds_video')message.textContent+=' '+(german?'Diesen älteren Auftrag durch einen neuen Export ersetzen. Der Originalton wird jetzt automatisch an die Bilddauer angepasst.':'Create a new export to replace this older failed job. Original audio now fits the picture duration automatically.');
             createButton.hidden=false;createButton.textContent=status?copy.again:copy.create;
             if(status?.status==='failed')message.textContent+=' '+(german?'Dieser Versuch ist beendet. Quellen/Einstellungen prüfen und bei Bedarf eine neue Version erstellen.':'This attempt has ended. Check sources/settings, then create a new version if needed.');

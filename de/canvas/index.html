@@ -42,6 +42,7 @@
                 <button id="canvasGraphToggle" class="canvas-button canvas-panel-toggle" type="button" aria-controls="canvasGraphPanel" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 3h6v6H3z M15 15h6v6h-6z M9 6h9v9"/></svg>Graph</button>
                 <button id="canvasInspectorToggle" class="canvas-button canvas-panel-toggle" type="button" aria-controls="canvasInspectorPanel" aria-expanded="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 4h18v16H3z M14 4v16 M17 8h1 M17 12h1"/></svg>Inspector</button>
                 <button id="canvasHistoryToggle" class="canvas-button canvas-panel-toggle" type="button" aria-controls="canvasHistoryPanel" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 9a8 8 0 1 1 0 7 M4 3v6h6 M12 7v5l3 2"/></svg>Verlauf</button>
+                <button id="canvasAgentToggle" class="canvas-button canvas-panel-toggle canvas-button--primary" type="button" aria-controls="canvasAgentPanel" aria-expanded="false">Mit KI erstellen</button>
             </nav>
         </div>
         <div class="canvas-layout">
@@ -64,6 +65,11 @@
             <aside id="canvasInspectorPanel" class="canvas-panel canvas-inspector" aria-labelledby="canvasInspectorTitle">
                 <div class="canvas-panel__head"><h2 id="canvasInspectorTitle" tabindex="-1">Kein Node ausgewählt</h2></div>
                 <div id="canvasInspectorBody" class="canvas-inspector__body"><p class="canvas-muted">Wähle einen Node, um Prompt, Modell, Einstellungen und Ausgabe zu bearbeiten.</p></div>
+            </aside>
+            <aside id="canvasAgentPanel" class="canvas-panel canvas-agent" hidden aria-labelledby="canvasAgentTitle">
+                <div class="canvas-panel__head"><h2 id="canvasAgentTitle" tabindex="-1">Mit KI erstellen</h2></div>
+                <p class="canvas-eyebrow">Grok 4.7 · Produktionsassistent</p>
+                <div id="canvasAgentBody"></div>
             </aside>
             <section id="canvasHistoryPanel" class="canvas-panel canvas-history" hidden aria-labelledby="canvasHistoryTitle">
                 <div class="canvas-panel__head"><h2 id="canvasHistoryTitle">Letzte Ausführungen</h2><span class="canvas-history-limit">Letzte 40</span></div>

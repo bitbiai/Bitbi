@@ -1832,3 +1832,36 @@ render evidence is unchanged. Read-only reconciliation confirmed both backend
 versions still predate this feature; the existing continuation retains 0102 and
 completes media/Auth/frontend publication. Never loosen the consuming archive
 contract to accommodate an incorrectly assembled artifact.
+
+
+### Canvas agent editability and inspector fixtures — 2026-10-15
+
+The production assistant must persist creative settings in the same ordinary
+Canvas controls that execute them. Investigation during implementation confirmed
+that generation Inspector prompts read `config.prompt`; putting a prompt only in
+`content.prompt` executes hidden creative settings and can resurrect a cleared
+prompt. New agent nodes use the ordinary config, updates remove the legacy prompt
+fallback, and explicitly empty direct prompts are respected. The regression reads
+the actual prompt control after production/reload and tests manual rerun, middle
+node deletion, clip reorder, transition/music edits and immutable old exports.
+Project assembly owns music/smoothing independently of the historical export
+anchor, including when that producer is removed from the active graph.
+
+The existing Inspector image fixture referenced missing `test-image.png`. A real
+same-origin PNG, an explicit successful decode and a deliberately corrupted PNG
+now calibrate the helper; existing visibility/lifecycle assertions remain. Source
+and local callers: `tests/helpers/canvas-inspector-ui.cjs`,
+`tests/helpers/canvas-assembly-editing-ui.cjs` through `tests/canvas.spec.js` in
+Chromium and WebKit, EN/DE. The integrated synthetic-provider/real-FFmpeg core
+passed locally; candidate-wide Linux/native release evidence and paid live model
+acceptance remain separate. See the [feature contract](../production-readiness/CANVAS_AGENT.md).
+
+The two-minute, thirteen-shot fixture also exposed the normal twelve-video/hour
+admission limit. Advancing only `Date.now()` near an incidental hour boundary had
+hidden it; the corrected fixture uses one coherent fixed clock for constructors
+and `now`, starts inside the window, observes twelve accepted requests and zero
+work for the thirteenth, delivers duplicate wakes, then resumes the exact original
+identity after reset. Only a server-owned pre-dispatch limiter marker with no
+prior usage/job receipt is resumable; generic 429 and uncertain acceptance remain
+review-required. Actual caller: `tests/q2-canvas-agent.spec.js` through the Worker
+suite; the existing limiter and credit limits are unchanged.

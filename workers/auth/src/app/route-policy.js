@@ -89,6 +89,14 @@ const adminJsonWrite = (id, method, path, owner, bodyMaxBytesName, rateLimitId, 
 });
 
 export const ROUTE_POLICIES = Object.freeze([
+  safeRead('account.canvas.agent.capabilities','GET','/api/account/canvas/agent/capabilities','canvas'),
+  safeRead('account.canvas.agent.read','GET','/api/account/canvas/projects/:projectId/agent','canvas'),
+  userJsonWrite('account.canvas.agent.start','POST','/api/account/canvas/projects/:projectId/agent','canvas','smallJson','canvas-agent-write-user'),
+  userJsonWrite('account.canvas.agent.control','POST','/api/account/canvas/projects/:projectId/agent/:runId/control','canvas','smallJson','canvas-agent-write-user'),
+  safeRead('account.canvas.assembly.read','GET','/api/account/canvas/projects/:projectId/assembly','canvas'),
+  userJsonWrite('account.canvas.assembly.update','PATCH','/api/account/canvas/projects/:projectId/assembly','canvas','smallJson','canvas-write-user'),
+  safeRead('account.canvas.inspection.read','GET','/api/account/canvas/projects/:projectId/media-inspections/:inspectionId','canvas'),
+  userJsonWrite('account.canvas.inspection.create','POST','/api/account/canvas/projects/:projectId/media-inspections','canvas','smallJson','canvas-write-user'),
   safeRead('public.assistant.config', 'GET', '/api/public/assistant/config', 'website-assistant', {
     auth: 'anonymous', sensitivity: 'low', config: ['DB'],
     rateLimit: { noneReason: 'Small public configuration without inference, private data or account reads.' },
@@ -2055,6 +2063,18 @@ export const ROUTE_POLICIES = Object.freeze([
     config: ["DB","USER_IMAGES","MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET"],
     audit: {noneReason:"Durable private Canvas postprocessing state; no model invocation or billing."},
     providerSignature:"processor-bearer-secret",
+  })),
+  ...[
+    ['claim','POST','claim','homepageHeroProcessorJson'],
+    ['source','GET',':id/source',null],
+    ['complete','POST',':id/complete','homepageHeroVideoUpload'],
+    ['fail','POST',':id/fail','homepageHeroProcessorJson'],
+  ].map(([suffix,method,route,bodyLimit])=>policy({
+    id:`internal.canvas-inspection.${suffix}`,method,path:`/api/internal/homepage/hero-videos/canvas-exports/jobs/inspections/${route}`,
+    auth:'anonymous',csrf:'not-browser-facing',owner:'canvas',sensitivity:'high',
+    body:bodyLimit?{kind:suffix==='complete'?'multipart':'json',maxBytesName:bodyLimit,contentType:suffix==='complete'?'multipart/form-data':'application/json'}:{kind:'none',noneReason:'Private leased source read.'},
+    rateLimit:{noneReason:'Authenticated private processor and bounded expiring job lease.'},config:['DB','USER_IMAGES','PRIVATE_MEDIA_PROCESSOR_SECRET'],
+    audit:{noneReason:'Durable owned inspection state; no inference or billing.'},providerSignature:'processor-bearer-secret',
   })),
   ...[
     ["capabilities", "GET", "claim", null],

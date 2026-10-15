@@ -33,6 +33,8 @@ import { handleOpenClawNewsPulseIngest } from "./routes/openclaw-news-pulse.js";
 import { handleGetProfile, handleUpdateProfile } from "./routes/profile.js";
 import { handleAccountCredits } from "./routes/account-credits.js";
 import { handleCanvas } from "./routes/canvas.js";
+import { CANVAS_AGENT_MESSAGE,requeueCanvasAgents } from './lib/canvas-agent-store.js';
+import { processCanvasAgent } from './lib/canvas-agent-execution.js';
 import { handleGetAvatar, handleUploadAvatar, handleDeleteAvatar } from "./routes/avatar.js";
 import {
   handleWalletSiweNonce,
@@ -562,6 +564,7 @@ export default {
   async scheduled(event, env, ctx) {
     if (event?.cron === '*/5 * * * *') {
       await requeueMemberGenerations(env);
+      await requeueCanvasAgents(env);
       return;
     }
     if (event?.cron === MEMVID_STREAM_PREVIEW_CATCHUP_CRON) {
@@ -1022,7 +1025,7 @@ export default {
       messages.every((message) => message?.body?.type === "ai_image_derivative.generate");
     const isAiVideoBatch =
       queueName === AI_VIDEO_JOBS_QUEUE_NAME ||
-      messages.every((message) => ["ai_video_job.process", MEMBER_GENERATION_MESSAGE, PRIVATE_MEDIA_WAKE].includes(message?.body?.type));
+      messages.every((message) => ["ai_video_job.process", MEMBER_GENERATION_MESSAGE, PRIVATE_MEDIA_WAKE, CANVAS_AGENT_MESSAGE].includes(message?.body?.type));
     if (isAiVideoBatch) {
       for (const message of batch.messages) {
         const startedAt = Date.now();
@@ -1032,7 +1035,9 @@ export default {
         const correlationId = rawBody.correlation_id || null;
 
         try {
-          const result = message.body?.type === PRIVATE_MEDIA_WAKE
+          const result = message.body?.type === CANVAS_AGENT_MESSAGE
+            ? await processCanvasAgent(env,message.body.run_id)
+            : message.body?.type === PRIVATE_MEDIA_WAKE
             ? await dispatchPrivateMedia(env,message.body.backend)
             : message.body?.type === MEMBER_GENERATION_MESSAGE
             ? await processMemberGeneration(env, message.body, handleAI)

@@ -1132,11 +1132,16 @@ export async function deleteAllUserAiAssets({
   env,
   userId,
   additionalStatements = [],
+  beforeAssetStatements = [],
   createdAt = nowIso(),
 }) {
   const imageRows = await loadUserAiImages(env, userId);
   const textRows = await loadUserAiTextAssets(env, userId, { allowMissingTable: true });
   const mutationStatements = [
+    // Authorized operational deletion removes the project and its durable jobs
+    // in this same transaction before retained media rows are removed. Ordinary
+    // asset deletion never receives these statements.
+    ...beforeAssetStatements,
     ...buildPublicMediaCommentCleanupStatementsForImages(env, imageRows),
     ...buildPublicMediaLikeCleanupStatementsForImages(env, imageRows),
   ];

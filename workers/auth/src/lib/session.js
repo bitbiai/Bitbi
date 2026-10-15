@@ -1,4 +1,5 @@
 import { json } from "./response.js";
+import { canvasAgentSession } from './canvas-agent-authority.js';
 import {
   LEGACY_SESSION_COOKIE_NAME,
   SECURE_SESSION_COOKIE_NAME,
@@ -176,6 +177,8 @@ export async function createSession(env, userId) {
 }
 
 export async function requireUser(request, env) {
+  const execution = await canvasAgentSession(request, env);
+  if (execution) return execution;
   const session = await getSessionUser(request, env);
 
   if (!session) {

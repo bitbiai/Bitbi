@@ -17,7 +17,7 @@ export function smoothJoinControls({parent,german,signal,projectId,anchor,read,w
     const comparison=document.createElement('div');comparison.hidden=true;
     box.append(label,help,seamLabel,button,status,comparison);parent.append(box);
     let version='',job=null,key=null,timer=null,reads=0,busy=false,locked=false,player=null;
-    const signature=()=>JSON.stringify([input.checked,sequence.valid?sequence.value:null,sequence.mode,settings(),Number(seam.value),
+    const signature=()=>JSON.stringify([input.checked,sequence.valid?sequence.value:null,sequence.mode,sequence.assembly,settings(),Number(seam.value),
         getGraph().nodes.map(n=>[n.id,n.config?.originalAudio,n.asset_id,n.output?.sourceVersion,n.content?.asset?.sourceVersion])]);
     const clear=()=>{clearTimeout(timer);player?.pause();comparison.replaceChildren();comparison.hidden=true;player=null;job=null;key=null;reads=0;};
     function sync() {
@@ -59,10 +59,10 @@ export function smoothJoinControls({parent,german,signal,projectId,anchor,read,w
     async function update(create) {
         if(signal.aborted||busy||locked||!sequence.valid||!input.checked)return;
         sync();busy=true;button.disabled=true;
-        if(create&&!await flush()){status.textContent=german?'Canvas-Einstellungen konnten nicht gespeichert werden.':'Canvas settings could not be saved.';busy=false;sync();return;}
+        if(create&&(!await flush()||sequence.flush&&!await sequence.flush())){status.textContent=german?'Canvas-Einstellungen konnten nicht gespeichert werden.':'Canvas settings could not be saved.';busy=false;sync();return;}
         sync();const requestVersion=version;
         if(create&&!key)key=crypto.randomUUID();
-        const body={backgroundMusic:settings(),orderedClips:sequence.value,...(sequence.mode==='chain'?{mergeMode:'chain'}:{}),smoothJoins:true,preview:{seamIndex:Number(seam.value)}};
+        const body={backgroundMusic:settings(),...(sequence.mode==='assembly'?{assemblyRevision:sequence.revision}:{orderedClips:sequence.value,...(sequence.mode==='chain'?{mergeMode:'chain'}:{})}),smoothJoins:true,preview:{seamIndex:Number(seam.value)}};
         status.textContent=german?'Kurzer Übergang wird vorbereitet.':'Preparing the short join comparison.';
         const response=create?await canvasApi.fullVideo(projectId,anchor,true,signal,body,key):await canvasApi.seamPreview(projectId,anchor,job.id,signal);
         busy=false;if(signal.aborted||signature()!==requestVersion){sync();return;}
@@ -76,5 +76,5 @@ export function smoothJoinControls({parent,german,signal,projectId,anchor,read,w
     }
     button.addEventListener('click',()=>void update(true),{signal});
     signal.addEventListener('abort',clear,{once:true});
-    return {sync,lock(value){locked=value;sync();},pause(){player?.pause();},get enabled(){return input.checked;}};
+    return {sync,setEnabled(value){input.checked=value===true;sync();},lock(value){locked=value;sync();},pause(){player?.pause();},get enabled(){return input.checked;}};
 }

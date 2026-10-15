@@ -13,6 +13,7 @@ export function modelAreaCatalog(mainModel) {
     }
     for (const model of getMemberExposedModels()) add(model, 'generation');
     for (const model of listCanvasModels().filter(model => model.runnable)) add(model, 'canvas');
+    add({id:'xai/grok-4.7',label:'Grok 4.7 · Canvas agent',vendor:'xAI',capability:'text'}, 'canvas');
     if (mainModel) add({id:mainModel, label:mainModel.includes('apertus') ? 'Apertus v1.5 8B' : 'EuroLLM 9B IT', mediaType:'chat'}, 'main');
     return [...rows.values()];
 }

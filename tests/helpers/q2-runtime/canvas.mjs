@@ -511,4 +511,22 @@ export async function runCanvasTests(f) {
   await runCanvasCompletionTests(f, { prepared: true });
   await runCanvasAudioTests(f, { prepared: true });
   await runCanvasTransitionTests(f,{prepared:true});
+  for (const path of ['/canvas-assembly', '/canvas-inspection', '/canvas-agent-dispatch', '/canvas-agent-capabilities', '/canvas-agent-late-completion','/canvas-agent-unknown-provider']) await f.test('canvas_native' + path.replaceAll('-', '_').replace('/', '_'), async () => {
+    const response = await f.control(path, {
+      videoBase64: fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4', import.meta.url)).toString('base64'),
+      imageBase64: fs.readFileSync(new URL('../../fixtures/media/h3-frame.png', import.meta.url)).toString('base64'),
+      musicBase64: fs.readFileSync(new URL('../../fixtures/media/member-music.mp3', import.meta.url)).toString('base64'),
+    });
+    assert.equal(response.status, 200, await response.clone().text()); f.metrics.push(await response.json());
+  });
+  await f.test('canvas_agent_native_atomic_budget_authority_revocation_and_manual_edit_fencing', async () => {
+    const response = await f.control('/canvas-agent-authority', {});
+    assert.equal(response.status, 200, await response.clone().text());
+    assert.deepEqual(await response.json(), { atomicAllocations: 1, existingUsageAttempts: 2, providerSubmissions: 0, walletDebits: 0, manualEditPaused: true });
+  });
+  await f.test('canvas_agent_native_duration_clarification_duplicate_starts_controls_and_manual_takeover', async () => {
+    const response = await f.control('/canvas-agent-api', {});
+    assert.equal(response.status, 200, await response.clone().text());
+    assert.deepEqual(await response.json(), { clarification: true, starts: 1, duplicateStarts: 1, providerCalls: 0, foreignDenied: true, manualTakeover: true });
+  });
 }

@@ -638,6 +638,25 @@ for (const file of ["workers/auth/recovery/c-entry.mjs", "workers/auth/recovery/
 }
 
 {
+  const file='workers/shared/canvas-agent-plan.mjs';
+  for(const caller of ['workers/auth/src/lib/canvas-agent-planning.js','workers/ai/src/lib/canvas-agent-plan.js']) {
+    assert(fs.readFileSync(path.join(repoRoot,caller),'utf8').includes("from '../../../shared/canvas-agent-plan.mjs'"));
+  }
+  const plan=createReleasePlanFromRepo(repoRoot,{files:[file]});
+  assert.deepEqual(plan.workerDeploys.map(step=>step.worker),['ai','auth']);
+  assert.deepEqual(plan.impacts.uncategorizedFiles,[]);
+  assert.equal(plan.impacts.static.required,false);
+  assert((await import('./lib/backend-continuation.mjs')).backendContinuationSupported(plan));
+  for(const shared of ['canvas-agent-contract','canvas-assembly','canvas-generation-settings']) {
+    const current=createReleasePlanFromRepo(repoRoot,{files:[`js/shared/${shared}.mjs`]});
+    assert.deepEqual(current.workerDeploys.map(step=>step.worker),['auth']);
+    assert.equal(current.impacts.static.required,true);
+  }
+  const unknown=createReleasePlanFromRepo(repoRoot,{files:['workers/shared/unreviewed-canvas-agent.mjs']});
+  assert.deepEqual(unknown.impacts.uncategorizedFiles,['workers/shared/unreviewed-canvas-agent.mjs']);
+}
+
+{
   const plan = createReleasePlanFromRepo(repoRoot, {
     files: [
       "workers/shared/chat-model-contract.mjs",
@@ -927,6 +946,7 @@ for (const file of ["js/shared/canvas-model-contract.mjs", "js/shared/canvas-vid
 }
 
 await import('./test-media-auth-config.mjs');
+await import('./test-canvas-agent-release.mjs');
 
 {
  const {verifyMediaEvidence}=await import('./lib/media-publication.mjs');
@@ -997,14 +1017,21 @@ await import('./test-media-auth-config.mjs');
 }
 
 {
- const {verifyMediaImage,mediaImageInputs}=await import('./private-media-image.mjs');
+ const {verifyMediaImage,mediaImageInputs,mediaTestMounts,mediaFullTestProof}=await import('./private-media-image.mjs');
+ const mounts=mediaTestMounts(),assemblyMount=`type=bind,source=${path.join(repoRoot,'services/homepage-ffmpeg-processor/canvas-assembly.test.mjs')},target=/app/canvas-assembly.test.mjs,readonly`;
+ assert(mounts.includes(assemblyMount),'Actual Linux image runner mounts the imported assembly fixture');
+ const testFiles=mounts.filter(value=>value!=='--mount').map(value=>/target=\/app\/([^,]+)/.exec(value)[1]);
+ assert.throws(()=>mediaTestMounts(testFiles.filter(file=>file!=='canvas-assembly.test.mjs')),/canvas-full-video.test.mjs -> canvas-assembly.test.mjs/);
+ assert.throws(()=>mediaTestMounts(['../unowned.test.mjs']),/Invalid processor test mount/);
+ assert(!mediaFullTestProof({}).includes('assembly-duration-decoded'),'Historical source receipts retain their original proof contract');
  const {hash}=await import('./lib/frontend-hosting.mjs');const os=await import('node:os');
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'media-identity-')),archive=path.join(dir,'image.tar');fs.writeFileSync(archive,'synthetic archive bytes');
  try {
    const sha='a'.repeat(40),expected={sha,run:'123',attempt:'1',archive};
-   const record={sha,run:'123',attempt:'1',dirty:false,sourceFiles:mediaImageInputs(),platform:'linux/amd64',ffmpeg:'synthetic-version',ffprobe:'synthetic-version',image:`sha256:${'b'.repeat(64)}`,archiveDigest:hash(fs.readFileSync(archive)),tests:['two-five-clips','copy-normalize-audio','background-music-decoded','per-clip-audio-decoded','smooth-joins-decoded','audio-fit-decoded','transitions-decoded','private-drain-poster','container-process-restart','h3-video-reference']};
+   const record={sha,run:'123',attempt:'1',dirty:false,sourceFiles:mediaImageInputs(),platform:'linux/amd64',ffmpeg:'synthetic-version',ffprobe:'synthetic-version',image:`sha256:${'b'.repeat(64)}`,archiveDigest:hash(fs.readFileSync(archive)),tests:['two-five-clips','copy-normalize-audio','background-music-decoded','per-clip-audio-decoded','smooth-joins-decoded','audio-fit-decoded','transitions-decoded','assembly-duration-decoded','owned-frame-inspection','private-drain-poster','container-process-restart','h3-video-reference']};
    verifyMediaImage(record,expected);
    for(const patch of [{sha:'wrong'},{run:'124'},{attempt:'2'},{dirty:true},{sourceFiles:{}},{archiveDigest:'wrong'},{platform:'linux/arm64'},{tests:[]}])assert.throws(()=>verifyMediaImage({...record,...patch},expected));
+   for(const missing of ['assembly-duration-decoded','owned-frame-inspection'])assert.throws(()=>verifyMediaImage({...record,tests:record.tests.filter(test=>test!==missing)},expected));
    assert.throws(()=>verifyMediaImage({...record,testPolicy:'canvas-audio-fit-v1',tests:['audio-fit-decoded','private-drain-poster','container-process-restart']},expected),/verified release base/);
    fs.appendFileSync(archive,'changed');assert.throws(()=>verifyMediaImage(record,expected));
  }finally{fs.rmSync(dir,{recursive:true,force:true});}

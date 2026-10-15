@@ -1,4 +1,6 @@
 import {canvasWorkspaceTransitionCase} from '../canvas-workspace-transition-control.mjs';
+import { canvasAgentAuthorityCase, canvasAgentApiCase, canvasAgentDispatchCase, canvasAgentCapabilityCase, canvasAgentLateCompletionCase,canvasAgentUnknownProviderCase } from '../canvas-agent-control.mjs';
+import { canvasAssemblyCase, canvasInspectionCase } from '../canvas-assembly-control.mjs';
 import {memberGenerationCase} from '../member-generation-control.mjs';
 import { modelPricingCase } from '../model-pricing-control.mjs';
 import { image25Output } from '../../../workers/shared/gpt-image-25.mjs';
@@ -28,6 +30,14 @@ export default {
     if (request.method !== 'POST' || request.headers.get('x-q2-control') !== env.Q2_CONTROL_TOKEN) return new Response(null,{status:403});
     const path=new URL(request.url).pathname;
     const body=await request.json();
+    if (path === '/canvas-agent-authority') return Response.json(await canvasAgentAuthorityCase(env));
+    if (path === '/canvas-agent-api') return Response.json(await canvasAgentApiCase(env));
+    if (path === '/canvas-agent-dispatch') return Response.json(await canvasAgentDispatchCase(env,body));
+    if (path === '/canvas-agent-capabilities') return Response.json(await canvasAgentCapabilityCase(env));
+    if (path === '/canvas-agent-late-completion') return Response.json(await canvasAgentLateCompletionCase(env,body));
+    if (path === '/canvas-agent-unknown-provider') return Response.json(await canvasAgentUnknownProviderCase(env,body));
+    if (path === '/canvas-assembly') return Response.json(await canvasAssemblyCase(env,body));
+    if (path === '/canvas-inspection') return Response.json(await canvasInspectionCase(env,body));
     if(path==='/model-area-generation'&&['area-queued','area-running'].includes(body.name))return Response.json(await memberGenerationCase(env,body.name,body));
     if(path==='/image25-queue') {
       const job=await env.DB.prepare('SELECT id FROM member_generation_jobs WHERE id=? AND user_id=?').bind(body.id,MEMBER).first();

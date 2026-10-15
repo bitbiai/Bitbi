@@ -40,6 +40,9 @@ export async function quoteModelTariff(env, { modelId, input = {}, credits, cont
         usdToEur: BITBI_MODEL_PRICING_USD_TO_EUR,
         netEurPerCredit: BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING,
         targetProfitMargin: BITBI_TARGET_PROFIT_MARGIN,
+    } : model.id==='xai/grok-4.7' ? {
+        inputRateUsdPerMillion:2,outputRateUsdPerMillion:6,longContextThreshold:200000,longContextMultiplier:2,fundingMultiplier:1.05,
+        usdToEur: BITBI_MODEL_PRICING_USD_TO_EUR,netEurPerCredit: BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING,targetProfitMargin: BITBI_TARGET_PROFIT_MARGIN,
     } : null;
     return { ...priced, factorySettlement, exempt: model.exemption || null };
 }
@@ -78,6 +81,15 @@ export function settlePinnedModelTariff(pinned, fallbackCredits, actualUnits) {
         return pinned.credits;
     }
     if (!actualUnits || !pinned?.tariff) return fallbackCredits;
+    if(pinned.tariff.key?.startsWith('xai/grok-4.7:')){
+        if(Object.keys(actualUnits).sort().join(',')!=='inputToken,outputToken'||!['inputToken','outputToken'].every(k=>Number.isSafeInteger(actualUnits[k])&&actualUnits[k]>=0&&actualUnits[k]<=pinned.tariff.units[k]))
+            fail('Actual token usage exceeds the accepted reservation.','generation_result_requires_credit_review',409);
+        if(!pinned.tariff.rates&&pinned.factorySettlement){
+            const rates=pinned.factorySettlement,multiplier=actualUnits.inputToken>=rates.longContextThreshold?rates.longContextMultiplier:1;
+            const cost=(actualUnits.inputToken*rates.inputRateUsdPerMillion+actualUnits.outputToken*rates.outputRateUsdPerMillion)/1e6*multiplier*rates.fundingMultiplier;
+            return creditsForProviderCostUsd(cost,rates);
+        }
+    }
     if (!pinned.tariff.rates) {
         if (!pinned.factorySettlement) return fallbackCredits;
         const seconds = actualUnits.second;

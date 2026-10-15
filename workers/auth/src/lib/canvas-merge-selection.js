@@ -75,8 +75,8 @@ export async function canvasMergeView(env, userId, projectId, runId) {
 
 export async function canvasVideoSelection(env, userId, projectId, runId, selection, mode = 'manual', view = null) {
   view ||= await canvasMergeView(env, userId, projectId, runId);
-  if (!Array.isArray(selection) || selection.length < 2 || selection.length > 120
-    || !selection.some(clip => runId?.nodeId ? clip?.nodeId === runId.nodeId : clip?.runId === runId) || !['manual', 'chain'].includes(mode)) throw fail('canvas_sequence_invalid');
+  if (!Array.isArray(selection) || selection.length < (mode==='assembly'?1:2) || selection.length > 120
+    || mode !== 'assembly' && !selection.some(clip => runId?.nodeId ? clip?.nodeId === runId.nodeId : clip?.runId === runId) || !['manual', 'chain', 'assembly'].includes(mode)) throw fail('canvas_sequence_invalid');
   const selected = [], seen = new Set();
   for (const clip of selection) {
     if (!clip || Object.keys(clip).sort().join(',') !== (clip.runId ? 'assetId,runId,version' : 'assetId,nodeId,version')

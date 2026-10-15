@@ -5,6 +5,7 @@ import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {testAudioFit} from './canvas-audio-fit.test.mjs';
 import {testSmoothJoins} from './canvas-seams.test.mjs';
+import {testCanvasAssemblyProcessing} from './canvas-assembly.test.mjs';
 import {concatenateClips,mediaCommand,inspectClip,processingTimeout,processCanvasExports,mixBackgroundMusic,loopMusicPcm} from './canvas-full-video.mjs';
 
 export async function testMediaCommandDiagnostics() {
@@ -34,6 +35,7 @@ export async function testMediaCommandDiagnostics() {
 }
 
 export async function testCanvasConcatenation() {
+  await testCanvasAssemblyProcessing();
   await testMediaCommandDiagnostics();
   assert.equal(processingTimeout(720000,0),120000);
   assert.equal(processingTimeout(720000,719000),1000);

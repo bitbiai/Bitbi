@@ -4,6 +4,7 @@ import { MEMBER_MUSIC_PLAN_BODY_BYTES, validateElevenLabsMemberBody, elevenLabsC
 import { existingGenerationAsset, cacheGenerationDownload } from '../../lib/member-generation-storage.js';
 import { acceptMemberGeneration, generationUser, generationExecution, usesPersonalGenerationCredits } from "../../lib/member-generation-jobs.js";
 import { AdminAiValidationError, validateAdminAiMusicBody } from "../../../../../js/shared/admin-ai-contract.mjs";
+import { canvasAgentAdmissionWaitResponse } from '../../lib/canvas-agent-admission-wait.js';
 import {
   MINIMAX_MUSIC_2_6_BASE_CREDITS,
   MINIMAX_MUSIC_2_6_MODEL_ID,
@@ -752,7 +753,7 @@ export async function handleGenerateMusic(ctx) {
     })
   );
   if (limit.unavailable) return rateLimitUnavailableResponse(correlationId);
-  if (limit.limited) return rateLimitResponse();
+  if (limit.limited) return canvasAgentAdmissionWaitResponse(env, GENERATION_WINDOW_MS, correlationId) || rateLimitResponse();
 
   const parsed = await readJsonBodyOrResponse(request, { maxBytes: MEMBER_MUSIC_PLAN_BODY_BYTES });
   if (parsed.response) return withCorrelationId(parsed.response, correlationId);

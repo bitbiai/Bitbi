@@ -2,6 +2,7 @@ import { GROK_4_6_MODEL_ID, GROK_DEFAULT_REASONING_EFFORT, normalizeGrokReasonin
 import { json } from "../../lib/response.js";
 import { requireUser } from "../../lib/session.js";
 import { BODY_LIMITS, readJsonBodyOrResponse } from "../../lib/request.js";
+import { canvasAgentAdmissionWaitResponse } from '../../lib/canvas-agent-admission-wait.js';
 import {
   evaluateSharedRateLimit,
   rateLimitResponse,
@@ -518,7 +519,7 @@ export async function handleGenerateText(ctx) {
     })
   );
   if (limit.unavailable) return rateLimitUnavailableResponse(correlationId);
-  if (limit.limited) return rateLimitResponse();
+  if (limit.limited) return canvasAgentAdmissionWaitResponse(env, GENERATION_WINDOW_MS, correlationId) || rateLimitResponse();
 
   const parsed = await readJsonBodyOrResponse(request, { maxBytes: BODY_LIMITS.aiGenerateJson });
   if (parsed.response) return withCorrelationId(parsed.response, correlationId);

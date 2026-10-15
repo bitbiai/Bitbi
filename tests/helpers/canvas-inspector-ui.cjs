@@ -1,6 +1,6 @@
 const id = n => n.toString(16).repeat(32);
 const project = id(1), now = '2026-10-04T12:00:00.000Z';
-const image = '/tests/fixtures/media/test-image.png', video = '/tests/fixtures/media/canvas-end-frame.mp4', audio = '/tests/fixtures/media/member-music.mp3';
+const image = '/api/plain/canvas-inspector/image.png', video = '/tests/fixtures/media/canvas-end-frame.mp4', audio = '/tests/fixtures/media/member-music.mp3';
 const outputFor = (media, n = 2) => ({kind: media === 'music' ? 'audio' : media, runId: id(n + 6), assetId: 'asset-' + n, sourceVersion: 'a'.repeat(64), storage: 'canvas',
   asset: {id: 'asset-' + n, ...(media === 'image' ? {preview_url: image} : {file_url: media === 'video' ? video : audio})}});
 const nodeFor = (media, n = 2) => ({id:id(n), project_id:project, type:media + '_generation', title:media, x:50 + (n-2)*250, y:50,
@@ -10,6 +10,7 @@ const nodeFor = (media, n = 2) => ({id:id(n), project_id:project, type:media + '
 async function setup({page, locale, mockSharedAuth, createCanvasApiMock}) {
   const {listCanvasModelsForRole} = await import('../../js/shared/canvas-model-contract.mjs');
   await mockSharedAuth(page);
+  await page.route('**/api/plain/canvas-inspector/image.png',route=>route.fulfill({path:require('node:path').join(__dirname,'../fixtures/media/h3-frame.png'),contentType:'image/png'}));
   await page.setViewportSize({width:locale === 'de' ? 390 : 1440, height:900});
   const state = createCanvasApiMock(page, {modelPayload:{models:listCanvasModelsForRole('user'), organizations:[], access:{role:'user'}}});
   state.projects=[{id:project, title:'Inspector fixture', locale, created_at:now, updated_at:now}];
@@ -55,6 +56,14 @@ exports.generation = async options => {
   await expect(status).toHaveText('Controlled failure');await expect(settings).toHaveCount(0);
   await runButton.click();await expect.poll(()=>calls.length).toBe(2);pending(true);
   await expect(settings).toHaveJSProperty('open',false);await expect(runButton).toBeHidden();await expect(mediaElement).toBeVisible();
+  if(media==='image') {
+    await mediaElement.scrollIntoViewIfNeeded();
+    await expect.poll(()=>mediaElement.evaluate(node=>node.complete&&node.naturalWidth>0)).toBe(true);
+    // A broken image's visible alt-text box cannot count as a decoded output.
+    expect(await page.evaluate(async()=>{const broken=new Image();broken.src='data:image/png;base64,AA==';try{await broken.decode();}catch{}return broken.complete&&broken.naturalWidth>0;})).toBe(false);
+  }
+  // A legacy output without recorded effective inputs cannot be labelled current.
+  await expect(inspector.getByRole('status',{name:de?'Stand der Generierung':'Generation freshness',exact:true})).toHaveAttribute('data-state','unknown');
   await expect(inspector.getByRole('button',{name:de?'In Assets speichern':'Save to Assets',exact:true})).toBeVisible();
   const summary=settings.locator(':scope > summary');await summary.focus();await page.keyboard.press('Enter');await expect(settings).toHaveJSProperty('open',true);
   if(media==='image')await inspector.locator('.canvas-additional-prompt > summary').click();

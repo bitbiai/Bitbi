@@ -5,6 +5,22 @@ import {execFileSync} from 'node:child_process';
 import {hash} from './lib/frontend-hosting.mjs';
 import {requiresPrivateMediaImage,selectCiTests,canvasCompletionRouteSources} from './lib/ci-test-selection.mjs';
 const docker=args=>execFileSync('docker',args,{encoding:'utf8',stdio:['ignore','pipe','pipe'],timeout:600000,maxBuffer:8*1024*1024});
+export function mediaTestMounts(tests=['canvas-transitions.test.mjs','canvas-full-video.test.mjs','canvas-assembly.test.mjs','canvas-audio-fit.test.mjs','canvas-seams.test.mjs','private-media-runner.test.mjs','video-reference.test.mjs']) {
+  const directory=path.resolve('services/homepage-ffmpeg-processor');
+  for(const file of tests) {
+    assert(/^[a-z0-9-]+\.test\.mjs$/.test(file),'Invalid processor test mount');
+    const source=fs.readFileSync(path.join(directory,file),'utf8');
+    for(const match of source.matchAll(/\b(?:from\s*|import\s*\()\s*['"]\.\/([^'"]+\.test\.mjs)['"]/g)) {
+      assert(tests.includes(match[1]),`Processor test dependency is not mounted: ${file} -> ${match[1]}`);
+    }
+  }
+  return tests.flatMap(file=>['--mount',`type=bind,source=${path.join(directory,file)},target=/app/${file},readonly`]);
+}
+export function mediaFullTestProof(sourceFiles) {
+  return ['two-five-clips','copy-normalize-audio','background-music-decoded','per-clip-audio-decoded','smooth-joins-decoded','audio-fit-decoded','transitions-decoded',
+    ...(Object.hasOwn(sourceFiles,'services/homepage-ffmpeg-processor/canvas-assembly.test.mjs')?['assembly-duration-decoded','owned-frame-inspection']:[]),
+    'private-drain-poster','container-process-restart','h3-video-reference'];
+}
 export function mediaImageInputs() {
   const files=execFileSync('git',['ls-files','--cached','--others','--exclude-standard','services/homepage-ffmpeg-processor','workers/media'],{encoding:'utf8'}).trim().split('\n').filter(Boolean);
   return Object.fromEntries([...new Set([...files,'scripts/private-media-image.mjs','tests/fixtures/media/h3-overrun.mp4','workers/auth/src/lib/h3-reference-metadata.js'])].sort().map(file=>[file,hash(fs.readFileSync(file))]));
@@ -23,7 +39,7 @@ export function verifyMediaImage(record,{sha,run,attempt,archive,base}) {
     assert(base&&record.base===base,'Focused image needs the verified release base');
     assert.equal(mediaTestPolicy(base,sha),'canvas-audio-fit-v1','Changed media inputs require broader coverage');
     assert.deepEqual(record.tests,['audio-fit-decoded','private-drain-poster','container-process-restart']);
-  }else assert.deepEqual(record.tests,['two-five-clips','copy-normalize-audio','background-music-decoded','per-clip-audio-decoded','smooth-joins-decoded','audio-fit-decoded','transitions-decoded','private-drain-poster','container-process-restart','h3-video-reference']);
+  }else assert.deepEqual(record.tests,mediaFullTestProof(record.sourceFiles));
 }
 export function mediaTestPolicy(base,sha) {
   assert(/^[a-f0-9]{40}$/.test(base||'')&&/^[a-f0-9]{40}$/.test(sha||''),'Exact image range required');
@@ -40,14 +56,13 @@ export function buildMediaImage() {
   const image=JSON.parse(docker(['image','inspect',tag]))[0];assert.equal(image.Architecture,'amd64');assert.equal(image.Os,'linux');
   const command=['run','--rm','--network','none','--env','MEMBER_GENERATION_POSTERS_ONLY=1','--platform','linux/amd64','--read-only','--cpus','1','--memory','6g','--tmpfs','/tmp:rw,size=2g'];
   const versions={};for(const bin of ['ffmpeg','ffprobe'])versions[bin]=docker([...command,tag,bin,'-version']).split('\n')[0];
-  const tests=['canvas-transitions.test.mjs','canvas-full-video.test.mjs','canvas-audio-fit.test.mjs','canvas-seams.test.mjs','private-media-runner.test.mjs','video-reference.test.mjs'];
-  const mounts=tests.flatMap(file=>['--mount',`type=bind,source=${path.resolve('services/homepage-ffmpeg-processor',file)},target=/app/${file},readonly`]);
+  const mounts=mediaTestMounts();
   for(const file of ['workers/auth/src/lib/h3-reference-metadata.js','tests/fixtures/media/h3-overrun.mp4'])mounts.push('--mount',`type=bind,source=${path.resolve(file)},target=/${file},readonly`);
   if(transitions){fs.mkdirSync(`${dir}/transitions`,{recursive:true});mounts.push('--mount',`type=bind,source=${path.resolve(dir,'transitions')},target=/evidence`,'--env','CANVAS_TRANSITION_EVIDENCE_DIR=/evidence');}
   const output=docker([...command,...mounts,tag,'node','--input-type=module','-e',(transitions?"await (await import('./canvas-transitions.test.mjs')).testCanvasTransitions();":focused?"await (await import('./canvas-audio-fit.test.mjs')).testAudioFit();":"await (await import('./canvas-full-video.test.mjs')).testCanvasConcatenation();")+" await (await import('./private-media-runner.test.mjs')).testPrivateMediaRunner(); await (await import('./private-media-runner.test.mjs')).testContainerLifecycle();"+(focused?'':" await (await import('./video-reference.test.mjs')).testVideoReferences();")]);
   fs.writeFileSync(`${dir}/test.log`,output);docker(['save','--output',`${dir}/image.tar`,tag]);
   const record={sha,sourceFiles:mediaImageInputs(),dirty:Boolean(execFileSync('git',['status','--porcelain','--','services/homepage-ffmpeg-processor','workers/media'],{encoding:'utf8'}).trim()),run:process.env.GITHUB_RUN_ID||'local',attempt:process.env.GITHUB_RUN_ATTEMPT||'local',platform:'linux/amd64',image:image.Id,tag,...versions,
-    base,testPolicy,tests:transitions?['transitions-decoded','private-drain-poster','container-process-restart']:focused?['audio-fit-decoded','private-drain-poster','container-process-restart']:['two-five-clips','copy-normalize-audio','background-music-decoded','per-clip-audio-decoded','smooth-joins-decoded','audio-fit-decoded','transitions-decoded','private-drain-poster','container-process-restart','h3-video-reference'],archiveDigest:hash(fs.readFileSync(`${dir}/image.tar`))};
+    base,testPolicy,tests:transitions?['transitions-decoded','private-drain-poster','container-process-restart']:focused?['audio-fit-decoded','private-drain-poster','container-process-restart']:mediaFullTestProof(mediaImageInputs()),archiveDigest:hash(fs.readFileSync(`${dir}/image.tar`))};
   fs.writeFileSync(`${dir}/image.json`,JSON.stringify(record,null,2)+'\n');console.log(JSON.stringify(record));
   return record;
 }

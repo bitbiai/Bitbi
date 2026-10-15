@@ -41,6 +41,8 @@ function request(path, options) {
     return requestUrl(`${BASE}${path}`, options);
 }
 
+export { request as canvasRequest };
+
 function id(value) { return encodeURIComponent(String(value || '')); }
 
 export const canvasApi = Object.freeze({
@@ -49,6 +51,8 @@ export const canvasApi = Object.freeze({
     getProject: (projectId, signal, timeoutMs) => request(`/projects/${id(projectId)}`, { signal, timeoutMs }),
     contributors: (projectId, runId, signal) => request(`/projects/${id(projectId)}/runs/${id(runId)}/contributors`, { signal }),
     updateProject: (projectId, body) => request(`/projects/${id(projectId)}`, { method: 'PATCH', body }),
+    assembly: (projectId) => request(`/projects/${id(projectId)}/assembly`),
+    saveAssembly: (projectId, body) => request(`/projects/${id(projectId)}/assembly`, { method: 'PATCH', body }),
     deleteProject: (projectId) => request(`/projects/${id(projectId)}`, { method: 'DELETE' }),
     listModels: () => request('/models'),
     createNode: (projectId, body) => request(`/projects/${id(projectId)}/nodes`, { method: 'POST', body }),

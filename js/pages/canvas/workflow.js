@@ -113,7 +113,7 @@ export function analyzeNodeInputs(target, nodes, edges, models, copy) {
     });
     const compatible = sources.filter((item) => item.status === 'compatible');
     const connectedPrompt = compatible.filter((item) => item.inputKind === 'prompt' && item.text).map((item) => item.text).join('\n\n').trim();
-    const directPrompt = String(target?.config?.prompt || target?.content?.prompt || target?.content?.text || '').trim();
+    const directPrompt = String(Object.hasOwn(target?.config||{},'prompt')?target.config.prompt:target?.content?.prompt||target?.content?.text||'').trim();
     return {
         model,
         sources,

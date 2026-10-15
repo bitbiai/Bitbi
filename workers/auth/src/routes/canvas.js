@@ -1,4 +1,8 @@
+import { canvasGenerationSettings } from '../../../../js/shared/canvas-generation-settings.mjs';
 import { updateWorkspace } from '../lib/canvas-workspace.js';
+import { handleCanvasAssembly } from '../lib/canvas-assembly.js';
+import { canvasAgentAuthority } from '../lib/canvas-agent-authority.js';
+import { handleCanvasMediaInspection } from './canvas-media-inspections.js';
 import { SEEDANCE_25_MODEL, seedance25References, seedance25MediaType, seedance25Settings } from '../../../../js/shared/seedance-25-contract.mjs';
 import { areaCatalog, modelAreaEnvironment, assertModelArea, publicModelAvailability } from '../lib/model-availability.js';
 import { OMNI_MODEL, omniReferences, omniMediaType, omniOperation } from '../../../../js/shared/gemini-omni-contract.mjs';
@@ -6,7 +10,7 @@ import { isGptImage25Model } from '../../../../js/shared/gpt-image-25-contract.m
 import { H3_MODEL, h3References, h3MediaType } from '../../../../js/shared/minimax-h3.mjs';
 import { canvasMediaRun, canvasMediaStatements, canvasMediaEnvironment, saveCanvasMedia, annotateCanvasMedia, reclaimCanvasMedia } from '../lib/canvas-media-storage.js';
 import { composeCanvasPrompt } from '../../../../js/shared/canvas-model-contract.mjs';
-import { GROK_4_6_MODEL_ID, GROK_DEFAULT_REASONING_EFFORT, getGrokMaxCompletionTokens } from "../../../../js/shared/grok-text-contract.mjs";
+import { GROK_4_6_MODEL_ID } from "../../../../js/shared/grok-text-contract.mjs";
 import { canvasExport } from './canvas-video-processing.js';
 import { isExportMusic, exportMusicSettings } from '../../../../js/shared/canvas-export.mjs';
 import { originalAudioSettings } from '../../../../js/shared/canvas-audio.mjs';
@@ -23,7 +27,6 @@ import { nowIso, randomTokenHex } from "../lib/tokens.js";
 import { getErrorFields, logDiagnostic, withCorrelationId } from "../../../../js/shared/worker-observability.mjs";
 import {
   getCanvasModel,
-  getCanvasTextInstructions,
   getCanvasModelForRole,
   listCanvasModels,
   listCanvasModelsForRole,
@@ -32,7 +35,7 @@ import { ORG_ROLE_RANK, listUserOrganizations, requireOrgRole } from "../lib/org
 import { handleGenerateImage, handleSaveImage } from "./ai/images-write.js";
 import { handleAdminAI } from "./admin-ai.js";
 import { handleGenerateMusic } from "./ai/music-generate.js";
-import { MEMBER_MUSIC_PLAN_BODY_BYTES, elevenLabsMemberBody } from '../../../../js/shared/member-music-contract.mjs';
+import { MEMBER_MUSIC_PLAN_BODY_BYTES } from '../../../../js/shared/member-music-contract.mjs';
 import { captureCanvasContributors, resolveCanvasContributors, sameCanvasInput } from '../lib/canvas-contributors.js';
 import { handleGenerateText } from "./ai/text-generate.js";
 import { handleGenerateVideo } from "./ai/video-generate.js";
@@ -196,6 +199,8 @@ function projectRecord(row) {
     workspace_width: row.workspace_width ?? 2400, workspace_height: row.workspace_height ?? 1600,
     created_at: row.created_at,
     updated_at: row.updated_at,
+    revision: row.revision ?? 0,
+    assembly: safeJsonParse(row.assembly_json, null),
   };
 }
 
@@ -256,7 +261,7 @@ function runRecord(row) {
 
 async function requireProject(env, userId, projectId) {
   return env.DB.prepare(
-    `SELECT id, user_id, title, locale, thumbnail_asset_id, created_at, updated_at, workspace_width, workspace_height
+    `SELECT id, user_id, title, locale, thumbnail_asset_id, created_at, updated_at, workspace_width, workspace_height, revision, assembly_json
      FROM canvas_projects
      WHERE id = ? AND user_id = ? AND deleted_at IS NULL
      LIMIT 1`
@@ -266,7 +271,7 @@ async function requireProject(env, userId, projectId) {
 async function requireNode(env, userId, projectId, nodeId) {
   return env.DB.prepare(
     `SELECT id, project_id, user_id, type, title, x, y, width, height, model_id,
-            config_json, content_json, output_json, asset_id, created_at, updated_at
+            config_json, content_json, output_json, asset_id, created_at, updated_at, creative_revision
      FROM canvas_nodes
      WHERE id = ? AND project_id = ? AND user_id = ? AND deleted_at IS NULL
      LIMIT 1`
@@ -450,7 +455,7 @@ function storedGenerationInput(body) {
 
 async function listProjects(ctx, userId) {
   const rows = await ctx.env.DB.prepare(
-    `SELECT id, title, locale, thumbnail_asset_id, created_at, updated_at, workspace_width, workspace_height
+    `SELECT id, title, locale, thumbnail_asset_id, created_at, updated_at, workspace_width, workspace_height, revision, assembly_json
      FROM canvas_projects
      WHERE user_id = ? AND deleted_at IS NULL
      ORDER BY updated_at DESC, id DESC
@@ -474,7 +479,7 @@ async function createProject(ctx, userId) {
     `INSERT INTO canvas_projects (id, user_id, title, locale, thumbnail_asset_id, created_at, updated_at, deleted_at)
      VALUES (?, ?, ?, ?, NULL, ?, ?, NULL)`
   ).bind(id, userId, title, locale, now, now).run();
-  return respond(ctx, { ok: true, data: { project: { id, title, locale, thumbnail_asset_id: null, workspace_width:2400, workspace_height:1600, created_at: now, updated_at: now } } }, { status: 201 });
+  return respond(ctx, { ok: true, data: { project: { id, title, locale, thumbnail_asset_id: null, workspace_width:2400, workspace_height:1600, revision:0,assembly:null,created_at: now, updated_at: now } } }, { status: 201 });
 }
 
 async function getProject(ctx, userId, projectId) {
@@ -830,7 +835,7 @@ async function resolveCanvasNodeInputs(env, userId, projectId, node, model) {
   const rows = await connectedInputs(env, userId, projectId, node.id);
   const config = safeJsonParse(node.config_json, {});
   const content = safeJsonParse(node.content_json, {});
-  const directPrompt = String(config.prompt || content.prompt || content.text || "").trim();
+  const directPrompt = String(Object.hasOwn(config,'prompt') ? config.prompt : content.prompt || content.text || "").trim();
   const sources = [];
   for (const row of rows) {
     // Exclude before resolving ownership/output/readiness: an export-only edge
@@ -897,45 +902,7 @@ function buildGenerationBody(node, model, resolution) {
     error.code = "prompt_too_long";
     throw error;
   }
-  const body = { model: model.id, prompt };
-  if (model.capability === "text") {
-    body.system_prompt = getCanvasTextInstructions(config);
-    if (Array.isArray(config.messages) && config.messages.length) throw Object.assign(new Error("Canvas text nodes accept a prompt and system prompt, not a native message history."), { status: 400, code: "unsupported_option" });
-    if (model.id === GROK_4_6_MODEL_ID) {
-      body.reasoningEffort = config.reasoningEffort ?? GROK_DEFAULT_REASONING_EFFORT;
-      body.max_tokens = getGrokMaxCompletionTokens(body.reasoningEffort);
-    } else if (config.maxTokens !== undefined) body.max_tokens = config.maxTokens;
-    if (config.temperature !== undefined) body.temperature = config.temperature;
-  } else if (model.capability === "image") {
-    const c = model.controls || {};
-    if (isGptImage25Model(model.id)) { body.source_images = config.source_images || []; body.referenceOrder = Array.isArray(config.referenceOrder) ? config.referenceOrder : []; }
-    const fields = { steps: c.supportsSteps, seed: c.supportsSeed, width: c.supportsDimensions, height: c.supportsDimensions,
-      quality: c.qualityOptions?.length, resolution:c.resolutionOptions?.length, aspectRatio:c.aspectRatioOptions?.length, size: c.sizeOptions?.length, outputFormat: c.outputFormatOptions?.length,
-      background: c.backgroundOptions?.length, safetyTolerance: c.supportsSafetyTolerance };
-    for (const [field, supported] of Object.entries(fields)) {
-      if (supported && config[field] !== undefined && config[field] !== "") body[field] = config[field];
-    }
-  } else if (model.id === SEEDANCE_25_MODEL) {
-    Object.assign(body,seedance25Settings(config.seedance25 || {}),{workflow:config.seedance25?.workflow || 'generate',referenceOrder:Array.isArray(config.seedance25Order)?config.seedance25Order:[]});
-  } else if (model.capability === "video") {
-    if(model.id===OMNI_MODEL)body.referenceOrder=Array.isArray(config.omniOrder)?config.omniOrder:[];
-    else body.duration = config.duration || model.controls?.duration?.default || 5;
-    if (model.id.startsWith('xai/grok-imagine-video') && config.size) body.size=config.size;
-    if (model.controls?.resolutionField === "quality") body.quality = config.quality || model.controls.defaultQuality || "720p";
-    else body.resolution = config.resolution || model.controls.defaultResolution || "720p";
-    if (model.id === "alibaba/hh1-t2v") body.ratio = config.aspectRatio || model.controls.defaultAspectRatio || "16:9";
-    else body.aspect_ratio = config.aspectRatio || model.controls.defaultAspectRatio || "16:9";
-    if (model.controls?.supportsNegativePrompt && config.negativePrompt) body.negative_prompt = config.negativePrompt;
-    if (model.controls?.supportsSeed && config.seed !== undefined && config.seed !== "") body.seed = config.seed;
-    if (model.controls?.supportsAudioToggle) body.generate_audio = config.generateAudio !== false;
-    if (model.controls?.supportsWatermark) body.watermark = config.watermark === true;
-  } else if (model.capability === "music") {
-    if (model.id === 'elevenlabs/music-v2') return elevenLabsMemberBody(config, prompt);
-    body.instrumental = config.instrumental === true;
-    body.generateLyrics = config.generateLyrics === true;
-    if (config.lyrics) body.lyrics = config.lyrics;
-  }
-  return body;
+  return canvasGenerationSettings(config, model, prompt);
 }
 
 function delegatedRequest(ctx, path, body, idempotencyKey) {
@@ -1066,6 +1033,14 @@ function safeRunOutput(model, payload, imageAsset = null, { runId, createdAt } =
 
 async function runNode(ctx, session, projectId, nodeId) {
   const userId = session.user.id;
+  if(!canvasAgentAuthority(ctx.env)) {
+    // An intentional manual run takes precedence over an autonomous producer,
+    // even when the prompt itself was unchanged. Already accepted pixels remain
+    // in their immutable run history.
+    await ctx.env.DB.prepare(`UPDATE canvas_projects SET revision=revision+1 WHERE id=? AND user_id=? AND deleted_at IS NULL
+      AND EXISTS(SELECT 1 FROM canvas_agent_runs a WHERE a.project_id=canvas_projects.id AND a.status IN ('queued','planning','running','exporting'))`)
+      .bind(projectId,userId).run();
+  }
   const limited = await enforceWriteLimit(ctx, userId, { run: true });
   if (limited) return limited;
   if (!await requireProject(ctx.env, userId, projectId)) return respond(ctx, { ok: false, error: "Canvas project not found.", code: "project_not_found" }, { status: 404 });
@@ -1073,7 +1048,8 @@ async function runNode(ctx, session, projectId, nodeId) {
   if (!node) return respond(ctx, { ok: false, error: "Canvas node not found.", code: "node_not_found" }, { status: 404 });
   const capability = GENERATION_NODE_CAPABILITY[node.type];
   if (!capability) return respond(ctx, { ok: false, error: "Select a generation node to run.", code: "node_not_runnable" }, { status: 400 });
-  const model = node.model_id ? getCanvasModelForRole(node.model_id, session.user.role) : defaultModelForCapability(capability, session.user.role);
+  const executionRole = canvasAgentAuthority(ctx.env) ? 'member' : session.user.role;
+  const model = node.model_id ? getCanvasModelForRole(node.model_id, executionRole) : defaultModelForCapability(capability, executionRole);
   if (!model || model.capability !== capability) return respond(ctx, { ok: false, error: "Choose a model for this node.", code: "model_required" }, { status: 400 });
   if (!model.runnable) return respond(ctx, { ok: false, error: model.disabledReason || "Model is not runnable in Canvas.", code: "model_not_runnable" }, { status: 409 });
   if (model.executionMode !== "member") {
@@ -1129,7 +1105,9 @@ async function runNode(ctx, session, projectId, nodeId) {
     }
   }
   if (existing?.status === "completed") return respond(ctx, { ok: true, data: { run: runRecord((await annotateCanvasMedia(ctx.env,userId,[existing]))[0]), idempotent_replay: true } });
-  if (existing?.status === "failed" && !["canvas_image_save_pending", "canvas_video_pending"].includes(existing.error_code)) return respond(ctx, { ok: false, error: existing.error_message || "Canvas run failed.", code: existing.error_code || "canvas_run_failed", data: { run: runRecord(existing), idempotent_replay: true } }, { status: 409 });
+  const admissionWait = Boolean(canvasAgentAuthority(ctx.env)) && existing?.error_code === 'canvas_agent_admission_wait';
+  if (admissionWait && safeJsonParse(existing.output_json, {}).retryAt > nowIso()) return respond(ctx, {ok:false,code:'canvas_agent_admission_wait',data:{run_id:existing.id,retryAt:safeJsonParse(existing.output_json, {}).retryAt}}, {status:429});
+  if (existing?.status === "failed" && !["canvas_image_save_pending", "canvas_video_pending"].includes(existing.error_code) && !admissionWait) return respond(ctx, { ok: false, error: existing.error_message || "Canvas run failed.", code: existing.error_code || "canvas_run_failed", data: { run: runRecord(existing), idempotent_replay: true } }, { status: 409 });
   if (existing?.status === "queued" || existing?.status === "running") {
     return respond(ctx, {
       ok: false,
@@ -1144,9 +1122,9 @@ async function runNode(ctx, session, projectId, nodeId) {
     try {
       await ctx.env.DB.batch([ctx.env.DB.prepare(
         `INSERT INTO canvas_runs (id, project_id, node_id, user_id, model_id, operation_type, idempotency_key, status,
-          input_json, output_json, asset_id, usage_attempt_id, error_code, error_message, created_at, updated_at, completed_at, deleted_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL, NULL, NULL, ?, ?, NULL, NULL)`
-      ).bind(runId, projectId, nodeId, userId, model.id, `canvas.${capability}.generate`, idempotencyKey, inputJson, now, now), ...canvasMediaStatements(ctx.env,{runId,userId,projectId,nodeId,kind:capability})]);
+          input_json, output_json, asset_id, usage_attempt_id, error_code, error_message, created_at, updated_at, completed_at, deleted_at,node_revision)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL, NULL, NULL, ?, ?, NULL, NULL,?)`
+      ).bind(runId, projectId, nodeId, userId, model.id, `canvas.${capability}.generate`, idempotencyKey, inputJson, now, now,node.creative_revision ?? 0), ...canvasMediaStatements(ctx.env,{runId,userId,projectId,nodeId,kind:capability})]);
     } catch (error) {
       if (!String(error).includes("UNIQUE")) throw error;
       existing = await ctx.env.DB.prepare(
@@ -1168,7 +1146,7 @@ async function runNode(ctx, session, projectId, nodeId) {
     }
   }
   ctx = {...ctx, env:canvasMediaEnvironment(ctx.env,runId)};
-  const claimed = await ctx.env.DB.prepare("UPDATE canvas_runs SET status = 'running', updated_at = ? WHERE id = ? AND user_id = ? AND (status = 'queued' OR (status = 'failed' AND error_code IN ('canvas_image_save_pending', 'canvas_video_pending')))").bind(nowIso(), runId, userId).run();
+  const claimed = await ctx.env.DB.prepare("UPDATE canvas_runs SET status = 'running', updated_at = ? WHERE id = ? AND user_id = ? AND (status = 'queued' OR (status = 'failed' AND (error_code IN ('canvas_image_save_pending', 'canvas_video_pending') OR (error_code='canvas_agent_admission_wait' AND ?=1))))").bind(nowIso(), runId, userId,admissionWait?1:0).run();
   if (claimed.meta?.changes !== 1) return respond(ctx, { ok: false, code: "canvas_run_in_progress", error: "This Canvas run is already in progress." }, { status: 409 });
 
   let capturedUsageAttemptId = safeJsonParse(existing?.output_json, {}).usageAttemptId || null;
@@ -1179,7 +1157,7 @@ async function runNode(ctx, session, projectId, nodeId) {
     if (existing?.error_code === "canvas_image_save_pending" && !checkpointStored) throw Object.assign(new Error("Saved generation reference is unavailable; automatic regeneration is prohibited."), { code: "image_save_reference_missing", status: 409 });
     const delegated = videoJobId ? await readCanvasVideoResult(ctx, videoJobId) : savedResult
       ? { response: { ok: true }, payload: savedResult, usageAttemptId: savedResult.usageAttemptId }
-      : await callGenerationHandler(ctx, model, generationBody, model.capability === 'video' ? `canvas-video-${runId}` : idempotencyKey, model.capability === 'video');
+      : await callGenerationHandler(ctx, model, generationBody, model.capability === 'video' ? `canvas-video-${runId}` : idempotencyKey, model.capability === 'video' || Boolean(canvasAgentAuthority(ctx.env)) && ['image','music'].includes(model.capability));
     capturedUsageAttemptId = delegated.usageAttemptId || capturedUsageAttemptId;
     if (delegated.payload?.data?.job?.id) {
       videoJobId = delegated.payload.data.job.id;
@@ -1198,6 +1176,17 @@ async function runNode(ctx, session, projectId, nodeId) {
       const error = new Error(delegated.payload?.error || "Canvas generation failed.");
       error.status = delegated.response.status || 502;
       error.code = delegated.payload?.code || "generation_failed";
+      if(error.code==='canvas_agent_admission_wait') {
+        const retryAt=delegated.payload?.data?.retryAt;
+        const originalKey=model.capability==='video'?`canvas-video-${runId}`:idempotencyKey;
+        const priorAttempt=await ctx.env.DB.prepare('SELECT id FROM member_ai_usage_attempts_v2 WHERE user_id=? AND idempotency_key=? LIMIT 1').bind(userId,originalKey).first();
+        const priorJob=await ctx.env.DB.prepare('SELECT id FROM member_generation_jobs WHERE user_id=? AND canvas_run_id=? LIMIT 1').bind(userId,runId).first();
+        // Only the internal pre-dispatch limiter can issue this marker. Generic
+        // 429s and outcomes with a captured OR previously persisted usage/job
+        // receipt are never downgraded to a new unsubmitted request.
+        if(!canvasAgentAuthority(ctx.env)||capturedUsageAttemptId||videoJobId||priorAttempt||priorJob||!Number.isFinite(Date.parse(retryAt)))error.code='canvas_agent_provider_review_required';
+        else error.retryAt=new Date(retryAt).toISOString();
+      }
       throw error;
     }
     if (model.capability === "image" && !savedResult) {
@@ -1243,8 +1232,10 @@ async function runNode(ctx, session, projectId, nodeId) {
       ).bind(outputState.encoded, assetId, capturedUsageAttemptId, completedAt, completedAt, runId, projectId, nodeId, userId),
       ctx.env.DB.prepare(
         `UPDATE canvas_nodes SET output_json = ?, asset_id = ?, updated_at = ?
-         WHERE id = ? AND project_id = ? AND user_id = ? AND deleted_at IS NULL`
-      ).bind(outputState.encoded, assetId, completedAt, nodeId, projectId, userId),
+         WHERE id = ? AND project_id = ? AND user_id = ? AND deleted_at IS NULL AND creative_revision=?
+         AND NOT EXISTS(SELECT 1 FROM canvas_agent_steps s JOIN canvas_agent_runs a ON a.id=s.run_id
+           WHERE s.node_id=canvas_nodes.id AND 'canvas-agent-'||s.id=? AND a.status IN ('paused','cancelled','taken_over'))`
+      ).bind(outputState.encoded, assetId, completedAt, nodeId, projectId, userId,node.creative_revision ?? 0,idempotencyKey),
       ctx.env.DB.prepare("UPDATE canvas_projects SET thumbnail_asset_id = COALESCE(thumbnail_asset_id, ?), updated_at = ? WHERE id = ? AND user_id = ? AND deleted_at IS NULL").bind(assetId, completedAt, projectId, userId),
     ]);
     await reclaimCanvasMedia(ctx.env,userId);
@@ -1254,11 +1245,12 @@ async function runNode(ctx, session, projectId, nodeId) {
     const saveUnavailable = checkpointStored && ["INVALID_SAVE_REFERENCE", "SAVE_REFERENCE_EXPIRED", "SAVE_REFERENCE_UNAVAILABLE"].includes(error.code);
     const code = error.code === "canvas_video_pending" ? error.code : saveUnavailable ? "canvas_image_save_unavailable" : checkpointStored ? "canvas_image_save_pending" : String(error.code || "canvas_run_failed").slice(0, 80);
     const message = error.code === "canvas_video_pending" ? error.message : saveUnavailable ? "Generated image reference is no longer available. Automatic regeneration is prohibited; operator recovery is required." : checkpointStored ? "Image generation completed; saving is pending. Retry saving without another generation." : error.code ? String(error.message || "Canvas run failed.").slice(0, 300) : "Canvas run failed.";
+    if(code==='canvas_agent_admission_wait')await ctx.env.DB.prepare("UPDATE canvas_runs SET output_json=? WHERE id=? AND user_id=? AND status='running'").bind(JSON.stringify({retryAt:error.retryAt}),runId,userId).run();
     await ctx.env.DB.prepare(
       `UPDATE canvas_runs SET status = 'failed', usage_attempt_id = ?, error_code = ?, error_message = ?, updated_at = ?, completed_at = ?
        WHERE id = ? AND project_id = ? AND node_id = ? AND user_id = ? AND status = 'running'`
     ).bind(capturedUsageAttemptId, code, message, failedAt, failedAt, runId, projectId, nodeId, userId).run();
-    return respond(ctx, { ok: false, error: message, code, data: { run_id: runId, ...(videoJobId ? { video_job_id: videoJobId } : {}), run: runRecord({
+    return respond(ctx, { ok: false, error: message, code, data: { run_id: runId, ...(code==='canvas_agent_admission_wait'?{retryAt:error.retryAt}:{}), ...(videoJobId ? { video_job_id: videoJobId } : {}), run: runRecord({
       id: runId, project_id: projectId, node_id: nodeId, model_id: model.id, operation_type: `canvas.${capability}.generate`,
       status: 'failed', idempotency_key: idempotencyKey, input_json: inputJson,
       output_json: JSON.stringify({ videoJobId, videoJobStatus: error.videoJobStatus || (code === 'canvas_video_pending' ? 'queued' : null) }),
@@ -1334,6 +1326,22 @@ export async function handleCanvas(ctx) {
   ctx = { ...ctx, canvasUser: session.user };
   const { pathname, method } = ctx;
   try {
+    if (pathname.includes('/agent')) {
+      const { handleCanvasAgent } = await import('./canvas-agent.js');
+      return await handleCanvasAgent(ctx, session);
+    }
+    const assemblyMatch=pathname.match(/^\/api\/account\/canvas\/projects\/([a-f0-9]{32})\/assembly$/);
+    // route-policy: account.canvas.assembly.update
+    if(assemblyMatch&&['GET','PATCH'].includes(method)) {
+      if(method==='PATCH'){const limited=await enforceWriteLimit(ctx,userId);if(limited)return limited;}
+      return await handleCanvasAssembly(ctx,userId,assemblyMatch[1]);
+    }
+    const inspectionMatch=pathname.match(/^\/api\/account\/canvas\/projects\/([a-f0-9]{32})\/media-inspections(?:\/([a-f0-9]{32}))?$/);
+    // route-policy: account.canvas.inspection.create
+    if(inspectionMatch&&['GET','POST'].includes(method)){
+      if(method==='POST'){const limited=await enforceWriteLimit(ctx,userId);if(limited)return limited;}
+      return await handleCanvasMediaInspection(ctx,userId,inspectionMatch[1],inspectionMatch[2]);
+    }
     if (pathname === "/api/account/canvas/models" && method === "GET") {
       const organizationContext = await canvasOrganizationContext(ctx.env, session.user);
       const availability=await publicModelAvailability(ctx.env);
@@ -1435,3 +1443,6 @@ export async function handleCanvas(ctx) {
   }
   return null;
 }
+
+// Internal coordinator reuses precisely the normal node execution adapters.
+export { runNode as runCanvasNode, buildGenerationBody as buildCanvasGenerationBody, resolveCanvasNodeInputs };

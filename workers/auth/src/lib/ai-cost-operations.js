@@ -1534,7 +1534,7 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       routePath: "/internal/ai/test-text",
       notes: "Internal AI Worker route relies on auth-worker caller cost policy.",
     },
-    sourceFiles: ["workers/ai/src/lib/grok-chat.js", "workers/ai/src/routes/text.js", "workers/ai/src/lib/invoke-ai.js"],
+    sourceFiles: ["workers/ai/src/lib/grok-chat.js", "workers/ai/src/routes/text.js", "workers/ai/src/lib/invoke-ai.js", "workers/ai/src/lib/canvas-agent-plan.js", "workers/ai/src/routes/canvas-agent-plan.js"],
     currentStatus: "partial",
     currentEnforcement: {
       idempotency: "delegated",

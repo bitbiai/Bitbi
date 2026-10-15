@@ -21,7 +21,7 @@ function capabilityForType(type) {
 
 function nodeSummary(node, models, copy) {
     const model = models.find((item) => item.id === node.model_id);
-    const prompt = String(node.config?.prompt || node.content?.prompt || node.content?.text || '').trim();
+    const prompt = String(Object.hasOwn(node.config||{},'prompt')?node.config.prompt:node.content?.prompt||node.content?.text||'').trim();
     if (prompt) return prompt;
     if (node.type === 'asset_reference' && node.asset_id) return copy.assetSelected;
     if (node.output?.text) return node.output.text;

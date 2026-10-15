@@ -7,6 +7,8 @@ import { tmpdir } from 'node:os';
 import {smoothVideoSeams,SEAM_POLICY} from './canvas-seams.mjs';
 import {AUDIO_FIT_POLICY,pictureTiming,audioFitReport,fittedSourceFilter,cutSafeSettings} from './canvas-audio-fit.mjs';
 import {classifyMediaFailure,safeCanvasDiagnostic,safeCanvasFailureCode} from './canvas-diagnostics.mjs';
+import { canvasAssembly, verifyCanvasDuration } from './canvas-assembly-contract.mjs';
+import { processCanvasInspections } from './canvas-media-inspection.mjs';
 
 const failure=code=>Object.assign(new Error(code),{code});
 export function processingTimeout(deadline,now=Date.now()) {
@@ -40,6 +42,36 @@ export async function inspectClip(file,{ffprobe='ffprobe',run=mediaCommand}={}) 
   return {video:v,audio:a,duration,videoDuration:Number(v.duration)||duration,fingerprint};
 }
 
+// Version 7 edits source windows explicitly. No tpad, frozen frames, repeats or
+// black filler. Original files remain untouched; every window is measured again.
+export async function trimCanvasSources(files,assembly,dir,{ffmpeg='ffmpeg',ffprobe='ffprobe',run=mediaCommand,limits={outputBytes:80000000}}={}) {
+  const settings=canvasAssembly(assembly);
+  if(settings.clips.length!==files.length)throw failure('canvas_assembly_sources_changed');
+  const outputs=[];let totalBytes=0;
+  for(const [index,file] of files.entries()) {
+    const source=await inspectClip(file,{ffprobe,run}),trim=settings.clips[index].trim;
+    if(trim.start===0&&trim.duration===undefined){outputs.push(file);continue;}
+    const [n,d]=String(source.video.avg_frame_rate).split('/').map(Number),fps=n/d;
+    const [rn,rd]=String(source.video.r_frame_rate).split('/').map(Number);
+    if(!Number.isFinite(fps)||fps<=0||fps>60||Math.abs(fps-rn/rd)>.001)throw failure('canvas_frame_rate_unsupported');
+    const frameCount=Number(source.video.nb_frames),startFrame=Math.round(trim.start*fps);
+    if(!Number.isSafeInteger(frameCount)||frameCount<1)throw failure('canvas_media_timing_invalid');
+    const endFrame=trim.duration===undefined?frameCount:startFrame+Math.round(trim.duration*fps);
+    if(startFrame<0||endFrame>frameCount||endFrame<=startFrame)throw failure('canvas_trim_outside_source');
+    const duration=(endFrame-startFrame)/fps,start=startFrame/fps,end=endFrame/fps,output=path.join(dir,`trimmed-${index}.mp4`);
+    const args=['-y','-v','error','-nostdin','-xerror','-protocol_whitelist','file,pipe','-i',file,'-map','0:v:0'];
+    if(source.audio)args.push('-map','0:a:0','-af',`atrim=start=${start}:end=${end},asetpts=PTS-STARTPTS`,'-c:a','aac','-b:a','192k');
+    args.push('-vf',`trim=start_frame=${startFrame}:end_frame=${endFrame},setpts=PTS-STARTPTS`,'-c:v','libx264','-preset','veryfast','-crf','18','-pix_fmt','yuv420p','-threads','2','-fs',String(limits.outputBytes+1),'-movflags','+faststart',output);
+    await run(ffmpeg,args,{cwd:dir});const bytes=(await stat(output)).size;totalBytes+=bytes;
+    if(bytes>limits.outputBytes||totalBytes>400000000)throw failure('canvas_temporary_size_limit');
+    const measured=await inspectClip(output,{ffprobe,run});
+    if(Number(measured.video.nb_frames)!==endFrame-startFrame||Math.abs(measured.videoDuration-duration)>1/fps+.0001
+      ||measured.video.width!==source.video.width||measured.video.height!==source.video.height)throw failure('canvas_picture_timeline_mismatch');
+    outputs.push(output);
+  }
+  return outputs;
+}
+
 function displayGeometry(video) {
   const display=video.side_data_list?.find(s=>s.side_data_type==='Display Matrix');
   const rotation=Number(display?.rotation??video.tags?.rotate??0);
@@ -62,8 +94,8 @@ function displayGeometry(video) {
   return {width:swapped?video.height:video.width,height:swapped?video.width:video.height,sar:`${n/g}/${d/g}`,transformed};
 }
 
-export async function concatenateClips(files,dir,{ffmpeg='ffmpeg',ffprobe='ffprobe',run=mediaCommand,spatialPolicy='center-crop-v1',videoClock=false,fitAudio=false,smooth=false,previewSeam=null,transitions=null,limits={durationSeconds:600,outputBytes:80000000}}={}) {
-  if(files.length<2 || files.some(f=>path.dirname(f)!==dir)) throw failure('canvas_sources_invalid');
+export async function concatenateClips(files,dir,{ffmpeg='ffmpeg',ffprobe='ffprobe',run=mediaCommand,spatialPolicy='center-crop-v1',videoClock=false,fitAudio=false,smooth=false,previewSeam=null,transitions=null,allowSingle=false,limits={durationSeconds:600,outputBytes:80000000}}={}) {
+  if(files.length<(allowSingle?1:2) || files.some(f=>path.dirname(f)!==dir)) throw failure('canvas_sources_invalid');
   if(!['center-crop-v1','legacy-pad-v1'].includes(spatialPolicy))throw failure('canvas_spatial_policy_unsupported');
   const clips=[];for(const file of files) clips.push(await inspectClip(file,{ffprobe,run}));
   const fps=Math.max(...clips.map(c=>{const [n,d]=String(c.video.r_frame_rate).split('/').map(Number);return d?n/d:30;}));
@@ -267,7 +299,8 @@ export async function processCanvasExports({requestJson,authHeaders,baseUrl,limi
   const protocol=await json(base+'/claim');
   if(protocol?.data?.protocol!==1) throw failure('canvas_processor_protocol');
   if(dryRun) return; // A dry run must not acquire a processing lease.
-  const capability=Number.isInteger(protocol.data.recipeProtocol)?Math.min(7,protocol.data.recipeProtocol):4;
+  if(protocol.data.inspections===1)await processCanvasInspections({requestJson:json,authHeaders,baseUrl,ffmpeg,ffprobe,fetchImpl});
+  const capability=Number.isInteger(protocol.data.recipeProtocol)?Math.min(8,protocol.data.recipeProtocol):4;
   const jobs=(await json(base+'/claim',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({protocol:1,recipeProtocol:capability,limit:Math.min(1,limit)})})).data.jobs;
   for(const job of jobs) {
     const started=Date.now(),deadline=started+12*60_000,stages={};let stage='sources',stageStart=started;
@@ -293,13 +326,14 @@ export async function processCanvasExports({requestJson,authHeaders,baseUrl,limi
       }
       if(job.recipeVersion>=4 && (job.smoothJoins?.policy!==SEAM_POLICY||typeof job.smoothJoins.enabled!=='boolean'))throw failure('canvas_seam_policy_invalid');
       if(job.recipeVersion>=5&&job.originalAudioPolicy!==AUDIO_FIT_POLICY)throw failure('canvas_audio_fit_policy_invalid');
-      if(job.recipeVersion===6&&(job.transitionPolicy!==TRANSITION_POLICY||!Array.isArray(job.transitions)||job.transitions.length!==files.length-1))throw failure('canvas_transition_invalid');
+      if(job.recipeVersion>=6&&(job.transitionPolicy!==TRANSITION_POLICY||!Array.isArray(job.transitions)||job.transitions.length!==files.length-1))throw failure('canvas_transition_invalid');
       const options={ffmpeg,ffprobe,limits:job.limits,run:boundedRun};
       enter('normalize');
-      let result=await concatenateClips(files,dir,{...options,spatialPolicy:job.spatialPolicy||'legacy-pad-v1',videoClock:job.recipeVersion>=4,fitAudio:job.recipeVersion>=5,
-        transitions:job.recipeVersion===6?job.transitions:null,smooth:job.smoothJoins?.enabled===true,previewSeam:job.preview?.seamIndex??null});
+      const prepared=job.recipeVersion===7?await trimCanvasSources(files,job.assembly,dir,options):files;
+      let result=await concatenateClips(prepared,dir,{...options,allowSingle:job.recipeVersion===7,spatialPolicy:job.spatialPolicy||'legacy-pad-v1',videoClock:job.recipeVersion>=4,fitAudio:job.recipeVersion>=5,
+        transitions:job.recipeVersion>=6?job.transitions:null,smooth:job.smoothJoins?.enabled===true,previewSeam:job.preview?.seamIndex??null});
       const withAudio=async input=>{
-        let output=job.recipeVersion===6?input:await applyOriginalAudio(input,job.originalAudio,dir,options);
+        let output=job.recipeVersion>=6?input:await applyOriginalAudio(input,job.originalAudio,dir,options);
         if(job.backgroundMusic?.enabled) {
           enter('music');
           if(!music)throw failure('canvas_music_unavailable');
@@ -315,14 +349,16 @@ export async function processCanvasExports({requestJson,authHeaders,baseUrl,limi
         await json(`${base}/${job.id}/complete?part=preview-base`,{method:'POST',headers,body:clean,signal:AbortSignal.timeout(processingTimeout(deadline))});
         enter(previousStage);
       };
-      enter('source_audio');if(job.recipeVersion===6)result=await applyOriginalAudio(result,job.originalAudio,dir,options);
-      if(job.preview&&job.recipeVersion!==6)await uploadBase(await withAudio(result));
+      enter('source_audio');if(job.recipeVersion>=6)result=await applyOriginalAudio(result,job.originalAudio,dir,options);
+      if(job.preview&&job.recipeVersion<6)await uploadBase(await withAudio(result));
       enter('smooth');if(job.smoothJoins?.enabled)result=await smoothVideoSeams(result,dir,{...options,skipSeams:new Set((job.preview?[job.transitions?.[job.preview.seamIndex]]:job.transitions||[]).flatMap((t,i)=>t&&t.preset!=='none'?[i]:[])),...(job.preview?{originalSeamIndex:job.preview.seamIndex}:{})});
-      enter('transitions');if(job.recipeVersion===6)result=await applyVideoTransitions(result,job.preview?[job.transitions[job.preview.seamIndex]]:job.transitions,dir,{...options,inspect:inspectClip});
+      enter('transitions');if(job.recipeVersion>=6)result=await applyVideoTransitions(result,job.preview?[job.transitions[job.preview.seamIndex]]:job.transitions,dir,{...options,inspect:inspectClip});
+      if(job.recipeVersion===7)result.timeline=result.timeline.map(clip=>({...clip,overlap:clip.overlap||0}));
       // Reuse this job's already-created clean base. Never another render/job.
       // Separate bounded upload keeps the existing completion body limit intact.
       if(!job.preview && protocol.data.previewBase===1 && (job.backgroundMusic?.enabled && job.backgroundMusic.gain>0 || job.originalAudio?.some(modifiedAudio)||result.timeline.some(c=>c.originalAudioFit&&(c.originalAudioFit.trimStart>1/48000||c.originalAudioFit.trimEnd>1/48000))))await uploadBase(result);
       result=await withAudio(result);
+      if(job.recipeVersion===7&&!job.preview){const measured=await inspectClip(result.output,options);verifyCanvasDuration(measured.videoDuration,job.assembly.target);result.duration=measured.videoDuration;}
       enter('complete');
       const form=new FormData();form.set('video',new Blob([await readFile(result.output)],{type:'video/mp4'}),'full-video.mp4');
       for(const key of ['duration','width','height'])form.set(key,String(result[key]));

@@ -916,3 +916,16 @@ processor before dependent Auth/frontend. Recovery keeps the additive columns an
 compatible processor; restore an earlier frontend or choose None for new work.
 Actual release receipts and private live observations belong in the task checkpoint;
 implementation or fixture success alone does not prove publication.
+
+
+## Canvas production assistant
+
+The Grok 4.7 Canvas assistant and its editable assembly contract are documented in
+[Canvas production assistant](CANVAS_AGENT.md). Auth schema, AI/Auth code, private
+media image and frontend must advance through the existing protected continuation.
+The required schema number remains in `config/release-compat.json`. The existing
+queue and scheduled recovery own execution; the browser is an observer. Normal
+editing/re-export remains available without the assistant. Keep the core EN/DE
+Chromium/WebKit editability regression and real measured-duration/FFmpeg controls
+in their ordinary callers. Config readiness, synthetic acceptance and live account
+access are separate; no paid inference is implied by publication.

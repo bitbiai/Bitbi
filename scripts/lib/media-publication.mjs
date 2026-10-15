@@ -1,3 +1,4 @@
+import {normalizeCanvasAgentConfigDelta} from './canvas-agent-release.mjs';
 import {verifyImportedSmoothImage} from './local-release-browser.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -13,7 +14,7 @@ const cli=path.resolve('workers/auth/node_modules/wrangler/bin/wrangler.js');
 const wrangler=args=>run(process.execPath,[cli,...args],{env:{...process.env,WRANGLER_SEND_METRICS:'false'}});
 export function assertMediaAuthConfig(before,after) {
   const normalize=c=>{const copy=structuredClone(c);copy.services=copy.services.filter(s=>s.binding!=='PRIVATE_MEDIA_PROCESSOR');copy.secrets.required=copy.secrets.required.filter(s=>s!=='PRIVATE_MEDIA_PROCESSOR_SECRET');delete copy.vars.PRIVATE_MEDIA_SOURCE_SHA;return copy;};
-  const previous=normalize(before),next=normalize(after);
+  const {previous,next}=normalizeCanvasAgentConfigDelta(normalize(before),normalize(after),'auth');
   // Private provider upload/source capabilities must not enter automatic URL logs.
   // Only the reviewed privacy reduction is permitted; no other logging/config drift.
   assert.equal(next.observability?.logs?.invocation_logs,false,'Private media requires invocation logs disabled');

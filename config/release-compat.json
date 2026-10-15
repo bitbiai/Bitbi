@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0102_canvas_workspace_dimensions.sql",
+        "latest": "0105_canvas_media_inspections.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
@@ -12,9 +12,10 @@
       "ai": {
         "name": "bitbi-ai",
         "wranglerPath": "workers/ai/wrangler.jsonc",
-        "vars": ["ENABLE_GROK_4_6"],
+        "vars": ["ENABLE_GROK_4_6", "ENABLE_GROK_4_7"],
         "expectedVars": {
-          "ENABLE_GROK_4_6": "true"
+          "ENABLE_GROK_4_6": "true",
+          "ENABLE_GROK_4_7": "true"
         },
         "workersDev": false,
         "previewUrls": false,
@@ -36,16 +37,18 @@
       "auth": {
         "name": "bitbi-auth",
         "wranglerPath": "workers/auth/wrangler.jsonc",
-        "vars": ["APP_BASE_URL", "APP_ALLOWED_ORIGINS", "RESEND_FROM_EMAIL", "BITBI_ENV", "ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET", "ENABLE_GROK_4_6", "CLOUDFLARE_ACCOUNT_ID", "WEBSITE_ASSISTANT_ENABLED"],
+        "vars": ["APP_BASE_URL", "APP_ALLOWED_ORIGINS", "RESEND_FROM_EMAIL", "BITBI_ENV", "ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET", "ENABLE_GROK_4_6", "CLOUDFLARE_ACCOUNT_ID", "WEBSITE_ASSISTANT_ENABLED", "ENABLE_GROK_4_7", "CANVAS_AGENT_ENABLED"],
         "expectedVars": {
           "WEBSITE_ASSISTANT_ENABLED": "false",
+          "CANVAS_AGENT_ENABLED": "true",
           "APP_BASE_URL": "https://bitbi.ai",
           "APP_ALLOWED_ORIGINS": "https://bitbi.ai,https://van-ark.com",
           "RESEND_FROM_EMAIL": "BITBI <noreply@contact.bitbi.ai>",
           "BITBI_ENV": "production",
           "CLOUDFLARE_ACCOUNT_ID": "37b7a2153840c4f1623b9fc39a2680f8",
           "ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET": "true",
-          "ENABLE_GROK_4_6": "true"
+          "ENABLE_GROK_4_6": "true",
+          "ENABLE_GROK_4_7": "true"
         },
         "triggers": {
           "crons": ["0 3 * * *", "*/30 * * * *", "*/5 * * * *"]
@@ -232,6 +235,8 @@
       "authProxyFile": "workers/auth/src/lib/admin-ai-proxy.js",
       "deployOrder": ["ai-worker", "auth-worker"],
       "routes": [
+        {"aiRoute": "/internal/ai/canvas-agent/plan","allowedOperationIds": ["member.text.generate"],"authSources": [{"sourceFile": "workers/auth/src/lib/canvas-agent-planning.js","sourceRoute": "/api/account/canvas/projects/:projectId/agent","operationIds": ["member.text.generate"]}]},
+        {"aiRoute": "/internal/ai/canvas-agent/evaluate","allowedOperationIds": ["member.text.generate"],"authSources": [{"sourceFile": "workers/auth/src/lib/canvas-agent-planning.js","sourceRoute": "/api/account/canvas/projects/:projectId/agent","operationIds": ["member.text.generate"]}]},
         {
           "aiRoute": "/internal/ai/test-text",
           "allowedOperationIds": ["admin.text.test", "member.text.generate", "member.music.lyrics.generate"],
@@ -930,6 +935,9 @@
       "/api/admin/ai/test-video"
     ],
     "internalOnlyRoutes": [
+      "/internal/ai/canvas-agent/readiness",
+      "/internal/ai/canvas-agent/plan",
+      "/internal/ai/canvas-agent/evaluate",
       "/internal/ai/fable-chat",
       "/internal/ai/fable-chat/stream",
       "/internal/ai/fable-chat/memory",

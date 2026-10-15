@@ -4,6 +4,7 @@ import { sha256Hex, nowIso } from './tokens.js';
 import { ownedCanvasVideo } from './canvas-video-input.js';
 import {smoothJoinSettings,seamPreviewSettings} from '../../../../js/shared/canvas-smooth-joins.mjs';
 import {CANVAS_AUDIO_FIT_POLICY} from '../../../../js/shared/canvas-audio-fit.mjs';
+import { canvasAssembly } from '../../../../js/shared/canvas-assembly.mjs';
 
 const fail = code => { throw Object.assign(new Error(code), {code,status:409}); };
 export async function validateExportEdge(env,userId,projectId,sourceId,targetId,config) {
@@ -53,16 +54,24 @@ export async function connectedExportMusic(env,userId,projectId,runId,selectedId
   const asset=await ownedCanvasMusic(env,userId,assetId);
   return {kind:'music',assetId:asset.id,version:asset.version,size:asset.size};
 }
-export async function canvasExportRecipe(env,userId,projectId,runId,videos,settings,explicit=false,smooth=false,preview,transitions=[]) {
+export async function canvasExportRecipe(env,userId,projectId,runId,videos,settings,explicit=false,smooth=false,preview,transitions=[],assembly=null) {
   const backgroundMusic=exportMusicSettings(settings);
-  const music=backgroundMusic.enabled?await connectedExportMusic(env,userId,projectId,runId,backgroundMusic.musicAssetId):null;
+  let music=null;
+  if(backgroundMusic.enabled&&assembly?.musicNodeId){
+    const node=await env.DB.prepare('SELECT asset_id,output_json FROM canvas_nodes WHERE id=? AND user_id=? AND project_id=? AND deleted_at IS NULL').bind(assembly.musicNodeId,userId,projectId).first();
+    const assetId=node?.asset_id||JSON.parse(node?.output_json||'{}').asset?.id;
+    if(!assetId||backgroundMusic.musicAssetId&&backgroundMusic.musicAssetId!==assetId)fail('canvas_music_unavailable');
+    const asset=await ownedCanvasMusic(env,userId,assetId);music={kind:'music',assetId:asset.id,version:asset.version,size:asset.size};
+  } else if(backgroundMusic.enabled)music=await connectedExportMusic(env,userId,projectId,runId,backgroundMusic.musicAssetId);
+
   if(backgroundMusic.enabled && !music)fail('canvas_music_unavailable');
   const sources=[...videos,...(music?[music]:[])];
   if(sources.reduce((total,s)=>total+s.size,0)>400_000_000)fail('canvas_chain_size');
   const smoothJoins=smoothJoinSettings(smooth),comparison=seamPreviewSettings(preview,videos.length);
+  if(assembly)assembly=canvasAssembly(assembly);
   const effects=transitions.some(t=>t.preset!=='none');
   if(comparison&&!smoothJoins.enabled&&!effects)fail('canvas_smooth_settings');
-  return {version:effects?6:5,...(effects?{transitionPolicy:TRANSITION_POLICY,transitions}:{}),spatialPolicy:'center-crop-v1',timingPolicy:'video-clock-v2',originalAudioPolicy:CANVAS_AUDIO_FIT_POLICY,smoothJoins,...(comparison?{preview:comparison}:{}),...(explicit?{sequence:'explicit'}:{}),videos,music,backgroundMusic};
+  return {version:assembly?7:effects?6:5,...(effects||assembly?{transitionPolicy:TRANSITION_POLICY,transitions}:{}),...(assembly?{assembly}:{}),spatialPolicy:'center-crop-v1',timingPolicy:'video-clock-v2',originalAudioPolicy:CANVAS_AUDIO_FIT_POLICY,smoothJoins,...(comparison?{preview:comparison}:{}),...(explicit?{sequence:'explicit'}:{}),videos,music,backgroundMusic};
 }
 export async function exportHead(env,userId,runId) {
   const subject=canvasExportSubject(runId);
