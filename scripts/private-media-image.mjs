@@ -5,6 +5,7 @@ import {randomUUID} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {hash} from './lib/frontend-hosting.mjs';
 import {requiresPrivateMediaImage,selectCiTests,canvasCompletionRouteSources} from './lib/ci-test-selection.mjs';
+import {mediaTestOwnerFromEnv,persistMediaTestContainer,clearMediaTestContainer,mediaTestContainerLabels} from './lib/local-media-test-process.mjs';
 export const MEDIA_TEST_TIMEOUT_MS=600000;
 const docker=args=>execFileSync('docker',args,{encoding:'utf8',stdio:['ignore','pipe','pipe'],timeout:MEDIA_TEST_TIMEOUT_MS,maxBuffer:8*1024*1024});
 const TEST_RUNTIME=Object.freeze(['run','--rm','--network','none','--env','MEMBER_GENERATION_POSTERS_ONLY=1','--platform','linux/amd64','--read-only','--cpus','1','--memory','6g','--tmpfs','/tmp:rw,size=2g']);
@@ -40,25 +41,28 @@ export function verifyMediaTestGroups(record,log) {
   assert.equal(remaining,'','Unexpected media group observations');
   assert.equal(record.testLogDigest,hash(log),'Media group log changed');
 }
-export function executeMediaTestGroups({policy,image,sourceFiles,mounts,directory,run=docker,cleanup=name=>execFileSync('docker',['rm','--force',name],{encoding:'utf8',stdio:['ignore','pipe','pipe'],timeout:30000})}) {
+export function executeMediaTestGroups({policy,image,sourceFiles,mounts,directory,owner=mediaTestOwnerFromEnv(),run=docker,cleanup=name=>execFileSync('docker',['rm','--force',name],{encoding:'utf8',stdio:['ignore','pipe','pipe'],timeout:30000})}) {
   // A failed/restarted attempt must never leave an old success receipt available.
   for(const file of ['image.json','image.tar','test.log'])fs.rmSync(path.join(directory,file),{force:true});
   const logFile=path.join(directory,'test.log'),groups=[];
   fs.writeFileSync(logFile,'');
   for(const group of mediaTestGroups(policy)) {
     const name=`bitbi-media-test-${process.pid}-${randomUUID()}-${group.id}`,started=Date.now();
+    const identity=owner?{owner,pid:process.pid,name,image,group:group.id}:null;
+    if(identity)persistMediaTestContainer(directory,identity);
     fs.appendFileSync(logFile,JSON.stringify({group:group.id,event:'started'})+'\n');
     console.log(`Media image test group: ${group.id} (${name})`);
     let output;
     try {
-      output=run([...TEST_RUNTIME,'--name',name,...mounts,image,'node','--input-type=module','-e',group.script]);
+      output=run([...TEST_RUNTIME,'--name',name,...(identity?mediaTestContainerLabels(identity):[]),...mounts,image,'node','--input-type=module','-e',group.script]);
     } catch(error) {
       fs.appendFileSync(logFile,String(error.stdout||'')+String(error.stderr||'')+'\n'+JSON.stringify({group:group.id,event:'failed',code:error.code||null,signal:error.signal||null})+'\n');
       // Killing the Docker CLI on timeout does not stop its container. Remove
       // only this invocation's unique name, retaining the original failure.
-      try{cleanup(name);}catch{fs.appendFileSync(logFile,JSON.stringify({group:group.id,event:'cleanup_failed'})+'\n');}
+      try{cleanup(name);if(identity)clearMediaTestContainer(directory,identity);}catch{fs.appendFileSync(logFile,JSON.stringify({group:group.id,event:'cleanup_failed'})+'\n');}
       throw error;
     }
+    if(identity)clearMediaTestContainer(directory,identity);
     fs.appendFileSync(logFile,output+'\n'+JSON.stringify({group:group.id,event:'passed'})+'\n');
     const elapsedMs=Date.now()-started;
     groups.push({id:group.id,status:'passed',image,sourceDigest:inputDigest(sourceFiles),commandDigest:hash(JSON.stringify(testCommand(group,image))),elapsedMs,outputDigest:hash(output)});
@@ -84,7 +88,8 @@ export function mediaFullTestProof(sourceFiles) {
 }
 export function mediaImageInputs() {
   const files=execFileSync('git',['ls-files','--cached','--others','--exclude-standard','services/homepage-ffmpeg-processor','workers/media'],{encoding:'utf8'}).trim().split('\n').filter(Boolean);
-  return Object.fromEntries([...new Set([...files,'scripts/private-media-image.mjs','tests/fixtures/media/h3-overrun.mp4','workers/auth/src/lib/h3-reference-metadata.js'])].sort().map(file=>[file,hash(fs.readFileSync(file))]));
+  const lifecycle='scripts/lib/local-media-test-process.mjs';
+  return Object.fromEntries([...new Set([...files,'scripts/private-media-image.mjs',...(fs.existsSync(lifecycle)?[lifecycle]:[]),'tests/fixtures/media/h3-overrun.mp4','workers/auth/src/lib/h3-reference-metadata.js'])].sort().map(file=>[file,hash(fs.readFileSync(file))]));
 }
 export function verifyMediaImage(record,{sha,run,attempt,archive,base}) {
   assert.equal(record.sha,sha);assert.equal(record.run,run);assert.equal(record.attempt,attempt);

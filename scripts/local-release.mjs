@@ -12,6 +12,7 @@ import { gitSelection, tree, REPOSITORY, publishedBase } from './pages-candidate
 import { verifyLocalEvidence, LOCAL_WORKER_REPAIR, LOCAL_IMPORT_REPAIR, localRepairCommand, verifyImportRepairEvidence, LOCAL_REPAIR_REFRESH, LOCAL_CORE_REUSE, LOCAL_HOMEPAGE_REPORTS, verifyRetainedHomepageReports, assertLocalRepairTree, verifyLocalWorkerRepair, localWorkerContinuation } from './lib/local-release-evidence.mjs';
 import { BROWSER_ORIGINS, readMigrationBrowserPool, runMigrationBrowserContinuation, SMOOTH_BROWSER_CONTINUATION, EXAMPLE_CACHE_CONTINUATION, WORKSPACE_CONTINUATION, AUDIO_FIT_CONTINUATION, INSPECTOR_CONTINUATION,EXPORT_BROWSER_CONTINUATION, smoothProfile, SMOOTH_BROWSER_POLICY, isSmoothContinuation, runSmoothBrowserContinuation } from './lib/local-release-browser.mjs';
 import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,SMOOTH_REFRESH,permissionRefresh,assertPermissionContinuationTree,permissionContinuationPrefix,canvasStageContinuation} from './lib/local-release-evidence.mjs';
+import {runMediaImageStep,restoreMediaTestDiagnostics} from './lib/local-media-test-process.mjs';
 
 const git = (args, cwd = '.') => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore','pipe','pipe'] }).trim();
 const json = file => JSON.parse(fs.readFileSync(file));
@@ -166,7 +167,7 @@ export async function releaseLocal(options = {}) {
   });
 }
 
-function runLocalRelease({ base, resume }) {
+async function runLocalRelease({ base, resume }) {
   assert.equal(process.platform, 'darwin');
   assert.equal(git(['branch','--show-current']), 'main', 'Release preparation starts on main');
   const sha = git(['rev-parse','HEAD']);
@@ -340,7 +341,7 @@ function runLocalRelease({ base, resume }) {
     Q2_RUNTIME_ARTIFACTS: '/tmp/bitbi-release/q2-runtime-evidence',
     REPAIR_SOURCE_SHA: '', REPAIR_SOURCE_RUN: '', REPAIR_SOURCE_ATTEMPT: '',
     RUNNER_TOOL_CACHE: '/tmp/bitbi-release/toolcache', npm_config_cache: '/tmp/bitbi-release/npm' };
-  let created=false;
+  let created=false,mediaDiagnostics=null;
   try {
     // Only this disposable source directory is mounted. No user home, GitHub/
     // Cloudflare token, host socket, SSH agent or production binding enters it.
@@ -384,15 +385,14 @@ function runLocalRelease({ base, resume }) {
       let result;
       try {
         if(command.name==='Build and test private media Linux image') {
-          result=spawnSync(process.execPath,['scripts/private-media-image.mjs','--if-needed'],{cwd:work,
+          result=await runMediaImageStep({cwd:work,sha,run:id,attempt:'1',
             env:{...safeEnv(),DOCKER_CONTEXT:'colima-bitbi-release',GITHUB_SHA:sha,GITHUB_RUN_ID:id,GITHUB_RUN_ATTEMPT:'1',CANDIDATE_BASE:base},
-            stdio:['ignore',fd,fd],timeout:1200000});
-          // Retain failed native-image diagnostics before the Linux export replaces
-          // the source artifact directory. Failure still stops publication.
-          if(fs.existsSync(path.join(work,'test-results/private-media-image'))) {
-            docker(['exec',name,'mkdir','-p','/workspace/test-results']);
-            docker(['cp',path.join(work,'test-results/private-media-image'),`${name}:/workspace/test-results/`]);
-          }
+            stdio:['ignore',fd,fd]}, {diagnosticsRoot:directory,onDiagnostics:capture=>{mediaDiagnostics=capture;},copyToWorkspace:()=>{
+              if(fs.existsSync(path.join(work,'test-results/private-media-image'))) {
+                docker(['exec',name,'mkdir','-p','/workspace/test-results']);
+                docker(['cp',path.join(work,'test-results/private-media-image'),`${name}:/workspace/test-results/`]);
+              }
+            }});
         } else {
         for(const part of commandRuntimes(command)) {
         if(part.runtime==='native-browser-v1') {
@@ -498,6 +498,10 @@ function runLocalRelease({ base, resume }) {
         // never acquire a passing receipt; an exact resume rechecks the reports.
         console.error(`Local snapshot failed (${error.code || error.status || 'unknown'}); evidence: ${directory}`);
       } finally {
+        // A cleanup/copy rejection must retain the exact unresolved host identity
+        // for explicit reconciliation, never replace it with older Linux output.
+        try {restoreMediaTestDiagnostics(mediaDiagnostics,work);}
+        catch(error) {console.error(`Media diagnostics remain at ${mediaDiagnostics?.directory} (${error.code || 'restore_failed'}).`);}
         try { docker(['rm','-f',name]); }
         catch(error) { console.error(`Remove the task container ${name} before another run (${error.code || error.status || 'unknown'}).`); }
       }

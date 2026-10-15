@@ -9,9 +9,10 @@ import {testCanvasAssemblyProcessing} from './canvas-assembly.test.mjs';
 import {concatenateClips,mediaCommand,inspectClip,processingTimeout,processCanvasExports,mixBackgroundMusic,loopMusicPcm} from './canvas-full-video.mjs';
 
 export async function testMediaCommandDiagnostics() {
+  const {safeCanvasDiagnostic}=await import('./canvas-diagnostics.mjs');
   const dir=await mkdtemp(path.join(tmpdir(),'media-tool-private-fixture-'));
   const check=(error,code,fields)=>{
-    assert.equal(error.code,code);assert(Number.isSafeInteger(error.diagnostic.elapsedMs));
+    assert.equal(error.code,code,JSON.stringify(safeCanvasDiagnostic(error.diagnostic)));assert(Number.isSafeInteger(error.diagnostic.elapsedMs));
     for(const [key,value] of Object.entries(fields))assert.equal(error.diagnostic[key],value);
     for(const value of [dir,'private-argument','private.invalid','signed-token','private-token'])assert(!(String(error.stack)+JSON.stringify(error)).includes(value));
     assert(!('stderr' in error.diagnostic));return true;
@@ -22,14 +23,17 @@ export async function testMediaCommandDiagnostics() {
       if(osCode==='EACCES'){await writeFile(command,'private invalid executable');await chmod(command,0o600);}
       await assert.rejects(mediaCommand(command,['private-argument','https://private.invalid/signed-token']),error=>check(error,'canvas_media_configuration',{tool,osCode,errorClass:'configuration'}));
     }
+    // Emit fixed synthetic diagnostics synchronously, without starting another
+    // Node runtime. Pass untrusted-looking text as argv, never as shell source.
     for(const [message,code,reason] of [
       ['Invalid data found','canvas_media_invalid','invalid_media'],
       ['First input link main timebase (1/1000000) do not match the corresponding second input link xfade timebase (1/24)','canvas_media_filter_invalid','timebase_mismatch'],
       ['No space left on device; Error reinitializing filters','canvas_media_resource_limit','resource_limit'],
       ['Unrecognized fixture failure','canvas_media_tool_failed','unknown'],
-    ])await assert.rejects(mediaCommand(process.execPath,['-e',`console.error(${JSON.stringify('private-token https://private.invalid/secret '+message)});process.exit(7)`]),error=>check(error,code,{exit:7,signal:null,reason}));
-    await assert.rejects(mediaCommand(process.execPath,['-e','setTimeout(()=>{},10000)'],{timeout:50}),error=>check(error,'canvas_processing_deadline',{exit:null,signal:'SIGKILL',reason:'deadline'}));
-    await assert.rejects(mediaCommand(process.execPath,['-e',"process.kill(process.pid,'SIGKILL')"]),error=>check(error,'canvas_media_tool_failed',{exit:null,signal:'SIGKILL',reason:'unknown'}));
+    ])await assert.rejects(mediaCommand('/bin/sh',['-c','printf "%s\\n" "$1" >&2; exit 7','fixture','private-token https://private.invalid/secret '+message]),error=>check(error,code,{exit:7,signal:null,reason}));
+    await assert.rejects(mediaCommand('/bin/sh',['-c','exit 7']),error=>check(error,'canvas_media_tool_failed',{exit:7,signal:null,reason:'unknown'}));
+    await assert.rejects(mediaCommand('/bin/sh',['-c','exec sleep 10'],{timeout:50}),error=>check(error,'canvas_processing_deadline',{exit:null,signal:'SIGKILL',reason:'deadline'}));
+    for(const signal of ['SIGKILL','SIGSEGV'])await assert.rejects(mediaCommand('/bin/sh',['-c',`ulimit -c 0; kill -${signal.slice(3)} $$`]),error=>check(error,'canvas_media_tool_failed',{exit:null,signal,reason:'unknown'}));
     console.log('Media diagnostics: missing/denied tools, timebase/media/resource classes, private-data redaction and deadline versus external signal passed.');
   } finally {await rm(dir,{recursive:true,force:true});}
 }

@@ -1455,5 +1455,5 @@ export function formatCiTestSelection(selection) {
 // Existing Worker job also tests the exact deployable Linux image when any of
 // its inputs change. Unrelated worker-only releases do not build a container.
 export function requiresPrivateMediaImage(files) {
-  return files.some(f=>f.startsWith('workers/media/')||f.startsWith('services/homepage-ffmpeg-processor/')||f==='scripts/private-media-image.mjs');
+  return files.some(f=>f.startsWith('workers/media/')||f.startsWith('services/homepage-ffmpeg-processor/')||f==='scripts/private-media-image.mjs'||f==='scripts/lib/local-media-test-process.mjs');
 }

@@ -19,6 +19,7 @@ import { assertHostedBootstrapAllowed, assertLocalBootstrapAllowed } from '../te
 import { acquireLocalReleaseLock, prepareCandidateRestore, copyEvidenceToolInputs } from './local-release.mjs';
 import { LOCAL_IMPORT_REPAIR, assertImportRepairWorkflow, localRepairCommand, verifyImportRepairEvidence } from './lib/local-release-evidence.mjs';
 import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,assertPermissionContinuationTree,permissionContinuationPrefix,CANVAS_STAGE_CASES,canvasStageContinuation} from './lib/local-release-evidence.mjs';
+import {testLocalMediaProcess} from './test-local-media-process.mjs';
 
 function testPermissionContinuation() {
   const head='f'.repeat(40),corrected=fs.readFileSync('scripts/test-frontend-review.mjs');
@@ -561,6 +562,7 @@ if(process.env.BITBI_LOCAL_RELEASE_CONTAINER==='1') {
   }
 }
 
+await testLocalMediaProcess();
 await testLocalRepair();
 testImportRepair();
 testPermissionContinuation();

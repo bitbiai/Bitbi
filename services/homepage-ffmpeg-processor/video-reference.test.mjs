@@ -5,6 +5,12 @@ import path from 'node:path';
 import {mediaCommand} from './canvas-full-video.mjs';
 import {prepareReference} from './video-reference.mjs';
 import {inspectH3TimeReference,h3EncoderOverrun} from '../../workers/auth/src/lib/h3-reference-metadata.js';
+import {safeCanvasDiagnostic} from './canvas-diagnostics.mjs';
+export async function testVideoReferenceDiagnostics() {
+  await assert.rejects(mediaCommand('/bin/sh',['-c','printf "%s\\n" "$1" >&2; exit 7','fixture','private-token https://private.invalid/secret Invalid data found']),error=>{
+    assert.equal(error.code,'canvas_media_invalid',JSON.stringify(safeCanvasDiagnostic(error.diagnostic)));assert.equal(error.diagnostic.exit,7);assert.equal(error.diagnostic.reason,'invalid_media');assert(!/private-token|private.invalid|stderr/.test(JSON.stringify(error)));return true;
+  });
+}
 export async function testVideoReferences() {
   const dir=await mkdtemp(path.join(tmpdir(),'bitbi-reference-test-'));
   try {
@@ -20,9 +26,7 @@ export async function testVideoReferences() {
     // A rounded movie header cannot excuse genuinely excessive track timing.
     const excessive=async(...args)=>JSON.stringify({streams:[{codec_type:'video',width:320,height:320,avg_frame_rate:'24/1',nb_frames:'362',duration_ts:185400,time_base:'1/12288'}],format:{duration:'15.083'}});
     await assert.rejects(prepareReference(file,dir,{run:excessive}),{stage:'source_timing'});
-    await assert.rejects(mediaCommand(process.execPath,['-e',"console.error('private-token https://private.invalid/secret Invalid data found');process.exit(7)"]),error=>{
-      assert.equal(error.code,'canvas_media_invalid');assert.equal(error.diagnostic.exit,7);assert.equal(error.diagnostic.reason,'invalid_media');assert(!/private-token|private.invalid|stderr/.test(JSON.stringify(error)));return true;
-    });
+    await testVideoReferenceDiagnostics();
     const fixture=async(name,frames)=>{
       const file=path.join(dir,name+'.mp4');
       await mediaCommand('ffmpeg',['-y','-v','error','-f','lavfi','-i','testsrc2=size=320x320:rate=24','-f','lavfi','-i','sine=frequency=440:sample_rate=48000',

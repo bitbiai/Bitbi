@@ -1829,6 +1829,32 @@ outer 1,200-second release bound. The ordinary full test entry remains unconditi
 complete image proof must reject missing, duplicate, reordered or failed groups,
 and a failed rerun must not leave a current success receipt. This is test-runner
 capacity, not a relaxed product-duration, source-clock or processing-deadline check.
+The outer local runner owns termination cleanup as well: persist an atomic exact
+container identity before launch, bind it to the candidate/run/attempt/process
+with a fresh nonce and Docker labels, and verify that identity plus the immutable
+image before removal. A timeout or parent SIGINT/SIGTERM must invalidate image
+success artifacts and clean only that invocation. The transitive lifecycle helper
+is an image-proof input and selects image acceptance when changed. Real child
+exit/timeout and parent-signal tests, using the actual producer entry with a
+synthetic Docker boundary, reject foreign/malformed identities and stale success.
+If Docker cleanup fails, retain the exact identity and log outside the replaceable
+Linux snapshot and restore them for explicit reconciliation; never lose an
+unresolved container identity while collecting failed-run evidence.
+
+Candidate `8a77961e`, attempt 1 (local run suffix
+`4a4a9c30-4acc-4526-9205-2979ccd4ac3a`), passed the strengthened 120-second image
+assembly before a diagnostic fixture expected `canvas_media_invalid` but observed
+`canvas_media_tool_failed`. The original assertion omitted the subprocess details,
+so its exact cause is unknown. A focused target-image probe separately observed
+one Node child SIGSEGV among 30 real `mediaCommand` invocations; emulation is a
+hypothesis, and stderr flush loss was not observed. Fixed synthetic diagnostic
+text now uses synchronous `/bin/sh` printf with text passed as argv, preserving
+classification/redaction assertions; missing text, explicit signals and timeout
+remain meaningful controls. Future assertion failures include only allowlisted
+sanitized diagnostics. Evidence: local cache `diagnostics/media-diagnostics-8a77961e`
+(`fixed-test-passed.json`, `broken-test.json`, `probe.log`, `probe2.log`); focused
+actual-image diagnostics passed. This changes the fixture, not product retry or
+classification policy. Final full selected acceptance remains required.
 
 
 Baseline `746863c9` used a fixed surface and separate drag/placement clamps. The

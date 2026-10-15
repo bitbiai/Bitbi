@@ -889,6 +889,11 @@ assert(selection(['js/pages/canvas/video-frame.js', 'js/pages/index/latest-model
  assert.equal(selected.homepage,false);assert.equal(selected.carousel,false);
  const jobs=requiredJobs({...selected,files});assert(jobs['worker-validation'].includes('Build and test private media Linux image'));assert(jobs['worker-validation'].includes('Preserve tested private media image'));
  assert(selectCiTests([...files,'scripts/unknown-media-authority.mjs']).full);
+ const helper=['scripts/lib/local-media-test-process.mjs'],helperSelection=selectCiTests(helper);
+ assert(helperSelection.full,'An unknown orchestration change retains the full regression policy');
+ const helperJobs=requiredJobs({...helperSelection,files:helper});
+ for(const step of ['Build and test private media Linux image','Preserve tested private media image'])assert(helperJobs['worker-validation'].includes(step),'Changed transitive image execution authority must test the actual image');
+ assert(!requiredJobs({...selectCiTests(['scripts/unrelated-helper.mjs']),files:['scripts/unrelated-helper.mjs']})['worker-validation'].includes('Build and test private media Linux image'),'An unrelated helper cannot fabricate a media input');
 }
 
 {
