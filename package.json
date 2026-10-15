@@ -126,6 +126,7 @@
   },
   "overrides": {
     "brace-expansion": "1.1.21",
+    "compression": "1.8.2",
     "ws": "8.21.0"
   }
 }
