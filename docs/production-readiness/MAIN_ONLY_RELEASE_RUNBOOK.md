@@ -307,15 +307,20 @@ it does not authorize new production operations, paid calls or protection change
    continuation, durable receipt and authorized live verification. Reuse matching
    candidate evidence where supported; never redeploy unchanged components for a green run.
 
-The reviewed Undici exception changes deployment classification only. For Auth,
-AI and Contact, `scripts/lib/worker-tooling-impact.mjs` requires immutable Git
-base/head evidence of only a forward compatible Undici development-leaf patch,
-unchanged runtime/compiler inputs, and no application imports of that tool chain
-or custom build/resolution path. The existing literal import traversal requires
+The reviewed Undici and exact Sharp 0.35.4 → 0.35.5 security-patch exceptions
+change deployment classification only. `scripts/lib/worker-tooling-impact.mjs`
+requires immutable Git base/head evidence: the compatible Undici leaf, or Sharp
+and its existing native family (libvips packages 1.3.3 → 1.3.4), unchanged
+non-target dependencies/compiler inputs, and no application imports of that tool
+chain or custom build/resolution path. The Sharp proof can accompany only the
+separately reviewed Canvas activation flags; it cannot hide other configuration
+changes. Auth/AI selected by product changes still deploy. Contact is omitted only
+when its own reachable runtime and configuration remain unchanged.
+The existing literal import traversal requires
 every reached source to remain byte-identical across base/head; an unrelated
 frontend-only shared module does not force an unchanged Worker deployment.
 A separate proof of that same reviewed package patch can accompany an already
-selected Auth runtime deployment; it never removes that deployment or admits an
+selected Auth/AI runtime deployment; it never removes that deployment or admits an
 unreviewed package/compiler/config change. Unknown or missing evidence retains normal
 deployment requirements. Audits and affected Worker tests still run. Existing
 `test:release-plan` real-Git controls cover mixed product changes, missing evidence,

@@ -4,10 +4,11 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 
 export const WORKER_PROJECTS = ['workers/auth', 'workers/contact', 'workers/ai'];
-export const PATCHED_SHARP = '0.35.4';
+export const PATCHED_SHARP = '0.35.5';
+export const PATCHED_SHARP_LIBVIPS = '1.3.4';
 const read = file => JSON.parse(fs.readFileSync(file, 'utf8'));
 
-// Exact project-level override for GHSA-rgj7-g3m4-5g8c. npm 10 cold installs
+// Exact project-level override for GHSA-rgj7-g3m4-5g8c and GHSA-wq5f-xc86-pv6w. npm 10 cold installs
 // cannot reconstruct the nested Miniflare override used previously. Miniflare
 // is the only sharp parent in these projects; this is never an audit exception.
 export function validateSharpLock(pkg, lock) {
@@ -28,12 +29,24 @@ export function validateSharpLock(pkg, lock) {
     assert(sharp.optionalDependencies?.[`@img/sharp-libvips-${platform}`], `missing native libraries ${platform}`);
   }
   for (const [name, version] of Object.entries(sharp.optionalDependencies || {})) {
-    assert.equal(version, name.startsWith('@img/sharp-libvips-') ? '1.3.3' : PATCHED_SHARP, `patched native package ${name}`);
+    assert.equal(version, name.startsWith('@img/sharp-libvips-') ? PATCHED_SHARP_LIBVIPS : PATCHED_SHARP, `patched native package ${name}`);
     const entry = packages[`node_modules/${name}`];
     assert.equal(entry?.version, version, `native lock resolution ${name}`);
     assert(entry.integrity && entry.optional && entry.dev, `native package metadata ${name}`);
   }
   return Object.fromEntries(Object.entries(packages).filter(([key]) => key === 'node_modules/sharp' || key.startsWith('node_modules/@img/sharp')));
+}
+
+export function validateSharpVersions(versions) {
+  assert.equal(versions.sharp, PATCHED_SHARP, 'actual Miniflare import must resolve patched sharp');
+  const atLeast = (value, minimum) => {
+    if(!/^\d+\.\d+\.\d+$/.test(String(value || '')))return false;
+    const actual=String(value).split('.').map(Number);
+    for(let i=0;i<3;i++){if(actual[i]>minimum[i])return true;if(actual[i]<minimum[i])return false;}
+    return true;
+  };
+  assert(atLeast(versions.heif,[1,23,2]),'actual loaded libheif must be >=1.23.2, including global-library builds');
+  assert(atLeast(versions.rsvg,[2,63,2]),'actual loaded librsvg must be >=2.63.2, including global-library builds');
 }
 
 export function validateInstalledSharp(workerRoot) {
@@ -45,11 +58,7 @@ export function validateInstalledSharp(workerRoot) {
   const requireMiniflare = createRequire(miniflarePath);
   const sharp = requireMiniflare('sharp');
   assert.equal(read(miniflarePath).version, lock.packages['node_modules/miniflare'].version);
-  assert.equal(sharp.versions.sharp, PATCHED_SHARP, 'actual Miniflare import must resolve patched sharp');
-  const heif = String(sharp.versions.heif || '').split('.').map(Number);
-  assert(heif.length === 3 && heif.every(Number.isInteger) &&
-    (heif[0] > 1 || (heif[0] === 1 && (heif[1] > 23 || (heif[1] === 23 && heif[2] >= 2)))),
-  'actual loaded libheif must be >=1.23.2, including global-library builds');
-  return { sharp: sharp.versions.sharp, vips: sharp.versions.vips, heif: sharp.versions.heif,
+  validateSharpVersions(sharp.versions);
+  return { sharp: sharp.versions.sharp, vips: sharp.versions.vips, heif: sharp.versions.heif, rsvg:sharp.versions.rsvg,
     miniflare: read(miniflarePath).version, platform: process.platform, arch: process.arch };
 }

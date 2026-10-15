@@ -3,13 +3,15 @@
 export function backendContinuationSupported(plan) {
   if(!plan?.impacts || plan.consistencyIssues?.length || plan.impacts.uncategorizedFiles?.length) return false;
   const runtimeFiles = plan.changedFiles.filter(file => !plan.toolingOnlyWorkerPackageFiles?.includes(file));
+  const reviewedWorkerTooling = file => {
+    const worker=/^workers\/(auth|ai)\/package(?:-lock)?\.json$/.exec(file)?.[1];
+    return worker&&plan.workerDeploys.some(step=>step.worker===worker)&&plan.reviewedToolingPatchFiles?.includes(file);
+  };
   if(!plan.workerDeploys?.length || plan.workerDeploys.some(s=>!['auth','media','ai'].includes(s.worker))) return false;
   if(plan.workerDeploys.some(s=>s.worker==='ai') && !runtimeFiles.every(f=>!f.startsWith('workers/ai/') || ['workers/ai/src/routes/text.js','workers/ai/src/lib/grok-chat.js','workers/ai/src/lib/invoke-ai.js','workers/ai/src/lib/invoke-ai-video.js','workers/ai/src/routes/video-task.js',
-    'workers/ai/src/index.js','workers/ai/src/routes/canvas-agent-plan.js','workers/ai/src/lib/canvas-agent-plan.js','workers/ai/src/lib/caller-policy.js','workers/ai/src/lib/validate.js','workers/ai/src/lib/responses.js','workers/ai/src/routes/image.js','workers/ai/src/routes/music.js'].includes(f) || f==='workers/ai/wrangler.jsonc'&&plan.reviewedCanvasAgentConfigFiles?.includes(f)))return false;
+    'workers/ai/src/index.js','workers/ai/src/routes/canvas-agent-plan.js','workers/ai/src/lib/canvas-agent-plan.js','workers/ai/src/lib/caller-policy.js','workers/ai/src/lib/validate.js','workers/ai/src/lib/responses.js','workers/ai/src/routes/image.js','workers/ai/src/routes/music.js'].includes(f) || reviewedWorkerTooling(f) || f==='workers/ai/wrangler.jsonc'&&plan.reviewedCanvasAgentConfigFiles?.includes(f)))return false;
   if(plan.schemaApplies?.some(s=>s.checkpoint!=='auth')) return false;
   if(plan.deploySteps.some(s=>!['static','worker','schema-checkpoint','service'].includes(s.type) || s.type==='service'&&s.service!=='homepage-ffmpeg-processor'))return false;
-  const reviewedAuthTooling = file => /^workers\/auth\/package(?:-lock)?\.json$/.test(file)
-    && plan.workerDeploys.some(step => step.worker === 'auth') && plan.reviewedToolingPatchFiles?.includes(file);
-  if(runtimeFiles.some(f=>/^workers\/.*\/(wrangler\.jsonc|package(?:-lock)?\.json)$/.test(f)&&f!=='workers/auth/wrangler.jsonc'&&!f.startsWith('workers/media/')&&!reviewedAuthTooling(f)&&!(f==='workers/ai/wrangler.jsonc'&&plan.reviewedCanvasAgentConfigFiles?.includes(f))))return false;
+  if(runtimeFiles.some(f=>/^workers\/.*\/(wrangler\.jsonc|package(?:-lock)?\.json)$/.test(f)&&f!=='workers/auth/wrangler.jsonc'&&!f.startsWith('workers/media/')&&!reviewedWorkerTooling(f)&&!(f==='workers/ai/wrangler.jsonc'&&plan.reviewedCanvasAgentConfigFiles?.includes(f))))return false;
   return (plan.manualPrerequisites?.required||[]).every(p=>(p.worker==='auth'&&['secret','cloudflare_feature','cloudflare_queue','cloudflare_r2_bucket'].includes(p.kind)) || (p.worker==='ai'&&p.kind==='secret'));
 }

@@ -2,6 +2,8 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { isDeepStrictEqual } from 'node:util';
 import path from 'node:path';
 import { parseJsonc } from './release-compat.mjs';
+import {normalizeCanvasAgentConfigDelta} from './canvas-agent-release.mjs';
+import {validateSharpLock} from './worker-sharp.mjs';
 
 // Undici is the reviewed Wrangler/Miniflare HTTP client, not a compiler or an
 // application dependency. Only compatible leaf patches with unchanged runtime
@@ -26,6 +28,42 @@ export function isUndiciToolingPatch(before, after) {
   return isDeepStrictEqual(stripVersion(a.entry), stripVersion(b.entry))
     && b.entry.resolved === `https://registry.npmjs.org/undici/-/undici-${b.entry.version}.tgz`
     && /^sha512-[A-Za-z0-9+/]+=*$/.test(b.entry.integrity || '');
+}
+
+// Reviewed GHSA-wq5f-xc86-pv6w remediation only: Sharp and its existing native
+// packages move together, while Miniflare, Wrangler and all other dependencies
+// remain byte-equivalent JSON. This does not authorize future package upgrades.
+export function isSharpToolingPatch(before,after) {
+  try {
+    const family=key=>key==='node_modules/sharp'||/^node_modules\/@img\/sharp-[a-z0-9-]+$/.test(key);
+    const beforePackages=before.lock.packages,afterPackages=after.lock.packages;
+    if(before.manifest.overrides?.sharp!=='0.35.4'||after.manifest.overrides?.sharp!=='0.35.5')return false;
+    if(!isDeepStrictEqual(without(before.manifest,'overrides'),without(after.manifest,'overrides'))
+      ||!isDeepStrictEqual(without(before.manifest.overrides,'sharp'),without(after.manifest.overrides,'sharp'))
+      ||!isDeepStrictEqual(without(before.lock,'packages'),without(after.lock,'packages')))return false;
+    const unchanged=packages=>Object.fromEntries(Object.entries(packages).filter(([key])=>!family(key)));
+    if(!isDeepStrictEqual(unchanged(beforePackages),unchanged(afterPackages)))return false;
+    const keys=Object.keys(beforePackages).filter(family).sort();
+    if(!isDeepStrictEqual(keys,Object.keys(afterPackages).filter(family).sort()))return false;
+    validateSharpLock(after.manifest,after.lock);
+    const expected=(name,after)=>name.startsWith('@img/sharp-libvips-')?(after?'1.3.4':'1.3.3'):(after?'0.35.5':'0.35.4');
+    const normalized=(entry,after)=>Object.fromEntries(Object.entries(entry).filter(([key])=>!['version','resolved','integrity'].includes(key)).map(([key,value])=>{
+      if(!['dependencies','optionalDependencies'].includes(key))return [key,value];
+      return [key,Object.fromEntries(Object.entries(value).map(([name,version])=>{
+        if(!family('node_modules/'+name))return [name,version];
+        if(version!==expected(name,after))throw new Error('Unreviewed native dependency');
+        return [name,'reviewed-sharp-patch'];
+      }))];
+    }));
+    for(const key of keys) {
+      const a=beforePackages[key],b=afterPackages[key],name=key.slice('node_modules/'.length);
+      if(a.dev!==true||b.dev!==true||a.version!==expected(name,false)||b.version!==expected(name,true)
+        ||!isDeepStrictEqual(normalized(a,false),normalized(b,true)))return false;
+      if(b.resolved!==`https://registry.npmjs.org/${name}/-/${name.split('/').at(-1)}-${b.version}.tgz`
+        ||!/^sha512-[A-Za-z0-9+/]+=*$/.test(b.integrity||''))return false;
+    }
+    return true;
+  }catch{return false;}
 }
 
 function relativeSourcesStayReviewed(root, base, head, prefix, { allowSourceChanges = false } = {}) {
@@ -85,7 +123,7 @@ function runtimeUsesTooling(root, base, head, prefix, { manifest, lock }, runtim
 
   // dev:true alone is insufficient: application code can import Miniflare (or
   // another ancestor) and bring the patched HTTP client into its runtime graph.
-  const tooling = new Set(['undici', ...Object.keys(manifest.devDependencies || {})]);
+  const tooling = new Set(['undici','sharp',...Object.keys(lock.packages).filter(key=>key.startsWith('node_modules/@img/sharp-')).map(key=>key.slice('node_modules/'.length)), ...Object.keys(manifest.devDependencies || {})]);
   let changed;
   do {
     changed = false;
@@ -122,17 +160,24 @@ export function workerToolingPatchEvidence(root, source, changedFiles) {
       const files = [`${prefix}/package.json`, `${prefix}/package-lock.json`];
       if (!files.some(file => changedFiles.includes(file))) continue;
       const runtimePaths = [`${prefix}/src`, `${prefix}/wrangler.jsonc`, 'workers/shared', 'js/shared'];
-      if (git(root, ['diff', '--name-only', base, head, '--', `${prefix}/wrangler.jsonc`])) continue;
+      const configChanged=Boolean(git(root, ['diff', '--name-only', base, head, '--', `${prefix}/wrangler.jsonc`]));
       const at = ref => ({ manifest: read(root, ref, files[0]), lock: read(root, ref, files[1]) });
       const before = at(base), after = at(head);
-      if (isUndiciToolingPatch(before, after) && !runtimeUsesTooling(root, base, head, prefix, after, runtimePaths)) {
+      const sharpPatch=isSharpToolingPatch(before,after);
+      if(configChanged) {
+        if(!sharpPatch||!['auth','ai'].includes(worker))continue;
+        const config=ref=>parseJsonc(git(root,['show',`${ref}:${prefix}/wrangler.jsonc`]));
+        const {previous,next}=normalizeCanvasAgentConfigDelta(config(base),config(head),worker);
+        if(!isDeepStrictEqual(previous,next))continue;
+      }
+      if ((sharpPatch||isUndiciToolingPatch(before, after)) && !runtimeUsesTooling(root, base, head, prefix, after, runtimePaths)) {
         const changedPackages = files.filter(file => changedFiles.includes(file));
         // This proof concerns only the compatible development leaf. It does
         // not remove runtime deployment impact when application sources changed.
         result.reviewedToolingPatchFiles.push(...changedPackages);
         let unchanged = false;
         try {
-          unchanged = !git(root, ['diff', '--name-only', base, head, '--', `${prefix}/src`])
+          unchanged = !configChanged&&!git(root, ['diff', '--name-only', base, head, '--', `${prefix}/src`])
             && relativeSourcesStayReviewed(root, base, head, prefix);
         } catch { /* New or missing base module cannot prove unchanged input. */ }
         if (unchanged) result.toolingOnlyWorkerPackageFiles.push(...changedPackages);

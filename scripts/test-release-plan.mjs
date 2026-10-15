@@ -11,7 +11,7 @@ import {
   runReleaseApply,
   runReleasePreflight,
 } from "./lib/release-plan.mjs";
-import { isUndiciToolingPatch, toolingOnlyWorkerPackages, workerToolingPatchEvidence } from './lib/worker-tooling-impact.mjs';
+import { isUndiciToolingPatch, isSharpToolingPatch, toolingOnlyWorkerPackages, workerToolingPatchEvidence } from './lib/worker-tooling-impact.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
@@ -293,6 +293,76 @@ for(const file of ['js/shared/member-model-exposure.mjs','workers/shared/website
     assert.equal(isUndiciToolingPatch(before, version('7.28.9')), false);
     console.log('Immutable Worker tooling proof: unreferenced shared input, exact reachable blobs, affected Auth continuation and unsafe import/build/config/compiler counterchecks passed.');
   } finally {fs.rmSync(root, {recursive: true, force: true});}
+}
+
+{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-sharp-tooling-'));
+  const git=args=>execFileSync('git',args,{cwd:root,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
+  const write=(file,value)=>{fs.mkdirSync(path.dirname(path.join(root,file)),{recursive:true});fs.writeFileSync(path.join(root,file),typeof value==='string'?value:JSON.stringify(value));};
+  const after={manifest:JSON.parse(fs.readFileSync(path.join(repoRoot,'workers/contact/package.json'))),lock:JSON.parse(fs.readFileSync(path.join(repoRoot,'workers/contact/package-lock.json')))};
+  const before=structuredClone(after);before.manifest.overrides.sharp='0.35.4';
+  for(const [key,entry] of Object.entries(before.lock.packages))if(key==='node_modules/sharp'||key.startsWith('node_modules/@img/sharp-')) {
+    const old=key.includes('/sharp-libvips-')?'1.3.3':'0.35.4';entry.resolved=entry.resolved.replace(`-${entry.version}.tgz`,`-${old}.tgz`);entry.version=old;
+    for(const group of ['dependencies','optionalDependencies'])for(const name of Object.keys(entry[group]||{}))if(name.startsWith('@img/sharp-'))entry[group][name]=name.startsWith('@img/sharp-libvips-')?'1.3.3':'0.35.4';
+  }
+  assert(isSharpToolingPatch(before,after),'Actual locked native package family has a reviewed exact patch');
+  for(const mutate of [
+    value=>{value.manifest.overrides.sharp='0.35.6';},
+    value=>{value.lock.packages['node_modules/@img/sharp-linux-x64'].dev=false;},
+    value=>{delete value.lock.packages['node_modules/@img/sharp-linux-x64'];},
+    value=>{value.lock.packages['node_modules/@img/sharp-libvips-linux-x64'].version='1.3.3';},
+    value=>{value.lock.packages['node_modules/@img/sharp-linux-x64'].cpu=['arm64'];},
+    value=>{value.lock.packages['node_modules/@img/sharp-linux-x64'].dependencies={unreviewed:'1.0.0'};},
+    value=>{value.lock.packages['node_modules/@img/sharp-linux-x64'].resolved='https://untrusted.invalid/native.tgz';},
+    value=>{value.lock.packages['node_modules/sharp'].integrity='unverified';},
+    value=>{value.lock.packages['node_modules/wrangler'].version='4.130.0';},
+    value=>{value.manifest.dependencies={sharp:'0.35.5'};},
+    value=>{value.manifest.scripts.prepare='node custom-build.js';},
+  ]){const broken=structuredClone(after);mutate(broken);assert.equal(isSharpToolingPatch(before,broken),false);}
+  const workers=['auth','ai','contact'],files=workers.flatMap(worker=>[`workers/${worker}/package.json`,`workers/${worker}/package-lock.json`]);
+  const writePair=(worker,value)=>{write(`workers/${worker}/package.json`,value.manifest);write(`workers/${worker}/package-lock.json`,value.lock);};
+  const commit=message=>{git(['add','.']);git(['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm',message]);return git(['rev-parse','HEAD']);};
+  const {backendContinuationSupported}=await import('./lib/backend-continuation.mjs');
+  try {
+    git(['init','-q']);write('package-lock.json',{packages:{'':{}}});
+    for(const worker of workers){writePair(worker,before);write(`workers/${worker}/src/index.js`,'export default {};\n');write(`workers/${worker}/wrangler.jsonc`,{main:'src/index.js',vars:{}});}
+    const base=commit('before reviewed native security patch');
+    for(const worker of workers)writePair(worker,after);
+    write('workers/auth/src/index.js','export default {fetch(){return new Response("auth");}};\n');
+    write('workers/ai/src/index.js','export default {fetch(){return new Response("ai");}};\n');
+    write('workers/auth/wrangler.jsonc',{main:'src/index.js',vars:{CANVAS_AGENT_ENABLED:'true',ENABLE_GROK_4_7:'true'}});
+    write('workers/ai/wrangler.jsonc',{main:'src/index.js',vars:{ENABLE_GROK_4_7:'true'}});
+    const head=commit('paired agent runtime and exact sharp security patch'),source={mode:'git-diff',base,head};
+    const changedFiles=git(['diff','--name-only',base,head]).split('\n'),context={...createContext(),repoRoot:root};
+    const evidence=workerToolingPatchEvidence(root,source,changedFiles);
+    assert.deepEqual(evidence.reviewedToolingPatchFiles.sort(),files.sort());
+    assert.deepEqual(evidence.toolingOnlyWorkerPackageFiles.sort(),files.filter(file=>file.startsWith('workers/contact/')).sort());
+    const plan=createReleasePlan(context,{changedFiles,source});
+    assert.deepEqual(plan.workerDeploys.map(step=>step.worker),['ai','auth']);
+    assert(backendContinuationSupported(plan),'Reviewed package proof accompanies existing paired deployments');
+    assert(!backendContinuationSupported({...plan,reviewedToolingPatchFiles:[]}), 'Source deployment alone does not prove a native package patch');
+    assert.deepEqual(workerToolingPatchEvidence(root,{mode:'explicit'},changedFiles).reviewedToolingPatchFiles,[]);
+    assert.deepEqual(workerToolingPatchEvidence(root,{...source,base:'missing-ref'},changedFiles).reviewedToolingPatchFiles,[]);
+    for(const moduleName of ['sharp','@img/sharp-linux-x64','miniflare']) {
+      git(['checkout','-q',base]);write('workers/contact/src/index.js',`import tooling from '${moduleName}';export default tooling;\n`);
+      const unsafeBase=commit('existing runtime import '+moduleName);
+      for(const worker of workers)writePair(worker,after);
+      const unsafeHead=commit('native patch with runtime import '+moduleName);
+      const result=workerToolingPatchEvidence(root,{mode:'git-diff',base:unsafeBase,head:unsafeHead},files);
+      assert(!result.reviewedToolingPatchFiles.some(file=>file.startsWith('workers/contact/')),moduleName);
+      assert(!result.toolingOnlyWorkerPackageFiles.some(file=>file.startsWith('workers/contact/')),moduleName);
+    }
+    for(const change of [{main:'src/index.js',build:{command:'node custom.js'},vars:{ENABLE_GROK_4_7:'true'}},{main:'src/index.js',vars:{ENABLE_GROK_4_7:'false'}},{main:'src/index.js',compatibility_date:'2030-01-01',vars:{ENABLE_GROK_4_7:'true'}}]) {
+      git(['checkout','-q',head]);write('workers/ai/wrangler.jsonc',change);const unsafeHead=commit('unreviewed compiler or config');
+      const result=workerToolingPatchEvidence(root,{...source,head:unsafeHead},changedFiles);
+      assert(!result.reviewedToolingPatchFiles.some(file=>file.startsWith('workers/ai/')));
+    }
+    git(['checkout','-q',head]);write('workers/contact/src/index.js','export const changed = true;\n');const contactHead=commit('changed contact runtime');
+    const contactFiles=git(['diff','--name-only',base,contactHead]).split('\n');
+    const contactPlan=createReleasePlan(context,{changedFiles:contactFiles,source:{...source,head:contactHead}});
+    assert(contactPlan.workerDeploys.some(step=>step.worker==='contact'));assert(!backendContinuationSupported(contactPlan));
+    console.log('Sharp security patch: actual native family, paired Auth/AI deployment, unchanged Contact and unsafe native/import/config evidence counterchecks passed.');
+  }finally{fs.rmSync(root,{recursive:true,force:true});}
 }
 
 {
