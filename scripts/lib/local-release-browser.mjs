@@ -217,9 +217,24 @@ export const AUTONOMY_BROWSER_PROGRESS=Object.freeze({
   specs:Object.freeze({'scripts/test-canvas-agent-release.mjs':'f871928546c81fc5436616a85dab3d1ead7485476209ef3e0debbeaed277a415'}),
   retain:[13],
 });
-export const isAutonomyBrowserProgress=(head,read=args=>execFileSync('git',args))=>read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/)[1]===AUTONOMY_BROWSER_PROGRESS.source;
+export const AUTONOMY_BROWSER_DOC_PROGRESS=Object.freeze({
+  source:'6373ce25c5e8a646966c3747b8c4bec4bc46b193',
+  run:'6373ce25c5e8a646966c3747b8c4bec4bc46b193-e0d65a8a-3f68-4b37-9677-e38984665a6e',
+  checkpoint:'7de8f09b807174082a2e65f3eb4cd862cb01e61b01fb683cd9e7ae20b4b05066',
+  failedLog:'6be3a28031cd7dd8adc3c05effe2af093f8d44e2327ea20e50feb3527fd64c5f',
+  specs:Object.freeze({
+    'scripts/lib/doc-currentness.mjs':'abb23a053e5c047e465ff652eee2950a791ee1364c1ee3d74724915e75abdbdd',
+    'scripts/test-doc-currentness.mjs':'4c06beb0a38dbe4df25517d12a3cc9e0b2e093cd530d43913ecb788aeca79140',
+    'scripts/lib/ci-test-selection.mjs':'5cef2b97079d740c07f8f40eff5463143788764335c99be7e573c611801aa9bb',
+    'scripts/test-ci-test-selection.mjs':'e37f4c178e6c08101d80f5c396bcdab3c0399243b14b1d3a73cdcb4b9987bdb6',
+    'docs/runbooks/REGRESSION_REGISTER.md':'fc8ee6348a10ad48cbed5a7fb28a3a4aa9b7430d0ae6e6dab4b03af6f9656973',
+  }),
+  retain:[13,14,15,18,21,23,24],
+});
+export const isAutonomyBrowserDocProgress=(head,read=args=>execFileSync('git',args))=>read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/)[1]===AUTONOMY_BROWSER_DOC_PROGRESS.source;
+export const isAutonomyBrowserProgress=(head,read=args=>execFileSync('git',args))=>read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/)[1]===AUTONOMY_BROWSER_PROGRESS.source||isAutonomyBrowserDocProgress(head,read);
 export function assertAutonomyBrowserTree(head,read=args=>execFileSync('git',args)) {
-  const progress=isAutonomyBrowserProgress(head,read),p=progress?AUTONOMY_BROWSER_PROGRESS:AUTONOMY_BROWSER_PREFLIGHT;
+  const progress=isAutonomyBrowserProgress(head,read),p=isAutonomyBrowserDocProgress(head,read)?AUTONOMY_BROWSER_DOC_PROGRESS:progress?AUTONOMY_BROWSER_PROGRESS:AUTONOMY_BROWSER_PREFLIGHT;
   if(progress)assertAutonomyBrowserTree(p.source,read);
   assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,p.source],'Autonomy browser continuation requires the direct source successor');
   const files=read(['diff','--name-only',p.source,head]).toString().trim().split('\n').filter(Boolean);

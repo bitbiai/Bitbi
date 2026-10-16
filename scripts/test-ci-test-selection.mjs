@@ -17,6 +17,13 @@ import {isCanvasInspectorChange,isCanvasTransitionExampleChange} from './lib/can
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 
+if (process.argv.includes('--doc-inventory-only')) {
+  assert.deepEqual(process.argv.slice(2),['--doc-inventory-only']);
+  verifyDocInventorySelection();
+  console.log('Document inventory selection: required actual callers, exact scope and unknown/full controls passed.');
+  process.exit(0);
+}
+
 {
   const runtime=['js/pages/canvas/main.js','js/pages/canvas/full-video.js','js/pages/canvas/graph.js','css/pages/canvas.css'];
   const inspectorSources=Object.fromEntries(runtime.map(file=>{const source=fs.readFileSync(path.join(repoRoot,file),'utf8');return [file,{before:source,after:source}];}));
@@ -67,6 +74,21 @@ function selection(files, options) {
   assert.equal(requiredJobs(selected)['homepage-webkit-media'], undefined);
   return selected;
 }
+
+// Document inventory is always checked by the local release contract. These
+// two exact automation inputs do not change browser or provider behavior.
+function verifyDocInventorySelection() {
+  const files=['scripts/lib/doc-currentness.mjs','scripts/test-doc-currentness.mjs'];
+  const commands=releaseValidationSource(repoRoot);
+  for(const command of ['npm run test:doc-currentness','npm run check:doc-currentness'])assert(commands.includes('run: '+command));
+  for(const file of ['scripts/check-doc-currentness.mjs','scripts/test-doc-currentness.mjs'])
+    assert(fs.readFileSync(path.join(repoRoot,file),'utf8').includes('from "./lib/doc-currentness.mjs"'));
+  const chosen=selection(files);assert(chosen.static);
+  for(const key of ['full','homepage','workers','auth','assets','carousel','dependencies'])assert.equal(chosen[key],false,key);
+  assert(selection([...files,'scripts/lib/doc-currentness-unknown.mjs']).full);
+  assert(selection(files,{forceFull:true}).full);
+}
+verifyDocInventorySelection();
 
 // These exact helpers have existing callers. Mixed release changes must not
 // lose them when a narrower Canvas-only policy no longer applies.

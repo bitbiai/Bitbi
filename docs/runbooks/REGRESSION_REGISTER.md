@@ -2102,6 +2102,15 @@ held-save, stale-revision and zero-commitment controls. The exact failed reports
 and unaffected passes remain immutable; execute only changed/unresolved cases
 plus the previously unexecuted Auth browser tail through the closed continuation.
 
+The local `0f82b547` planner gate then exposed a test that equated the changed
+0107 migration with the current schema checkpoint. Read the latter from
+`release-compat.json`; an earlier changed migration does not define today's
+required schema. The `6373ce25` documentation gate subsequently scanned an
+archived dependency README below `.local-release/reuse/` as first-party source.
+Exclude exactly the generated root evidence directory, retain its files for
+verification, and keep unknown root, sibling-prefix and nested source Markdown
+counterchecks. Preserve each failed checkpoint and passed prefix when continuing.
+
 ### Canvas agent editability and inspector fixtures — 2026-10-15
 
 The production assistant must persist creative settings in the same ordinary

@@ -592,6 +592,7 @@ const WORKER_TEST_PREFIXES = [
 // These exact release-only inputs are exercised by the always-required release
 // contract tests and native static-host runtime check. Unknown automation is broad.
 const RELEASE_TOOLING_FILES = new Set([
+  'scripts/lib/doc-currentness.mjs', 'scripts/test-doc-currentness.mjs',
   'scripts/test-canvas-agent-release.mjs',
   'config/release-validation.yml', 'scripts/local-release.mjs', 'scripts/local-release.Dockerfile', 'scripts/release-preflight.mjs',
   'scripts/lib/local-release-plan.mjs', 'scripts/lib/local-release-environment.mjs',

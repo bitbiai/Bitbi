@@ -10,8 +10,8 @@ import { environmentInputs, environmentKey, toolchainPins } from './local-releas
 import { gitSelection, tree, verifyManifest, verifyProofs, candidateProof, proofJobs, REPOSITORY } from '../pages-candidate.mjs';
 import { verifyFrontend } from './frontend-hosting.mjs';
 import { browserRows } from './browser-fixture-repair.mjs';
-import { AUTONOMY_BROWSER_PROGRESS, isAutonomyBrowserProgress, AUTONOMY_BROWSER_POLICY, AUTONOMY_BROWSER_PREFLIGHT, assertAutonomyBrowserTree, verifyAutonomyBrowserReport, verifyAutonomyImageReuse, MODEL_BROWSER_POLICY, MODEL_BROWSER_PREFLIGHT, verifyModelBrowserReport, LOCAL_BROWSER_POLICY, readMigrationBrowserPool, SMOOTH_BROWSER_POLICY, SMOOTH_BROWSER_CONTINUATION, EXAMPLE_CACHE_CONTINUATION, WORKSPACE_CONTINUATION, AUDIO_FIT_CONTINUATION, INSPECTOR_CONTINUATION,EXPORT_BROWSER_CONTINUATION, smoothProfile, isSmoothContinuation, assertSmoothContinuationTree, verifySmoothBrowserReport, restoreSmoothBrowserProof } from './local-release-browser.mjs';
-export {AUTONOMY_BROWSER_PROGRESS,AUTONOMY_BROWSER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT} from './local-release-browser.mjs';
+import { AUTONOMY_BROWSER_DOC_PROGRESS, isAutonomyBrowserDocProgress, AUTONOMY_BROWSER_PROGRESS, isAutonomyBrowserProgress, AUTONOMY_BROWSER_POLICY, AUTONOMY_BROWSER_PREFLIGHT, assertAutonomyBrowserTree, verifyAutonomyBrowserReport, verifyAutonomyImageReuse, MODEL_BROWSER_POLICY, MODEL_BROWSER_PREFLIGHT, verifyModelBrowserReport, LOCAL_BROWSER_POLICY, readMigrationBrowserPool, SMOOTH_BROWSER_POLICY, SMOOTH_BROWSER_CONTINUATION, EXAMPLE_CACHE_CONTINUATION, WORKSPACE_CONTINUATION, AUDIO_FIT_CONTINUATION, INSPECTOR_CONTINUATION,EXPORT_BROWSER_CONTINUATION, smoothProfile, isSmoothContinuation, assertSmoothContinuationTree, verifySmoothBrowserReport, restoreSmoothBrowserProof } from './local-release-browser.mjs';
+export {AUTONOMY_BROWSER_DOC_PROGRESS,AUTONOMY_BROWSER_PROGRESS,AUTONOMY_BROWSER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT} from './local-release-browser.mjs';
 
 export const LOCAL_REQUIRED_JOBS = { 'release-compatibility': [
   'Preflight complete static release plan', 'Select tests from changed files',
@@ -826,6 +826,46 @@ export function verifyAutonomyBrowserProgress(directory,head) {
   assert(failed.toString().includes('test-canvas-agent-release.mjs:22:9'));
   return {original,retained:[...p.retain]};
 }
+export function verifyAutonomyBrowserDocProgress(directory,head) {
+  assertAutonomyBrowserTree(head);assert(isAutonomyBrowserDocProgress(head),'Not the exact autonomy documentation successor');
+  const previous=verifyAutonomyBrowserProgress(directory,head).original,p=AUTONOMY_BROWSER_DOC_PROGRESS;
+  const folder=path.join(directory,'reuse/autonomy-browser-doc-progress'),bytes=fs.readFileSync(path.join(folder,'checkpoint.json'));
+  assert.equal(sha256(bytes),p.checkpoint,'Changed failed documentation checkpoint');const original=JSON.parse(bytes);
+  assert.equal(original.sha,p.source);assert.equal(original.id,p.run);assert.equal(original.status,'failed');
+  assert.deepEqual(original.preflightContinuation,previous.preflightContinuation);
+  assert.deepEqual(original.preflightProgress,{source:previous.sha,checkpoint:AUTONOMY_BROWSER_PROGRESS.checkpoint});
+  for(const key of ['base','planHash'])assert.equal(original[key],previous[key]);
+  const stable=({preparationMs,...identity})=>identity;assert.deepEqual(stable(original.environment),stable(previous.environment));
+  const flags=({files,reasons,...identity})=>identity;assert.deepEqual(flags(original.selection),flags(previous.selection));
+  assert.equal(original.commands.length,51);const commands=selectedCommands(original.selection,{GITHUB_SHA:original.sha,CANDIDATE_BASE:original.base});
+  for(let i=0;i<original.commands.length;i++){
+    const row=original.commands[i];
+    if(i<=29){
+      assert(row);assert.equal(row.exitCode,i===29?1:0);assert.deepEqual(row.command,commands[i]);
+      assert.equal(sha256(fs.readFileSync(path.join(folder,'logs',`${i}.log`))),row.logHash,'Changed documentation progress log');
+    }else if(!AUTONOMY_BROWSER_PREFLIGHT.retain.includes(i))assert.equal(row,null,'Unexecuted command acquired evidence');
+    if(AUTONOMY_BROWSER_PREFLIGHT.retain.includes(i))assert.deepEqual(row,previous.commands[i],'Changed inherited autonomy proof');
+    if(AUTONOMY_BROWSER_PROGRESS.retain.includes(i))assert.deepEqual(row,{...previous.commands[i],reusedFrom:previous.sha});
+  }
+  assert.equal(sha256(fs.readFileSync(path.join(folder,'logs/29.log'))),p.failedLog,'Changed failed documentation log');
+  assert.equal(original.commands[14].continuation,autonomyReleasePlanContinuation(commands[14].run));
+  const planner=fs.readFileSync(path.join(folder,'logs/14.log'),'utf8');
+  assert(planner.includes('Autonomy planner continuation: complete remaining release-plan assertions passed.'));
+  assert(!planner.includes('Release planner tests passed.')&&!planner.includes('Auth configuration: reviewed absent-to-off'),'Completed planner prefix repeated');
+  return {original,retained:[...p.retain]};
+}
+export function autonomyDocInventoryContinuation(command) {
+  assert.equal(command,'npm run test:doc-currentness','Unexpected documentation inventory caller');
+  return 'node scripts/test-doc-currentness.mjs --local-release-inventory-only';
+}
+export function autonomyDocSelectionContinuation(command) {
+  assert.equal(command,'npm run test:ci-selection','Unexpected documentation selection caller');
+  return 'npm run test:ci-selection -- --doc-inventory-only';
+}
+export function autonomyDocGuardContinuation(command) {
+  assert.equal(command,'npm run test:local-release','Unexpected documentation progress guard caller');
+  return 'npm run test:local-release -- --autonomy-doc-progress-only';
+}
 export function autonomyReleasePlanContinuation(command) {
   assert.equal(command,'npm run test:release-plan','Unexpected planner continuation caller');
   return 'node scripts/local-release.mjs autonomy-release-plan-continuation';
@@ -851,7 +891,8 @@ export async function runAutonomyReleasePlanContinuation() {
 }
 export function verifyAutonomyBrowserRepair(directory,head,{allowPending=false}={}) {
   const p=AUTONOMY_BROWSER_PREFLIGHT;assertCanvasPreflightTree(head,gitBytes,p);
-  if(isAutonomyBrowserProgress(head))verifyAutonomyBrowserProgress(directory,head);
+  if(isAutonomyBrowserDocProgress(head))verifyAutonomyBrowserDocProgress(directory,head);
+  else if(isAutonomyBrowserProgress(head))verifyAutonomyBrowserProgress(directory,head);
   const pinned=(file,hash)=>{const bytes=fs.readFileSync(path.join(directory,'reuse',file));assert.equal(sha256(bytes),hash,`Changed original autonomy browser evidence: ${file}`);return bytes;};
   const original=JSON.parse(pinned('preflight-checkpoint.json',p.checkpoint));
   assert.equal(original.sha,p.source);assert.equal(original.status,'failed');assert.equal(original.commands.length,51);
@@ -1097,13 +1138,21 @@ export function verifyCanvasPreflight(directory,evidence,commands){
     assert(log.toString().includes('ok 1 - Every offered transition has a small distinct decoded GIF'));
     restoreCanvasHostingProof(directory,{verifyOnly:true});
   }
-  const progress=profile===AUTONOMY_BROWSER_PREFLIGHT&&isAutonomyBrowserProgress(evidence.sha)?verifyAutonomyBrowserProgress(directory,evidence.sha):null;
-  if(progress)assert.deepEqual(evidence.preflightProgress,{source:AUTONOMY_BROWSER_PROGRESS.source,checkpoint:AUTONOMY_BROWSER_PROGRESS.checkpoint});
+  const docProgress=profile===AUTONOMY_BROWSER_PREFLIGHT&&isAutonomyBrowserDocProgress(evidence.sha);
+  const progress=docProgress?verifyAutonomyBrowserDocProgress(directory,evidence.sha):profile===AUTONOMY_BROWSER_PREFLIGHT&&isAutonomyBrowserProgress(evidence.sha)?verifyAutonomyBrowserProgress(directory,evidence.sha):null;
+  const progressProfile=docProgress?AUTONOMY_BROWSER_DOC_PROGRESS:AUTONOMY_BROWSER_PROGRESS;
+  if(progress)assert.deepEqual(evidence.preflightProgress,{source:progressProfile.source,checkpoint:progressProfile.checkpoint});
   else assert(!evidence.preflightProgress,'Unexpected planner progress receipt');
   for(const [i,row]of evidence.commands.entries()){
     if(progress&&progress.retained.includes(i)){
-      assert.deepEqual(row,{...progress.original.commands[i],reusedFrom:progress.original.sha});
+      assert.deepEqual(row,{...progress.original.commands[i],reusedFrom:progress.original.commands[i].reusedFrom||progress.original.sha});
       assert.equal(sha256(fs.readFileSync(path.join(directory,row.log))),row.logHash);
+    }else if(docProgress&&i===28){
+      assert(!row.reusedFrom);assert.equal(row.continuation,autonomyDocInventoryContinuation(commands[i].run));
+    }else if(docProgress&&i===16){
+      assert(!row.reusedFrom);assert.equal(row.continuation,autonomyDocSelectionContinuation(commands[i].run));
+    }else if(docProgress&&i===17){
+      assert(!row.reusedFrom);assert.equal(row.continuation,autonomyDocGuardContinuation(commands[i].run));
     }else if(progress&&i===14){
       assert(!row.reusedFrom);assert.equal(row.continuation,autonomyReleasePlanContinuation(commands[i].run));
       const log=fs.readFileSync(path.join(directory,row.log),'utf8');

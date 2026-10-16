@@ -31,6 +31,12 @@ function writeFile(repo, relativePath, text) {
   fs.writeFileSync(absolutePath, text);
 }
 
+if (process.argv.length === 3 && process.argv[2] === "--local-release-inventory-only") {
+  testLocalReleaseInventory();
+  console.log("Local release Markdown inventory boundary tests passed.");
+  process.exit(0);
+}
+
 {
   const repo = makeRepo();
   const assistantGuide = 'docs/production-readiness/WEBSITE_ASSISTANT.md';
@@ -442,6 +448,35 @@ function writeFile(repo, relativePath, text) {
   assert.equal(result.violations.length, 1);
   assert.equal(result.violations[0].type, "unclassified-markdown");
 }
+
+// Retained release archives are generated inputs, not current first-party docs.
+// Only the root directory boundary is excluded; similarly named source paths
+// and the ordinary current-document checks must remain visible to the scanner.
+function testLocalReleaseInventory() {
+  const repo = makeRepo();
+  try {
+    const generated = ".local-release/reuse/autonomy-native-origin/candidate/site/js/vendor/README-qrcode-generator.md";
+    const evidence = "Archived candidate dependency README.\n";
+    writeFile(repo, "README.md", `Current release truth: ${latest}\n`);
+    writeFile(repo, generated, evidence);
+    writeFile(repo, ".local-release/README.md", "Generated release evidence index.\n");
+    const scan = () => scanDocCurrentness(repo, { currentDocs: ["README.md"] });
+    const valid = scan();
+    assert.deepEqual(valid.violations, []);
+    assert(valid.markdownInventory.some(entry => entry.path === "README.md" && entry.category === "active_current"));
+    assert(!valid.markdownInventory.some(entry => entry.path.startsWith(".local-release/")));
+    assert.equal(fs.readFileSync(path.join(repo, generated), "utf8"), evidence, "Scanning must retain archived proof files");
+
+    const unreviewed = ["UNREVIEWED_RELEASE_NOTE.md", ".local-release-notes/NOTE.md", "docs/.local-release/NOTE.md"];
+    for (const file of unreviewed) writeFile(repo, file, "Unclassified first-party note.\n");
+    assert.deepEqual(scan().violations.filter(issue => issue.type === "unclassified-markdown").map(issue => issue.file).sort(), [...unreviewed].sort());
+    writeFile(repo, "README.md", "Latest auth D1 migration: `0059_add_data_lifecycle_completion_state.sql`\n");
+    assert(scan().violations.some(issue => issue.type === "stale-latest-migration" && issue.file === "README.md"));
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+}
+testLocalReleaseInventory();
 
 {
   const repo = makeRepo();

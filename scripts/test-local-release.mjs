@@ -21,6 +21,11 @@ import { LOCAL_IMPORT_REPAIR, assertImportRepairWorkflow, localRepairCommand, ve
 import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,assertPermissionContinuationTree,permissionContinuationPrefix,CANVAS_STAGE_CASES,canvasStageContinuation} from './lib/local-release-evidence.mjs';
 import {testLocalMediaProcess} from './test-local-media-process.mjs';
 
+if(process.argv.includes('--autonomy-doc-progress-only')) {
+  assert.deepEqual(process.argv.slice(2),['--autonomy-doc-progress-only']);
+  await testAutonomyDocProgress();process.exit(0);
+}
+
 function testPermissionContinuation() {
   const head='f'.repeat(40),corrected=fs.readFileSync('scripts/test-frontend-review.mjs');
   const reader=(files,bytes=corrected)=>args=>args[0]==='show'?bytes:Buffer.from(args[0]==='diff'?files.join('\n'):'');
@@ -1370,4 +1375,66 @@ for(const source of ['9443369e0780144d2ffeea3900d3b86ccd57bc85','b71dd6212ee83e9
   }finally{fs.rmSync(proof,{recursive:true,force:true});}
  }
  console.log('Autonomy browser continuation: actual isolated Git rejects missing or unreviewed pins, product/schema/selection changes, deletion, symlink and foreign ancestry.');
+}
+
+async function testAutonomyDocProgress() {
+ const {AUTONOMY_BROWSER_PREFLIGHT:base,AUTONOMY_BROWSER_PROGRESS:planner,AUTONOMY_BROWSER_DOC_PROGRESS:p,assertAutonomyBrowserTree}=await import('./lib/local-release-browser.mjs');
+ const {verifyAutonomyBrowserDocProgress,autonomyDocGuardContinuation,autonomyDocSelectionContinuation,autonomyDocInventoryContinuation}=await import('./lib/local-release-evidence.mjs');
+ assert.equal(p.source,'6373ce25c5e8a646966c3747b8c4bec4bc46b193');
+ assert.deepEqual(p.retain,[13,14,15,18,21,23,24]);
+ const current=fs.readFileSync('scripts/test-local-release.mjs','utf8'),entry="if(process.argv.includes('--autonomy-doc-progress-only')) {\n  assert.deepEqual(process.argv.slice(2),['--autonomy-doc-progress-only']);\n  await testAutonomyDocProgress();process.exit(0);\n}\n\n";
+ assert.equal(current.slice(0,current.indexOf('\nasync function testAutonomyDocProgress() {')).replace(entry,''),execFileSync('git',['show',`${p.source}:scripts/test-local-release.mjs`]).toString(),'Previously passed guard groups must remain byte-identical');
+ assert.equal(autonomyDocGuardContinuation('npm run test:local-release'),'npm run test:local-release -- --autonomy-doc-progress-only');
+ for(const command of ['echo skipped','npm run test:local-release -- --repair-only','npm run test:local-release\nnpm run test:local-release'])assert.throws(()=>autonomyDocGuardContinuation(command));
+ assert.equal(autonomyDocSelectionContinuation('npm run test:ci-selection'),'npm run test:ci-selection -- --doc-inventory-only');
+ for(const command of ['echo skipped','npm run test:ci-selection\nnpm run test:ci-selection','npm run test:ci-selection -- --unreviewed'])assert.throws(()=>autonomyDocSelectionContinuation(command));
+ assert.equal(autonomyDocInventoryContinuation('npm run test:doc-currentness'),'node scripts/test-doc-currentness.mjs --local-release-inventory-only');
+ for(const command of ['echo skipped','npm run test:doc-currentness\nnpm run test:doc-currentness','npm run test:doc-currentness -- --unreviewed'])assert.throws(()=>autonomyDocInventoryContinuation(command));
+ const blobs={
+  'scripts/lib/doc-currentness.mjs':'d8f420a03c576d50f8e2db4144a4230bf3ad6394',
+  'scripts/test-doc-currentness.mjs':'c918339375fe8904527bc04959b8c67103fa4ec6',
+  'scripts/lib/ci-test-selection.mjs':'674556fe37ef9fe8d6b363c48f57bab122d351ff',
+  'scripts/test-ci-test-selection.mjs':'22121e383b0ecda8d14680f4063b574525aacdb7',
+  'docs/runbooks/REGRESSION_REGISTER.md':'a3ed37f71e0529f03e3142e7e112631fd0622a9a',
+ };
+ assert.deepEqual(Object.keys(blobs).sort(),Object.keys(p.specs).sort());
+ const reviewed=Object.fromEntries(Object.entries(blobs).map(([file,blob])=>{const bytes=execFileSync('git',['cat-file','blob',blob]);assert.equal(sha256(bytes),p.specs[file]);return [file,bytes];}));
+ const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-autonomy-doc-progress-')),bare=path.join(temporary,'git');
+ const env={...process.env,GIT_AUTHOR_NAME:'Synthetic',GIT_AUTHOR_EMAIL:'synthetic@example.invalid',GIT_COMMITTER_NAME:'Synthetic',GIT_COMMITTER_EMAIL:'synthetic@example.invalid'};
+ const read=(args,input)=>execFileSync('git',['--git-dir',bare,...args],{env,input,stdio:['pipe','pipe','pipe']});
+ try {
+  execFileSync('git',['init','--bare',bare],{stdio:'pipe'});
+  fs.writeFileSync(path.join(bare,'objects/info/alternates'),path.resolve(execFileSync('git',['rev-parse','--git-path','objects'],{encoding:'utf8'}).trim())+'\n');
+  const commit=(changes,parent=p.source)=>{
+   read(['read-tree',p.source]);
+   for(const [file,value]of Object.entries(changes)){
+    if(value===null){read(['update-index','--index-info'],Buffer.from(`0 ${'0'.repeat(40)}\t${file}\n`));continue;}
+    const blob=read(['hash-object','-w','--stdin'],value.content??value).toString().trim();read(['update-index','--add','--cacheinfo',`${value.mode||'100644'},${blob},${file}`]);
+   }
+   return read(['commit-tree',read(['write-tree']).toString().trim(),'-p',parent],Buffer.from('Synthetic closed documentation continuation\n')).toString().trim();
+  };
+  const accepted=commit(reviewed);assertAutonomyBrowserTree(accepted,read);
+  for(const file of Object.keys(reviewed)){
+   const absent={...reviewed};delete absent[file];assert.throws(()=>assertAutonomyBrowserTree(commit(absent),read));
+   for(const value of [null,Buffer.from('Unreviewed bytes'),{mode:'120000',content:Buffer.from('outside')}])assert.throws(()=>assertAutonomyBrowserTree(commit({...reviewed,[file]:value}),read));
+  }
+  for(const file of ['js/pages/canvas/agent.js','workers/auth/src/routes/canvas-agent.js','config/release-compat.json','workers/auth/migrations/0108_canvas_creative_export_retention.sql','tests/helpers/canvas-agent-autonomy-ui.cjs','scripts/test-release-plan.mjs','.github/workflows/static.yml','package-lock.json'])assert.throws(()=>assertAutonomyBrowserTree(commit({...reviewed,[file]:Buffer.from('Unrelated change')}),read));
+  assert.throws(()=>assertAutonomyBrowserTree(commit(reviewed,accepted),read));
+  assert.throws(()=>assertAutonomyBrowserTree(commit(reviewed,planner.source),read));
+  const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();assertAutonomyBrowserTree(head);
+  const proof=path.join(temporary,'proof');fs.cpSync('.local-release/reuse',path.join(proof,'reuse'),{recursive:true});
+  const verify=()=>verifyAutonomyBrowserDocProgress(proof,head),progress=verify();
+  assert.equal(progress.original.sha,p.source);assert.equal(progress.original.status,'failed');assert.equal(progress.original.commands.length,51);
+  assert(progress.original.commands.slice(0,29).every(row=>row.exitCode===0));assert.equal(progress.original.commands[29].exitCode,1);assert.equal(progress.original.commands[31],null);
+  assert.equal(progress.original.commands[13].reusedFrom,planner.source);assert.equal(progress.original.commands[42].reusedFrom,base.source);assert.deepEqual(progress.retained,p.retain);
+  for(const file of ['reuse/autonomy-browser-doc-progress/checkpoint.json','reuse/autonomy-browser-doc-progress/logs/14.log','reuse/autonomy-browser-doc-progress/logs/17.log','reuse/autonomy-browser-doc-progress/logs/29.log','reuse/autonomy-browser-progress/checkpoint.json','reuse/autonomy-browser-progress/logs/14.log','reuse/preflight-checkpoint.json']){
+   const target=path.join(proof,file),saved=fs.readFileSync(target);fs.unlinkSync(target);assert.throws(verify);fs.writeFileSync(target,'{}');assert.throws(verify);fs.writeFileSync(target,saved);
+  }
+  const file=path.join(proof,'reuse/autonomy-browser-doc-progress/checkpoint.json'),saved=fs.readFileSync(file);
+  for(const mutate of [r=>r.status='passed',r=>r.commands[29].exitCode=0,r=>r.commands[17].exitCode=1,r=>r.commands[14].continuation='npm run test:release-plan',r=>r.commands[31]=r.commands[28],r=>r.commands[42].reusedFrom=p.source,r=>delete r.preflightProgress]){
+   const wrong=JSON.parse(saved);mutate(wrong);fs.writeFileSync(file,JSON.stringify(wrong));assert.throws(verify);fs.writeFileSync(file,saved);
+  }
+  assert.deepEqual(verify().retained,p.retain);
+ } finally {fs.rmSync(temporary,{recursive:true,force:true});}
+ console.log('Autonomy documentation continuation: exact source chain, completed checks and original failed scanner proof; missing, altered, foreign, repeated-prefix and forged-success controls passed.');
 }

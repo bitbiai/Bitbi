@@ -84,6 +84,7 @@ const BLOCKED_CLAIM_OVERCLAIM_PATTERNS = Object.freeze([
 ]);
 
 const MARKDOWN_SCAN_IGNORES = Object.freeze([
+  ".local-release/",
   "PAY_APP/",
   "WEB_APP/",
   "playwright-report/",
