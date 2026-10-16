@@ -79,6 +79,30 @@ for (const file of ['tests/appearance-runtime.mjs', 'tests/admin-model-status-ru
 assert.equal(selection(['playwright.retired.config.js']).full, true);
 assert.equal(selection(['playwright.config.js'], {forceFull: true}).full, true);
 
+// Register actual new callers without selecting the narrower Canvas-text
+// command: shared reservation/expiry changes still run the complete Worker job.
+{
+  const files=['workers/auth/src/lib/ai-dispatch-state.js','workers/auth/src/lib/member-ai-usage-attempts.js',
+    'workers/auth/migrations/0106_canvas_agent_model_operations.sql','config/release-compat.json',
+    'workers/ai/src/lib/canvas-agent-plan.js','js/pages/canvas/agent.js','js/pages/canvas/agent-copy.js',
+    'tests/grok-chat-workers.spec.js','tests/q2-canvas-agent-provider.spec.js','tests/q2-canvas-agent-model-operation.spec.js','tests/helpers/canvas-agent-model-operation-cases.mjs','tests/helpers/canvas-agent-ui.cjs',
+    'tests/helpers/canvas-agent-model-operation-control.mjs','tests/helpers/canvas-agent-model-recovery-ui.cjs',
+    'scripts/test-canvas-agent-release.mjs'];
+  const chosen=selection(files);
+  for(const flag of ['workers','auth','homepage','static','runtime'])assert.equal(chosen[flag],true);
+  for(const flag of ['full','canvasText','carousel','assets'])assert.equal(chosen[flag],false);
+  assert.equal(requiresPrivateMediaImage(files),false);
+  assert.equal(selection(files,{forceFull:true}).full,true);
+  assert.equal(selection([...files,'tests/helpers/unreviewed-agent-runtime.mjs']).full,true);
+  assert.equal(selection([...files,'scripts/unreviewed-recovery.mjs']).full,true);
+  for(const file of ['tests/helpers/canvas-agent-model-operation-control.mjs','tests/helpers/canvas-agent-control.mjs']) {
+    const shared=selection([file]);assert(shared.workers&&shared.homepage&&!shared.full);
+  }
+  assert(fs.readFileSync(path.join(repoRoot,'scripts/test-release-plan.mjs'),'utf8').includes("import('./test-canvas-agent-release.mjs')"));
+  const workerConfig=fs.readFileSync(path.join(repoRoot,'playwright.workers.config.js'),'utf8');
+  assert(workerConfig.includes("'**/q2-*.spec.js'"),'New provider case must be discovered by the actual Worker entrypoint');
+}
+
 // Exercise the actual GitHub output writer: no retired flag survives either
 // a narrow functional selection or the full retained acceptance matrix.
 const outputDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'bitbi-ci-selection-output-'));

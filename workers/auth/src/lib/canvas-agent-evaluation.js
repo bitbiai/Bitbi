@@ -44,6 +44,7 @@ export async function evaluateCanvasAgent(env,run,view,user) {
     const payload={version:1,model:CANVAS_AGENT_MODEL,requestId:step.id,brief:input.brief,frames,
         privacyUser:`cau_${await sha256Hex(`canvas-agent-user:${run.user_id}`)}`,promptCacheKey:`cap_${await sha256Hex(`canvas-agent-project:${run.user_id}:${run.project_id}`)}`};
     const result=await executeCanvasAgentModel(env,run,step,user,payload);
+    if(!result)return null;
     await agentTransition(env,run,{result_json:JSON.stringify({visualReview:'sampled_frames',sampledSources:sources,evaluation:result.evaluation})});
     return result.evaluation;
 }

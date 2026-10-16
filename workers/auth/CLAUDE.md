@@ -30,14 +30,16 @@ Current auth Worker resource classes:
 - Queues `ACTIVITY_INGEST_QUEUE`, `AI_IMAGE_DERIVATIVES_QUEUE`, `AI_VIDEO_JOBS_QUEUE`
 - auth/session/admin MFA/pagination/AI-save/service-auth/Resend secrets declared in release compatibility
 
-Durable member/Canvas H3 uses Cloudflare REST `/accounts/{account_id}/ai/run`,
-not the AI binding. `H3_CLOUDFLARE_API_TOKEN` must be a dedicated API token with
-Account > Workers AI > Read restricted to `CLOUDFLARE_ACCOUNT_ID`; never install
-Wrangler OAuth or a deployment credential. The release manifest requires the
-secret. Verify its policy/account and the published binding separately from
-provider acceptance. Default Gateway/Unified Billing, private signed sources,
-model callback, single-attempt dispatch and unknown-outcome fences remain binding.
-Other model transports and the separate Admin AI service are unchanged.
+Durable member/Canvas H3 and Canvas Grok planning/evaluation use Cloudflare REST
+`/accounts/{account_id}/ai/run`. `H3_CLOUDFLARE_API_TOKEN` is the existing dedicated
+API token with Account > Workers AI > Read restricted to `CLOUDFLARE_ACCOUNT_ID`;
+never install Wrangler OAuth or a deployment credential. The release manifest
+requires this secret. Verify its policy/account and published binding separately
+from provider acceptance. Preserve default Gateway/Unified Billing, disabled
+request logging, private sources, single dispatch and unknown-outcome fences.
+H3 retains its model callback; Canvas reasoning uses documented Gateway background
+completion and the signed AI service for preparation/result validation. Other
+model transports and private Admin chat remain unchanged.
 
 ## Current Migration State
 

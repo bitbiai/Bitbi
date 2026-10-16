@@ -2001,6 +2001,13 @@ export const ROUTE_POLICIES = Object.freeze([
     notes: "HEAD only returns metadata for the exact token-scoped internal source. It does not expose R2 keys, signed provider URLs, cookies, or private storage paths.",
   }),
   policy({
+    id:'internal.ai.canvas-agent-result',method:'POST',path:'/api/internal/ai/canvas-agent-result/:token',owner:'canvas',
+    auth:'anonymous',csrf:'not-browser-facing',sensitivity:'high',config:REQUIRED_CONFIG.adminAiVideoSource,
+    body:{kind:'json',maxBytesName:'canvasModelReceiptJson',contentType:'application/json'},
+    rateLimit:{noneReason:'Immutable model operation HMAC capability, bounded terminal receipt and compare-and-swap; no inference.'},
+    providerSignature:'hmac-token-path',notes:'Receives only the original Canvas reasoning result; cancellation does not discard committed evidence or resume production.',
+  }),
+  policy({
     id:'internal.ai.h3-callback',method:'POST',path:'/api/internal/ai/h3-callback/:token',owner:'admin-ai',
     auth:'anonymous',csrf:'not-browser-facing',sensitivity:'high',config:REQUIRED_CONFIG.adminAiVideoSource,
     body:{kind:'json',maxBytesName:'smallJson',contentType:'application/json'},

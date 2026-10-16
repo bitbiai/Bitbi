@@ -18,6 +18,8 @@ export class CanvasAgentProviderError extends Error {
 const invalid = code => { throw new CanvasAgentProviderError(code, { status: 400, outcome: 'not_submitted' }); };
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
 const revision = value => Number.isSafeInteger(value) && value >= 0 || typeof value === 'string' && /^[A-Za-z0-9_.:-]{1,96}$/.test(value);
+export const CANVAS_AGENT_MODEL_PROTOCOL_VERSION = 1;
+export const CANVAS_AGENT_NORMALIZE_MAX_BYTES = 512 * 1024;
 export function validateCanvasAgentPlanInput(input) {
   if (!object(input) || Object.keys(input).some(key => !['version', 'model', 'requestId', 'brief', 'targetDurationSeconds',
     'toleranceSeconds', 'capabilityRevision', 'capabilities', 'projectRevision', 'currentProject', 'privacyUser', 'promptCacheKey'].includes(key))) invalid('canvas_agent_input_invalid');
@@ -28,7 +30,7 @@ export function validateCanvasAgentPlanInput(input) {
   if (!Number.isFinite(input.toleranceSeconds) || input.toleranceSeconds < .04 || input.toleranceSeconds > 2) invalid('canvas_agent_tolerance_invalid');
   if (typeof input.brief !== 'string' || !input.brief.trim() || input.brief.length > 12000
     || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(input.brief)) invalid('canvas_agent_brief_invalid');
-  if (!/^[A-Za-z0-9_-]{8,96}$/.test(input.requestId || '') || !revision(input.projectRevision) || !revision(input.capabilityRevision)) invalid('canvas_agent_identity_invalid');
+  if (typeof input.requestId !== 'string' || !/^[A-Za-z0-9_-]{8,96}$/.test(input.requestId) || !revision(input.projectRevision) || !revision(input.capabilityRevision)) invalid('canvas_agent_identity_invalid');
   if (!/^(?:cau|vau)_[a-f0-9]{64}$/.test(input.privacyUser || '') || !/^(?:cap|gpc)_[a-f0-9]{64}$/.test(input.promptCacheKey || '')) invalid('canvas_agent_privacy_identity_invalid');
   if (!object(input.currentProject) || !Array.isArray(input.currentProject.nodes) || input.currentProject.nodes.length > 120
     || !(object(input.capabilities) || Array.isArray(input.capabilities))) invalid('canvas_agent_context_invalid');
@@ -37,9 +39,10 @@ export function validateCanvasAgentPlanInput(input) {
 }
 
 export function canvasAgentProviderReadiness(env) {
-  if (env?.ENABLE_GROK_4_7 !== 'true') return { available: false, reason: 'canvas_agent_model_disabled', model: GROK_4_7_MODEL_ID, accountAccess: 'unverified' };
-  if (typeof env?.AI?.run !== 'function') return { available: false, reason: 'ai_binding_missing', model: GROK_4_7_MODEL_ID, accountAccess: 'unverified' };
-  return { available: true, reason: null, model: GROK_4_7_MODEL_ID, accountAccess: 'unverified' };
+  const contract = { model: GROK_4_7_MODEL_ID, accountAccess: 'unverified', protocolVersion: CANVAS_AGENT_MODEL_PROTOCOL_VERSION, transport: 'cloudflare-background' };
+  if (env?.ENABLE_GROK_4_7 !== 'true') return { available: false, reason: 'canvas_agent_model_disabled', ...contract };
+  if (typeof env?.AI?.run !== 'function') return { available: false, reason: 'ai_binding_missing', ...contract };
+  return { available: true, reason: null, ...contract };
 }
 
 export function buildCanvasAgentPlanPayload(input) {
@@ -105,7 +108,7 @@ export async function invokeCanvasAgentPlan(env, rawInput, { correlationId, sign
       gateway: { id: env.AI_GATEWAY_ID || 'default', skipCache: true, collectLog: false,
         metadata: { surface: 'canvas-agent-plan', model_id: GROK_4_7_MODEL_ID, provider: 'xai',
           request_id: input.requestId, ...(typeof correlationId === 'string' && /^[A-Za-z0-9_-]{1,96}$/.test(correlationId) ? { correlation_id: correlationId } : {}) } },
-    }), { signal, timeoutMs: 180000 });
+    }), { signal });
     return normalizeCanvasAgentPlanResponse(output, input);
   } catch (error) {
     if (error instanceof CanvasAgentProviderError) throw error;
@@ -118,7 +121,7 @@ export async function invokeCanvasAgentPlan(env, rawInput, { correlationId, sign
 export function validateCanvasAgentEvaluationInput(input) {
   if (!object(input) || Object.keys(input).some(key => !['version', 'model', 'requestId', 'brief', 'privacyUser', 'promptCacheKey', 'frames'].includes(key))) invalid('canvas_agent_input_invalid');
   if (input.version !== 1 || input.model !== GROK_4_7_MODEL_ID) invalid('canvas_agent_model_invalid');
-  if (!/^[A-Za-z0-9_-]{8,96}$/.test(input.requestId || '') || !/^(?:cau|vau)_[a-f0-9]{64}$/.test(input.privacyUser || '') || !/^(?:cap|gpc)_[a-f0-9]{64}$/.test(input.promptCacheKey || '')) invalid('canvas_agent_identity_invalid');
+  if (typeof input.requestId !== 'string' || !/^[A-Za-z0-9_-]{8,96}$/.test(input.requestId) || !/^(?:cau|vau)_[a-f0-9]{64}$/.test(input.privacyUser || '') || !/^(?:cap|gpc)_[a-f0-9]{64}$/.test(input.promptCacheKey || '')) invalid('canvas_agent_identity_invalid');
   if (typeof input.brief !== 'string' || !input.brief.trim() || input.brief.length > 12000 || !Array.isArray(input.frames) || input.frames.length < 1 || input.frames.length > 8) invalid('canvas_agent_evaluation_input_invalid');
   const counts = new Map(); let total = 0;
   for (const frame of input.frames) {
@@ -148,11 +151,83 @@ export async function invokeCanvasAgentEvaluation(env, rawInput, { signal, corre
       signal: providerSignal, gateway: { id: env.AI_GATEWAY_ID || 'default', skipCache: true, collectLog: false,
         metadata: { surface: 'canvas-agent-evaluation', model_id: GROK_4_7_MODEL_ID, provider: 'xai', request_id: input.requestId,
           ...(typeof correlationId === 'string' && /^[A-Za-z0-9_-]{1,96}$/.test(correlationId) ? { correlation_id: correlationId } : {}) } },
-    }), { signal, timeoutMs: 180000 });
+    }), { signal });
     const { value, ...receipt } = normalizeCanvasStructuredResponse(raw, value => validateCanvasAgentEvaluation(value, input.frames), 'canvas_agent_evaluation_invalid');
     return { evaluation: value, ...receipt };
   } catch (error) {
     if (error instanceof CanvasAgentProviderError) throw error;
     throw new CanvasAgentProviderError(error?.code === 'generation_timeout' ? 'canvas_agent_provider_timeout' : 'canvas_agent_provider_outcome_unknown');
+  }
+}
+
+function validateNormalizationContext(kind, context) {
+  const reject = () => { throw new CanvasAgentProviderError('canvas_agent_normalization_context_invalid', { status: 400 }); };
+  if (!object(context)) reject();
+  if (kind === 'plan') {
+    if (Object.keys(context).some(key => !['targetDurationSeconds', 'toleranceSeconds', 'existingNodeIds'].includes(key))
+      || !Number.isFinite(context.targetDurationSeconds) || context.targetDurationSeconds < 1 || context.targetDurationSeconds > 600
+      || !Number.isFinite(context.toleranceSeconds) || context.toleranceSeconds < .04 || context.toleranceSeconds > 2
+      || !Array.isArray(context.existingNodeIds) || context.existingNodeIds.length > 120
+      || context.existingNodeIds.some(id => typeof id !== 'string' || !/^[a-f0-9]{32}$/.test(id))
+      || new Set(context.existingNodeIds).size !== context.existingNodeIds.length) reject();
+  } else if (kind === 'evaluate') {
+    if (Object.keys(context).some(key => key !== 'frames') || !Array.isArray(context.frames)
+      || context.frames.length < 1 || context.frames.length > 8) reject();
+    const counts = new Map();
+    for (const frame of context.frames) {
+      if (!object(frame) || Object.keys(frame).some(key => !['nodeId', 'timeSeconds'].includes(key))
+        || typeof frame.nodeId !== 'string' || !/^[a-f0-9]{32}$/.test(frame.nodeId)
+        || !Number.isFinite(frame.timeSeconds) || frame.timeSeconds < 0 || frame.timeSeconds > 600) reject();
+      counts.set(frame.nodeId, (counts.get(frame.nodeId) || 0) + 1);
+      if (counts.get(frame.nodeId) > 2) reject();
+    }
+  } else reject();
+  return structuredClone(context);
+}
+
+// Auth owns durable dispatch, the background webhook and the original usage
+// attempt. These signed adapters perform no provider call and retain no frames.
+// https://developers.cloudflare.com/ai-gateway/usage/rest-api/
+export async function prepareCanvasAgentModel(env, envelope) {
+  if (!object(envelope) || Object.keys(envelope).some(key => !['kind', 'input'].includes(key))
+    || !['plan', 'evaluate'].includes(envelope.kind)) invalid('canvas_agent_input_invalid');
+  const { kind } = envelope;
+  const input = (kind === 'plan' ? validateCanvasAgentPlanInput : validateCanvasAgentEvaluationInput)(envelope.input);
+  const ready = canvasAgentProviderReadiness(env);
+  if (!ready.available) throw new CanvasAgentProviderError(ready.reason, { status: 503, outcome: 'not_submitted' });
+  const context = kind === 'plan'
+    ? { targetDurationSeconds: input.targetDurationSeconds, toleranceSeconds: input.toleranceSeconds, existingNodeIds: input.currentProject.nodes.map(node => node?.id) }
+    : { frames: input.frames.map(({ nodeId, timeSeconds }) => ({ nodeId, timeSeconds })) };
+  try { validateNormalizationContext(kind, context); }
+  catch { invalid('canvas_agent_context_invalid'); }
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(input)));
+  return { protocolVersion: CANVAS_AGENT_MODEL_PROTOCOL_VERSION, model: GROK_4_7_MODEL_ID,
+    input: (kind === 'plan' ? buildCanvasAgentPlanPayload : buildCanvasAgentEvaluationPayload)(input),
+    requestId: input.requestId, inputDigest: Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join(''), context };
+}
+
+export function normalizeCanvasAgentModel(envelope) {
+  // Validation is deliberately independent of current model enablement. A
+  // disabled model must still allow already accepted work to be accounted for.
+  if (!object(envelope) || Object.keys(envelope).some(key => !['kind', 'requestId', 'context', 'response'].includes(key))
+    || !['plan', 'evaluate'].includes(envelope.kind) || typeof envelope.requestId !== 'string'
+    || !/^[A-Za-z0-9_-]{8,96}$/.test(envelope.requestId) || !object(envelope.response)) {
+    throw new CanvasAgentProviderError('canvas_agent_normalization_input_invalid', { status: 400 });
+  }
+  if (new TextEncoder().encode(JSON.stringify(envelope)).byteLength > CANVAS_AGENT_NORMALIZE_MAX_BYTES) {
+    throw new CanvasAgentProviderError('canvas_agent_normalization_input_too_large', { status: 413 });
+  }
+  const context = validateNormalizationContext(envelope.kind, envelope.context);
+  const plan = envelope.kind === 'plan';
+  try {
+    const { value, ...receipt } = normalizeCanvasStructuredResponse(envelope.response,
+      result => plan ? validateCanvasAgentPlan(result, context) : validateCanvasAgentEvaluation(result, context.frames),
+      plan ? 'canvas_agent_plan_invalid' : 'canvas_agent_evaluation_invalid');
+    return { [plan ? 'plan' : 'evaluation']: value, ...receipt, requestId: envelope.requestId };
+  } catch (error) {
+    if (error instanceof CanvasAgentProviderError && error.outcome === 'completed') {
+      Object.assign(error, { requestId: envelope.requestId, model: GROK_4_7_MODEL_ID });
+    }
+    throw error;
   }
 }

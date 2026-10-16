@@ -511,6 +511,12 @@ export async function runCanvasTests(f) {
   await runCanvasCompletionTests(f, { prepared: true });
   await runCanvasAudioTests(f, { prepared: true });
   await runCanvasTransitionTests(f,{prepared:true});
+  for(const name of ['late','evaluate','lease','cancel','manual','newer','failed','rejected','ambiguous','callback-guards','normalization-recovery','bounded-review','legacy']) await f.test(`canvas_durable_model_operation_${name.replaceAll('-','_')}`,async()=>{
+    const response=await f.control('/canvas-agent-model-operation',{name});
+    assert.equal(response.status,200,await response.clone().text());
+    const result=await response.json();assert.equal(result.case,name);assert.equal(result.providerCalls,name==='evaluate'?2:1);
+    f.metrics.push(result);assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
+  });
   for (const path of ['/canvas-assembly', '/canvas-inspection', '/canvas-agent-dispatch', '/canvas-agent-capabilities', '/canvas-agent-late-completion','/canvas-agent-unknown-provider']) await f.test('canvas_native' + path.replaceAll('-', '_').replace('/', '_'), async () => {
     const response = await f.control(path, {
       videoBase64: fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4', import.meta.url)).toString('base64'),

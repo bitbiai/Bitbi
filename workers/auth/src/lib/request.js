@@ -27,6 +27,7 @@ export const BODY_LIMITS = Object.freeze({
   chatImageMultipart: 9 * 1024 * 1024,
   adminJson: 512 * 1024,
   adminVideoJobJson: 512 * 1024,
+  canvasModelReceiptJson: 520 * 1024,
   aiGenerateJson: 32 * 1024,
   musicPlanJson: 288 * 1024,
   aiGenerateImageJson: 15 * 1024 * 1024,

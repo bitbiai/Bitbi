@@ -6,7 +6,7 @@ import { enforceSensitiveUserRateLimit } from '../lib/sensitive-write-limit.js';
 import { nowIso,randomTokenHex,sha256Hex } from '../lib/tokens.js';
 import { canvasAgentAvailability,canvasAgentCapabilities } from '../lib/canvas-agent-capabilities.js';
 import { quoteCanvasAgentPlan } from '../lib/canvas-agent-planning.js';
-import { publicAgentRun,wakeCanvasAgent,agentFail,releaseCanvasAgentUndispatched } from '../lib/canvas-agent-store.js';
+import { publicAgentRun,wakeCanvasAgent,agentFail,releaseCanvasAgentUndispatched,publicCanvasAgentModelOperation,canvasAgentAllowedActions } from '../lib/canvas-agent-store.js';
 
 const respond=(data,status=200)=>json({ok:true,data},{status,headers:{'Cache-Control':'no-store'}});
 const keyFor=request=>{const key=request.headers.get('Idempotency-Key');if(!/^[A-Za-z0-9._:-]{8,100}$/.test(key||''))agentFail('idempotency_key_required',428);return key;};
@@ -73,6 +73,7 @@ async function control(ctx,session,projectId,id) {
     if(prior){if(prior.action!==parsed.body.action)agentFail('idempotency_conflict');await releaseCanvasAgentUndispatched(env,id);return respond({run:await publicAgentRun(env,run),idempotentReplay:true});}
     const action=parsed.body.action,status={pause:'paused',resume:run.plan_json?'running':'queued',cancel:'cancelled',takeover:'taken_over'}[action];
     if(['completed','cancelled','taken_over'].includes(run.status))agentFail('canvas_agent_control_closed');
+    if(!canvasAgentAllowedActions(run,await publicCanvasAgentModelOperation(env,run.id)).includes(action))agentFail('canvas_agent_review_required');
     if(action==='resume') {
         if(run.status!=='paused')agentFail('canvas_agent_review_required');
         const {project}=await canvasAgentProject(env,session.user.id,projectId);
@@ -101,7 +102,9 @@ export async function handleCanvasAgent(ctx,session) {
     if(!match)return null;
     await canvasAgentProject(ctx.env,session.user.id,match[1]);
     if(ctx.method==='GET'&&!match[2]) {
-        const row=await ctx.env.DB.prepare('SELECT * FROM canvas_agent_runs WHERE project_id=? AND user_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1').bind(match[1],session.user.id).first();
+        let row=await ctx.env.DB.prepare('SELECT * FROM canvas_agent_runs WHERE project_id=? AND user_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1').bind(match[1],session.user.id).first();
+        if(row){const {reconcileCanvasAgentModelOperations}=await import('../lib/canvas-agent-model-operations.js');await reconcileCanvasAgentModelOperations(ctx.env,{runId:row.id});
+            row=await ctx.env.DB.prepare('SELECT * FROM canvas_agent_runs WHERE id=?').bind(row.id).first();}
         return respond({availability:await canvasAgentAvailability(ctx.env),run:await publicAgentRun(ctx.env,row)});
     }
     if(ctx.method!=='POST')return null;

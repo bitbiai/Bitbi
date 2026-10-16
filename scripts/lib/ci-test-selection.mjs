@@ -129,6 +129,7 @@ const GENERATE_LAB_UI_FILES = new Set([
 
 const CANVAS_UI_FILES = new Set([
   "canvas/index.html", "de/canvas/index.html",
+  "js/pages/canvas/agent.js", "js/pages/canvas/agent-copy.js",
   "css/pages/canvas.css", "js/pages/canvas/main.js", "js/pages/canvas/api.js",
   "js/pages/canvas/full-video.js", "js/pages/canvas/workflow.js", "js/pages/canvas/video-frame.js", "js/pages/canvas/video-input.js",
 ]);
@@ -493,6 +494,7 @@ const AUTH_SHARED_PATTERNS = [
 ];
 
 const HOMEPAGE_CORE_TEST_FILES = new Set([
+  "tests/helpers/canvas-agent-ui.cjs", "tests/helpers/canvas-agent-model-recovery-ui.cjs",
   "tests/audio-player.spec.js",
   "tests/canvas.spec.js",
   "tests/oma2-q1-canvas.spec.js",
@@ -562,6 +564,9 @@ const AUTH_TEST_FILES = new Set([
 ]);
 
 const WORKER_TEST_PREFIXES = [
+  "tests/grok-chat-workers.spec.js",
+  "tests/q2-canvas-agent-provider.spec.js",
+  "tests/q2-canvas-agent-model-operation.spec.js", "tests/helpers/canvas-agent-model-operation-cases.mjs",
   "tests/appearance.spec.js", "tests/appearance-runtime.mjs",
   "tests/model-pricing.spec.js", "tests/model-pricing-runtime.mjs", "tests/helpers/model-pricing-control.mjs",
   "tests/helpers/q2-runtime/",
@@ -584,6 +589,7 @@ const WORKER_TEST_PREFIXES = [
 // These exact release-only inputs are exercised by the always-required release
 // contract tests and native static-host runtime check. Unknown automation is broad.
 const RELEASE_TOOLING_FILES = new Set([
+  'scripts/test-canvas-agent-release.mjs',
   'config/release-validation.yml', 'scripts/local-release.mjs', 'scripts/local-release.Dockerfile', 'scripts/release-preflight.mjs',
   'scripts/lib/local-release-plan.mjs', 'scripts/lib/local-release-environment.mjs',
   'scripts/lib/local-release-evidence.mjs', 'scripts/lib/local-release-transport.mjs',
@@ -1307,6 +1313,11 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
 
     if (file === "tests/assets-manager-focused.spec.js" || file === "playwright.assets.config.js") {
       addReason(selection, "assets", file, "changes focused Assets Manager regression coverage");
+      continue;
+    }
+    if (['tests/helpers/canvas-agent-model-operation-control.mjs', 'tests/helpers/canvas-agent-control.mjs'].includes(file)) {
+      addReason(selection,'workers',file,'shared Canvas fixture executes signed provider, real persistence and native D1 callers');
+      addReason(selection,'homepage',file,'shared fixture also executes rendered Canvas recovery and editable-film callers in both engines');
       continue;
     }
     if (HOMEPAGE_CORE_TEST_FILES.has(file)) {

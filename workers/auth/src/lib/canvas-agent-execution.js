@@ -126,6 +126,10 @@ async function exportStep(env,run,view) {
         targetDurationSeconds:run.target_seconds,toleranceSeconds:run.tolerance_seconds,measuredDurationSeconds:duration,technicalValidation:'processor_measured'})});
 }
 export async function processCanvasAgent(env,id) {
+    // Receipt ingestion/settlement is independent of a creative execution
+    // lease. A cancellation still retains the already accepted paid result.
+    const {reconcileCanvasAgentModelOperations}=await import('./canvas-agent-model-operations.js');
+    await reconcileCanvasAgentModelOperations(env,{runId:id});
     let run=await claimCanvasAgent(env,id);if(!run)return {status:'ignored'};
     try {
         const {user,view}=await checkAuthority(env,run);
@@ -134,6 +138,7 @@ export async function processCanvasAgent(env,id) {
             const step=await env.DB.prepare("SELECT * FROM canvas_agent_steps WHERE run_id=? AND kind='plan' ORDER BY rowid DESC LIMIT 1").bind(id).first();
             if(step.status==='accepted'&&!step.receipt_json)agentFail('canvas_agent_planning_review_required');
             const plan=step.status==='completed'?JSON.parse(step.receipt_json).data?.plan||JSON.parse(step.receipt_json).plan:await executeCanvasAgentPlan(env,run,step,user);
+            if(!plan)return {status:'waiting_model'};
             const inventory=await canvasAgentCapabilities(env);
             if(inventory.revision!==run.capability_revision)agentFail('canvas_agent_capabilities_changed');
             await prepareCanvasAgentGraph(env,run,view,inventory,plan,JSON.parse(step.input_json).repairNodes||null);
@@ -154,7 +159,7 @@ export async function processCanvasAgent(env,id) {
         } else if(run.status==='exporting')await exportStep(env,run,view);
     } catch(error){
         const code=/^[a-z0-9_]{1,90}$/.test(error?.code||'')?error.code:'canvas_agent_execution_review_required';
-        const status=/unknown|review|required|claim_lost/.test(code)?'review_required':'blocked';
+        const status=/unknown|review|required|claim_lost|provider_timeout/.test(code)?'review_required':'blocked';
         await env.DB.prepare('UPDATE canvas_agent_runs SET status=?,error_code=?,updated_at=? WHERE id=? AND lease_token=?')
             .bind(status,code,nowIso(),id,run.lease_token).run();
     } finally {

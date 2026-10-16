@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0105_canvas_media_inspections.sql",
+        "latest": "0106_canvas_agent_model_operations.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
@@ -406,7 +406,7 @@
         "name": "H3_CLOUDFLARE_API_TOKEN",
         "requiredForRelease": true,
         "documentation": "workers/auth/CLAUDE.md",
-        "summary": "H3 REST only: account-restricted Cloudflare API token with Account > Workers AI > Read for CLOUDFLARE_ACCOUNT_ID. Never a Wrangler OAuth or deployment credential. Preserve default Gateway Unified Billing; no dispatch retry or binding fallback."
+        "summary": "Existing H3 and Canvas Grok planning/evaluation REST transport: account-restricted Cloudflare API token with Account > Workers AI > Read for CLOUDFLARE_ACCOUNT_ID. Never a Wrangler OAuth or deployment credential. Preserve default Gateway Unified Billing, private inputs and single dispatch; no inference retry or binding fallback."
       },
       {
         "id": "auth-session-secret",

@@ -1992,6 +1992,37 @@ completes media/Auth/frontend publication. Never loosen the consuming archive
 contract to accommodate an incorrectly assembled artifact.
 
 
+### Canvas reasoning deadline and durable receipt recovery — 2026-10-16
+
+Source `770c595a` imposed a separate 180-second planning/evaluation timeout. An
+unknown provider outcome became an unrecoverable generic `blocked` run, and no
+late result was retained. The original run `3ed9397d5a7a3c0aaa37008ef5459ea0`
+and usage attempt `maua_3e61728ee3ed1838716fea93123b876d` still had no result at
+12:46 UTC: 127 credits reserved, zero ledger debit. The similarly timed 180313-ms
+Worker invocation is correlation evidence, not proof of the provider outcome or
+CPU failure. Never replay that request or release its reservation without matched
+terminal evidence.
+
+Planning/evaluation now use the documented single Cloudflare background request
+with an immutable D1 operation, authenticated callback and existing queue/cron
+reconciliation. A Worker-local late promise is not durable execution. Validate
+real REST headers/envelopes, persist before acknowledging, retain the first
+terminal receipt, and settle the original usage identity independently of the
+creative lease. Callback delivery is best effort: absence becomes review-required,
+not a new generation. A failed provider callback without cost evidence keeps its
+reservation; only documented pre-inference rejection permits release.
+
+Executable counterchecks: `tests/q2-canvas-agent-model-operation.spec.js` and
+`tests/q2-canvas-agent-provider.spec.js` in the ordinary Worker caller; the shared
+operation cases also run through native workerd/D1 Canvas acceptance. EN/DE
+Chromium/WebKit in `tests/canvas.spec.js` exercise closed-browser late recovery,
+accurate costs, safe controls and normal editable graph continuation. Broken
+controls include wrong capability/provider identity, conflicting terminal events,
+expired held funds, manual edits, cancellation and bounded receipt processing.
+The complete-film/editability fixture uses this transport too. These controlled
+checks do not establish live model access; release and paid acceptance remain
+separate. Keep exact candidate reports in the existing local release checkpoint.
+
 ### Canvas agent editability and inspector fixtures — 2026-10-15
 
 The production assistant must persist creative settings in the same ordinary

@@ -6,9 +6,26 @@ import {assertMediaAuthConfig} from './lib/media-publication.mjs';
 import {backendContinuationSupported} from './lib/backend-continuation.mjs';
 import {createReleasePlan,evaluateStaticDeploySafety} from './lib/release-plan.mjs';
 import {loadReleaseCompatibilityContext} from './lib/release-compat.mjs';
-import {activateAuthVersion,verifyAiActivation} from './lib/backend-publication.mjs';
+import {activateAuthVersion,verifyAiActivation,assertSupportedBackendMigrations} from './lib/backend-publication.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const load=worker=>JSON.parse(fs.readFileSync(path.join(root,`workers/${worker}/wrangler.jsonc`)));
+{
+ const migration='0106_canvas_agent_model_operations.sql';
+ const changedFiles=[`workers/auth/migrations/${migration}`,'config/release-compat.json',
+  'workers/ai/src/index.js','workers/ai/src/routes/canvas-agent-plan.js','workers/ai/src/lib/canvas-agent-plan.js','workers/ai/src/lib/caller-policy.js',
+  'workers/auth/src/lib/canvas-agent-model-operations.js','workers/auth/src/lib/canvas-agent-planning.js',
+  'js/pages/canvas/agent.js','js/pages/canvas/agent-copy.js'];
+ const context={...loadReleaseCompatibilityContext(root),repoRoot:root},plan=createReleasePlan(context,{changedFiles});
+ assert(backendContinuationSupported(plan));assertSupportedBackendMigrations([migration]);
+ assert.deepEqual(plan.workerDeploys.map(step=>step.worker),['ai','auth']);
+ assert.deepEqual(plan.deploySteps.map(step=>step.type),['schema-checkpoint','worker','worker','static']);
+ assert.equal(plan.schemaApplies[0].latestMigration,migration);
+ assert(!plan.workerDeploys.some(step=>step.worker==='media'),'Planner repair must retain the unchanged media activation');
+ assert(plan.manualPrerequisites.required.some(item=>item.name==='H3_CLOUDFLARE_API_TOKEN'&&item.worker==='auth'));
+ for(const file of ['workers/ai/src/lib/generation-timeout.js','workers/ai/src/routes/unreviewed-background.js','workers/ai/wrangler.jsonc'])
+  assert(!backendContinuationSupported(createReleasePlan(context,{changedFiles:[...changedFiles,file]})),'No broad AI transport/config exception');
+ assert.throws(()=>assertSupportedBackendMigrations([migration,'0107_unreviewed.sql']));
+}
 for(const worker of ['auth','ai']) {
  const after=load(worker),before=structuredClone(after);for(const key of worker==='auth'?['CANVAS_AGENT_ENABLED','ENABLE_GROK_4_7']:['ENABLE_GROK_4_7'])delete before.vars[key];
  const verify=worker==='auth'?assertMediaAuthConfig:assertCanvasAgentAiConfig;

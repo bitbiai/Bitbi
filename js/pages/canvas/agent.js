@@ -51,7 +51,7 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
     const feedback = create('p', 'canvas-agent__notice'); feedback.setAttribute('role', 'status'); feedback.setAttribute('aria-live', 'polite'); feedback.hidden = true;
     const start = create('button', 'canvas-button canvas-button--primary', copy.start); start.type = 'submit';
     fields.append(field(copy.brief, brief), field(copy.duration, duration), durationHint, delegationField, field(copy.budget, cap), capHint, approvalField, start);
-    form.append(fields, feedback);
+    form.append(fields);
     const status = create('section', 'canvas-agent__production'); status.setAttribute('aria-label', copy.status); status.hidden = true;
     const phase = create('h3'); phase.setAttribute('role', 'status');
     const counts = create('p', 'canvas-agent__counts');
@@ -64,6 +64,7 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
     const refresh = button(copy.check, () => void observe());
     const retryStart = button(copy.retryStart, () => void resendStart());
     const revise = button(copy.newBrief, () => {
+        if (!run || !TERMINAL.has(run.status) || modelHeld()) return;
         revising = true; brief.value = ''; approval.checked = false; pendingStart = null;
         duration.value = getState().project?.assembly?.target?.seconds ?? run?.targetDurationSeconds ?? '';
         delegation.checked = false; duration.disabled = false; render(); brief.focus();
@@ -74,11 +75,28 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
     const evidence = create('dl', 'canvas-agent__summary'); details.append(evidence);
     status.append(phase, counts, summary, note, media, actions, stopHint, details);
     const help = create('details', 'canvas-disclosure'); help.append(create('summary', '', copy.inspect), create('p', 'canvas-muted', copy.editHint));
-    root.append(intro, availabilityNote, availabilityDetails, projectHint, form, status, help);
+    root.append(intro, availabilityNote, availabilityDetails, projectHint, form, feedback, status, help);
 
     function message(text) { feedback.textContent = text; feedback.hidden = !text; }
     function validRun(value) { return value && /^[a-f0-9]{32}$/.test(value.id || '') && value.projectId===projectId && typeof value.status==='string'; }
     function summaryItem(container, label, value) { container.append(create('dt', '', label), create('dd', '', value)); }
+    function modelPending() {
+        if (['not_dispatched', 'pending', 'unknown', 'completed', 'rejected', 'failed'].includes(run?.modelOperation?.outcome)) return ['pending', 'unknown'].includes(run.modelOperation.outcome);
+        // Older saved runs may predate the durable operation projection. An
+        // uncertain accepted request never becomes a fresh paid resume action.
+        return /provider.*(timeout|unknown|review)/.test(run?.errorCode || '');
+    }
+    function modelHeld() {
+        return modelPending() || run?.modelOperation?.outcome === 'failed' || ['review_required', 'billing_review'].includes(run?.modelOperation?.recovery);
+    }
+    function canControl(action) {
+        if (!run || TERMINAL.has(run.status) || run.status === 'clarification_required') return false;
+        if (action === 'resume' && modelHeld()) return false;
+        if (Object.hasOwn(run, 'allowedActions')) return Array.isArray(run.allowedActions) && run.allowedActions.includes(action);
+        if (action === 'pause') return !WAITING.has(run.status);
+        if (action === 'resume') return run.status === 'paused';
+        return action === 'cancel' || action === 'takeover';
+    }
     function render() {
         const canStart = availability?.available === true;
         availabilityNote.hidden = canStart;
@@ -104,13 +122,24 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
         }
         const terminal = TERMINAL.has(run.status), waiting = WAITING.has(run.status);
         phase.textContent = copy.phases[terminal||waiting?run.status:run.phase] || copy.phases[run.status] || copy.failed;
+        const operation = run.modelOperation;
+        const uncertain = modelPending();
+        if (!terminal && operation?.recovery === 'receipt_ready') phase.textContent = copy.modelReceived;
+        else if (!terminal && operation?.recovery === 'review_required' && operation.outcome !== 'unknown') phase.textContent = copy.modelNeedsReview;
+        else if (!terminal && uncertain) phase.textContent = operation?.outcome === 'pending' ? copy.modelPending : copy.modelUnknown;
+        else if (!terminal && operation?.outcome === 'rejected') phase.textContent = copy.modelRejected;
+        else if (!terminal && operation?.outcome === 'failed') phase.textContent = copy.modelFailed;
+        if ((modelHeld() || operation?.recovery === 'receipt_ready') && run.status === 'paused') phase.textContent = `${copy.phases.paused} · ${phase.textContent}`;
         counts.textContent = Number.isInteger(run.completed) && Number.isInteger(run.total) && run.total > 0 && run.completed >= 0 && run.completed <= run.total
             ? `${run.completed} / ${run.total} ${copy.progress}` : '';
         summary.replaceChildren();
+        const currentPhase = copy.phases[run.phase] || copy.phases[operation?.kind === 'plan' ? 'planning' : operation?.kind === 'evaluate' ? 'evaluating' : ''];
+        if (currentPhase) summaryItem(summary, copy.currentPhase, currentPhase);
         if (finite(run.targetDurationSeconds)) summaryItem(summary, copy.target, `${run.targetDurationSeconds} s`);
         if (finite(run.toleranceSeconds)) summaryItem(summary, copy.tolerance, `± ${run.toleranceSeconds} s`);
         if (finite(run.budgetCredits)) summaryItem(summary, copy.budgetSummary, String(run.budgetCredits));
         if (finite(run.allocatedCredits)) summaryItem(summary, copy.allocated, String(run.allocatedCredits));
+        for (const [key, label] of [['chargedCredits', copy.charged], ['reservedCredits', copy.reserved]]) if (finite(run[key])) summaryItem(summary, label, String(run[key]));
         const measuredDuration=run.result?.measuredDurationSeconds??run.result?.durationSeconds;
         if (finite(measuredDuration)) summaryItem(summary, copy.durationMeasured, `${measuredDuration} s`);
         const fileUrl = privateMediaUrl(run.result?.fileUrl);
@@ -120,21 +149,25 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
         note.textContent = complete ? copy.completion : waiting || (run.status === 'completed' && !complete) ? copy.failed : terminal ? copy.editHint : copy.background;
         if (!terminal && !waiting && run.phase === 'waiting_limit') note.textContent = copy.waitingLimit;
         if(waiting&&run.errorCode)note.textContent=run.errorCode==='canvas_agent_budget_exceeded'?copy.blockedBudget:run.errorCode==='canvas_agent_quality_review_required'?copy.blockedQuality:run.errorCode==='canvas_agent_project_changed'?copy.blockedProject:/provider.*(unknown|review)/.test(run.errorCode)?copy.blockedProvider:note.textContent;
+        if (operation?.recovery === 'receipt_ready') note.textContent = terminal ? copy.stoppedReceiptReady : copy.receiptReady;
+        else if (uncertain) note.textContent = terminal ? copy.stoppedPending : operation?.recovery === 'waiting_callback' ? copy.waitingCallback : copy.blockedProvider;
+        else if (!terminal && operation?.outcome === 'rejected') note.textContent = copy.rejectedRequest;
+        if (operation?.recovery === 'review_required' && operation.outcome !== 'unknown') note.textContent = copy.receiptNeedsReview;
+        if (operation?.recovery === 'billing_review') note.textContent = copy.billingReview;
+        if (uncertain && operation?.recovery !== 'receipt_ready' && run.errorCode === 'canvas_agent_provider_timeout') note.textContent = `${copy.providerTimeout} ${note.textContent}`;
         if (complete) {
             let video = media.querySelector('video');
             if (!video) { video = create('video'); video.controls = true; video.preload = 'metadata'; video.setAttribute('aria-label', copy.preview); media.append(video); }
             if (video.src !== fileUrl) video.src = fileUrl;
             const poster = privateMediaUrl(run.result.previewUrl); if (poster) video.poster = poster; else video.removeAttribute('poster');
         } else media.replaceChildren();
-        controls.pause.hidden = terminal || waiting;
-        controls.resume.hidden = run.status !== 'paused';
-        controls.cancel.hidden = terminal || run.status === 'clarification_required';
-        controls.takeover.hidden = terminal || run.status === 'clarification_required';
-        revise.hidden = !terminal || revising;
+        for (const [action, node] of Object.entries(controls)) node.hidden = !canControl(action);
+        revise.hidden = !terminal || revising || modelHeld();
         stopHint.hidden = terminal;
         details.hidden = false; evidence.replaceChildren();
         summaryItem(evidence, copy.requestId, run.id || '—');
-        for(const [key,label]of [['chargedCredits',copy.charged],['reservedCredits',copy.reserved],['pendingOutcomeCredits',copy.pendingCost]])if(finite(run[key]))summaryItem(evidence,label,String(run[key]));
+        if (finite(run.pendingOutcomeCredits)) summaryItem(evidence, copy.pendingCost, String(run.pendingOutcomeCredits));
+        if (typeof operation?.operationId === 'string') summaryItem(evidence, copy.operationId, operation.operationId);
         if(run.result?.technicalValidation==='processor_measured')summaryItem(evidence,copy.technical,copy.measured);
         if(run.result?.visualReview==='sampled_frames'&&run.result?.evaluation) {
             summaryItem(evidence,copy.visual,copy.sampled);
@@ -153,6 +186,7 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
         if (['model_pricing_stale', 'canvas_project_revision_conflict', 'project_revision_conflict', 'canvas_agent_project_changed', 'canvas_agent_tariff_changed'].includes(result.code)) { approval.checked = false; message(copy.stale); }
         else if (result.code==='canvas_agent_budget_exceeded' || result.code==='canvas_agent_budget_required') { approval.checked=false;message(copy.budgetRequired); }
         else if (result.code==='canvas_agent_duration_invalid') message(copy.invalidDuration);
+        else if (result.code==='canvas_agent_review_required') message(copy.blockedProvider);
         else if (['canvas_agent_model_unavailable','canvas_agent_disabled','canvas_agent_infrastructure_unavailable','model_area_disabled'].includes(result.code)) { availability={available:false,code:result.code};message(copy.unavailable); }
         else message(copy.connection);
     }
@@ -167,6 +201,7 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
     function clearStart() { pendingStart = null; try { sessionStorage.removeItem(storageKey()); } catch { /* No persistence dependency. */ } }
     async function submit(event) {
         event.preventDefault(); if (busy || !projectId || availability?.available !== true || pendingStart?.uncertain) return;
+        if (run && !['clarification_required', 'budget_required'].includes(run.status) && (!revising || modelHeld())) return;
         const text = brief.value.trim(); if (!text) { message(copy.briefRequired); brief.focus(); return; }
         const requested = duration.value.trim();
         if (requested && (!Number.isSafeInteger(Number(requested)) || Number(requested) <= 0)) { message(copy.invalidDuration); duration.focus(); return; }
@@ -220,7 +255,7 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
         } finally { busy=false; render(); }
     }
     async function control(action) {
-        if (busy || !run?.id || !projectId) return;
+        if (busy || !run?.id || !projectId || !canControl(action)) return;
         busy = true; controller?.abort(); clearTimeout(timer); message(''); render(); const current = epoch, id = run.id;
         const identity = `${id}:${action}:${run.status}`;
         if (!controlKeys.has(identity)) controlKeys.set(identity, crypto.randomUUID());

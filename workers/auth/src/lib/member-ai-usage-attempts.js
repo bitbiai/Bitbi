@@ -2,6 +2,7 @@ import { classifyDispatchAttempt, claimAiDispatch, failAiDispatch, markAiDispatc
 import { BillingError } from "./billing.js";
 import { nowIso, randomTokenHex } from "./tokens.js";
 import { AI_GENERATED_TEMP_OBJECT_PREFIX } from "../routes/ai/generated-image-save-reference.js";
+import { CANVAS_MODEL_RESERVATION_HELD_SQL } from './canvas-agent-model-reservation.js';
 
 const ATTEMPT_TTL_MINUTES = 30;
 const MAX_CREDIT_COST = 100_000;
@@ -312,7 +313,7 @@ async function reserveExistingAttempt(env, { attempt, now, expiresAt }) {
              WHERE user_id = ?
                AND billing_status = 'reserved'
                AND status IN ('reserved', 'provider_running', 'finalizing')
-               AND expires_at > ?
+               AND (expires_at > ? OR ${CANVAS_MODEL_RESERVATION_HELD_SQL})
                AND id <> ?
            ), 0)
          ) >= ?`
@@ -367,7 +368,7 @@ async function insertReservedAttempt(env, attempt) {
            WHERE user_id = ?
              AND billing_status = 'reserved'
              AND status IN ('reserved', 'provider_running', 'finalizing')
-             AND expires_at > ?
+             AND (expires_at > ? OR ${CANVAS_MODEL_RESERVATION_HELD_SQL})
          ), 0)
        ) >= ?`
     ).bind(
@@ -713,6 +714,7 @@ async function listCleanupCandidates(env, { now, limit }) {
             completed_at, expires_at, metadata_json, provider_outcome, dispatch_token, reservation_released_at
      FROM member_ai_usage_attempts_v2
      WHERE expires_at <= ?
+       AND NOT ${CANVAS_MODEL_RESERVATION_HELD_SQL}
        AND (
          (billing_status = 'reserved' AND status IN ('reserved', 'provider_running', 'provider_failed', 'finalizing'))
          OR (status = 'succeeded' AND billing_status = 'finalized' AND result_status = 'stored')
@@ -763,6 +765,7 @@ async function markExpiredFinalizationFailed(env, row, now) {
        AND status = 'finalizing'
        AND billing_status = 'reserved'
        AND expires_at <= ?
+       AND NOT ${CANVAS_MODEL_RESERVATION_HELD_SQL}
        AND NOT EXISTS (SELECT 1 FROM member_credit_ledger l
          WHERE l.user_id = member_ai_usage_attempts_v2.user_id
            AND l.idempotency_key = member_ai_usage_attempts_v2.idempotency_key AND l.amount < 0)`

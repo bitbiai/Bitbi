@@ -87,12 +87,14 @@ export async function canvasAgentApiCase(base) {
   const project = (await sha256Hex(owner + '-project')).slice(0, 32), messages = [], providerCalls = [], waits = [];
   const env = { ...base, CANVAS_AGENT_ENABLED: 'true', ENABLE_GROK_4_7: 'true',
     AI_SERVICE_AUTH_SECRET: 'canvas-agent-native-synthetic-only',
+    CLOUDFLARE_ACCOUNT_ID:'0'.repeat(32),H3_CLOUDFLARE_API_TOKEN:'synthetic-workers-ai-read',
     AI_VIDEO_JOBS_QUEUE: { async send(body) { messages.push(body); } },
     PRIVATE_MEDIA_PROCESSOR: { async fetch() { throw new Error('Unexpected processor request before production'); } },
     AI_LAB: { async fetch(request) {
       if (new URL(request.url).pathname === '/internal/ai/canvas-agent/readiness') {
         const ai = (await import('../../workers/ai/src/index.js')).default;
-        return ai.fetch(request, { ENABLE_GROK_4_7: 'true', AI_SERVICE_AUTH_SECRET: 'canvas-agent-native-synthetic-only', SERVICE_AUTH_REPLAY: base.SERVICE_AUTH_REPLAY || base.PUBLIC_RATE_LIMITER,
+        return ai.fetch(request, { ENABLE_GROK_4_7: 'true', AI_SERVICE_AUTH_SECRET: 'canvas-agent-native-synthetic-only',
+          SERVICE_AUTH_REPLAY: base.SERVICE_AUTH_REPLAY || base.PUBLIC_RATE_LIMITER,
           AI: { run() { throw new Error('Readiness cannot perform inference'); } } }, { waitUntil() {} });
       }
       providerCalls.push(new URL(request.url).pathname); throw new Error('Unexpected provider request before queue delivery');
@@ -147,18 +149,17 @@ export async function canvasAgentApiCase(base) {
 // processor is a caller-owned real FFmpeg executor; no browser drives the run.
 export async function finishCanvasAgentFixture({ f, processor, targetSeconds = 16, order = f.order, generate = false, planOverride = null, stopAtExport = false, stopBeforeEvaluation = false, budgetCredits = 5000, beforeTurn = () => {}, legacyProjectionGap = false, evaluationRejectCount = 0, expectedTerminal = null,deliverGeneration=null }) {
   const aiWorker = (await import('../../workers/ai/src/index.js')).default;
-  const plannerCalls = [], evaluationCalls = [], providerBaseline = f.calls.length;
-  const oldAiLab = f.env.AI_LAB; let rejectedNode = null;
+  const plannerCalls = [], evaluationCalls = [], callbacks = [], providerBaseline = f.calls.length;
+  const oldAiLab = f.env.AI_LAB,oldProviderFetch=f.env.__TEST_FETCH; let rejectedNode = null;
   f.env.CANVAS_AGENT_ENABLED = 'true'; f.env.ENABLE_GROK_4_7 = 'true';
   f.env.AI_SERVICE_AUTH_SECRET = 'synthetic-canvas-agent-service-secret';
+  f.env.CLOUDFLARE_ACCOUNT_ID||='0'.repeat(32);f.env.H3_CLOUDFLARE_API_TOKEN||='synthetic-workers-ai-read';
   f.env.PRIVATE_MEDIA_PROCESSOR ||= { async fetch() { return Response.json({ ok: true }); } };
   const plan = planOverride || { version: 1, title: 'Editable synthetic production', continuity: 'The same house and pool remain in place. Source colors are controlled test media.',
     nodes: [], updates: generate ? [{ nodeId: f.nodes[0], prompt: 'A red house beside the pool, stable composition.', config: {} }] : [],
     assembly: { clips: order.map(id => ({ key: `existing:${id}`, trim: { start: 0, duration: targetSeconds / order.length }, transition: { preset: 'none' } })),
       musicKey: null, targetDurationSeconds: targetSeconds, toleranceSeconds: .5, backgroundMusic: { enabled: false, gain: 1 }, smoothJoins: false } };
-  f.env.AI_LAB = { async fetch(request) {
-    return aiWorker.fetch(request, { ENABLE_GROK_4_7: 'true', AI_SERVICE_AUTH_SECRET: f.env.AI_SERVICE_AUTH_SECRET, SERVICE_AUTH_REPLAY: f.env.SERVICE_AUTH_REPLAY || f.env.PUBLIC_RATE_LIMITER,
-      AI: { async run(model, input, options) {
+  const providerResponse=async(model,input,options)=>{
         check(model === 'xai/grok-4.7', 'Actual planner model'); check(options.gateway.collectLog === false && options.gateway.skipCache === true, 'Private planner gateway');
         check(input.messages.length === 2 && !input.tools, 'Canvas planner never gets administrator tools');
         const evaluation = input.response_format.json_schema.name === 'bitbi_canvas_evaluation_v1';
@@ -176,8 +177,26 @@ export async function finishCanvasAgentFixture({ f, processor, targetSeconds = 1
             assembly: { ...plan.assembly, clips: context.currentProject.assembly.clips.map(({nodeId,trim,transition}) => ({key:`existing:${nodeId}`,trim,transition})) } };
         }
         return { id: evaluation ? 'synthetic-agent-evaluation' : 'synthetic-agent-plan', object: 'chat.completion', model: 'grok-4.7', choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: JSON.stringify(content) } }], usage: { prompt_tokens: 120, completion_tokens: 200, total_tokens: 320 } };
-      } } }, { waitUntil() { throw new Error('Planner must not detach inference'); } });
+  };
+  f.env.AI_LAB = { async fetch(request) {
+    return aiWorker.fetch(request, { ENABLE_GROK_4_7: 'true', AI_SERVICE_AUTH_SECRET: f.env.AI_SERVICE_AUTH_SECRET,
+      SERVICE_AUTH_REPLAY: f.env.SERVICE_AUTH_REPLAY || f.env.PUBLIC_RATE_LIMITER,
+      AI: {run(){throw new Error('Canvas background preparation/normalization cannot dispatch through AI.run');}} },
+      {waitUntil(){throw new Error('Canvas model result must not rely on detached inference');}});
   } };
+  f.env.__TEST_FETCH=async(url,init)=>{
+    const body=String(url).includes('api.cloudflare.com')&&init?.body?JSON.parse(init.body):null;
+    if(body?.model!=='xai/grok-4.7')return oldProviderFetch(url,init);
+    check(String(url)===`https://api.cloudflare.com/client/v4/accounts/${f.env.CLOUDFLARE_ACCOUNT_ID}/ai/run`&&init.method==='POST','Exact existing REST provider endpoint');
+    check(body.options.background===true&&body.options.webhookUrl.startsWith('https://bitbi.ai/api/internal/ai/canvas-agent-result/'),'Durable signed callback');
+    const headers=new Headers(init.headers);
+    check(headers.get('cf-aig-collect-log')==='false'&&headers.get('cf-aig-max-attempts')==='1','Private single-attempt REST model transport');
+    const response=await providerResponse(body.model,body.input,{gateway:{collectLog:headers.get('cf-aig-collect-log')!=='false',skipCache:headers.get('cf-aig-skip-cache')==='true'}});
+    const id='synthetic-'+(plannerCalls.length+evaluationCalls.length);
+    callbacks.push({url:body.options.webhookUrl,body:{id,state:'Completed',model:body.model,provider:'xai',result:response,error:null}});
+    return Response.json({success:true,result:{id,state:'Queued'},errors:[],messages:[]});
+  };
+  try {
   const before = await f.readProject(), revision = (await getModelTariff(f.env)).revision;
   const response = await f.request(f.projectPath + '/agent', 'POST', { brief: `Create this ${targetSeconds} second film with editable sources.`, targetDurationSeconds: targetSeconds,
     expectedRevision: before.project.revision, budgetCredits }, { 'Idempotency-Key': 'native-agent-production-start', 'X-Bitbi-Tariff-Revision': String(revision) });
@@ -195,6 +214,17 @@ export async function finishCanvasAgentFixture({ f, processor, targetSeconds = 1
     const message = { type: 'canvas_agent.process', run_id: runId }, acknowledgements = [];
     await worker.queue({ queue: 'bitbi-ai-video-jobs', messages: [0, 1].map(() => ({ body: message, attempts: 1, ack() { acknowledgements.push('ack'); }, retry() { throw new Error('Unexpected agent queue retry'); } })) }, f.env, { waitUntil() { throw new Error('Agent must not detach work'); } });
     check(acknowledgements.length === 2, 'Duplicate queue deliveries acknowledged');
+    // The originating queue invocation has ended. Deliver through the actual
+    // public callback route, then let a separate durable wake consume it.
+    for(const callback of callbacks.splice(0)) {
+      const url=new URL(callback.url);
+      check(url.origin==='https://bitbi.ai','Model result callback stays on the owned origin');
+      const accepted=await f.request(url.pathname,'POST',callback.body);
+      const receipt=await accepted.json();
+      check(accepted.status===200&&receipt.ok===true,'Background result is durably acknowledged');
+      const duplicate=await f.request(url.pathname,'POST',callback.body);
+      check(duplicate.status===200&&(await duplicate.json()).ok===true,'Duplicate model callback preserves one receipt');
+    }
     for (let i = f.messages.length - 1; i >= 0; i--) if (f.messages[i].type === 'canvas_agent.process') f.messages.splice(i, 1);
     if (f.messages.some(message => message.job_id)) {
       if(deliverGeneration)await deliverGeneration(f);
@@ -223,8 +253,8 @@ export async function finishCanvasAgentFixture({ f, processor, targetSeconds = 1
   check(after.nodes.some(node => node.type === 'note' && node.content.text === plan.continuity), 'Creative continuity is an ordinary editable note');
   const output = (await f.data(await f.request(exportEndpoint))).current;
   if (!expectedTerminal && !stopAtExport && !stopBeforeEvaluation && evaluationRejectCount < 2) check(output?.storage === 'assets' && output.duration === targetSeconds, 'Agent final video is persistently saved and measured');
-  f.env.AI_LAB = oldAiLab;
   return { runId, status: current.status, output, order: expectedOrder, plannerCalls: plannerCalls.length, evaluationCalls: evaluationCalls.length, generationCalls: f.calls.length - providerBaseline };
+  } finally {f.env.AI_LAB = oldAiLab;f.env.__TEST_FETCH=oldProviderFetch;}
 }
 
 export function freshCanvasAgentPlan() {
@@ -261,7 +291,11 @@ export async function canvasAgentDispatchCase(env, media) {
   const recovered = await executeCanvasAgentModel(f.env,run,{...planStep,status:'accepted'},user);
   check(recovered.plan.title === freshCanvasAgentPlan().title, 'Persisted completed plan survives a process restart');
   check((await f.db.prepare('SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(f.owner).first()).n === debitCount, 'Committed debit is not charged twice');
-  await rejected(() => executeCanvasAgentModel(f.env,run,{...planStep,status:'accepted',receipt_json:JSON.stringify({request:JSON.parse(planStep.receipt_json).request})},user), 'canvas_agent_planning_review_required');
+  const requestReceipt=JSON.parse(planStep.receipt_json).request;
+  const restored=await executeCanvasAgentModel(f.env,run,{...planStep,status:'accepted',receipt_json:JSON.stringify({request:requestReceipt})},user);
+  check(restored.plan.title===freshCanvasAgentPlan().title,'The immutable model operation restores a missing step acknowledgement without inference');
+  check((await f.db.prepare('SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(f.owner).first()).n===debitCount,'Operation recovery cannot charge the original attempt again');
+  await rejected(() => executeCanvasAgentModel(f.env,run,{...planStep,status:'accepted',receipt_json:JSON.stringify({request:{...requestReceipt,inputDigest:'f'.repeat(64)}})},user), 'canvas_agent_model_input_changed');
   f.env.AI_LAB = forbidden;
   await f.db.prepare("UPDATE canvas_agent_runs SET status='running',lease_token=NULL,lease_until=NULL WHERE id=?").bind(result.runId).run();
   return { plannerCalls: 1, generationCalls: 3, persistedNodes: 3, exportJobs: 0, finalValidation: 'inspection_pending' };

@@ -934,3 +934,10 @@ editing/re-export remains available without the assistant. Keep the core EN/DE
 Chromium/WebKit editability regression and real measured-duration/FFmpeg controls
 in their ordinary callers. Config readiness, synthetic acceptance and live account
 access are separate; no paid inference is implied by publication.
+
+For local read-only Cloudflare diagnosis, capture `wrangler auth token --json`
+inside the calling process and parse its token field without printing it. The
+plain command includes CLI decoration. Check the actual operation with that
+credential: a frontend-token D1 denial does not establish the rights of existing
+Wrangler OAuth or the protected backend token. Keep results limited to incident
+state, timestamps and accounting evidence; never log credential values.

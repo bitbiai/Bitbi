@@ -34,7 +34,9 @@ test.describe('Canvas agent Grok 4.7 provider boundary', () => {
     const { readCanvasAgentProviderReadiness } = await moduleAt('workers/auth/src/lib/canvas-agent-planning.js');
     const ai = await loadWorker('workers/ai/src/index.js'); let calls = 0;
     const aiEnv = { AI_SERVICE_AUTH_SECRET: 'readiness-synthetic-service', SERVICE_AUTH_REPLAY: new MockDurableRateLimiterNamespace(), ENABLE_GROK_4_7: 'true', AI: { run() { calls++; throw new Error('Readiness is not inference'); } } };
-    const env = { AI_SERVICE_AUTH_SECRET: aiEnv.AI_SERVICE_AUTH_SECRET, AI_LAB: { fetch: request => ai.fetch(request, aiEnv, createExecutionContext().execCtx) } };
+    const env = { AI_SERVICE_AUTH_SECRET: aiEnv.AI_SERVICE_AUTH_SECRET, CLOUDFLARE_ACCOUNT_ID: 'a'.repeat(32),
+      H3_CLOUDFLARE_API_TOKEN: 'synthetic-canvas-background-access', AI_SAVE_REFERENCE_SIGNING_SECRET: 'synthetic-canvas-background-signing-secret',
+      AI_LAB: { fetch: request => ai.fetch(request, aiEnv, createExecutionContext().execCtx) } };
     expect(await readCanvasAgentProviderReadiness(env)).toEqual({ available: true, reason: null, model: 'xai/grok-4.7', accountAccess: 'unverified' });
     aiEnv.ENABLE_GROK_4_7 = 'false'; expect(await readCanvasAgentProviderReadiness(env)).toMatchObject({ available: false, reason: 'canvas_agent_model_disabled' });
     expect(await readCanvasAgentProviderReadiness({ ...env, AI_SERVICE_AUTH_SECRET: 'wrong-but-long-secret' })).toMatchObject({ available: false, reason: 'canvas_agent_provider_unavailable' });

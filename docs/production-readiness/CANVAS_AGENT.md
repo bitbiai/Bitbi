@@ -34,6 +34,14 @@ missed wakes. A leased coordinator admits one generation at a time. The browser
 only observes status. No new Workflow, queue, provider account or billing ledger
 is provisioned.
 
+Planning and evaluation each retain one immutable model operation before the
+single background submission. Cloudflare completes inference independently of
+the requesting Worker and posts to an operation-bound authenticated callback.
+The callback persists the response before acknowledging it; existing queue/cron
+processing validates and reconciles that response. Duplicate delivery cannot
+replace terminal evidence or start another inference. A stopped run may retain
+and account for its accepted result without resuming creative work.
+
 Existing hourly generation limits remain in force (12 video, 20 image, 24 music
 and 60 text requests). A production that exhausts a limit waits for the next fixed
 window and resumes through the durable coordinator. The assistant explains this
@@ -59,6 +67,12 @@ token formula has been verified; this ceiling is **not** reported as actual spen
 Ambiguous dispatch never starts a replacement generation. Original queue receipts
 repair a stale `canvas_video_pending` projection; known image save-pending work
 can retry storage under the original identity. Unknown outcomes require review.
+The panel retains the production phase and separately displays reserved and
+charged credits. An unknown planning/evaluation request cannot be resumed as a
+new inference. Its reservation remains held until matched terminal evidence
+allows reconciliation; cancellation is not a refund. Cloudflare documents
+webhook delivery as best effort, without retries. Missing delivery therefore
+ends in an explicit review state, not fabricated success or automatic replay.
 Pause/cancel stop new admission; they do not promise provider cancellation or
 reimbursement. Bounded visual rejection can produce up to two explicitly new
 variants of affected shots and genuine dependents, with at most two evaluations.
@@ -98,8 +112,12 @@ Sampled frames cannot establish complete motion, sound or unsampled-shot quality
 
 ## Model and release prerequisites
 
-The exact model is `xai/grok-4.7` through the existing signed AI Worker service and
-Cloudflare AI binding. [Cloudflare's model documentation](https://developers.cloudflare.com/ai/models/xai/grok-4.7/)
+The exact model is `xai/grok-4.7`. The existing signed AI Worker prepares and
+validates its strict Chat Completions contract; Auth coordinates the durable
+[Cloudflare REST background request](https://developers.cloudflare.com/ai-gateway/usage/rest-api/#background-requests-and-webhooks).
+It reuses the account-restricted `H3_CLOUDFLARE_API_TOKEN` (Workers AI Read), default
+Gateway and Unified Billing. No new credential or provider route is provisioned.
+[Cloudflare's model documentation](https://developers.cloudflare.com/ai/models/xai/grok-4.7/)
 lists text/image input, structured output, 500,000 context tokens and the two
 token-price tiers. [xAI's guide](https://docs.x.ai/developers/grok-4-7) documents
 the provider identifier `grok-4.7`. The private transport disables gateway cache
@@ -107,8 +125,9 @@ and log collection, validates the actual returned model/envelope, and has no
 automatic inference retries. Existing Grok 4.6/Fable chat and one-shot Canvas text
 remain independent. No private administrator history or tools enter a member run.
 
-Affected deployment units are Auth D1 migrations, AI Worker, Auth Worker, the
-existing private media image/service and the static frontend. The moving required
+The model-operation repair deploys its additive Auth migration, AI Worker, Auth
+Worker and static frontend, in that order. The unchanged private media service
+retains its existing activation. The moving required
 schema checkpoint is owned by [`release-compat.json`](../../config/release-compat.json).
 The existing protected release continuation is the only publication path. Config
 and binding readiness are separate from actual account access and film quality.
@@ -122,6 +141,11 @@ remain in the existing secret mechanisms, never in chat or logs.
 
 ## Executable acceptance
 
+- [`tests/q2-canvas-agent-model-operation.spec.js`](../../tests/q2-canvas-agent-model-operation.spec.js)
+  and its shared native cases exercise original dispatch identity, late plan/evaluation
+  receipts, unknown/failure/rejection distinctions, bounded recovery, held credits
+  and cancelled/manual/newer-project fences. The signed AI boundary is exercised
+  by [`tests/q2-canvas-agent-provider.spec.js`](../../tests/q2-canvas-agent-provider.spec.js).
 - [`tests/q2-canvas-agent.spec.js`](../../tests/q2-canvas-agent.spec.js) and its
   shared native runtime helper exercise real Worker handlers, SQLite/D1, private
   storage, signed synthetic providers, replay/recovery and production accounting.

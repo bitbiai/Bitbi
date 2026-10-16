@@ -22,6 +22,16 @@ const REQUIRED_VIDEO_TASK_STATUSES = Object.freeze([
 ]);
 
 const INTERNAL_AI_CALLER_POLICY_RULES = Object.freeze({
+  '/internal/ai/canvas-agent/prepare': {
+    required: true,
+    allowedOperationIds: ['member.text.generate'],
+    allowedStatuses: [AI_CALLER_POLICY_ENFORCEMENT_STATUSES.GATEWAY_ENFORCED, AI_CALLER_POLICY_ENFORCEMENT_STATUSES.CALLER_ENFORCED, AI_CALLER_POLICY_ENFORCEMENT_STATUSES.BUDGET_POLICY_ENFORCED],
+  },
+  '/internal/ai/canvas-agent/normalize': {
+    required: true,
+    allowedOperationIds: ['member.text.generate'],
+    allowedStatuses: [AI_CALLER_POLICY_ENFORCEMENT_STATUSES.GATEWAY_ENFORCED, AI_CALLER_POLICY_ENFORCEMENT_STATUSES.CALLER_ENFORCED, AI_CALLER_POLICY_ENFORCEMENT_STATUSES.BUDGET_POLICY_ENFORCED],
+  },
   '/internal/ai/canvas-agent/evaluate': {
     required: true,
     allowedOperationIds: ['member.text.generate'],

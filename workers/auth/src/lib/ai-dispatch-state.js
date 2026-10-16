@@ -1,5 +1,6 @@
 import { BillingError } from './billing.js';
 import { nowIso, randomTokenHex } from './tokens.js';
+import { CANVAS_MODEL_RESERVATION_HELD_SQL } from './canvas-agent-model-reservation.js';
 
 const TABLES = new Set(['member_ai_usage_attempts_v2', 'ai_usage_attempts_v2']);
 function tableName(table) {
@@ -142,7 +143,8 @@ export async function releaseExpiredAiDispatch(env, table, id, now = nowIso()) {
         error_code = 'ai_usage_reservation_expired'
     WHERE id = ? AND billing_status = 'reserved' AND expires_at <= ?
       AND provider_outcome IN ('not_dispatched', 'dispatched', 'unknown', 'failed')
-      AND reservation_released_at IS NULL`).bind(now, now, now, now, id, now).run();
+      AND reservation_released_at IS NULL
+      ${table==='member_ai_usage_attempts_v2'?`AND NOT ${CANVAS_MODEL_RESERVATION_HELD_SQL}`:''}`).bind(now, now, now, now, id, now).run();
   return Number(result?.meta?.changes || 0);
 }
 

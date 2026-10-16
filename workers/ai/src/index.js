@@ -12,7 +12,9 @@ import { handleEmbeddings } from "./routes/embeddings.js";
 import { handleFableChat } from "./routes/fable-chat.js";
 import { handleFableChatMemory } from "./routes/fable-chat-memory.js";
 import { handleChat, GROK_INTERNAL_BODY_MAX_BYTES } from "./routes/chat.js";
-import { handleCanvasAgentPlan, handleCanvasAgentReadiness, CANVAS_AGENT_INTERNAL_BODY_MAX_BYTES, CANVAS_AGENT_EVALUATION_BODY_MAX_BYTES } from './routes/canvas-agent-plan.js';
+import { handleCanvasAgentPlan, handleCanvasAgentReadiness, handleCanvasAgentPrepare, handleCanvasAgentNormalize,
+  CANVAS_AGENT_INTERNAL_BODY_MAX_BYTES, CANVAS_AGENT_EVALUATION_BODY_MAX_BYTES,
+  CANVAS_AGENT_PREPARE_BODY_MAX_BYTES, CANVAS_AGENT_NORMALIZE_BODY_MAX_BYTES } from './routes/canvas-agent-plan.js';
 import { handleImage } from "./routes/image.js";
 import { handleLiveAgent } from "./routes/live-agent.js";
 import { handleMusic } from "./routes/music.js";
@@ -68,6 +70,10 @@ export default {
           secret: env.AI_SERVICE_AUTH_SECRET,
           maxBodyBytes: pathname === "/internal/ai/test-image"
             ? GPT_IMAGE_25_INTERNAL_JSON_BYTES
+            : pathname === '/internal/ai/canvas-agent/prepare'
+            ? CANVAS_AGENT_PREPARE_BODY_MAX_BYTES
+            : pathname === '/internal/ai/canvas-agent/normalize'
+            ? CANVAS_AGENT_NORMALIZE_BODY_MAX_BYTES
             : pathname === '/internal/ai/canvas-agent/evaluate'
             ? CANVAS_AGENT_EVALUATION_BODY_MAX_BYTES
             : pathname === '/internal/ai/canvas-agent/plan'
@@ -130,6 +136,18 @@ export default {
     if (pathname === "/internal/ai/canvas-agent/plan") {
       if (method !== "POST") response = methodNotAllowed(["POST"]);
       else response = await handleCanvasAgentPlan(ctx);
+      return withCorrelationId(response, ctx.correlationId);
+    }
+
+    if (pathname === "/internal/ai/canvas-agent/prepare") {
+      if (method !== "POST") response = methodNotAllowed(["POST"]);
+      else response = await handleCanvasAgentPrepare(ctx);
+      return withCorrelationId(response, ctx.correlationId);
+    }
+
+    if (pathname === "/internal/ai/canvas-agent/normalize") {
+      if (method !== "POST") response = methodNotAllowed(["POST"]);
+      else response = await handleCanvasAgentNormalize(ctx);
       return withCorrelationId(response, ctx.correlationId);
     }
 

@@ -10,10 +10,11 @@ async function fixture({page,locale,mockSharedAuth,createCanvasApiMock}) {
         const request=route.request(),url=new URL(request.url());
         if(!url.pathname.includes('/agent'))return route.fallback();
         const respond=()=>route.fulfill({json:{ok:true,data:{availability:{available:state.available,code:state.available?null:'grok_47_unverified',model:'xai/grok-4.7'},run:state.run}}});
-        if(request.method()==='GET'){state.reads++;if(state.holdRead){state.holdRead=false;state.pendingRead=route;return;}return respond();}
+        if(request.method()==='GET'){state.reads++;if(state.failRead){state.failRead=false;return route.fulfill({status:503,json:{ok:false,code:'synthetic_observation_unavailable'}});}if(state.holdRead){state.holdRead=false;state.pendingRead=route;return;}return respond();}
         const body=request.postDataJSON(),key=request.headers()['idempotency-key'];
         if(url.pathname.endsWith('/control')){
             state.controls.push({body,key});
+            if(state.failControl){state.failControl=false;return route.fulfill({status:409,json:{ok:false,code:'canvas_agent_review_required'}});}
             state.run={...state.run,status:({pause:'paused',resume:'running',cancel:'cancelled',takeover:'taken_over'})[body.action]};
             return respond();
         }
@@ -156,4 +157,77 @@ exports.unavailable=async({page,expect,locale,mockSharedAuth,createCanvasApiMock
     await expect(panel.locator('video,img')).toHaveCount(0);
     await expect(panel.locator('.canvas-agent__production details dd').last()).toHaveText('<img src=x onerror=alert(1)>');
     expect(state.posts).toEqual([]);
+};
+
+exports.outcome=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock})=>{
+    const {state,panel,form,project}=await fixture({page,locale,mockSharedAuth,createCanvasApiMock});
+    const de=locale==='de',errors=[];page.on('pageerror',error=>errors.push(error.message));
+    state.run={id:'a'.repeat(32),projectId:project,status:'review_required',phase:'planning',completed:0,total:0,
+        targetDurationSeconds:45,toleranceSeconds:.5,budgetCredits:3000,allocatedCredits:127,chargedCredits:0,reservedCredits:127,pendingOutcomeCredits:127,
+        errorCode:'canvas_agent_provider_timeout',result:null,allowedActions:['cancel','takeover'],
+        modelOperation:{operationId:'b'.repeat(32),kind:'plan',outcome:'unknown',recovery:'review_required'}};
+    const refresh=panel.getByRole('button',{name:de?'Status prüfen':'Check status',exact:true});
+    const summary=panel.locator('.canvas-agent__production > .canvas-agent__summary');
+    const value=label=>summary.getByText(label,{exact:true}).locator('xpath=following-sibling::dd[1]');
+    await refresh.click();
+    await expect(panel.locator('h3')).toHaveText(de?'Anbieterergebnis ungeklärt':'Provider outcome unknown');
+    await expect(value(de?'Produktionsschritt':'Production step')).toHaveText(de?'Geschichte und Einstellungen planen':'Planning story and settings');
+    await expect(value(de?'Bereits abgerechnet (Credits)':'Already charged (credits)')).toHaveText('0');
+    await expect(value(de?'Im Guthaben reserviert (Credits)':'Reserved in wallet (credits)')).toHaveText('127');
+    await expect(panel).toContainText(de?'Die Antwortfrist ist abgelaufen':'The response deadline has passed');
+    await expect(panel).toContainText(de?'Sie wird nicht erneut gesendet':'It will not be sent again');
+    await expect(panel.locator('details').filter({has:page.getByText(de?'Produktionsdetails':'Production details',{exact:true})})).not.toHaveAttribute('open','');
+    await expect(form).toBeHidden();
+    const resume=panel.getByRole('button',{name:de?'Fortsetzen':'Resume',exact:true,includeHidden:true});
+    await expect(resume).toBeHidden();
+    // A forged local click must not bypass the server-owned action projection.
+    await resume.evaluate(node=>node.click());expect(state.controls).toEqual([]);
+    state.run={...state.run,modelOperation:{...state.run.modelOperation,outcome:'pending',recovery:'receipt_ready'}};
+    await refresh.click();await expect(panel.locator('h3')).toHaveText(de?'Anbieterantwort erhalten':'Provider response received');
+    await expect(panel).toContainText(de?'Anbieterantwort ist gespeichert':'provider response has been saved');
+    await expect(panel).not.toContainText(de?'Die Antwortfrist ist abgelaufen':'The response deadline has passed');
+    state.run={...state.run,modelOperation:{...state.run.modelOperation,outcome:'unknown',recovery:'review_required'}};
+    await page.reload();await page.locator('#canvasAgentToggle').click();
+    await expect(value(de?'Im Guthaben reserviert (Credits)':'Reserved in wallet (credits)')).toHaveText('127');
+    expect(state.posts).toEqual([]);expect(state.controls).toEqual([]);
+    // Errors during production must be visible outside the hidden start form.
+    state.failRead=true;await refresh.click();
+    await expect(panel.getByText(de?'Der Status konnte nicht bestätigt werden. Prüfe den Status, bevor du einen neuen Auftrag startest.':'The status could not be confirmed. Check status before starting another production.',{exact:true})).toBeVisible();
+    state.failControl=true;await panel.getByRole('button',{name:de?'Abbrechen':'Cancel',exact:true}).click();
+    await expect(panel.locator('#canvasAgentBody > .canvas-agent__notice').filter({hasText:de?'Für die ursprüngliche Anfrage':'The original request'})).toBeVisible();
+    expect(state.controls.map(control=>control.body.action)).toEqual(['cancel']);
+    // A saved paused run with an unresolved dispatch still cannot resume, even
+    // if a malformed older response advertises it as an allowed action.
+    state.run={...state.run,status:'paused',phase:'evaluating',allowedActions:['resume','cancel','takeover'],modelOperation:{...state.run.modelOperation,kind:'evaluate'}};
+    await refresh.click();await expect(resume).toBeHidden();await resume.evaluate(node=>node.click());
+    await expect(panel.locator('h3')).toHaveText(de?'Pausiert · Anbieterergebnis ungeklärt':'Paused · Provider outcome unknown');
+    await expect(value(de?'Produktionsschritt':'Production step')).toHaveText(de?'Einzelbilder prüfen':'Reviewing sampled frames');
+    expect(state.controls).toHaveLength(1);
+    // Unknown legacy receipts have no durable callback to promise; keep the
+    // timeout and cost state honest when the additive projection is absent.
+    state.run={...state.run,status:'blocked',modelOperation:undefined,allowedActions:undefined};
+    await refresh.click();await expect(panel.locator('h3')).toHaveText(de?'Anbieterergebnis ungeklärt':'Provider outcome unknown');
+    state.run={...state.run,status:'cancelled',modelOperation:{operationId:'b'.repeat(32),kind:'evaluate',outcome:'unknown',recovery:'review_required'},allowedActions:[]};
+    await refresh.click();
+    await expect(panel.locator('h3')).toHaveText(de?'Abgebrochen':'Cancelled');
+    await expect(panel).toContainText(de?'Es werden keine neuen Schritte gestartet':'No new production steps will start');
+    const revise=panel.getByRole('button',{name:de?'Weitere Änderung beschreiben':'Describe another change',exact:true,includeHidden:true});
+    await expect(revise).toBeHidden();await revise.evaluate(node=>node.click());await expect(form).toBeHidden();
+    state.run={...state.run,status:'blocked',errorCode:'canvas_agent_provider_rejected',reservedCredits:0,pendingOutcomeCredits:0,modelOperation:{...state.run.modelOperation,outcome:'rejected',recovery:null}};
+    await refresh.click();await expect(panel.locator('h3')).toHaveText(de?'Modellanfrage abgelehnt':'Model request rejected');
+    await expect(panel).toContainText(de?'kein automatischer Ersatzauftrag':'No replacement request');
+    await expect(value(de?'Im Guthaben reserviert (Credits)':'Reserved in wallet (credits)')).toHaveText('0');
+    state.run={...state.run,status:'paused',reservedCredits:127,allowedActions:['resume','cancel','takeover'],modelOperation:{...state.run.modelOperation,outcome:'failed',recovery:'billing_review'}};
+    await refresh.click();await expect(panel.locator('h3')).toHaveText(de?'Pausiert · Modellanfrage fehlgeschlagen':'Paused · Model request failed');
+    await expect(panel).toContainText(de?'Die endgültigen Kosten sind noch ungeklärt':'Final costs are still unresolved');
+    await expect(value(de?'Im Guthaben reserviert (Credits)':'Reserved in wallet (credits)')).toHaveText('127');
+    await expect(resume).toBeHidden();await resume.evaluate(node=>node.click());expect(state.controls).toHaveLength(1);
+    state.run={...state.run,status:'review_required',modelOperation:{...state.run.modelOperation,outcome:'pending',recovery:'review_required'}};
+    await refresh.click();await expect(panel.locator('h3')).toHaveText(de?'Modellanfrage benötigt Prüfung':'Model request needs review');
+    await expect(panel).toContainText(de?'Die automatische Prüfung ist angehalten':'Automatic review has stopped');
+    state.run={...state.run,status:'paused',allowedActions:null,modelOperation:{...state.run.modelOperation,outcome:'completed',recovery:null}};
+    await refresh.click();await expect(resume).toBeHidden();await resume.evaluate(node=>node.click());expect(state.controls).toHaveLength(1);
+    expect(state.posts).toEqual([]);expect(errors).toEqual([]);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    await panel.screenshot({path:info.outputPath(`canvas-agent-unknown-${locale}.png`)});
 };
