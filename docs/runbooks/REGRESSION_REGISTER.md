@@ -2158,3 +2158,13 @@ import the authenticated receipt before the activation branch, preserve its
 original SHA/version/job identities, and perform read-only current-state checks.
 Continue the same protected frontend path without reactivation, media acceptance
 replay or repeated tests. A completed backend receipt is the recovery checkpoint.
+
+Post-upload recovery: `38853747854/1` activated the accepted frontend, but its
+immediate public hash matched the previous `005c0dd4` page exactly. Subsequent
+EN/DE reads matched the new candidate; retain that activation and reconcile it
+without another upload. `38854524913/1` then exposed the baseline caller's missing
+candidate context: it treated the consolidated accepted artifact as separate
+proof archives. Derive the closed continuation identity from the observed active
+version annotation and verified previous baseline, then validate its immutable
+source/proofs and exact failed protected upload. Do not weaken public-byte
+comparison, guess a published base or fall back to repeated suites.

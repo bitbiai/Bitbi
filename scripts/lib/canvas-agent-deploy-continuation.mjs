@@ -111,6 +111,28 @@ export const CANVAS_AGENT_FRONTEND_SOURCE=Object.freeze({
   artifact:Object.freeze({id:12025684633,digest:'sha256:8532deda77bb7f0d4ec663c927b6df583c6953f7bc0c507384bccfcc29bf3cd3',size:4795}),
   backend:Object.freeze({path:'scripts/lib/backend-publication.mjs',before:'b0c67e8d860cd39e1b7c8659414d6007131b0e69',after:'9b9b23f255b7367cd9d1b808b5ec716df71a7487'}),
 });
+export const CANVAS_AGENT_RECONCILIATION_SOURCE=Object.freeze({
+  sha:'8cc67b08a8d660844d3dc52777c1cec6d830af7e',run:'38853747854',attempt:'1',version:'1656258f-8945-49c0-a9bf-fc789a9e68e0',
+  job:'116820612342',authorization:7111371881,
+  artifact:Object.freeze({id:12026726017,digest:'sha256:7cc760cc6dd1f88242b24d59982f4df57d19a64a52b4580f13a2a4735d16ff5f',size:603}),
+  receipt:Object.freeze({path:'scripts/lib/frontend-receipts.mjs',before:'61f542dbfa38716de0938bb27fdd4d9d4e9c49d2',after:'8c92aa4810e39f818057e5d00a7271a39591aee8'}),
+});
+export function assertCanvasAgentReconciliationDelta(head,{readGit=git}={}) {
+  const source=CANVAS_AGENT_RECONCILIATION_SOURCE;
+  assert(/^[a-f0-9]{40}$/.test(head||''));assert.equal(readGit(['rev-parse',`${head}^`]),source.sha,'Receipt reconciliation must directly follow 8cc');
+  assertCanvasAgentFrontendDelta(source.sha,{readGit});
+  const allowed=new Set(['scripts/lib/canvas-agent-deploy-continuation.mjs',source.receipt.path,'docs/runbooks/REGRESSION_REGISTER.md']);
+  const before=entries(readGit(['ls-tree','-rz',source.sha])),after=entries(readGit(['ls-tree','-rz',head]));
+  assert.deepEqual(after.filter(row=>!allowed.has(row.file)),before.filter(row=>!allowed.has(row.file)),'Receipt reconciliation changed accepted product, tests, backend or workflow');
+  for(const row of before)assert(after.some(next=>next.file===row.file),'Receipt reconciliation deleted an input');
+  for(const row of after.filter(row=>allowed.has(row.file)))assert(/^100644 blob [a-f0-9]{40}$/.test(row.identity));
+  assert.equal(readGit(['rev-parse',`${source.sha}:${source.receipt.path}`]),source.receipt.before);
+  assert.equal(readGit(['rev-parse',`${head}:${source.receipt.path}`]),source.receipt.after,'Wrong frontend receipt reconciliation correction');
+  const prior=new Map(before.map(row=>[row.file,row.identity]));
+  const changed=after.filter(row=>prior.get(row.file)!==row.identity).map(row=>row.file);
+  for(const file of [...allowed].filter(file=>!file.startsWith('docs/')))assert(changed.includes(file),`Missing receipt reconciliation input: ${file}`);
+  return changed;
+}
 export function assertCanvasAgentFrontendDelta(head,{readGit=git}={}) {
   const source=CANVAS_AGENT_FRONTEND_SOURCE;
   assert(/^[a-f0-9]{40}$/.test(head||''));assert.equal(readGit(['rev-parse',`${head}^`]),source.sha,'Frontend continuation must directly follow completed 6825 activation');
@@ -129,7 +151,7 @@ export function assertCanvasAgentFrontendDelta(head,{readGit=git}={}) {
 }
 export function resolveCanvasAgentFrontendSource(env=process.env,options={}) {
   if(!resolveCanvasAgentDeploySource(env,options))return null;
-  return (options.readGit||git)(['rev-parse',`${env.GITHUB_SHA}^`])===CANVAS_AGENT_FRONTEND_SOURCE.sha?CANVAS_AGENT_FRONTEND_SOURCE:null;
+  return [CANVAS_AGENT_FRONTEND_SOURCE.sha,CANVAS_AGENT_RECONCILIATION_SOURCE.sha].includes((options.readGit||git)(['rev-parse',`${env.GITHUB_SHA}^`]))?CANVAS_AGENT_FRONTEND_SOURCE:null;
 }
 export function assertCanvasAgentRecoveryDeployDelta(head,{readGit=git}={}) {
   const source=CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE;
@@ -166,6 +188,7 @@ export function assertCanvasAgentRecoveryCheckDelta(head,{readGit=git}={}) {
   return changed;
 }
 export function assertCanvasAgentRecoveryDelta(head,{readGit=git}={}) {
+  if(readGit(['rev-parse',`${head}^`])===CANVAS_AGENT_RECONCILIATION_SOURCE.sha)return assertCanvasAgentReconciliationDelta(head,{readGit});
   if(readGit(['rev-parse',`${head}^`])===CANVAS_AGENT_FRONTEND_SOURCE.sha)return assertCanvasAgentFrontendDelta(head,{readGit});
   if(readGit(['rev-parse',`${head}^`])===CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha)return assertCanvasAgentRecoveryDeployDelta(head,{readGit});
   if(readGit(['rev-parse',`${head}^`])===CANVAS_AGENT_RECOVERY_CHECK_SOURCE.sha)return assertCanvasAgentRecoveryCheckDelta(head,{readGit});
@@ -192,12 +215,12 @@ export function assertCanvasAgentRecoveryDelta(head,{readGit=git}={}) {
 }
 export function assertCanvasAgentPublicationDelta(head,options={}) {
   const readGit=options.readGit||git;
-  if([CANVAS_AGENT_RECOVERY_SOURCE.sha,CANVAS_AGENT_RECOVERY_CHECK_SOURCE.sha,CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha,CANVAS_AGENT_FRONTEND_SOURCE.sha].includes(readGit(['rev-parse',`${head}^`])))return assertCanvasAgentRecoveryDelta(head,{readGit});
+  if([CANVAS_AGENT_RECOVERY_SOURCE.sha,CANVAS_AGENT_RECOVERY_CHECK_SOURCE.sha,CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha,CANVAS_AGENT_FRONTEND_SOURCE.sha,CANVAS_AGENT_RECONCILIATION_SOURCE.sha].includes(readGit(['rev-parse',`${head}^`])))return assertCanvasAgentRecoveryDelta(head,{readGit});
   return assertCanvasAgentDeployDelta(head,{readGit});
 }
 export function resolveCanvasAgentRecoverySource(env=process.env,options={}) {
   if(!resolveCanvasAgentDeploySource(env,options))return null;
-  return [CANVAS_AGENT_RECOVERY_SOURCE.sha,CANVAS_AGENT_RECOVERY_CHECK_SOURCE.sha,CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha,CANVAS_AGENT_FRONTEND_SOURCE.sha].includes((options.readGit||git)(['rev-parse',`${env.GITHUB_SHA}^`]))?CANVAS_AGENT_RECOVERY_SOURCE:null;
+  return [CANVAS_AGENT_RECOVERY_SOURCE.sha,CANVAS_AGENT_RECOVERY_CHECK_SOURCE.sha,CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha,CANVAS_AGENT_FRONTEND_SOURCE.sha,CANVAS_AGENT_RECONCILIATION_SOURCE.sha].includes((options.readGit||git)(['rev-parse',`${env.GITHUB_SHA}^`]))?CANVAS_AGENT_RECOVERY_SOURCE:null;
 }
 export function canvasAgentRecoveryIdentity(publicationSha) {
   assertCanvasAgentRecoveryDelta(publicationSha);const {policy,sha,run,attempt}=CANVAS_AGENT_RECOVERY_SOURCE;
@@ -205,7 +228,7 @@ export function canvasAgentRecoveryIdentity(publicationSha) {
 }
 export function assertCanvasAgentRecoveryAcceptance(jobs,sha,run,attempt) {
   assertCanvasAgentRecoveryDelta(sha);
-  const parent=git(['rev-parse',`${sha}^`]),deployOnly=[CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha,CANVAS_AGENT_FRONTEND_SOURCE.sha].includes(parent);
+  const parent=git(['rev-parse',`${sha}^`]),deployOnly=[CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha,CANVAS_AGENT_FRONTEND_SOURCE.sha,CANVAS_AGENT_RECONCILIATION_SOURCE.sha].includes(parent);
   const tail=deployOnly||parent===CANVAS_AGENT_RECOVERY_CHECK_SOURCE.sha;
   const selected=jobs.filter(job=>job.name==='reuse-candidate');assert.equal(selected.length,1);const job=selected[0];
   assert.equal(job.head_sha,sha);assert.equal(String(job.run_id),String(run));assert.equal(String(job.run_attempt),String(attempt));
@@ -222,7 +245,7 @@ export function assertCanvasAgentRecoveryAcceptance(jobs,sha,run,attempt) {
 }
 export async function verifyCanvasAgentRecoverySource(env,{read,list,download=fetch}) {
   const source=resolveCanvasAgentRecoverySource(env);assert(source,'Missing closed recovery source');
-  const retainedGuards=[CANVAS_AGENT_RECOVERY_CHECK_SOURCE.sha,CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha,CANVAS_AGENT_FRONTEND_SOURCE.sha].includes(git(['rev-parse',`${env.GITHUB_SHA}^`]))
+  const retainedGuards=[CANVAS_AGENT_RECOVERY_CHECK_SOURCE.sha,CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha,CANVAS_AGENT_FRONTEND_SOURCE.sha,CANVAS_AGENT_RECONCILIATION_SOURCE.sha].includes(git(['rev-parse',`${env.GITHUB_SHA}^`]))
     ?await verifyCanvasAgentRecoveryChecks(env,{read,list,download}):null;
   const [run,jobs,authorization,statuses]=await Promise.all([read(`actions/runs/${source.run}`),list(`actions/runs/${source.run}/attempts/${source.attempt}/jobs`,'jobs'),
     read(`deployments/${source.authorization}`),read(`deployments/${source.authorization}/statuses`)]);
@@ -249,7 +272,7 @@ export async function verifyCanvasAgentRecoverySource(env,{read,list,download=fe
 }
 export async function verifyCanvasAgentRecoveryChecks(env,{read,list,download=fetch}) {
   assertCanvasAgentRecoveryDelta(env.GITHUB_SHA);
-  const completed=[CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha,CANVAS_AGENT_FRONTEND_SOURCE.sha].includes(git(['rev-parse',`${env.GITHUB_SHA}^`]))
+  const completed=[CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha,CANVAS_AGENT_FRONTEND_SOURCE.sha,CANVAS_AGENT_RECONCILIATION_SOURCE.sha].includes(git(['rev-parse',`${env.GITHUB_SHA}^`]))
     ?await verifyCanvasAgentCompletedRecoveryChecks(env,{read,list}):null;
   const backend=resolveCanvasAgentFrontendSource(env)?await verifyCanvasAgentFrontendSource(env,{read,list}):null;
   const source=CANVAS_AGENT_RECOVERY_CHECK_SOURCE;
@@ -329,7 +352,7 @@ export function canvasAgentDeployPushDeferred(env=process.env,options={}) {
   if(env.GITHUB_EVENT_NAME!=='push'||env.GITHUB_REF!=='refs/heads/main')return false;
   const readGit=options.readGit||git;
   const parent=readGit(['rev-parse',`${env.GITHUB_SHA}^`]);
-  if([CANVAS_AGENT_RECOVERY_SOURCE.sha,CANVAS_AGENT_RECOVERY_CHECK_SOURCE.sha,CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha,CANVAS_AGENT_FRONTEND_SOURCE.sha].includes(parent)){assertCanvasAgentRecoveryDelta(env.GITHUB_SHA,{readGit});return true;}
+  if([CANVAS_AGENT_RECOVERY_SOURCE.sha,CANVAS_AGENT_RECOVERY_CHECK_SOURCE.sha,CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha,CANVAS_AGENT_FRONTEND_SOURCE.sha,CANVAS_AGENT_RECONCILIATION_SOURCE.sha].includes(parent)){assertCanvasAgentRecoveryDelta(env.GITHUB_SHA,{readGit});return true;}
   if(parent!==CANVAS_AGENT_DEPLOY_SOURCE.sha)return false;
   assertCanvasAgentDeployDelta(env.GITHUB_SHA,{readGit});
   return true;
@@ -343,7 +366,7 @@ if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.ur
       console.log(deferred?'Accepted artifacts remain unchanged; use the explicit protected candidate continuation.':'Ordinary exact-source validation.');
     } else {
       const source=resolveCanvasAgentDeploySource(),recovery=resolveCanvasAgentRecoverySource();
-      const parent=git(['rev-parse',`${process.env.GITHUB_SHA}^`]),frontendOnly=Boolean(recovery&&parent===CANVAS_AGENT_FRONTEND_SOURCE.sha);
+      const parent=git(['rev-parse',`${process.env.GITHUB_SHA}^`]),frontendOnly=Boolean(recovery&&[CANVAS_AGENT_FRONTEND_SOURCE.sha,CANVAS_AGENT_RECONCILIATION_SOURCE.sha].includes(parent));
       const deployOnly=Boolean(recovery&&(frontendOnly||parent===CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha));
       const tail=Boolean(recovery&&(deployOnly||parent===CANVAS_AGENT_RECOVERY_CHECK_SOURCE.sha));
       if(tail) {

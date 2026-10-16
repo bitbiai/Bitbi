@@ -1,5 +1,5 @@
 import { repairDelta, repairKind, assertRepairAcceptance } from './media-repair-source.mjs';
-import {CANVAS_AGENT_DEPLOY_SOURCE,resolveCanvasAgentDeploySource,resolveCanvasAgentRecoverySource,verifyCanvasAgentRecoverySource,assertCanvasAgentDeployDelta,assertCanvasAgentPublicationDelta,assertCanvasAgentRecoveryDelta,assertCanvasAgentDeployAcceptance,assertCanvasAgentRecoveryAcceptance,canvasAgentDeployIdentity,canvasAgentRecoveryIdentity} from './canvas-agent-deploy-continuation.mjs';
+import {CANVAS_AGENT_DEPLOY_SOURCE,CANVAS_AGENT_RECONCILIATION_SOURCE,resolveCanvasAgentDeploySource,resolveCanvasAgentRecoverySource,verifyCanvasAgentRecoverySource,assertCanvasAgentDeployDelta,assertCanvasAgentPublicationDelta,assertCanvasAgentRecoveryDelta,assertCanvasAgentDeployAcceptance,assertCanvasAgentRecoveryAcceptance,canvasAgentDeployIdentity,canvasAgentRecoveryIdentity} from './canvas-agent-deploy-continuation.mjs';
 // GitHub deployment payloads survive Actions artifact expiry. They are only
 // evidence together with their protected Actions job and Cloudflare identity.
 import assert from 'node:assert/strict';
@@ -32,11 +32,11 @@ with zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read())) as z:
 // read-only path recognizes only its exact protected upload, retaining the LAST
 // accepted baseline until a new protected job verifies it and records success.
 export async function findPendingFrontendActivation({api=githubRequest,read=cloudflareRead,download=fetch,env=process.env,baseline,manifest}={}) {
-  const continuation=resolveCanvasAgentDeploySource(env);
+  const closedReconciliation=/^[a-f0-9]{40}$/.test(env.GITHUB_SHA||'')&&execFileSync('git',['rev-parse',`${env.GITHUB_SHA}^`],{encoding:'utf8'}).trim()===CANVAS_AGENT_RECONCILIATION_SOURCE.sha;
   const p=hostingPolicy();
   if(!baseline){const records=await api(`deployments?environment=${p.productionEnvironment}&task=${RECEIPT_TASK}&per_page=1`);assert.equal(records.length,1,'Missing previous durable baseline');baseline={id:records[0].id,receipt:await loadDurableReceipt(records[0].id,api)};}
   const previous=baselineIdentity(baseline.id,baseline.receipt),active=(await read(`workers/scripts/${p.worker}/deployments`)).deployments?.[0];assert(active,'Missing active frontend');
-  if(active.id===baseline.receipt.deploymentId)return null;
+  if(active.id===baseline.receipt.deploymentId){assert(!closedReconciliation,'Closed reconciliation requires the existing failed activation; upload is forbidden');return null;}
   assert.equal(env.GITHUB_REPOSITORY,repo);assert.equal(env.GITHUB_REF,'refs/heads/main');assert(/^[a-f0-9]{40}$/.test(env.GITHUB_SHA||''));
   assert(/^[a-f0-9]{32}$/.test(env.CLOUDFLARE_ACCOUNT_ID||''));assert.equal(baseline.receipt.account,env.CLOUDFLARE_ACCOUNT_ID,'Prior baseline account differs');
   assert.equal((await api('git/ref/heads/main')).object.sha,env.GITHUB_SHA,'Superseded reconciliation revision');
@@ -44,6 +44,18 @@ export async function findPendingFrontendActivation({api=githubRequest,read=clou
   const version=await read(`workers/scripts/${p.worker}/versions/${active.versions[0].version_id}`),message=version.annotations?.['workers/message'];
   const match=message?.match(/^bitbi:([a-f0-9]{40}):([1-9][0-9]*):([1-9][0-9]*):([a-f0-9]{64})$/);assert(match,'Unattributed active frontend');
   const [,sha,run,attempt,packageDigest]=match;
+  // Baseline resolution precedes candidate environment setup. Only this exact
+  // observed activation and verified prior baseline may supply missing inputs;
+  // the normal resolver still requires the closed publication Git delta.
+  let canvasEnv=env;
+  if(sha===CANVAS_AGENT_DEPLOY_SOURCE.sha&&run===CANVAS_AGENT_DEPLOY_SOURCE.run&&attempt===CANVAS_AGENT_DEPLOY_SOURCE.attempt&&previous.sha===CANVAS_AGENT_DEPLOY_SOURCE.base) {
+    const observed={CANDIDATE_BASE:previous.sha,CANDIDATE_RUN:run,CANDIDATE_ATTEMPT:attempt};
+    for(const [key,value]of Object.entries(observed))if(env[key])assert.equal(env[key],value,'Candidate input differs from observed activation');
+    canvasEnv={...env,...observed};
+  }
+  const continuation=resolveCanvasAgentDeploySource(canvasEnv);
+  if(closedReconciliation){assert(continuation,'Missing closed Canvas activation context');assert.equal(sha,continuation.sha);assert.equal(run,continuation.run);assert.equal(attempt,continuation.attempt);assert.equal(version.id,CANVAS_AGENT_RECONCILIATION_SOURCE.version);}
+  const retainedActivation=continuation&&closedReconciliation?CANVAS_AGENT_RECONCILIATION_SOURCE:null;
   // New product work still starts at the last accepted baseline. Historical
   // activation attribution is independent of permission to reuse its bytes.
   execFileSync('git',['merge-base','--is-ancestor',previous.sha,sha],{stdio:'pipe'});
@@ -69,7 +81,7 @@ export async function findPendingFrontendActivation({api=githubRequest,read=clou
   for(const d of deployments.filter(d=>d.task==='deploy')) {
     let delta;try{
       execFileSync('git',['merge-base','--is-ancestor',d.sha,env.GITHUB_SHA],{stdio:'pipe'});
-      if(d.sha!==sha){if(continuation){assert.equal(d.sha,env.GITHUB_SHA);delta=assertCanvasAgentPublicationDelta(d.sha);}else{delta=repairDelta(sha,d.sha,previous.sha);if(repairKind(delta)!=='tooling')continue;}}
+      if(d.sha!==sha){if(continuation){assert(d.sha===env.GITHUB_SHA||d.sha===retainedActivation?.sha,'Unreviewed prior Canvas publication');delta=assertCanvasAgentPublicationDelta(d.sha);}else{delta=repairDelta(sha,d.sha,previous.sha);if(repairKind(delta)!=='tooling')continue;}}
     }catch{continue;}
     const statuses=await api(`deployments/${d.id}/statuses`),status=statuses[0],log=status?.log_url?.match(/^https:\/\/github\.com\/bitbiai\/Bitbi\/actions\/runs\/(\d+)\/job\/(\d+)$/);
     if(status?.state!=='failure'||!log)continue;
@@ -82,6 +94,8 @@ export async function findPendingFrontendActivation({api=githubRequest,read=clou
     // Do not let it mask a later, independently attributable failed upload.
     // Unknown, missing or attempted upload outcomes still require all evidence.
     if(job.steps.some(s=>s.name==='Deploy and verify Cloudflare frontend'&&s.status==='completed'&&s.conclusion==='skipped'))continue;
+    const retained=retainedActivation&&d.sha===retainedActivation.sha;
+    if(retained){assert.equal(log[1],retainedActivation.run);assert.equal(String(job.run_attempt),retainedActivation.attempt);assert.equal(String(job.id),retainedActivation.job);assert.equal(d.id,retainedActivation.authorization);assert.equal(version.id,retainedActivation.version);}
     for(const name of ['Validate candidate references before backend publication','Apply verified candidate backend prerequisites','Preserve backend activation evidence','Preserve failed frontend upload identity'])assert(job.steps.some(s=>s.name===name&&s.status==='completed'&&s.conclusion==='success'),`Missing protected activation step: ${name}`);
     assert(job.steps.some(s=>s.name==='Deploy and verify Cloudflare frontend'&&s.status==='completed'&&s.conclusion==='failure'),'Missing post-upload failure');assert(job.steps.some(s=>s.name==='Record durable frontend receipt'&&s.status==='completed'&&s.conclusion==='skipped'),'Prior failed job unexpectedly recorded acceptance');
     if(d.sha===sha) {
@@ -92,15 +106,17 @@ export async function findPendingFrontendActivation({api=githubRequest,read=clou
       assert(jobs.some(j=>j.id===job.id&&j.name==='deploy'&&j.conclusion==='failure'),'Source lacks this failed publication');
     } else {
       const accepted=(await api(`actions/runs/${log[1]}/attempts/${job.run_attempt}/jobs?per_page=100`)).jobs;
-      if(continuation)(resolveCanvasAgentRecoverySource(env)?assertCanvasAgentRecoveryAcceptance:assertCanvasAgentDeployAcceptance)(accepted,d.sha,log[1],job.run_attempt);
+      if(continuation)(resolveCanvasAgentRecoverySource(canvasEnv)?assertCanvasAgentRecoveryAcceptance:assertCanvasAgentDeployAcceptance)(accepted,d.sha,log[1],job.run_attempt);
       else assertRepairAcceptance(accepted,d.sha,delta);
     }
     const uploads=(await api(`actions/runs/${log[1]}/artifacts?per_page=100`)).artifacts.filter(a=>a.name===`frontend-failed-upload-${d.sha}-${log[1]}-${job.run_attempt}`);assert.equal(uploads.length,1,'Missing exact failed upload evidence');const artifact=uploads[0];assert.equal(String(artifact.workflow_run?.id),log[1]);assert.equal(artifact.workflow_run?.head_sha,d.sha);
+    if(retained){assert.equal(artifact.id,retainedActivation.artifact.id);assert.equal(artifact.digest,retainedActivation.artifact.digest);assert.equal(artifact.size_in_bytes,retainedActivation.artifact.size);}
     const records=(await artifactFile(artifact,'frontend-upload.ndjson',{download,env})).toString().trim().split('\n').map(JSON.parse),uploadsFound=records.filter(r=>r.type==='deploy'),sessions=records.filter(r=>r.type==='wrangler-session');assert.equal(uploadsFound.length,1);assert.equal(sessions.length,1);
     const upload=uploadsFound[0],args=sessions[0].command_line_args;assert.equal(sessions[0].wrangler_version,p.wranglerVersion);assert.equal(args[0],'deploy');assert.equal(args[args.indexOf('--message')+1],message);assert.equal(upload.worker_name,p.worker);assert.equal(upload.version_id,version.id);assert.equal(upload.worker_name_overridden,false);
     matches.push({previousReceipt:baseline.id,previousSha:previous.sha,publicationSha:d.sha,run:log[1],attempt:String(job.run_attempt),job:job.id,authorization:d.id,artifact:{id:artifact.id,digest:artifact.digest},candidateArtifact:{id:selected[0].id,digest:selected[0].digest},versionId:version.id,deploymentId:active.id});
   }
   assert.equal(matches.length,1,'Missing unique protected failed activation for exact current candidate');
+  if(retainedActivation){assert.equal(matches[0].publicationSha,retainedActivation.sha);assert.equal(matches[0].run,retainedActivation.run);assert.equal(String(matches[0].job),retainedActivation.job);assert.equal(matches[0].authorization,retainedActivation.authorization);}
   receipt.activationReconciliation=matches[0];return {receipt,reconciliation:matches[0],baseline:previous};
 }
 export async function githubRequest(endpoint,body) {
