@@ -23,6 +23,14 @@ test('Canvas processor advertises only backend-authorized inspections and preser
     AI: { async run() { throw Error('Unexpected paid provider'); } },
     AI_LAB: { async fetch() { throw Error('Unexpected AI service'); } },
   };
+  // The shared lightweight bucket exposes stored bodies. This actual smoke
+  // caller also consumes R2ObjectBody.arrayBuffer(), so preserve that contract
+  // locally without changing other harness users or the Worker implementation.
+  const getObject = env.USER_IMAGES.get.bind(env.USER_IMAGES);
+  env.USER_IMAGES.get = async (...args) => {
+    const object = await getObject(...args);
+    return object && { ...object, arrayBuffer: () => new Response(object.body).arrayBuffer() };
+  };
   const context = { waitUntil(promise) { pending.push(promise); } };
   const send = async (pathname, init = {}) => {
     const url = new URL(pathname, 'https://bitbi.ai');
@@ -55,7 +63,8 @@ test('Canvas processor advertises only backend-authorized inspections and preser
       method: 'POST', headers: { Authorization: `Bearer ${env.PRIVATE_MEDIA_PROCESSOR_SECRET}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'start', sha, backend: 'github', fixture: fixture('canvas-end-frame.mp4'), referenceFixture: fixture('h3-overrun.mp4') }),
     });
-    expect(await seeded.json()).toMatchObject({ ok: true, data: { accepted: true, sha, backend: 'github' } });
+    const seededBody = await seeded.json();
+    expect(seededBody, `Seed HTTP ${seeded.status}: ${seededBody.code || 'no error code'}`).toMatchObject({ ok: true, data: { accepted: true, sha, backend: 'github' } });
     expect(seeded.status).toBe(200);
     const before = await job();
     expect(before).toMatchObject({ status: 'queued', attempt_count: 0, processing_token: null, locked_until: null, asset_id: null });

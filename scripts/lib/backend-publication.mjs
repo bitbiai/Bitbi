@@ -254,7 +254,7 @@ async function publishAi(c,directory) {
 function recoveryAuthBundle(sha,directory) {
   const archive=execFileSync('git',['archive',sha,'workers/auth','workers/shared','js/shared','config','services/homepage-ffmpeg-processor/canvas-diagnostics.mjs'],{maxBuffer:32*1024*1024});
   fs.mkdirSync(directory,{recursive:true});execFileSync('tar',['-xf','-','-C',directory],{input:archive});
-  fs.symlinkSync(path.resolve('workers/auth/node_modules'),path.join(directory,'workers/auth/node_modules'));
+  for(const modules of ['node_modules','workers/auth/node_modules'])fs.cpSync(path.resolve(modules),path.join(directory,modules),{recursive:true});
   const output=path.join(directory,'bundle');
   backendCommand(['versions','upload','--dry-run','--keep-vars','--outdir',output],execFileSync,undefined,path.join(directory,'workers/auth'));
   return createHash('sha256').update(fs.readFileSync(path.join(output,'index.js'))).digest('hex');

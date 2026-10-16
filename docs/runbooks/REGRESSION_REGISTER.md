@@ -2123,3 +2123,20 @@ Auth. It observes the original fixed smoke jobs and retained media without
 seeding, re-rendering, retrying a Cloudflare reference or rebuilding the accepted
 image. Previous successful checks remain original evidence; incomplete live
 acceptance and the final frontend receipt must still finish in the protected job.
+
+Recovery-check follow-up, [38851208388/1](https://github.com/bitbiai/Bitbi/actions/runs/38851208388):
+the new import and backend recovery guards passed. The new Auth test stopped
+before admission because the shared lightweight R2 mock exposes `body` but lacks
+`R2ObjectBody.arrayBuffer()`, which the real smoke caller consumes. A seed-only
+diagnostic isolated that TypeError behind the route's generic 503; a test-local
+body adapter restores the actual R2 contract. Keep the original 403 countercheck,
+real processor/persisted-video assertions and unexpected-request guard intact.
+Continue only the still-failed Auth case; authenticate the two passed guard
+results from their immutable original job log instead of rerunning them.
+
+For exact bundle readback, archive the accepted source with copies of both its
+installed root and Auth `node_modules` in the same relative layout. The isolated
+esbuild countercheck confirmed that a dependency symlink changes module path
+comments and the bundle digest; Auth also imports root-installed `viem`. Copying
+the unchanged installed trees preserves bytes without reinstalling dependencies
+or repeating acceptance. Keep the actual active-bundle digest comparison fatal.
