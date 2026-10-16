@@ -1,4 +1,4 @@
-import {autonomyDocInventoryContinuation,AUTONOMY_BROWSER_DOC_PROGRESS,verifyAutonomyBrowserDocProgress,autonomyDocGuardContinuation,autonomyDocSelectionContinuation,AUTONOMY_BROWSER_PROGRESS,verifyAutonomyBrowserProgress,autonomyReleasePlanContinuation,runAutonomyReleasePlanContinuation,AUTONOMY_BROWSER_PREFLIGHT,verifyAutonomyBrowserRepair,verifyAutonomyRetentionWorkers,autonomyBrowserContinuation,autonomyRetentionContinuation,AUTONOMY_NATIVE_PREFLIGHT,verifyAutonomyNativeRepair,autonomyNativeContinuation,MODEL_BROWSER_PREFLIGHT,verifyModelBrowserRepair,modelBrowserContinuation,MODEL_WORKER_PREFLIGHT,verifyModelWorkerRepair,modelWorkerContinuation,MODEL_WORKFLOW_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,EXAMPLE_BROWSER_PREFLIGHT,canvasExampleBrowserContinuation,CANVAS_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,canvasExportStageContinuation,canvasPreflightProfile,assertCanvasPreflightTree,canvasPreflightPrefix,canvasWorkspaceStageContinuation,verifyCanvasPreflight} from './lib/local-release-evidence.mjs';
+import {AUTONOMY_BROWSER_WORKER_PROGRESS,verifyAutonomyBrowserWorkerProgress,autonomyWorkerGuardContinuation,verifyAutonomyRetentionSelection,autonomyDocInventoryContinuation,AUTONOMY_BROWSER_DOC_PROGRESS,verifyAutonomyBrowserDocProgress,autonomyDocGuardContinuation,autonomyDocSelectionContinuation,AUTONOMY_BROWSER_PROGRESS,verifyAutonomyBrowserProgress,autonomyReleasePlanContinuation,runAutonomyReleasePlanContinuation,AUTONOMY_BROWSER_PREFLIGHT,verifyAutonomyBrowserRepair,verifyAutonomyRetentionWorkers,autonomyBrowserContinuation,autonomyRetentionContinuation,AUTONOMY_NATIVE_PREFLIGHT,verifyAutonomyNativeRepair,autonomyNativeContinuation,MODEL_BROWSER_PREFLIGHT,verifyModelBrowserRepair,modelBrowserContinuation,MODEL_WORKER_PREFLIGHT,verifyModelWorkerRepair,modelWorkerContinuation,MODEL_WORKFLOW_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,EXAMPLE_BROWSER_PREFLIGHT,canvasExampleBrowserContinuation,CANVAS_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,canvasExportStageContinuation,canvasPreflightProfile,assertCanvasPreflightTree,canvasPreflightPrefix,canvasWorkspaceStageContinuation,verifyCanvasPreflight} from './lib/local-release-evidence.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -180,7 +180,7 @@ async function runLocalRelease({ base, resume }) {
   const commands = selectedCommands(selection, { GITHUB_SHA: sha, CANDIDATE_BASE: base });
   const nativeBrowsers=commands.some(command=>commandRuntimes(command).some(part=>part.runtime==='native-browser-v1'))?ensureNativeBrowsers():null;
   const nativeEvidence=nativeBrowsers?Object.fromEntries(Object.entries(nativeBrowsers).filter(([key])=>!['packages','browserRoot'].includes(key))):null;
-  const progressProfile=resume&&[AUTONOMY_BROWSER_DOC_PROGRESS,AUTONOMY_BROWSER_PROGRESS].find(p=>json(path.join(resume,'checkpoint.json')).sha===p.source&&sha!==p.source);
+  const progressProfile=resume&&[AUTONOMY_BROWSER_WORKER_PROGRESS,AUTONOMY_BROWSER_DOC_PROGRESS,AUTONOMY_BROWSER_PROGRESS].find(p=>json(path.join(resume,'checkpoint.json')).sha===p.source&&sha!==p.source);
   const progressDirectory=progressProfile?path.resolve(resume):null;
   const originalDirectory=progressDirectory?path.join(path.dirname(progressDirectory),AUTONOMY_BROWSER_PREFLIGHT.run):resume&&json(path.join(resume,'checkpoint.json')).sha!==sha?path.resolve(resume):null;
   const preflightContinuation=originalDirectory&&canvasPreflightProfile(json(path.join(originalDirectory,'checkpoint.json')).sha);
@@ -219,11 +219,13 @@ async function runLocalRelease({ base, resume }) {
       fs.cpSync(path.join(originalBundle,'runtime'),path.join(bundle,'runtime'),{recursive:true});
       for(const [from,to]of [['candidate/manifest.json','hosting-manifest.json'],['candidate/proof-frontend-runtime.json','hosting-proof.json']])fs.copyFileSync(path.join(originalBundle,from),path.join(bundle,'reuse',to));
       if(progressDirectory){
-        const doc=progressProfile===AUTONOMY_BROWSER_DOC_PROGRESS;
+        const worker=progressProfile===AUTONOMY_BROWSER_WORKER_PROGRESS,doc=worker||progressProfile===AUTONOMY_BROWSER_DOC_PROGRESS;
         if(doc)fs.cpSync(path.join(progressDirectory,'bundle/reuse/autonomy-browser-progress'),path.join(bundle,'reuse/autonomy-browser-progress'),{recursive:true});
-        const progress=path.join(bundle,doc?'reuse/autonomy-browser-doc-progress':'reuse/autonomy-browser-progress');fs.mkdirSync(path.join(progress,'logs'),{recursive:true});
+        if(worker)fs.cpSync(path.join(progressDirectory,'bundle/reuse/autonomy-browser-doc-progress'),path.join(bundle,'reuse/autonomy-browser-doc-progress'),{recursive:true});
+        const progress=path.join(bundle,worker?'reuse/autonomy-browser-worker-progress':doc?'reuse/autonomy-browser-doc-progress':'reuse/autonomy-browser-progress');fs.mkdirSync(path.join(progress,'logs'),{recursive:true});
         fs.copyFileSync(path.join(progressDirectory,'checkpoint.json'),path.join(progress,'checkpoint.json'));
-        for(let i=0;i<=(doc?29:14);i++)fs.copyFileSync(path.join(progressDirectory,`bundle/logs/${i}.log`),path.join(progress,`logs/${i}.log`));
+        for(let i=0;i<=(worker?41:doc?29:14);i++)fs.copyFileSync(path.join(progressDirectory,`bundle/logs/${i}.log`),path.join(progress,`logs/${i}.log`));
+        if(worker){fs.mkdirSync(path.join(progress,'test-results'),{recursive:true});for(const file of ['autonomy-retention-discovery.json','autonomy-retention-workers.json'])fs.copyFileSync(path.join(progressDirectory,'bundle/test-results',file),path.join(progress,'test-results',file));}
       }
       verifyAutonomyBrowserRepair(bundle,sha,{allowPending:true});
     }
@@ -289,7 +291,7 @@ async function runLocalRelease({ base, resume }) {
     state={...state,startedAt:prior.startedAt,preflightContinuation:{source:prior.sha,checkpoint:preflightContinuation.checkpoint},commands:prior.commands.map((row,i)=>preflightContinuation.retain.includes(i)?{...row,reusedFrom:row.reusedFrom||prior.sha}:null)};
     for(const row of state.commands.filter(Boolean))fs.copyFileSync(path.join(originalDirectory,'bundle',row.log),path.join(bundle,row.log));
     if(progressDirectory){
-      const progress=progressProfile===AUTONOMY_BROWSER_DOC_PROGRESS?verifyAutonomyBrowserDocProgress(bundle,sha):verifyAutonomyBrowserProgress(bundle,sha);
+      const progress=progressProfile===AUTONOMY_BROWSER_WORKER_PROGRESS?verifyAutonomyBrowserWorkerProgress(bundle,sha):progressProfile===AUTONOMY_BROWSER_DOC_PROGRESS?verifyAutonomyBrowserDocProgress(bundle,sha):verifyAutonomyBrowserProgress(bundle,sha);
       state.preflightProgress={source:progressProfile.source,checkpoint:progressProfile.checkpoint};
       for(const i of progress.retained){state.commands[i]={...progress.original.commands[i],reusedFrom:progress.original.commands[i].reusedFrom||progress.original.sha};fs.copyFileSync(path.join(progressDirectory,'bundle',state.commands[i].log),path.join(bundle,state.commands[i].log));}
     }
@@ -421,7 +423,7 @@ async function runLocalRelease({ base, resume }) {
       if(docker(['exec',name,'sh','-c',`if [ -d ${source} ]; then echo present; fi`]).trim()){
         fs.mkdirSync(path.join(bundle,'test-results'),{recursive:true});
         if(state.preflightContinuation?.source===AUTONOMY_BROWSER_PREFLIGHT.source){
-          for(const file of ['autonomy-retention-discovery.json','autonomy-retention-workers.json','autonomy-retention-launcher.tap','autonomy-retention-native.log'])
+          for(const file of ['autonomy-retention-discovery.json','autonomy-retention-selected-discovery.json','autonomy-retention-workers.json','autonomy-retention-launcher.tap','autonomy-retention-native.log'])
             if(docker(['exec',name,'sh','-c',`if [ -f ${source}/${file} ]; then echo present; fi`]).trim())docker(['cp',`${name}:${source}/${file}`,path.join(bundle,'test-results',file)]);
         }else docker(['cp',`${name}:${source}/.`,path.join(bundle,'test-results')]);
       }
@@ -536,7 +538,7 @@ async function runLocalRelease({ base, resume }) {
         const q2 = /test-q2-runtime|test:workers/.test(command.run);
         const args = ['exec', '--user', q2 ? '1001:1001' : '0:0', ...Object.entries({ ...command.env, GITHUB_JOB: command.job }).filter(([key]) => key !== 'GH_TOKEN').flatMap(([key,value]) => ['--env',`${key}=${value}`]), name];
         if (!q2) args.push('/usr/bin/setpriv','--reuid=1001','--regid=1001','--clear-groups','--bounding-set=-all','--inh-caps=-all','--ambient-caps=-all','--no-new-privs');
-        const effective=state.preflightProgress?.source===AUTONOMY_BROWSER_DOC_PROGRESS.source&&index===28?autonomyDocInventoryContinuation(part.run):state.preflightProgress?.source===AUTONOMY_BROWSER_DOC_PROGRESS.source&&index===16?autonomyDocSelectionContinuation(part.run):state.preflightProgress?.source===AUTONOMY_BROWSER_DOC_PROGRESS.source&&index===17?autonomyDocGuardContinuation(part.run):state.preflightProgress?.source===AUTONOMY_BROWSER_PROGRESS.source&&index===14?autonomyReleasePlanContinuation(part.run):state.preflightContinuation?.source===AUTONOMY_BROWSER_PREFLIGHT.source&&index===41?autonomyRetentionContinuation(part.run):state.preflightContinuation?.source===AUTONOMY_NATIVE_PREFLIGHT.source&&index===41?autonomyNativeContinuation(part.run):state.preflightContinuation?.source===MODEL_WORKER_PREFLIGHT.source&&index===41?modelWorkerContinuation(part.run):state.preflightContinuation?.source===EXPORT_NATIVE_PREFLIGHT.source&&index===41?canvasExportStageContinuation(part.run):state.preflightContinuation?.source===CANVAS_PREFLIGHT.source&&index===41?canvasWorkspaceStageContinuation(part.run):state.permissionContinuation?.source===PERMISSION_CONTINUATION.tail&&index===41?canvasStageContinuation(part.run):state.repair&&index===42?localWorkerContinuation():state.repair&&index===18?localRepairCommand(sha):part.run;
+        const effective=state.preflightProgress?.source===AUTONOMY_BROWSER_WORKER_PROGRESS.source&&index===17?autonomyWorkerGuardContinuation(part.run):state.preflightProgress?.source===AUTONOMY_BROWSER_DOC_PROGRESS.source&&index===28?autonomyDocInventoryContinuation(part.run):state.preflightProgress?.source===AUTONOMY_BROWSER_DOC_PROGRESS.source&&index===16?autonomyDocSelectionContinuation(part.run):state.preflightProgress?.source===AUTONOMY_BROWSER_DOC_PROGRESS.source&&index===17?autonomyDocGuardContinuation(part.run):state.preflightProgress?.source===AUTONOMY_BROWSER_PROGRESS.source&&index===14?autonomyReleasePlanContinuation(part.run):state.preflightContinuation?.source===AUTONOMY_BROWSER_PREFLIGHT.source&&index===41?autonomyRetentionContinuation(part.run):state.preflightContinuation?.source===AUTONOMY_NATIVE_PREFLIGHT.source&&index===41?autonomyNativeContinuation(part.run):state.preflightContinuation?.source===MODEL_WORKER_PREFLIGHT.source&&index===41?modelWorkerContinuation(part.run):state.preflightContinuation?.source===EXPORT_NATIVE_PREFLIGHT.source&&index===41?canvasExportStageContinuation(part.run):state.preflightContinuation?.source===CANVAS_PREFLIGHT.source&&index===41?canvasWorkspaceStageContinuation(part.run):state.permissionContinuation?.source===PERMISSION_CONTINUATION.tail&&index===41?canvasStageContinuation(part.run):state.repair&&index===42?localWorkerContinuation():state.repair&&index===18?localRepairCommand(sha):part.run;
         const execution=command.name==='Restore exact candidate static site'?'node scripts/local-release.mjs restore-boundary\n'+effective:effective;
         args.push('bash','--noprofile','--norc','-euo','pipefail','-c',execution);
         result = spawnSync('docker', ['--context','colima-bitbi-release',...args], { env: safeEnv(), stdio: ['ignore',fd,fd], timeout: 60 * 60 * 1000 });
@@ -552,6 +554,7 @@ async function runLocalRelease({ base, resume }) {
       if(state.preflightContinuation?.source===EXAMPLE_BROWSER_PREFLIGHT.source&&index===41)record.continuation=canvasExampleBrowserContinuation(command.run);
       if(state.preflightContinuation?.source===EXPORT_NATIVE_PREFLIGHT.source&&index===41)record.continuation=canvasExportStageContinuation(command.run);
       if(state.preflightContinuation?.source===CANVAS_PREFLIGHT.source&&index===41)record.continuation=canvasWorkspaceStageContinuation(command.run);
+      if(state.preflightProgress?.source===AUTONOMY_BROWSER_WORKER_PROGRESS.source&&index===17)record.continuation=autonomyWorkerGuardContinuation(command.run);
       if(state.preflightProgress?.source===AUTONOMY_BROWSER_DOC_PROGRESS.source&&index===28)record.continuation=autonomyDocInventoryContinuation(command.run);
       if(state.preflightProgress?.source===AUTONOMY_BROWSER_DOC_PROGRESS.source&&index===16)record.continuation=autonomyDocSelectionContinuation(command.run);
       if(state.preflightProgress?.source===AUTONOMY_BROWSER_DOC_PROGRESS.source&&index===17)record.continuation=autonomyDocGuardContinuation(command.run);
@@ -599,7 +602,7 @@ async function runLocalRelease({ base, resume }) {
           if(docker(['exec',name,'sh','-c',`if [ -d ${source} ]; then echo present; fi`]).trim()){
             fs.mkdirSync(path.join(bundle,'test-results'),{recursive:true});
         if(state.preflightContinuation?.source===AUTONOMY_BROWSER_PREFLIGHT.source){
-          for(const file of ['autonomy-retention-discovery.json','autonomy-retention-workers.json','autonomy-retention-launcher.tap','autonomy-retention-native.log'])
+          for(const file of ['autonomy-retention-discovery.json','autonomy-retention-selected-discovery.json','autonomy-retention-workers.json','autonomy-retention-launcher.tap','autonomy-retention-native.log'])
             if(docker(['exec',name,'sh','-c',`if [ -f ${source}/${file} ]; then echo present; fi`]).trim())docker(['cp',`${name}:${source}/${file}`,path.join(bundle,'test-results',file)]);
         }else docker(['cp',`${name}:${source}/.`,path.join(bundle,'test-results')]);
           }
@@ -635,6 +638,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     if (command === 'prepare') { assert.equal(args.length, 0); console.log(JSON.stringify(await withReleaseLock(()=>ensureEnvironment()))); }
     else if (command === 'restore-boundary') {assert.equal(args.length,0);prepareCandidateRestore();}
     else if (command === 'verify-worker-repair') {assert.equal(args.length,1);console.log(JSON.stringify(verifyLocalWorkerRepair(path.resolve(args[0]),git(['rev-parse','HEAD'])).result));}
+    else if(command==='verify-autonomy-retention-selection'){
+      assert.equal(args.length,1);const directory=path.resolve(args[0]);verifyAutonomyRetentionWorkers(directory,git(['rev-parse','HEAD']),{allowPending:true});
+      const read=file=>json(path.join(directory,'test-results',file));
+      console.log(JSON.stringify(verifyAutonomyRetentionSelection(read('autonomy-retention-discovery.json'),read('autonomy-retention-selected-discovery.json'))));
+    }
     else if (command === 'verify-autonomy-retention-pending'||command === 'verify-autonomy-retention-workers') {
       assert.equal(args.length,1);console.log(JSON.stringify(verifyAutonomyRetentionWorkers(path.resolve(args[0]),git(['rev-parse','HEAD']),{allowPending:command==='verify-autonomy-retention-pending'}).result));
     }

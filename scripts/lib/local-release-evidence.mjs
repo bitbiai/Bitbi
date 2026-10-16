@@ -10,8 +10,8 @@ import { environmentInputs, environmentKey, toolchainPins } from './local-releas
 import { gitSelection, tree, verifyManifest, verifyProofs, candidateProof, proofJobs, REPOSITORY } from '../pages-candidate.mjs';
 import { verifyFrontend } from './frontend-hosting.mjs';
 import { browserRows } from './browser-fixture-repair.mjs';
-import { AUTONOMY_BROWSER_DOC_PROGRESS, isAutonomyBrowserDocProgress, AUTONOMY_BROWSER_PROGRESS, isAutonomyBrowserProgress, AUTONOMY_BROWSER_POLICY, AUTONOMY_BROWSER_PREFLIGHT, assertAutonomyBrowserTree, verifyAutonomyBrowserReport, verifyAutonomyImageReuse, MODEL_BROWSER_POLICY, MODEL_BROWSER_PREFLIGHT, verifyModelBrowserReport, LOCAL_BROWSER_POLICY, readMigrationBrowserPool, SMOOTH_BROWSER_POLICY, SMOOTH_BROWSER_CONTINUATION, EXAMPLE_CACHE_CONTINUATION, WORKSPACE_CONTINUATION, AUDIO_FIT_CONTINUATION, INSPECTOR_CONTINUATION,EXPORT_BROWSER_CONTINUATION, smoothProfile, isSmoothContinuation, assertSmoothContinuationTree, verifySmoothBrowserReport, restoreSmoothBrowserProof } from './local-release-browser.mjs';
-export {AUTONOMY_BROWSER_DOC_PROGRESS,AUTONOMY_BROWSER_PROGRESS,AUTONOMY_BROWSER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT} from './local-release-browser.mjs';
+import { AUTONOMY_BROWSER_WORKER_PROGRESS, isAutonomyBrowserWorkerProgress, AUTONOMY_BROWSER_DOC_PROGRESS, isAutonomyBrowserDocProgress, AUTONOMY_BROWSER_PROGRESS, isAutonomyBrowserProgress, AUTONOMY_BROWSER_POLICY, AUTONOMY_BROWSER_PREFLIGHT, assertAutonomyBrowserTree, verifyAutonomyBrowserReport, verifyAutonomyImageReuse, MODEL_BROWSER_POLICY, MODEL_BROWSER_PREFLIGHT, verifyModelBrowserReport, LOCAL_BROWSER_POLICY, readMigrationBrowserPool, SMOOTH_BROWSER_POLICY, SMOOTH_BROWSER_CONTINUATION, EXAMPLE_CACHE_CONTINUATION, WORKSPACE_CONTINUATION, AUDIO_FIT_CONTINUATION, INSPECTOR_CONTINUATION,EXPORT_BROWSER_CONTINUATION, smoothProfile, isSmoothContinuation, assertSmoothContinuationTree, verifySmoothBrowserReport, restoreSmoothBrowserProof } from './local-release-browser.mjs';
+export {AUTONOMY_BROWSER_WORKER_PROGRESS,AUTONOMY_BROWSER_DOC_PROGRESS,AUTONOMY_BROWSER_PROGRESS,AUTONOMY_BROWSER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT} from './local-release-browser.mjs';
 
 export const LOCAL_REQUIRED_JOBS = { 'release-compatibility': [
   'Preflight complete static release plan', 'Select tests from changed files',
@@ -756,6 +756,14 @@ export function autonomyBrowserContinuation(command,scope='homepage') {
 export const autonomyRetentionWorkers=['Canvas native control canvasAssemblyRetentionCase','Canvas assembly retention migration preserves historical export dispositions'];
 export const autonomyRetentionLaunchers=['Canvas reference fixture reads the staged bytes from a non-repository cwd','focused native scopes dispatch through the actual child and preserve boundaries'];
 export const autonomyRetentionNative=['canvas_assembly_retention_populated_migration','canvas_assembly_completed_delivery_retention'];
+export function verifyAutonomyRetentionSelection(full,selected) {
+  assert.deepEqual(full.errors,[]);assert.deepEqual(selected.errors,[],'Selected Worker discovery failed');
+  const identity=rows=>rows.map(({id,file,title})=>({id,file,title})).sort((a,b)=>a.id.localeCompare(b.id));
+  const expected=workerDiscovery(full).filter(row=>row.file==='q2-canvas-agent.spec.js'&&autonomyRetentionWorkers.includes(row.title));
+  assert.equal(expected.length,2);assert.equal(new Set(expected.map(row=>row.id)).size,2);
+  const actual=workerDiscovery(selected);assert.equal(actual.length,2,'Worker filter must discover exactly two cases');
+  assert.deepEqual(identity(actual),identity(expected),'Worker filter changed selected identities');return identity(actual);
+}
 export function verifyAutonomyRetentionWorkers(directory,head,{allowPending=false}={}) {
   assertAutonomyBrowserTree(head);
   const log=fs.readFileSync(path.join(directory,'reuse/autonomy-native-origin/reuse/preflight-failed.log'),'utf8');assert.equal(sha256(log),AUTONOMY_NATIVE_PREFLIGHT.failedLog);
@@ -769,6 +777,7 @@ export function verifyAutonomyRetentionWorkers(directory,head,{allowPending=fals
   const fresh=discovery.filter(row=>!previous.includes(label(row.label)));
   assert.deepEqual(fresh.map(row=>[row.file,row.title]).sort(),autonomyRetentionWorkers.map(title=>['q2-canvas-agent.spec.js',title]).sort(),'Only the two reviewed retention cases may be new');
   if(allowPending)return {discovery,result:null};
+  verifyAutonomyRetentionSelection(raw,parseDiscovery(fs.readFileSync(path.join(directory,'test-results/autonomy-retention-selected-discovery.json'),'utf8')));
   const executed=JSON.parse(fs.readFileSync(path.join(directory,'test-results/autonomy-retention-workers.json')));
   assert.deepEqual(executed.errors,[]);assert.equal(executed.config.workers,1);assert.deepEqual(Object.fromEntries(['expected','unexpected','flaky','skipped'].map(k=>[k,executed.stats[k]])),{expected:2,unexpected:0,flaky:0,skipped:0});
   const rows=executedWorkers(executed);assert.equal(rows.length,2);assert.equal(new Set(rows.map(r=>r.id)).size,2);assert(rows.every(passedOnce),'Retention Worker case failed/skipped/retried');
@@ -782,7 +791,9 @@ export function autonomyRetentionContinuation(command) {
     'mkdir -p .local-release/test-results',
     'PLAYWRIGHT_JSON_OUTPUT_NAME= npx playwright test -c playwright.workers.config.js --list --reporter=json > .local-release/test-results/autonomy-retention-discovery.json',
     'node scripts/local-release.mjs verify-autonomy-retention-pending .local-release',
-    `PLAYWRIGHT_JSON_OUTPUT_NAME=.local-release/test-results/autonomy-retention-workers.json npx playwright test -c playwright.workers.config.js tests/q2-canvas-agent.spec.js --grep '^(${autonomyRetentionWorkers.join('|')})$' --workers=1 --retries=0 --reporter=list,json`,
+    `PLAYWRIGHT_JSON_OUTPUT_NAME= npx playwright test -c playwright.workers.config.js tests/q2-canvas-agent.spec.js --grep '(${autonomyRetentionWorkers.join('|')})$' --list --reporter=json > .local-release/test-results/autonomy-retention-selected-discovery.json`,
+    'node scripts/local-release.mjs verify-autonomy-retention-selection .local-release',
+    `PLAYWRIGHT_JSON_OUTPUT_NAME=.local-release/test-results/autonomy-retention-workers.json npx playwright test -c playwright.workers.config.js tests/q2-canvas-agent.spec.js --grep '(${autonomyRetentionWorkers.join('|')})$' --workers=1 --retries=0 --reporter=list,json`,
     'node scripts/local-release.mjs verify-autonomy-retention-workers .local-release',
     `node --test --test-name-pattern='^(${autonomyRetentionLaunchers.join('|')})$' scripts/test-q2-runtime-launcher.mjs > .local-release/test-results/autonomy-retention-launcher.tap 2>&1 || { status=$?; cat .local-release/test-results/autonomy-retention-launcher.tap; exit "$status"; }`,
     'cat .local-release/test-results/autonomy-retention-launcher.tap',
@@ -854,6 +865,39 @@ export function verifyAutonomyBrowserDocProgress(directory,head) {
   assert(!planner.includes('Release planner tests passed.')&&!planner.includes('Auth configuration: reviewed absent-to-off'),'Completed planner prefix repeated');
   return {original,retained:[...p.retain]};
 }
+export function verifyAutonomyBrowserWorkerProgress(directory,head) {
+  assertAutonomyBrowserTree(head);assert(isAutonomyBrowserWorkerProgress(head),'Not the exact autonomy Worker selection successor');
+  const previous=verifyAutonomyBrowserDocProgress(directory,head).original,p=AUTONOMY_BROWSER_WORKER_PROGRESS;
+  const folder=path.join(directory,'reuse/autonomy-browser-worker-progress'),bytes=fs.readFileSync(path.join(folder,'checkpoint.json'));
+  assert.equal(sha256(bytes),p.checkpoint,'Changed failed Worker selection checkpoint');const original=JSON.parse(bytes);
+  assert.equal(original.sha,p.source);assert.equal(original.id,p.run);assert.equal(original.status,'failed');
+  assert.deepEqual(original.preflightContinuation,previous.preflightContinuation);
+  assert.deepEqual(original.preflightProgress,{source:previous.sha,checkpoint:AUTONOMY_BROWSER_DOC_PROGRESS.checkpoint});
+  for(const key of ['base','planHash'])assert.equal(original[key],previous[key]);
+  const stable=({preparationMs,...identity})=>identity;assert.deepEqual(stable(original.environment),stable(previous.environment));
+  const flags=({files,reasons,...identity})=>identity;assert.deepEqual(flags(original.selection),flags(previous.selection));
+  assert.equal(original.commands.length,51);const commands=selectedCommands(original.selection,{GITHUB_SHA:original.sha,CANDIDATE_BASE:original.base});
+  for(let i=0;i<original.commands.length;i++){
+    const row=original.commands[i];
+    if(i<=41){
+      assert(row);assert.equal(row.exitCode,i===41?1:0);assert.deepEqual(row.command,commands[i]);
+      assert.equal(sha256(fs.readFileSync(path.join(folder,'logs',`${i}.log`))),row.logHash,'Changed Worker selection progress log');
+    }else if(!AUTONOMY_BROWSER_PREFLIGHT.retain.includes(i))assert.equal(row,null,'Unexecuted command acquired evidence');
+    if(AUTONOMY_BROWSER_PREFLIGHT.retain.includes(i))assert.deepEqual(row,previous.commands[i],'Changed inherited autonomy proof');
+    if(AUTONOMY_BROWSER_DOC_PROGRESS.retain.includes(i))assert.deepEqual(row,{...previous.commands[i],reusedFrom:previous.commands[i].reusedFrom||previous.sha});
+  }
+  assert.equal(sha256(fs.readFileSync(path.join(folder,'logs/41.log'))),p.failedLog,'Changed failed Worker selection log');
+  for(const [file,hash]of [['autonomy-retention-discovery.json',p.discovery],['autonomy-retention-workers.json',p.failedWorkers]])assert.equal(sha256(fs.readFileSync(path.join(folder,'test-results',file))),hash,'Changed original Worker discovery outcome');
+  const discovery=JSON.parse(fs.readFileSync(path.join(folder,'test-results/autonomy-retention-discovery.json')));assert.deepEqual(discovery.errors,[]);assert.equal(workerDiscovery(discovery).length,1473);
+  const failed=JSON.parse(fs.readFileSync(path.join(folder,'test-results/autonomy-retention-workers.json')));
+  assert.deepEqual(failed.suites,[]);assert.equal(failed.errors.length,1);assert(failed.errors[0].message.includes('No tests found.'));
+  assert.deepEqual(Object.fromEntries(['expected','unexpected','flaky','skipped'].map(key=>[key,failed.stats[key]])),{expected:0,unexpected:0,flaky:0,skipped:0});
+  return {original,retained:[...p.retain]};
+}
+export function autonomyWorkerGuardContinuation(command) {
+  assert.equal(command,'npm run test:local-release','Unexpected Worker selection guard caller');
+  return 'npm run test:local-release -- --autonomy-worker-selection-only';
+}
 export function autonomyDocInventoryContinuation(command) {
   assert.equal(command,'npm run test:doc-currentness','Unexpected documentation inventory caller');
   return 'node scripts/test-doc-currentness.mjs --local-release-inventory-only';
@@ -891,7 +935,8 @@ export async function runAutonomyReleasePlanContinuation() {
 }
 export function verifyAutonomyBrowserRepair(directory,head,{allowPending=false}={}) {
   const p=AUTONOMY_BROWSER_PREFLIGHT;assertCanvasPreflightTree(head,gitBytes,p);
-  if(isAutonomyBrowserDocProgress(head))verifyAutonomyBrowserDocProgress(directory,head);
+  if(isAutonomyBrowserWorkerProgress(head))verifyAutonomyBrowserWorkerProgress(directory,head);
+  else if(isAutonomyBrowserDocProgress(head))verifyAutonomyBrowserDocProgress(directory,head);
   else if(isAutonomyBrowserProgress(head))verifyAutonomyBrowserProgress(directory,head);
   const pinned=(file,hash)=>{const bytes=fs.readFileSync(path.join(directory,'reuse',file));assert.equal(sha256(bytes),hash,`Changed original autonomy browser evidence: ${file}`);return bytes;};
   const original=JSON.parse(pinned('preflight-checkpoint.json',p.checkpoint));
@@ -1138,15 +1183,18 @@ export function verifyCanvasPreflight(directory,evidence,commands){
     assert(log.toString().includes('ok 1 - Every offered transition has a small distinct decoded GIF'));
     restoreCanvasHostingProof(directory,{verifyOnly:true});
   }
+  const workerProgress=profile===AUTONOMY_BROWSER_PREFLIGHT&&isAutonomyBrowserWorkerProgress(evidence.sha);
   const docProgress=profile===AUTONOMY_BROWSER_PREFLIGHT&&isAutonomyBrowserDocProgress(evidence.sha);
-  const progress=docProgress?verifyAutonomyBrowserDocProgress(directory,evidence.sha):profile===AUTONOMY_BROWSER_PREFLIGHT&&isAutonomyBrowserProgress(evidence.sha)?verifyAutonomyBrowserProgress(directory,evidence.sha):null;
-  const progressProfile=docProgress?AUTONOMY_BROWSER_DOC_PROGRESS:AUTONOMY_BROWSER_PROGRESS;
+  const progress=workerProgress?verifyAutonomyBrowserWorkerProgress(directory,evidence.sha):docProgress?verifyAutonomyBrowserDocProgress(directory,evidence.sha):profile===AUTONOMY_BROWSER_PREFLIGHT&&isAutonomyBrowserProgress(evidence.sha)?verifyAutonomyBrowserProgress(directory,evidence.sha):null;
+  const progressProfile=workerProgress?AUTONOMY_BROWSER_WORKER_PROGRESS:docProgress?AUTONOMY_BROWSER_DOC_PROGRESS:AUTONOMY_BROWSER_PROGRESS;
   if(progress)assert.deepEqual(evidence.preflightProgress,{source:progressProfile.source,checkpoint:progressProfile.checkpoint});
   else assert(!evidence.preflightProgress,'Unexpected planner progress receipt');
   for(const [i,row]of evidence.commands.entries()){
     if(progress&&progress.retained.includes(i)){
       assert.deepEqual(row,{...progress.original.commands[i],reusedFrom:progress.original.commands[i].reusedFrom||progress.original.sha});
       assert.equal(sha256(fs.readFileSync(path.join(directory,row.log))),row.logHash);
+    }else if(workerProgress&&i===17){
+      assert(!row.reusedFrom);assert.equal(row.continuation,autonomyWorkerGuardContinuation(commands[i].run));
     }else if(docProgress&&i===28){
       assert(!row.reusedFrom);assert.equal(row.continuation,autonomyDocInventoryContinuation(commands[i].run));
     }else if(docProgress&&i===16){

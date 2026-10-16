@@ -21,6 +21,11 @@ import { LOCAL_IMPORT_REPAIR, assertImportRepairWorkflow, localRepairCommand, ve
 import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,assertPermissionContinuationTree,permissionContinuationPrefix,CANVAS_STAGE_CASES,canvasStageContinuation} from './lib/local-release-evidence.mjs';
 import {testLocalMediaProcess} from './test-local-media-process.mjs';
 
+if(process.argv.includes('--autonomy-worker-selection-only')) {
+  assert.deepEqual(process.argv.slice(2),['--autonomy-worker-selection-only']);
+  await testAutonomyWorkerSelection();process.exit(0);
+}
+
 if(process.argv.includes('--autonomy-doc-progress-only')) {
   assert.deepEqual(process.argv.slice(2),['--autonomy-doc-progress-only']);
   await testAutonomyDocProgress();process.exit(0);
@@ -1437,4 +1442,72 @@ async function testAutonomyDocProgress() {
   assert.deepEqual(verify().retained,p.retain);
  } finally {fs.rmSync(temporary,{recursive:true,force:true});}
  console.log('Autonomy documentation continuation: exact source chain, completed checks and original failed scanner proof; missing, altered, foreign, repeated-prefix and forged-success controls passed.');
+}
+
+async function testAutonomyWorkerSelection() {
+ const {AUTONOMY_BROWSER_PREFLIGHT:base,AUTONOMY_BROWSER_WORKER_PROGRESS:p,assertAutonomyBrowserTree}=await import('./lib/local-release-browser.mjs');
+ const {verifyAutonomyBrowserWorkerProgress,autonomyWorkerGuardContinuation,verifyAutonomyRetentionSelection,verifyAutonomyRetentionWorkers,autonomyRetentionContinuation}=await import('./lib/local-release-evidence.mjs');
+ assert.equal(p.source,'f5816a676d00b5831d9101794d16363c53a2f914');assert.deepEqual(p.specs,{});
+ assert.deepEqual(p.retain,[13,14,15,16,18,21,23,24,28,29,31]);
+ const current=fs.readFileSync('scripts/test-local-release.mjs','utf8'),entry="if(process.argv.includes('--autonomy-worker-selection-only')) {\n  assert.deepEqual(process.argv.slice(2),['--autonomy-worker-selection-only']);\n  await testAutonomyWorkerSelection();process.exit(0);\n}\n\n";
+ assert.equal(current.slice(0,current.indexOf('\nasync function testAutonomyWorkerSelection() {')).replace(entry,''),execFileSync('git',['show',`${p.source}:scripts/test-local-release.mjs`]).toString(),'Previously passed guard groups remain byte-identical');
+ assert.equal(autonomyWorkerGuardContinuation('npm run test:local-release'),'npm run test:local-release -- --autonomy-worker-selection-only');
+ for(const command of ['echo skipped','npm run test:local-release -- --repair-only','npm run test:local-release\nnpm run test:local-release'])assert.throws(()=>autonomyWorkerGuardContinuation(command));
+ const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-autonomy-worker-selection-')),bare=path.join(temporary,'git');
+ const env={...process.env,GIT_AUTHOR_NAME:'Synthetic',GIT_AUTHOR_EMAIL:'synthetic@example.invalid',GIT_COMMITTER_NAME:'Synthetic',GIT_COMMITTER_EMAIL:'synthetic@example.invalid'};
+ const read=(args,input)=>execFileSync('git',['--git-dir',bare,...args],{env,input,stdio:['pipe','pipe','pipe']});
+ try {
+  execFileSync('git',['init','--bare',bare],{stdio:'pipe'});fs.writeFileSync(path.join(bare,'objects/info/alternates'),path.resolve(execFileSync('git',['rev-parse','--git-path','objects'],{encoding:'utf8'}).trim())+'\n');
+  const commit=(file,value,parent=p.source)=>{
+   read(['read-tree',p.source]);
+   if(value===null)read(['update-index','--index-info'],Buffer.from(`0 ${'0'.repeat(40)}\t${file}\n`));
+   else{const blob=read(['hash-object','-w','--stdin'],value.content??value).toString().trim();read(['update-index','--add','--cacheinfo',`${value.mode||'100644'},${blob},${file}`]);}
+   return read(['commit-tree',read(['write-tree']).toString().trim(),'-p',parent],Buffer.from('Synthetic closed Worker selection correction\n')).toString().trim();
+  };
+  const accepted=commit('scripts/test-local-release.mjs',Buffer.from('Synthetic tooling boundary'));assertAutonomyBrowserTree(accepted,read);
+  for(const file of ['tests/q2-canvas-agent.spec.js','tests/helpers/canvas-assembly-control.mjs','workers/auth/src/routes/canvas-agent.js','workers/auth/migrations/0108_canvas_creative_export_retention.sql','config/release-compat.json','playwright.workers.config.js','package-lock.json','.github/workflows/static.yml'])assert.throws(()=>assertAutonomyBrowserTree(commit(file,Buffer.from('Unreviewed change')),read));
+  for(const value of [null,{mode:'120000',content:Buffer.from('outside')}])assert.throws(()=>assertAutonomyBrowserTree(commit('scripts/test-local-release.mjs',value),read));
+  assert.throws(()=>assertAutonomyBrowserTree(commit('scripts/test-local-release.mjs',Buffer.from('Foreign parent'),accepted),read));
+  const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),proof=path.join(temporary,'proof');assertAutonomyBrowserTree(head);fs.cpSync('.local-release/reuse',path.join(proof,'reuse'),{recursive:true});
+  const verify=()=>verifyAutonomyBrowserWorkerProgress(proof,head),progress=verify();
+  assert.equal(progress.original.status,'failed');assert.equal(progress.original.sha,p.source);assert(progress.original.commands.slice(0,41).every(row=>row.exitCode===0));assert.equal(progress.original.commands[41].exitCode,1);assert.equal(progress.original.commands[45],null);assert.equal(progress.original.commands[42].reusedFrom,base.source);assert.deepEqual(progress.retained,p.retain);
+  const folder=path.join(proof,'reuse/autonomy-browser-worker-progress'),full=JSON.parse(fs.readFileSync(path.join(folder,'test-results/autonomy-retention-discovery.json')));
+  const failed=JSON.parse(fs.readFileSync(path.join(folder,'test-results/autonomy-retention-workers.json')));assert.equal(failed.suites.length,0);assert.equal(failed.errors.length,1);assert.match(failed.errors[0].message,/No tests found/);
+  const titles=['Canvas native control canvasAssemblyRetentionCase','Canvas assembly retention migration preserves historical export dispositions'],filter=`(${titles.join('|')})$`;
+  const list=grep=>{
+   const args=['node_modules/playwright/cli.js','test','-c','playwright.workers.config.js','tests/q2-canvas-agent.spec.js','--grep',grep,'--list','--reporter=json'];
+   const child=spawnSync(process.execPath,args,{encoding:'utf8',env:{...process.env,PLAYWRIGHT_JSON_OUTPUT_NAME:''},timeout:30000,maxBuffer:16*1024*1024});assert.ifError(child.error);assert.equal(child.signal,null);
+   return {status:child.status,report:JSON.parse(child.stdout)};
+  };
+  const old=list('^'+filter);assert.equal(old.status,1);assert.equal(old.report.suites.length,0);assert.equal(old.report.errors.length,1);assert.match(old.report.errors[0].message,/No tests found/);
+  const selected=list(filter);assert.equal(selected.status,0);assert.deepEqual(selected.report.errors,[]);
+  const specs=value=>value.suites.flatMap(suite=>[...(suite.specs||[]),...specs({suites:suite.suites||[]})]);
+  const actual=specs(selected.report).map(({id,file,title})=>({id,file,title})),expected=specs(full).filter(spec=>titles.includes(spec.title)).map(({id,file,title})=>({id,file,title}));
+  assert.equal(actual.length,2);assert.equal(expected.length,2);assert.deepEqual(actual,expected);assert.deepEqual(actual.map(row=>row.file),['q2-canvas-agent.spec.js','q2-canvas-agent.spec.js']);assert.deepEqual(actual.map(row=>row.title),titles);
+  verifyAutonomyRetentionSelection(full,selected.report);assert.throws(()=>verifyAutonomyRetentionSelection(full,old.report));
+  for(const mutate of [r=>r.errors.push({message:'Discovery failed'}),r=>specs(r)[0].id='foreign',r=>specs(r)[0].file='foreign.spec.js',r=>specs(r)[0].title='Existing unrelated test',r=>r.suites[0].specs.pop(),r=>r.suites[0].specs.push(r.suites[0].specs[0])]){
+   const broken=structuredClone(selected.report);mutate(broken);assert.throws(()=>verifyAutonomyRetentionSelection(full,broken));
+  }
+  // Synthetic completion calibrates the new file boundary only; it is never
+  // written to release acceptance paths or counted as an executed Worker case.
+  const simulated=structuredClone(selected.report);simulated.config.workers=1;simulated.stats={expected:2,unexpected:0,flaky:0,skipped:0};
+  for(const spec of specs(simulated))for(const test of spec.tests)Object.assign(test,{expectedStatus:'passed',status:'expected',results:[{status:'passed',retry:0}]});
+  const syntheticReports=path.join(proof,'test-results');fs.mkdirSync(syntheticReports);const save=(file,value)=>fs.writeFileSync(path.join(syntheticReports,file),JSON.stringify(value,null,2));
+  save('autonomy-retention-discovery.json',full);save('autonomy-retention-workers.json',simulated);
+  assert.throws(()=>verifyAutonomyRetentionWorkers(proof,head),'Matching execution cannot substitute the missing selection proof');
+  save('autonomy-retention-selected-discovery.json',selected.report);assert.deepEqual(verifyAutonomyRetentionWorkers(proof,head).result,{workerRetained:1471,workerFresh:2,workerTotal:1473});
+  save('autonomy-retention-selected-discovery.json',old.report);assert.throws(()=>verifyAutonomyRetentionWorkers(proof,head),'The original empty selection cannot authorize a fabricated successful execution');
+  const continuation=autonomyRetentionContinuation(progress.original.commands[41].command.run),needle=`--grep '${filter}'`;
+  assert.equal(continuation.split(needle).length,3,'Discovery and execution use the same exact corrected filter');assert(!continuation.includes(`--grep '^${filter}'`));
+  assert(continuation.indexOf('verify-autonomy-retention-selection')<continuation.indexOf('PLAYWRIGHT_JSON_OUTPUT_NAME=.local-release/test-results/autonomy-retention-workers.json'),'Selected identities are admitted before any new test executes');
+  const reports='.local-release/test-results';fs.mkdirSync(reports,{recursive:true});for(const [name,value]of [['old',old],['corrected',selected]])fs.writeFileSync(path.join(reports,`autonomy-worker-selection-control-${name}.json`),JSON.stringify(value,null,2));
+  for(const file of ['checkpoint.json','logs/17.log','logs/29.log','logs/41.log','test-results/autonomy-retention-discovery.json','test-results/autonomy-retention-workers.json']){
+   const target=path.join(folder,file),saved=fs.readFileSync(target);fs.unlinkSync(target);assert.throws(verify);fs.writeFileSync(target,'{}');assert.throws(verify);fs.writeFileSync(target,saved);
+  }
+  for(const file of ['reuse/autonomy-browser-doc-progress/checkpoint.json','reuse/autonomy-browser-progress/checkpoint.json','reuse/preflight-checkpoint.json']){
+   const target=path.join(proof,file),saved=fs.readFileSync(target);fs.unlinkSync(target);assert.throws(verify);fs.writeFileSync(target,saved);
+  }
+  assert.deepEqual(verify().retained,p.retain);
+ } finally {fs.rmSync(temporary,{recursive:true,force:true});}
+ console.log('Autonomy Worker selection: actual CLI discovery rejects the old anchored filter and selects exactly two unchanged identities; source chains, missing/foreign/duplicate results and prior-pass preservation controls passed. No test cases executed.');
 }
