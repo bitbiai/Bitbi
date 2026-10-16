@@ -1152,3 +1152,187 @@ for(const source of ['9443369e0780144d2ffeea3900d3b86ccd57bc85','b71dd6212ee83e9
  }
  console.log('Autonomy launcher continuation: actual Git pins the reviewed fixture and rejects product, schema, selection, environment, unrelated documentation, symlink, deletion and foreign-parent changes.');
 }
+
+{
+ const {AUTONOMY_BROWSER_POLICY:policy,AUTONOMY_BROWSER_PREFLIGHT:p,assertAutonomyBrowserTree,verifyAutonomyBrowserReport}=await import('./lib/local-release-browser.mjs');
+ const {canvasPreflightProfile,canvasPreflightPrefix,verifyAutonomyBrowserRepair,autonomyBrowserContinuation,verifyAutonomyRetentionWorkers,autonomyRetentionContinuation}=await import('./lib/local-release-evidence.mjs');
+ assert.equal(canvasPreflightProfile(p.source),p);
+ // Exact historical Git objects, independent of later working-tree changes.
+ const blobs={
+  'tests/helpers/canvas-agent-autonomy-ui.cjs':'4f19b52ef05b624842ffdf28c66a5a2643f24f63',
+  'tests/helpers/canvas-audio-ui.cjs':'a63d88b4b69bb0669b08718b4746c3eecbf1291b',
+  'tests/helpers/canvas-transition-examples-ui.cjs':'64f3a31b6c15b98b623cb1efb557a4563c281906',
+  'scripts/lib/local-release-transport.mjs':'e80f855f06aa5b528a8be242a87ab62a91f4e4ac',
+  'scripts/lib/media-publication.mjs':'bd5d9bf28f7952a26443ba3e54cbc1c9c5529bb1',
+  'scripts/lib/backend-publication.mjs':'0149213630775cc74061091e5801456b5577cf30',
+  'scripts/test-media-activation-reuse.mjs':'79125feaa83c36cce1595631ff3e222cf1339d2d',
+  'docs/runbooks/REGRESSION_REGISTER.md':'dadc34bfa59ff0224c4c6bb14168c0d7966af18c',
+  'scripts/lib/ci-test-selection.mjs':'a8b05cbafeaf17cbabfee2b548a4ce4d40e9bd05',
+  'scripts/test-ci-test-selection.mjs':'a5db414ce43654cd13b69ac18f283f16beb54729',
+  'workers/auth/migrations/0108_canvas_creative_export_retention.sql':'862b2ff01edbc51bd0da5b385b33ac70ce3f9b6d',
+  'config/release-compat.json':'7ef4a5831921a8d534e6b0f0d96a43465bc8c31f',
+  'scripts/lib/canvas-export-readiness.mjs':'905b324c51c08dae063dc26352338242b6f8c083',
+  'scripts/test-q2-runtime-launcher.mjs':'a0dd10df9f94488dfbba772ea2609382d29f6777',
+  'tests/q2-canvas-agent.spec.js':'a91d919ad099aa8d2f796a0e7f144e467c43e69a',
+  'tests/helpers/canvas-assembly-control.mjs':'c02ea921519d6aa5d83f3b61eccc98143f15a187',
+  'tests/helpers/q2-runtime/canvas.mjs':'e97ffa6ccee50ee581b6e6f4370cfcdb4161718c',
+  'tests/helpers/q2-runtime/control.mjs':'12fac0838fb3557792ff8b67699e3f2f6f867a2f',
+  'tests/helpers/q2-runtime/environment.mjs':'2642b8688f9ecdf9b0220749b0ca2d471f6dbcdb',
+  'tests/helpers/q2-runtime/linux-bootstrap.py':'fbdb2d399fd191ee47829d82c02aa9eef572fd57',
+  'tests/helpers/q2-runtime/linux-hosted.mjs':'941942c2f481141a6b727ab430499a7bcc38977b',
+  'tests/helpers/q2-runtime/linux-runtime-child.mjs':'40471063a1075d9f3a7454b405efbcec51ab7e1f',
+  'tests/helpers/q2-runtime/runner.mjs':'54416c24265fe65cab909deac062d1a1aab5e021',
+ };
+ assert.deepEqual(Object.keys(blobs).sort(),Object.keys(p.specs).sort());
+ for(const index of [0,2,3,12,13,14,15,16,17,18,21,23,24,28,29,31,34,35,37,38,39,41,45,48,49,50,51,52])assert(!p.retain.includes(index),'Changed or unexecuted acceptance and candidate-state restoration must be refreshed');
+ for(const index of [36,40,42,43,44,46,47])assert(p.retain.includes(index),'Unchanged completed runtime/image/HTTP acceptance stays bound to its source');
+ const reviewed=Object.fromEntries(Object.entries(blobs).map(([file,blob])=>{
+  const bytes=execFileSync('git',['cat-file','blob',blob]);assert.equal(sha256(bytes),p.specs[file]);return [file,bytes];
+ }));
+ const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-autonomy-browser-tree-')),bare=path.join(temporary,'git');
+ const env={...process.env,GIT_AUTHOR_NAME:'Synthetic',GIT_AUTHOR_EMAIL:'synthetic@example.invalid',GIT_COMMITTER_NAME:'Synthetic',GIT_COMMITTER_EMAIL:'synthetic@example.invalid'};
+ const read=(args,input)=>execFileSync('git',['--git-dir',bare,...args],{env,input,stdio:['pipe','pipe','pipe']});
+ try{
+  execFileSync('git',['init','--bare',bare],{stdio:'pipe'});
+  fs.writeFileSync(path.join(bare,'objects/info/alternates'),path.resolve(execFileSync('git',['rev-parse','--git-path','objects'],{encoding:'utf8'}).trim())+'\n');
+  const commit=(changes,parent=p.source)=>{
+   read(['read-tree',p.source]);
+   for(const [file,value]of Object.entries(changes)){
+    if(value===null){read(['update-index','--index-info'],Buffer.from(`0 ${'0'.repeat(40)}\t${file}\n`));continue;}
+    const blob=read(['hash-object','-w','--stdin'],value.content??value).toString().trim();
+    read(['update-index','--add','--cacheinfo',`${value.mode||'100644'},${blob},${file}`]);
+   }
+   return read(['commit-tree',read(['write-tree']).toString().trim(),'-p',parent],Buffer.from('Synthetic autonomy browser continuation boundary\n')).toString().trim();
+  };
+  const accepted=commit(reviewed);assertAutonomyBrowserTree(accepted,read);
+  for(const file of ['js/pages/canvas/agent.js','workers/auth/src/routes/canvas-agent.js','workers/auth/migrations/0103_canvas_assembly.sql','workers/auth/migrations/0999_unreviewed.sql','tests/canvas.spec.js','tests/helpers/canvas-agent-ui.cjs','package-lock.json','.github/workflows/static.yml','config/release-validation.yml','scripts/lib/ci-test-selection.mjs','scripts/lib/homepage-test-selection.mjs','README.md'])
+   assert.throws(()=>assertAutonomyBrowserTree(commit({...reviewed,[file]:Buffer.from('Unrelated change')}),read));
+  for(const file of Object.keys(reviewed)){
+   const absent={...reviewed};delete absent[file];assert.throws(()=>assertAutonomyBrowserTree(commit(absent),read),'Every exact reviewed input is required');
+   assert.throws(()=>assertAutonomyBrowserTree(commit({...reviewed,[file]:Buffer.from('Unreviewed correction')}),read));
+  }
+  for(const value of [null,{mode:'120000',content:Buffer.from('outside')}])assert.throws(()=>assertAutonomyBrowserTree(commit({...reviewed,'scripts/local-release.mjs':value}),read));
+  assert.throws(()=>assertAutonomyBrowserTree(commit(reviewed,accepted),read),'A descendant is not the closed direct successor');
+  assert.throws(()=>canvasPreflightPrefix(Buffer.from(JSON.stringify({sha:p.source})),{sha:accepted},read));
+ }finally{fs.rmSync(temporary,{recursive:true,force:true});}
+ for(const scope of ['homepage','auth','foreign'])assert.throws(()=>autonomyBrowserContinuation('echo omitted acceptance',scope));
+
+ const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+ const parents=execFileSync('git',['rev-list','--parents','-n','1',head],{encoding:'utf8'}).trim().split(/\s+/);
+ if(parents.length===2&&parents[1]===p.source){
+  const root='.local-release',bytes=fs.readFileSync(path.join(root,'reuse/preflight-checkpoint.json')),original=JSON.parse(bytes);
+  const selection=gitSelection(original.base,head),commands=selectedCommands(selection,{GITHUB_SHA:head,CANDIDATE_BASE:original.base});
+  const context={sha:head,base:original.base,planHash:validationPlan().digest,selection,environment:original.environment,commands};
+  assert.equal(canvasPreflightPrefix(bytes,context).sha,p.source);
+  for(const change of [r=>r.status='passed',r=>r.sha='f'.repeat(40),r=>r.commands[50].exitCode=0,r=>r.commands[41].exitCode=1,r=>r.commands[40].logHash='changed',r=>r.commands.pop(),r=>delete r.preflightContinuation]){
+   const broken=structuredClone(original);change(broken);assert.throws(()=>canvasPreflightPrefix(Buffer.from(JSON.stringify(broken)),context));
+  }
+  for(const change of [r=>r.base='b'.repeat(40),r=>r.planHash='changed',r=>r.environment.key='changed',r=>r.environment.image='changed',r=>r.selection.full=!r.selection.full,r=>r.commands.pop(),r=>r.commands[41].run='echo skipped',r=>r.commands[50].run='echo skipped']){
+   const broken=structuredClone(context);change(broken);assert.throws(()=>canvasPreflightPrefix(bytes,broken));
+  }
+  const proof=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-autonomy-browser-proof-'));
+  try{
+   fs.cpSync(path.join(root,'reuse'),path.join(proof,'reuse'),{recursive:true});
+   const reports=path.join(proof,'test-results');fs.mkdirSync(reports);
+   fs.cpSync(path.join(root,'runtime'),path.join(proof,'runtime'),{recursive:true});
+   fs.cpSync(path.join(root,'test-results/private-media-image'),path.join(reports,'private-media-image'),{recursive:true,mode:fs.constants.COPYFILE_FICLONE});
+   for(const file of Object.keys(p.homepageReports))fs.copyFileSync(path.join(root,'test-results',file),path.join(reports,file));
+   const verify=()=>verifyAutonomyBrowserRepair(proof,head),pending=verifyAutonomyBrowserRepair(proof,head,{allowPending:true});
+   assert.equal(pending.result,null);assert.throws(verify,'Retained acceptance cannot replace the required new cases');
+   const previous=pending.previous,discovery=previous.map(({key,file,title,project})=>({key,file,title,project}));
+   const changed=previous.filter(row=>row.file==='canvas.spec.js'&&(/^Canvas autonomy (en|de): persisted budget_edits$/.test(row.title)||/^Canvas editable film (en|de): rerun remove reorder sound export reopen$/.test(row.title)||/^Canvas asset audio (en|de): typed references, persistent controls and real export$/.test(row.title)||(row.project==='webkit-canvas'&&row.title==='Canvas transition examples de: isolated illustrations and motion controls')));
+   const changedDefinitions=['chromium','webkit-canvas'].flatMap(project=>['en','de'].flatMap(locale=>[[project,`Canvas autonomy ${locale}: persisted budget_edits`],[project,`Canvas editable film ${locale}: rerun remove reorder sound export reopen`],[project,`Canvas asset audio ${locale}: typed references, persistent controls and real export`]]));
+   changedDefinitions.push(['webkit-canvas','Canvas transition examples de: isolated illustrations and motion controls']);
+   assert.deepEqual(changed.map(row=>[row.project,row.title]).sort(),changedDefinitions.sort());
+   const changedKeys=new Set(changed.map(row=>row.key)),retained=new Map(previous.filter(row=>passedBrowserCase(row)&&!changedKeys.has(row.key)).map(row=>[row.key,row]));
+   const passed=row=>({...row,expectedStatus:'passed',status:'expected',results:[{status:'passed',retry:0,error:false}]});
+   const fresh=discovery.filter(row=>!retained.has(row.key)).map(passed);
+   assert(changed.every(row=>fresh.some(item=>item.key===row.key)),'Changed passing definitions also require fresh execution');
+   const report={policy,sha:head,source:p.source,scope:'homepage',previous,discovery,fresh,counts:verifyBrowserUnion(discovery,retained,fresh)};
+   assert.deepEqual(report.counts,{required:586,reused:573,executed:13});assert.equal(p.required,586);
+   assert.equal(previous.filter(passedBrowserCase).length,578,'Original retries and failures are not direct successes');
+   const rawRows=rows=>({config:{workers:1},suites:[{title:'Synthetic verifier controls',specs:rows.map(row=>({id:row.key.slice(row.project.length+1),file:row.file,title:row.title,line:1,column:1,tests:[{projectName:row.project,expectedStatus:row.expectedStatus,status:row.status,results:row.results}]}))}],errors:[],stats:{expected:rows.length,unexpected:0,flaky:0,skipped:0}});
+   const save=(file,value)=>fs.writeFileSync(path.join(reports,file),JSON.stringify(value,null,2));
+   save('autonomy-browser-discovery.json',rawRows(discovery));save('autonomy-browser-fresh.json',rawRows(fresh));save('candidate-homepage.json',report);
+   assert.deepEqual(verifyAutonomyBrowserReport(report,head),report.counts);assert.throws(verify,'Core proof alone cannot substitute unexecuted Auth/native acceptance');
+   const standard=JSON.parse(fs.readFileSync(path.join(proof,'reuse/autonomy-browser-standard.json')));
+   const authDiscovery=browserRows(standard,{discovery:true}).filter(row=>row.project==='chromium'&&(/^(auth-admin|wallet-nav|locale|oma2-q1-member)\.spec\.js$/.test(row.file)||/^oma2-q3-.*\.spec\.js$/.test(row.file)));
+   assert.equal(authDiscovery.length,709);assert.equal(sha256(JSON.stringify(authDiscovery)),p.authDiscovery);
+   const overlap=authDiscovery.filter(row=>retained.has(row.key));assert.equal(overlap.length,25);assert(overlap.every(row=>row.file==='locale.spec.js'&&row.project==='chromium'));
+   const authFresh=authDiscovery.filter(row=>!retained.has(row.key)).map(passed),auth={...report,scope:'auth',discovery:authDiscovery,fresh:authFresh,counts:{required:709,reused:25,executed:684}};
+   save('autonomy-browser-auth-discovery.json',rawRows(authDiscovery));save('autonomy-browser-auth-fresh.json',rawRows(authFresh));save('candidate-auth.json',auth);
+   assert.deepEqual(verifyAutonomyBrowserReport(auth,head),auth.counts);
+   assert.throws(verify,'Both browser scopes still cannot replace the new Worker/native boundaries');
+   // Source labels are actual immutable Worker passes. The two new synthetic
+   // rows and native reports below calibrate validation, never release acceptance.
+   const oldWorkerLog=fs.readFileSync(path.join(proof,'reuse/autonomy-native-origin/reuse/preflight-failed.log'),'utf8');
+   const oldLabels=oldWorkerLog.split('\n').flatMap(line=>{const match=line.match(/^\s+✓\s+\d+\s+(tests\/.*?)\s+\([\d.]+(?:ms|s|m)\)\s*$/);return match?[match[1].replace(/:\d+:\d+(?= › )/,'')]:[];});
+   assert.equal(oldLabels.length,1471);
+   const workerDiscovery=oldLabels.map((label,index)=>{const at=label.indexOf(' › ');assert(at>6);return {key:':retained-'+index,project:'',file:label.slice(6,at),title:label.slice(at+3)};});
+   const newWorkers=['Canvas native control canvasAssemblyRetentionCase','Canvas assembly retention migration preserves historical export dispositions'].map((title,index)=>passed({key:':retention-'+index,project:'',file:'q2-canvas-agent.spec.js',title}));
+   const allWorkers=rawRows([...workerDiscovery,...newWorkers]);save('autonomy-retention-discovery.json',allWorkers);
+   assert.equal(verifyAutonomyRetentionWorkers(proof,head,{allowPending:true}).result,null);assert.throws(()=>verifyAutonomyRetentionWorkers(proof,head));
+   save('autonomy-retention-workers.json',rawRows(newWorkers));
+   const workerCounts={workerRetained:1471,workerFresh:2,workerTotal:1473};assert.deepEqual(verifyAutonomyRetentionWorkers(proof,head).result,workerCounts);
+   const launcherTitles=['Canvas reference fixture reads the staged bytes from a non-repository cwd','focused native scopes dispatch through the actual child and preserve boundaries'];
+   const launcher=['TAP version 13',...launcherTitles.map((title,index)=>`ok ${index+1} - ${title}`),'1..2','# tests 2','# suites 0','# pass 2','# fail 0','# cancelled 0','# skipped 0','# todo 0',''].join('\n');
+   fs.writeFileSync(path.join(reports,'autonomy-retention-launcher.tap'),launcher);
+   const nativeReference='/tmp/bitbi-release/q2-runtime-evidence/synthetic-retention-verifier',nativeRoot=path.join(proof,'runtime/q2-runtime-evidence/synthetic-retention-verifier');
+   fs.mkdirSync(path.join(nativeRoot,'reports'),{recursive:true});
+   const nativeSave=(file,value)=>fs.writeFileSync(path.join(nativeRoot,file),JSON.stringify(value));
+   const nativeNames=['canvas_assembly_retention_populated_migration','canvas_assembly_completed_delivery_retention'];
+   const nativeResult={failedSuites:0,passed:2,reports:[{suite:'canvas-retention',failure:null,records:nativeNames.map(name=>({name,status:'PASS'}))}]};
+   nativeSave('launcher-result.json',{origin:'development-mac-v1',status:0,failure:null,childBoundaryVerified:true,postcheckFailures:[],mode:'runtime'});
+   for(const file of ['isolation-result.json','isolation-final.json'])nativeSave('reports/'+file,{passed:true});
+   nativeSave('reports/result.json',nativeResult);fs.writeFileSync(path.join(reports,'autonomy-retention-native.log'),JSON.stringify({q2LinuxEvidence:nativeReference})+'\n');
+   const expected={homepage:report.counts,auth:auth.counts,retention:{...workerCounts,nativeRetained:308,nativeFresh:2,launcherFresh:2}};
+   assert.deepEqual(verify().result,expected);
+   for(const change of [r=>r.suites[0].specs.pop(),r=>r.suites[0].specs.push(r.suites[0].specs[0]),r=>r.suites[0].specs[0].title='Foreign retained definition',r=>r.suites[0].specs.at(-1).title='Foreign new definition',r=>r.suites[0].specs.at(-1).file='foreign.spec.js']){
+    const broken=structuredClone(allWorkers);change(broken);save('autonomy-retention-discovery.json',broken);assert.throws(()=>verifyAutonomyRetentionWorkers(proof,head,{allowPending:true}));save('autonomy-retention-discovery.json',allWorkers);
+   }
+   for(const rows of [[],newWorkers.slice(1),[...newWorkers,newWorkers[0]],[newWorkers[0],passed(workerDiscovery[0])],newWorkers.map((row,index)=>index?row:{...row,title:'Foreign new case'}),newWorkers.map((row,index)=>index?row:{...row,results:[{status:'passed',retry:1,error:false}]}),newWorkers.map((row,index)=>index?row:{...row,status:'skipped',results:[{status:'skipped',retry:0,error:false}]})]){
+    save('autonomy-retention-workers.json',rawRows(rows));assert.throws(()=>verifyAutonomyRetentionWorkers(proof,head));save('autonomy-retention-workers.json',rawRows(newWorkers));
+   }
+   for(const changed of [launcher.replace('ok 1 -','not ok 1 -'),launcher.replace(launcherTitles[0],'Foreign launcher'),launcher.replace('# pass 2','# pass 1'),launcher+'ok 3 - Foreign skipped launcher # SKIP\n']){
+    fs.writeFileSync(path.join(reports,'autonomy-retention-launcher.tap'),changed);assert.throws(verify);fs.writeFileSync(path.join(reports,'autonomy-retention-launcher.tap'),launcher);
+   }
+   for(const change of [r=>r.failedSuites=1,r=>r.reports[0].records.pop(),r=>r.reports[0].records.push(r.reports[0].records[0]),r=>r.reports[0].records[0].name='Foreign native case',r=>r.reports[0].records[0].status='SKIP',r=>r.reports[0].failure={message:'Actual native failure'}]){
+    const broken=structuredClone(nativeResult);change(broken);nativeSave('reports/result.json',broken);assert.throws(verify);nativeSave('reports/result.json',nativeResult);
+   }
+   for(const [file,change]of [['launcher-result.json',r=>r.childBoundaryVerified=false],['launcher-result.json',r=>r.postcheckFailures.push('Network boundary failed')],['reports/isolation-result.json',r=>r.passed=false],['reports/isolation-final.json',r=>r.passed=false]]){
+    const target=path.join(nativeRoot,file),saved=JSON.parse(fs.readFileSync(target)),broken=structuredClone(saved);change(broken);nativeSave(file,broken);assert.throws(verify);nativeSave(file,saved);
+   }
+   assert.deepEqual(verify().result,expected);
+   const candidate=(core=report,account=auth)=>candidateProof({sha:head,selection:{homepage:true,auth:true}},{job:'browser-validation',readJson:file=>file.endsWith('candidate-auth.json')?account:core});
+   assert.equal(candidate().tests,586+709);assert.throws(()=>candidate(auth,report));
+   const repeatedLocale={...auth,fresh:[...auth.fresh,previous.find(row=>row.key===overlap[0].key)]};assert.throws(()=>verifyAutonomyBrowserReport(repeatedLocale,head),'The retained Auth locale case cannot execute twice');
+   assert.throws(()=>candidateProof({sha:head,selection:{}},{job:'homepage-validation',reportFile:'test-results/candidate-homepage.json',readJson:()=>report}));
+   for(const accepted of [report,auth])for(const change of [r=>r.policy='foreign',r=>r.sha='f'.repeat(40),r=>r.source='f'.repeat(40),r=>r.scope='foreign',r=>r.previous.pop(),r=>r.previous.find(passedBrowserCase).results[0].status='failed',r=>r.discovery.pop(),r=>r.discovery.push(r.discovery[0]),r=>r.discovery[0].project='foreign',r=>r.fresh.pop(),r=>r.fresh.push(r.fresh[0]),r=>r.fresh.push(previous.find(row=>retained.has(row.key))),r=>r.fresh[0].key='foreign',r=>r.fresh[0].file='foreign.spec.js',r=>r.fresh[0].expectedStatus='failed',r=>r.fresh[0].status='skipped',r=>r.fresh[0].results[0].status='skipped',r=>r.fresh[0].results[0].status='failed',r=>r.fresh[0].results[0].retry=1,r=>r.fresh[0].results[0].error=true,r=>r.fresh[0].results.unshift({status:'failed',retry:0,error:true}),r=>r.counts.reused++,r=>delete r.fresh]){
+    const broken=structuredClone(accepted);change(broken);assert.throws(()=>verifyAutonomyBrowserReport(broken,head));
+   }
+   const formerlyPassed=changed.filter(passedBrowserCase);assert.equal(formerlyPassed.length,5,'Changed passing definitions require fresh evidence too');
+   for(const row of formerlyPassed){const broken=structuredClone(report);broken.fresh=broken.fresh.filter(item=>item.key!==row.key);broken.counts.reused++;broken.counts.executed--;assert.throws(()=>verifyAutonomyBrowserReport(broken,head),'An old pass cannot validate a changed definition');}
+   for(const file of ['reuse/preflight-checkpoint.json','reuse/preflight-failed.log','reuse/autonomy-browser-original.json','reuse/autonomy-browser-standard.json','reuse/autonomy-native-origin/reuse/preflight-checkpoint.json','reuse/autonomy-native-origin/reuse/preflight-failed.log','reuse/autonomy-native-origin/test-results/autonomy-launcher-fresh.tap','reuse/autonomy-native-origin/logs/41.log','test-results/autonomy-browser-discovery.json','test-results/autonomy-browser-fresh.json','test-results/candidate-homepage.json','test-results/autonomy-browser-auth-discovery.json','test-results/autonomy-browser-auth-fresh.json','test-results/candidate-auth.json','test-results/autonomy-retention-discovery.json','test-results/autonomy-retention-workers.json','test-results/autonomy-retention-launcher.tap','test-results/autonomy-retention-native.log','test-results/private-media-image/image.json','test-results/private-media-image/test.log','runtime/q2-runtime-evidence/synthetic-retention-verifier/launcher-result.json','runtime/q2-runtime-evidence/synthetic-retention-verifier/reports/isolation-result.json','runtime/q2-runtime-evidence/synthetic-retention-verifier/reports/isolation-final.json','runtime/q2-runtime-evidence/synthetic-retention-verifier/reports/result.json',...Object.keys(p.nativeProof),...Object.keys(p.homepageReports).map(file=>'test-results/'+file)]){
+    const target=path.join(proof,file),saved=fs.readFileSync(target);fs.unlinkSync(target);assert.throws(verify);fs.writeFileSync(target,'{}');assert.throws(verify);fs.writeFileSync(target,saved);
+   }
+   for(const [file,rows]of [['autonomy-browser-fresh.json',fresh],['autonomy-browser-auth-fresh.json',authFresh]])for(const change of [r=>r.config.workers=2,r=>delete r.config.workers,r=>r.errors.push({message:'Synthetic error'}),r=>r.suites[0].specs[0].id='foreign',r=>r.suites[0].specs[0].tests[0].results[0].retry=1,r=>{r.suites[0].specs.pop();r.stats.expected--;},r=>{const t=r.suites[0].specs[0].tests[0];t.status='skipped';t.results[0].status='skipped';r.stats.expected--;r.stats.skipped++;}]){
+    const broken=structuredClone(rawRows(rows));change(broken);save(file,broken);assert.throws(verify);save(file,rawRows(rows));
+   }
+   assert.equal(autonomyBrowserContinuation(commands[50].run),'node scripts/local-release.mjs autonomy-browser-continuation');
+   const ordinaryAuth='PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:auth -- --output=test-results/browser-artifacts --reporter=list,json';
+   const continuedAuth=autonomyBrowserContinuation(commands[51].run,'auth');
+   assert.equal(continuedAuth,commands[51].run.replace(ordinaryAuth,'node scripts/local-release.mjs autonomy-browser-continuation auth'));assert(!continuedAuth.includes('npm run test:auth'));
+   for(const changed of ['echo skipped',commands[50].run+'\nnpm run test:homepage-core',commands[50].run.replace('--reporter=list,json','--reporter=list')])assert.throws(()=>autonomyBrowserContinuation(changed));
+   for(const changed of ['echo skipped',commands[51].run+'\n'+ordinaryAuth,commands[51].run.replace(ordinaryAuth,'echo skipped')])assert.throws(()=>autonomyBrowserContinuation(changed,'auth'));
+   const syntax=spawnSync('/bin/bash',['-n'],{input:continuedAuth,encoding:'utf8'});assert.equal(syntax.status,0,syntax.stderr);
+   const retentionCommand=autonomyRetentionContinuation(commands[41].run);
+   assert(!retentionCommand.includes('npm run test:workers'));assert(!retentionCommand.includes('npm run test:homepage-ffmpeg-processor'));assert(!retentionCommand.includes('npm run test:q2-runtime'));
+   for(const title of [...newWorkers.map(row=>row.title),...launcherTitles])assert(retentionCommand.includes(title));
+   assert(retentionCommand.includes('--workers=1 --retries=0'));assert(retentionCommand.includes('node scripts/test-q2-runtime.mjs --suite canvas-retention'));
+   for(const changed of ['echo skipped',commands[41].run+'\n  npm run test:workers',commands[41].run.replace('  npm run test:workers','  echo skipped')])assert.throws(()=>autonomyRetentionContinuation(changed));
+   assert.deepEqual(verify().result,expected);
+   console.log('Autonomy browser continuation: exact source chain, changed-definition refresh, original failure retention, scope union and missing/foreign/skipped/retried/duplicate evidence controls. Synthetic fresh rows test the verifier only.');
+  }finally{fs.rmSync(proof,{recursive:true,force:true});}
+ }
+ console.log('Autonomy browser continuation: actual isolated Git rejects missing or unreviewed pins, product/schema/selection changes, deletion, symlink and foreign ancestry.');
+}

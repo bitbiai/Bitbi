@@ -1,10 +1,9 @@
 import {assertCanvasAgentAiConfig,canvasAgentActivationFlags,canvasAgentFlagArguments,verifyCanvasAgentActivationFlags} from './canvas-agent-release.mjs';
-import {smoothReceiptImageSource,isSmoothContinuation} from './local-release-browser.mjs';
 import os from 'node:os';
 import {verifyCanvasExportSchema} from './canvas-export-readiness.mjs';
 import {captureImageDeliveryRecovery,verifyImageDeliveryRecovery,verifyImageDeliveryEvidence} from './image-delivery-acceptance.mjs';
 import {createHash} from 'node:crypto';
-import {publishMedia,mediaActive,mediaSmoke,assertMediaAuthConfig,verifyMediaEvidence,waitMediaState} from './media-publication.mjs';
+import {publishMedia,mediaActive,mediaSmoke,assertMediaAuthConfig,verifyMediaEvidence,waitMediaState,receiptImageSource} from './media-publication.mjs';
 import {resolveActiveMediaSource,verifyReusedMediaReceipt} from './media-activation-reuse.mjs';
 import {requiresPrivateMediaImage} from './ci-test-selection.mjs';
 import assert from 'node:assert/strict';
@@ -525,7 +524,7 @@ export async function verifyBackendReceipt(file=process.env.BACKEND_RELEASE_RECE
     if(c.recoverySource)assert.equal(receipt.mediaSourceSha,c.recoverySource.sha);
     else if(receipt.media?.reusedActivation)verifyReusedMediaReceipt(receipt,c,reuse);
     else assert.equal(receipt.mediaSourceSha,c.sha,'Unproven cross-source media receipt');
-    verifyMediaEvidence(receipt,{sha:reuse?.sha||c.sha,...(reuse?{run:reuse.run,attempt:reuse.attempt}:mediaEvidenceRun()),...(c.recoverySource?{imageSha:c.acceptedSource.sha,recoveryProof:receipt.recovery.jobs}:isSmoothContinuation(receipt.media?.imageSourceSha)?{imageSha:smoothReceiptImageSource(receipt.media,reuse?.sha||c.sha)}:{}),lifecycle:true,previewBase:Boolean(c.recoverySource)||c.plan.changedFiles.includes('workers/auth/migrations/0097_canvas_preview_base.sql'),publicPreviews:Boolean(c.recoverySource)||c.plan.changedFiles.includes('workers/auth/migrations/0091_separate_thumbnail_processing.sql'),videoReferences:true,exportMusic:Boolean(c.recoverySource)||c.plan.changedFiles.some(f=>['workers/auth/migrations/0096_canvas_export_versions.sql','workers/auth/migrations/0097_canvas_preview_base.sql'].includes(f))});
+    verifyMediaEvidence(receipt,{sha:reuse?.sha||c.sha,...(reuse?{run:reuse.run,attempt:reuse.attempt}:mediaEvidenceRun()),...(c.recoverySource?{imageSha:c.acceptedSource.sha,recoveryProof:receipt.recovery.jobs}:{imageSha:receiptImageSource(receipt.media,reuse?.sha||c.sha)}),lifecycle:true,previewBase:Boolean(c.recoverySource)||c.plan.changedFiles.includes('workers/auth/migrations/0097_canvas_preview_base.sql'),publicPreviews:Boolean(c.recoverySource)||c.plan.changedFiles.includes('workers/auth/migrations/0091_separate_thumbnail_processing.sql'),videoReferences:true,exportMusic:Boolean(c.recoverySource)||c.plan.changedFiles.some(f=>['workers/auth/migrations/0096_canvas_export_versions.sql','workers/auth/migrations/0097_canvas_preview_base.sql'].includes(f))});
     await mediaActive(receipt.media,backendEnv(),{requireSourceBinding:Boolean(c.acceptedSource)});
     if(c.plan.changedFiles.includes('workers/auth/migrations/0091_separate_thumbnail_processing.sql')) {
       const activation=receipt.smoke.find(s=>s.backend==='cloudflare')?.thumbnailActivation;
@@ -556,7 +555,7 @@ export async function advanceBackend({sha,pending,activeVersion,assertCurrent,ap
 }
 
 export function assertSupportedBackendMigrations(pending) {
-  const allowed=['0088_add_canvas_video_processing.sql','0089_add_private_media_services.sql','0090_add_canvas_private_outputs.sql','0091_separate_thumbnail_processing.sql','0092_pin_video_source_inputs.sql','0093_add_private_video_references.sql','0094_model_pricing.sql','0095_retained_image_delivery.sql','0096_canvas_export_versions.sql','0097_canvas_preview_base.sql','0098_model_area_availability.sql','0099_seedance_25_custom_tariffs.sql','0100_canvas_asset_audio_exports.sql','0101_canvas_smooth_join_previews.sql','0102_canvas_workspace_dimensions.sql','0103_canvas_assembly.sql','0104_canvas_agent.sql','0105_canvas_media_inspections.sql','0106_canvas_agent_model_operations.sql','0107_canvas_agent_autonomy.sql'];
+  const allowed=['0088_add_canvas_video_processing.sql','0089_add_private_media_services.sql','0090_add_canvas_private_outputs.sql','0091_separate_thumbnail_processing.sql','0092_pin_video_source_inputs.sql','0093_add_private_video_references.sql','0094_model_pricing.sql','0095_retained_image_delivery.sql','0096_canvas_export_versions.sql','0097_canvas_preview_base.sql','0098_model_area_availability.sql','0099_seedance_25_custom_tariffs.sql','0100_canvas_asset_audio_exports.sql','0101_canvas_smooth_join_previews.sql','0102_canvas_workspace_dimensions.sql','0103_canvas_assembly.sql','0104_canvas_agent.sql','0105_canvas_media_inspections.sql','0106_canvas_agent_model_operations.sql','0107_canvas_agent_autonomy.sql','0108_canvas_creative_export_retention.sql'];
   assert(pending.every(f=>allowed.includes(f)),`Unexpected pending migrations: ${pending.filter(f=>!allowed.includes(f)).map(f=>String(f).replace(/[^a-zA-Z0-9_.-]/g,'').slice(0,100)).join(', ')}`);
 }
 export function assertModelAreaSchemaResume(version,sha,env=process.env) {

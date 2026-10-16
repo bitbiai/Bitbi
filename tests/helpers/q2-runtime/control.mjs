@@ -3,7 +3,7 @@ import {CANVAS_AGENT_AUTONOMY_CASES,canvasAgentAutonomyCase} from '../canvas-age
 import {canvasWorkspaceTransitionCase} from '../canvas-workspace-transition-control.mjs';
 import {CANVAS_MODEL_CASES,canvasModelOperationCase} from '../canvas-agent-model-operation-cases.mjs';
 import { canvasAgentAuthorityCase, canvasAgentApiCase, canvasAgentDispatchCase, canvasAgentCapabilityCase, canvasAgentLateCompletionCase,canvasAgentUnknownProviderCase, canvasAgentManualTakeoverCase } from '../canvas-agent-control.mjs';
-import { canvasAssemblyCase, canvasInspectionCase } from '../canvas-assembly-control.mjs';
+import { canvasAssemblyCase, canvasInspectionCase, canvasAssemblyRetentionCase, seedCanvasAssemblyRetentionMigration, verifyCanvasAssemblyRetentionMigration } from '../canvas-assembly-control.mjs';
 import {memberGenerationCase} from '../member-generation-control.mjs';
 import { modelPricingCase } from '../model-pricing-control.mjs';
 import { image25Output } from '../../../workers/shared/gpt-image-25.mjs';
@@ -44,6 +44,9 @@ export default {
     if (path === '/canvas-agent-unknown-provider') return Response.json(await canvasAgentUnknownProviderCase(env,body));
     if (path === '/canvas-agent-manual-takeover') return Response.json(await canvasAgentManualTakeoverCase(env,body));
     if (path === '/canvas-assembly') return Response.json(await canvasAssemblyCase(env,body));
+    if (path === '/canvas-assembly-retention') return Response.json(await canvasAssemblyRetentionCase(env,body));
+    if (path === '/canvas-retention-migration-seed') return Response.json(await seedCanvasAssemblyRetentionMigration(env));
+    if (path === '/canvas-retention-migration-verify') return Response.json(await verifyCanvasAssemblyRetentionMigration(env,body));
     if (path === '/canvas-inspection') return Response.json(await canvasInspectionCase(env,body));
     if(path==='/model-area-generation'&&['area-queued','area-running'].includes(body.name))return Response.json(await memberGenerationCase(env,body.name,body));
     if(path==='/image25-queue') {

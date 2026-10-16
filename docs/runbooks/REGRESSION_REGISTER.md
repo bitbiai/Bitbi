@@ -783,6 +783,21 @@ paired decoded window within both bounds, rejecting stale unity, silence and
 wrong gain. Sufficient steady audio separates a gain observation from short-clip
 fade/end behavior, which remains covered by the processor controls.
 
+The 2026-10-16 `e8cfedac` native WebKit audio attempt exposed two further fixture
+boundaries. Publish the processor-completion promise before exposing the accepted
+export; awaiting an older resolved promise can query a still-processing result.
+A separate exact-build WebKit 26.0 probe calibrated the actual 1 kHz analyser:
+normal playback preserves unity and 0.6 gain, while rate 0.1 yielded only 10 valid
+windows in 166 observations over five seconds. Missing amplitude is unknown,
+not a successful fade. Observe normal-rate playback within the same 24–24.6 s
+window, require a nonzero input and retain the strict gain bound; a deliberately
+removed fade must fail. The initial failed run did not retain its amplitudes, so
+the probe supports the timing diagnosis without reconstructing those samples.
+`canvas-audio-ui.cjs` remains the actual EN/DE Chromium/WebKit caller; private
+`audio-diagnostic-e8/result.json` holds the calibrated measurements. Likewise,
+WebKit motion emulation must reach the actual media-query state before selecting
+an animated transition in either locale; no-event controls must remain blocked.
+
 Separately, the existing Linux WebKit audition reproduced a stopped native source
 with its element screenshot during playback. Moving that artifact capture before
 playback passed two bounded EN/DE repetitions; all destination disconnect/reconnect,
@@ -2066,6 +2081,26 @@ Retain the immutable failed checkpoint/log and completed cases; the protected
 continuation must run that corrected case, the unexecuted native tail and remaining
 selected acceptance. A fixture failure is neither a product failure nor permission
 to omit native D1 acceptance or repeat passed suites.
+
+The `e8cfedac` continuation completed 308 native D1 cases and all three actual
+AMD64 media-image groups. Its first browser acceptance found a real storage
+boundary defect: `canvas_assembly_export_preserve` admitted recipe 7 only, so a
+manual creative recipe-8 re-export rendered correctly but remained temporary.
+Extend that trigger with a forward-only migration for precisely versions 7 and 8;
+keep preview, nonassembly and unknown-version exclusions. Do not repair the test
+by clicking Save or accepting temporary storage. Two targeted Worker/native
+cases exercise real completion and populated migration, including an independent
+old-trigger failure control. Readiness must inspect the trigger definition, not
+merely count its name. Existing pixel/audio/playback assertions remain required;
+the initial failed runs never reached those assertions.
+
+The same browser run's EN budget-edit fixture selected a node after closing the
+assistant but never opened the Inspector; its DE branch did. Selection does not
+imply panel visibility. Explicitly open the ordinary Inspector and first assert
+that the closed panel produces neither edits nor budget requests. Preserve the
+held-save, stale-revision and zero-commitment controls. The exact failed reports
+and unaffected passes remain immutable; execute only changed/unresolved cases
+plus the previously unexecuted Auth browser tail through the closed continuation.
 
 ### Canvas agent editability and inspector fixtures — 2026-10-15
 

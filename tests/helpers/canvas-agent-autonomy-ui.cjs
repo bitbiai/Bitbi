@@ -84,8 +84,16 @@ exports.budget=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock
             await page.route('**'+nodePath,route=>{if(route.request().method()==='PATCH'){held=route;return;}return route.fallback();});
             await page.locator('#canvasAgentToggle').click();
             if(de&&await page.locator('#canvasGraphToggle').getAttribute('aria-pressed')!=='true')await page.locator('#canvasGraphToggle').click();
-            await page.locator(`[data-node-id="${editable.id}"]`).press('Enter');if(de)await page.locator('#canvasInspectorToggle').click();
-            await page.locator('#canvasInspectorBody').getByRole('textbox',{name:de?'Titel':'Title',exact:true}).fill('My manual node edit');
+            await page.locator(`[data-node-id="${editable.id}"]`).press('Enter');
+            const inspector=page.locator('#canvasInspectorPanel'),inspectorToggle=page.locator('#canvasInspectorToggle');
+            const titleControl=page.locator('#canvasInspectorBody').getByRole('textbox',{name:de?'Titel':'Title',exact:true});
+            // Selecting a node does not reopen a closed detail panel. Calibrate
+            // that boundary before opening the ordinary editor in either locale.
+            await expect(inspector).toHaveCount(1);await expect(inspector).toBeHidden();
+            await expect(inspectorToggle).toHaveAttribute('aria-expanded','false');await expect(titleControl).toBeHidden();
+            expect(held).toBe(null);expect(requests.filter(item=>item.method!=='GET')).toEqual([]);
+            await inspectorToggle.click();await expect(inspector).toBeVisible();await expect(titleControl).toBeVisible();
+            await titleControl.fill('My manual node edit');
             // Hold the real ordinary save in flight. Without the first-decision
             // flush, the old revision could still authorize work ahead of it.
             await expect.poll(()=>Boolean(held)).toBe(true);

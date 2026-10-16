@@ -482,14 +482,17 @@ test('Canvas reference fixture reads the staged bytes from a non-repository cwd'
   f.put(moduleName, source);
   f.put('scripts/lib/canvas-export-readiness.mjs',read('scripts/lib/canvas-export-readiness.mjs'));
   f.put(fixtureName, bytes);
+  const retentionSql=read('workers/auth/migrations/0108_canvas_creative_export_retention.sql').slice(read('workers/auth/migrations/0108_canvas_creative_export_retention.sql').indexOf('CREATE TRIGGER'));
   const child = `
     import assert from 'node:assert/strict';
     import { createHash } from 'node:crypto';
     const { runCanvasTests } = await import(process.argv[1]);
     const reached = new Error('fixture read reached');
+    let migrated=false;
     const f = {
-      migrations: [],
-      rows: async sql => sql.includes('sqlite_schema') ? Array.from({length:sql.includes('canvas_agent_proposal_immutable')?8:sql.includes('canvas_preview_base_fence')?3:sql.includes('canvas_audio_timeline_immutable')?1:sql.includes('canvas_seam_result_immutable')?2:7},()=>({name:'synthetic-guard'})) : [],
+      migrations: [{path:'0108_canvas_creative_export_retention.sql',statements:[]}],
+      db: {batch:async()=>{migrated=true;}},
+      rows: async sql => sql.startsWith('SELECT sql FROM sqlite_schema') ? [{sql:migrated?${JSON.stringify(retentionSql)}:${JSON.stringify(retentionSql.replace('IN (7,8)','=7'))}}] : sql.includes('sqlite_schema') ? Array.from({length:sql.includes('canvas_agent_proposal_immutable')?8:sql.includes('canvas_preview_base_fence')?3:sql.includes('canvas_audio_timeline_immutable')?1:sql.includes('canvas_seam_result_immutable')?2:7},()=>({name:'synthetic-guard'})) : [],
       scalar: async sql => {
         assert.equal(sql, 'SELECT revision AS value FROM model_pricing_state WHERE id=1');
         return 7;
@@ -497,6 +500,7 @@ test('Canvas reference fixture reads the staged bytes from a non-repository cwd'
       sql: () => ({ run: async () => {} }),
       control: async () => Response.json({ cookie: 'synthetic' }),
       test: async (name, operation) => {
+        if(name==='canvas_assembly_retention_populated_migration')return; // This unit exercises fixture resolution; native D1 runs the migration proof.
         if(name==='canvas_export_release_schema_queries'){await operation();return;}
         assert.equal(name, 'image25_native_owned_reference_boundary_and_unverified_tariff_blocks_dispatch');
         await operation();
@@ -665,13 +669,15 @@ test('focused native scopes dispatch through the actual child and preserve bound
   assert.equal(selectedRuntimeSuites('canvas-audio-fit')[0][1],(await import('../tests/helpers/q2-runtime/canvas.mjs')).runCanvasAudioFitTests);
   assert.equal(parseRuntimeArgs(['--suite','canvas-transitions'],{}).suite,'canvas-transitions');
   assert.equal(selectedRuntimeSuites('canvas-transitions')[0][1],(await import('../tests/helpers/q2-runtime/canvas.mjs')).runCanvasTransitionTests);
+  assert.equal(parseRuntimeArgs(['--suite','canvas-retention'],{}).suite,'canvas-retention');
+  assert.equal(selectedRuntimeSuites('canvas-retention')[0][1],(await import('../tests/helpers/q2-runtime/canvas.mjs')).runCanvasRetentionTests);
   assert.deepEqual(selectedRuntimeSuites('q4-stream').map(([name])=>name),['q4-stream']);
   assert.equal(parseRuntimeArgs(['--suite','q4-stream'],{}).suite,'q4-stream');
   assert.deepEqual(selectedRuntimeSuites('website-assistant').map(([name])=>name),['website-assistant']);
   assert.equal(parseRuntimeArgs(['--suite','website-assistant'],{}).suite,'website-assistant');
   assert.throws(()=>selectedRuntimeSuites('unknown'));
   const bootstrap=read('tests/helpers/q2-runtime/linux-bootstrap.py');
-  assert.match(bootstrap,/choices=\["member-generation", "model-status", "model-pricing", "appearance", "canvas", "canvas-completion", "canvas-audio", "canvas-audio-fit", "canvas-transitions", "q4-stream", "website-assistant"\]/);
+  assert.match(bootstrap,/choices=\["member-generation", "model-status", "model-pricing", "appearance", "canvas", "canvas-completion", "canvas-audio", "canvas-audio-fit", "canvas-transitions", "canvas-retention", "q4-stream", "website-assistant"\]/);
   assert.match(bootstrap,/"website-assistant-result.json"/);
   // Execute the unchanged child module with synthetic process/import boundaries.
   // This checks dispatch ordering, not Linux kernel isolation (required in CI).
@@ -680,7 +686,7 @@ test('focused native scopes dispatch through the actual child and preserve bound
     import {readFileSync} from 'node:fs';
     import {SourceTextModule,SyntheticModule,createContext} from 'node:vm';
     const source=readFileSync('tests/helpers/q2-runtime/linux-runtime-child.mjs','utf8');
-    for(const suite of [undefined,'member-generation','model-status','model-pricing','appearance','canvas','canvas-completion','canvas-audio','canvas-audio-fit','canvas-transitions','q4-stream','website-assistant','unknown','',null,false]) {
+    for(const suite of [undefined,'member-generation','model-status','model-pricing','appearance','canvas','canvas-completion','canvas-audio','canvas-audio-fit','canvas-transitions','canvas-retention','q4-stream','website-assistant','unknown','',null,false]) {
       for(const fault of [null,'platform','uid','gid']) {
         const calls=[], context=createContext({process:{platform:fault==='platform'?'darwin':'linux',
           getuid:()=>fault==='uid'?0:65534,getgid:()=>fault==='gid'?0:65534}});
@@ -693,7 +699,7 @@ test('focused native scopes dispatch through the actual child and preserve bound
           const m=new SyntheticModule(Object.keys(modules[name]),function(){for(const [k,v]of Object.entries(modules[name]))this.setExport(k,v);},{context});
           await m.link(()=>{});await m.evaluate();return m;};
         const m=new SourceTextModule(source,{context,importModuleDynamically:load});await m.link(load);
-        if(!fault && [undefined,null,'member-generation','model-status','model-pricing','appearance','canvas','canvas-completion','canvas-audio','canvas-audio-fit','canvas-transitions','q4-stream','website-assistant'].includes(suite)) {
+        if(!fault && [undefined,null,'member-generation','model-status','model-pricing','appearance','canvas','canvas-completion','canvas-audio','canvas-audio-fit','canvas-transitions','canvas-retention','q4-stream','website-assistant'].includes(suite)) {
           await m.evaluate();assert.deepEqual(calls,['node:assert/strict','node:fs','boundary','./runner.mjs','run']);
         } else {
           await assert.rejects(m.evaluate());assert.ok(!calls.includes('./runner.mjs'));

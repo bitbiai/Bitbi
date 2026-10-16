@@ -494,6 +494,7 @@ const AUTH_SHARED_PATTERNS = [
 ];
 
 const HOMEPAGE_CORE_TEST_FILES = new Set([
+  "tests/helpers/canvas-audio-ui.cjs", "tests/helpers/canvas-transition-examples-ui.cjs",
   "tests/helpers/canvas-agent-ui.cjs", "tests/helpers/canvas-agent-model-recovery-ui.cjs", "tests/helpers/canvas-agent-autonomy-ui.cjs", "tests/helpers/canvas-assembly-editing-ui.cjs",
   "tests/audio-player.spec.js",
   "tests/canvas.spec.js",
@@ -1315,6 +1316,10 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
 
     if (file === "tests/assets-manager-focused.spec.js" || file === "playwright.assets.config.js") {
       addReason(selection, "assets", file, "changes focused Assets Manager regression coverage");
+      continue;
+    }
+    if (file === 'tests/helpers/canvas-assembly-control.mjs') {
+      addReason(selection,'workers',file,'shared assembly/inspection/retention fixture executes through the ordinary Worker suite and native Q2 Canvas control');
       continue;
     }
     if (['tests/helpers/canvas-agent-model-operation-control.mjs', 'tests/helpers/canvas-agent-control.mjs'].includes(file)) {

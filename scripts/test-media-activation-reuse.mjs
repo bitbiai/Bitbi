@@ -7,7 +7,8 @@ import {mediaInputsUnchanged,resolveActiveMediaSource,verifyReusedMediaReceipt} 
 import {requiredJobs,proofJobs} from './pages-candidate.mjs';
 import {mediaImageInputs} from './private-media-image.mjs';
 import {hash} from './lib/frontend-hosting.mjs';
-import {publishMedia,mediaSmoke,mediaArchiveIdentity,verifyLoadedMediaImage,stageMediaPublication} from './lib/media-publication.mjs';
+import {publishMedia,mediaSmoke,mediaArchiveIdentity,verifyLoadedMediaImage,stageMediaPublication,publicationImageSource,receiptImageSource} from './lib/media-publication.mjs';
+import {AUTONOMY_BROWSER_PREFLIGHT} from './lib/local-release-browser.mjs';
 
 const repoRoot=process.cwd(),root=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-media-reuse-'));
 const git=args=>execFileSync('git',args,{cwd:root,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
@@ -173,4 +174,18 @@ if(fs.existsSync(path.join(retained,'image.tar'))) {
   verifyLoadedMediaImage(record,classic,identity);verifyLoadedMediaImage(record,{...classic,Id:record.image},identity);
   for(const mutate of [v=>v.Id='sha256:'+'f'.repeat(64),v=>v.RootFS.Layers.reverse(),v=>v.Config.Cmd=['unexpected'],v=>v.Architecture='arm64']) {const bad=structuredClone(classic);mutate(bad);assert.throws(()=>verifyLoadedMediaImage(record,bad,identity));}
   console.log('Actual retained AMD64 archive: OCI index/classic config identity, ordered layers and runtime verified; substituted image/layer/entrypoint/platform controls rejected. No media tests repeated.');
+  if(record.sha===AUTONOMY_BROWSER_PREFLIGHT.source) {
+    const sha=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+    const context={sha,run:'123',attempt:'1'};
+    const imported={...record,run:context.run,attempt:context.attempt,localValidation:{policy:'development-mac-v1',publicationSha:sha,run:record.run,attempt:record.attempt,evidence:'a'.repeat(64),recordHash:hash(JSON.stringify(record))}};
+    assert.equal(publicationImageSource(imported,context),record.sha);
+    assert.equal(receiptImageSource({imageSourceSha:record.sha},sha),record.sha);
+    assert.equal(publicationImageSource({sha},context),sha);
+    for(const mutate of [r=>r.run='124',r=>r.attempt='2',r=>delete r.localValidation,r=>r.localValidation.publicationSha='f'.repeat(40),r=>r.localValidation.recordHash='f'.repeat(64),r=>r.localValidation.evidence='absent',r=>r.sha='f'.repeat(40),r=>r.image='sha256:'+'f'.repeat(64),r=>r.archiveDigest='f'.repeat(64),r=>r.sourceFiles['services/homepage-ffmpeg-processor/processor.mjs']='f'.repeat(64),r=>r.testGroups.pop()]) {
+      const bad=structuredClone(imported);mutate(bad);assert.throws(()=>publicationImageSource(bad,context));
+    }
+    assert.throws(()=>receiptImageSource({imageSourceSha:'f'.repeat(40)},sha));
+    assert.throws(()=>receiptImageSource({imageSourceSha:record.sha},'f'.repeat(40)));
+    console.log('Autonomy repair media caller: actual immutable image preserved across publication; wrong source, archive, test groups, import envelope and receipt lineage rejected. No image rebuild or media test replay.');
+  }
 }

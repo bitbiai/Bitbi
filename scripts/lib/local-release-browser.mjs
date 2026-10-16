@@ -157,6 +157,126 @@ export async function runModelBrowserContinuation(scope='homepage',env=process.e
   fs.writeFileSync(`test-results/candidate-${scope}.json`,JSON.stringify(report));
   console.log(JSON.stringify({scope,...report.counts,originalFailuresPreserved:true}));
 }
+// Closed e8 continuation: one reviewed forward retention trigger, its two
+// native/Worker boundary cases, and the corrected budget-edit browser fixture.
+export const AUTONOMY_BROWSER_POLICY='local-canvas-autonomy-browser-continuation-v1';
+export const AUTONOMY_BROWSER_PREFLIGHT=Object.freeze({
+  source:'e8cfedacd202f885488cc24d0eede042ca02bd54',
+  run:'e8cfedacd202f885488cc24d0eede042ca02bd54-ea93ed48-d3f6-428f-933a-b8b7e4d749c0',
+  checkpoint:'8cdebc1a2a20136dc1486a9b35bf39a2c4561fd599881eea8cf789a3cb181bfb',failedLog:'33503a970803345b2e0c2c81dfbdea143e767c141c545262ca5142394c5a6349',report:'94104a33883c8a0b6a6c9d09f5a9dc20ab41e0c5b6314472ef866a14e4fd2cf5',rows:'fa7db22ba36622204ba37d965c6f4b1fca884f7636837c2ebd3cb9388b895fff',
+  discovery:'eaaf83cf4b618a7a407f35b8cda2f75317d9b1aed5b1c6ff67f6c375ed286e6e',required:586,
+  standardDiscovery:'b7c290c9e9f17cdc3a45afe1280811d3bb4e4ef79ccc46f668a8b0feb95622ba',standardFile:'homepage-discovery-qUflmX/standard.json',
+  authDiscovery:'7f7b08cedcd4e7883649e1210b89e8179b867ce7e9611481df2b8a22c0c6b903',authRequired:709,authReused:25,
+  manifest:'7f1a69653fb35689f38d688e6fbe886a14804f99f6252b9fcd9f61a9f4ea94cc',
+  proof:'c07c24eb2c518b07cc45b81c9349d0df22884e7485afb681f4b2a658477238c8',
+  hostingLog:'b9a0c3ec6a1a5b6e5d558e606737f0abe878f84602dc525e5e20804f6f2365b1',
+  image:'62ae744e4c2fa9c9c398caf429ec53aad3217e809126d2bb9e625dbe68ad4971',
+  nativeProof:Object.freeze({
+    "runtime/q2-runtime-evidence/native-wiWkQX/launcher-result.json": "ec9d262350f8ae06058c04b09e71ec110266c4db8ac91efba7cfccee21c2fb42",
+    "runtime/q2-runtime-evidence/native-wiWkQX/reports/isolation-result.json": "c609013b5a939b464aaa1834e97286e6ec5c0f4eb4c069f1af40770a6527b11e",
+    "runtime/q2-runtime-evidence/native-wiWkQX/reports/isolation-final.json": "3722a729b374515d022042aa6df90f8f984b91c3086a0a52d42884219ce98055",
+    "runtime/q2-runtime-evidence/native-wiWkQX/reports/bitbi-q2-runtime-E0enGm__result.json": "d8df62ce34c6520482b34c10ed1a54e1a751bc424691e8e0982fbc7c2336ff6d"
+}),
+  homepageReports:Object.freeze({
+    'homepage-functional.json':'6f2fc283a39c791921354bac0f5de8fe47709bbd3fe5389b734158c7ee55c9a7',
+    'homepage-discovery.json':'de62eff3fde5feeeec1c50b303ef6acb820d49d1122497c3c154fed08b5e76f7',
+  }),
+  specs:Object.freeze({
+    'workers/auth/migrations/0108_canvas_creative_export_retention.sql':'9ed90331adf6ca67df682568964cb600c5b382f10d14b2161cfb7db7a2c3635e',
+    'config/release-compat.json':'6f4b660ef555f77d0f6ec382c5652d2be65293e0e5b2a8a319d855dce869e8da',
+    'scripts/lib/canvas-export-readiness.mjs':'ff96ed062d3c8fe9140ce7edd0a953218fa033c87b6562e54f14173e71951062',
+    'scripts/test-q2-runtime-launcher.mjs':'95c7b7d5d098830cf7c68c593f9c22fb5a1ab2538f553153b405241b2260b8d5',
+    'tests/q2-canvas-agent.spec.js':'ac478b5eb8a4c9378b4b9a88e32819b23e346405b70186e483c36dec2c67e287',
+    'tests/helpers/canvas-assembly-control.mjs':'088cc2885ffbdb3c167719344f6c19c03cfddd586532ab22624bae66fb1afbf7',
+    'tests/helpers/q2-runtime/canvas.mjs':'5c44b40fe765ef1613f85d6c074b1574143681c686b1a218831f6f3a260e8f7b',
+    'tests/helpers/q2-runtime/control.mjs':'dc89bb3a239b40c7bd33a872d3f4a57ccc67a8dee82efd17c6dc527a1fb68011',
+    'tests/helpers/q2-runtime/environment.mjs':'7793a25d7f6aa117783cc8325cb5f817e7fe08425b31ac301f9a1b6b2e3ff388',
+    'tests/helpers/q2-runtime/linux-bootstrap.py':'5cc0b75637b9be8d0558eaa9eaf2cb720c8352dbe48cbfeaab740a40acaf3426',
+    'tests/helpers/q2-runtime/linux-hosted.mjs':'8a3d9bdf35cfcc02fed8f6ea164565b703a94a2add4b7cc453b11c1fd657522f',
+    'tests/helpers/q2-runtime/linux-runtime-child.mjs':'85156ef0f2dcf55da65dc619ac7f7cc7adc213123bc1d91f481ebe542b46386c',
+    'tests/helpers/q2-runtime/runner.mjs':'31fdb9bc46513b8132f657f88946dd913e496e3dafa55036877f9e2609b183a3',
+    'tests/helpers/canvas-agent-autonomy-ui.cjs':'834fc1ebf3f601d3d6076d6d32fb55fbbe3466905d2a75180d47deb1759df59b',
+    'tests/helpers/canvas-audio-ui.cjs':'bfde06da290bd75f6aac699d92256bcf449c640c92b610e7eb33c9d2d5d82e00',
+    'tests/helpers/canvas-transition-examples-ui.cjs':'3d1c2702ae908aaf6b1b11eb6da6ce07b3628fc482af5eac5913d9e2be3cb429',
+    'scripts/lib/local-release-transport.mjs':'e03e90c91cf704142675580042607f5aa230855ad476816764ef699377d32716',
+    'scripts/lib/media-publication.mjs':'77ad15c91f11fa47e05bba677b5bae966d049ef7aafc2ba480acaf4156296e38',
+    'scripts/lib/backend-publication.mjs':'295cf3ba17c09c64ce5352a6f7bc1ea66a144aecacf6f704817bc5596bdd5b11',
+    'scripts/test-media-activation-reuse.mjs':'9e02689171d5fc4bf97fb09d14da01220c7a0e2c727cb923dd09795b7c22e286',
+    'docs/runbooks/REGRESSION_REGISTER.md':'029dbcc62fa1d8bdeac90e1b72455f7e56ab96fa03af030ecfff60106b35e003',
+    'scripts/lib/ci-test-selection.mjs':'80c03c4f45685f7426d37101e7446d1295c759e13a6b13f3cddf90d6249e218f',
+    'scripts/test-ci-test-selection.mjs':'809a260b83aebf5c10e3b26e93507fe8cf7a6986c237b1633800eea663dc46cb',
+  }),
+  retain:[1,4,5,6,7,8,9,10,11,19,20,22,25,26,27,30,32,33,36,40,42,43,44,46,47],
+});
+export function assertAutonomyBrowserTree(head,read=args=>execFileSync('git',args)) {
+  const p=AUTONOMY_BROWSER_PREFLIGHT;
+  assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,p.source],'Autonomy browser continuation requires the direct source successor');
+  const files=read(['diff','--name-only',p.source,head]).toString().trim().split('\n').filter(Boolean);
+  assert(files.every(file=>[...Object.keys(p.specs),'scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/lib/local-release-browser.mjs','scripts/pages-candidate.mjs','scripts/test-local-release.mjs'].includes(file)),'Autonomy browser continuation changed unreviewed product, tests, selection or environment');
+  for(const [file,hash]of Object.entries(p.specs)){
+    assert(files.includes(file),'Missing reviewed autonomy correction');assert.equal(sha256(read(['show',`${head}:${file}`])),hash,'Unreviewed autonomy correction');
+  }
+  for(const file of files)assert(/^100644 blob [0-9a-f]{40}\t/.test(read(['ls-tree',head,'--',file]).toString()),'Continuation input must remain an ordinary file');
+}
+const autonomyAffected=row=>row.file==='canvas.spec.js'&&(/^Canvas autonomy (en|de): persisted budget_edits$/.test(row.title)||/^Canvas editable film (en|de): rerun remove reorder sound export reopen$/.test(row.title)||/^Canvas asset audio (en|de): typed references, persistent controls and real export$/.test(row.title)||(row.project==='webkit-canvas'&&row.title==='Canvas transition examples de: isolated illustrations and motion controls'));
+export function verifyAutonomyBrowserReport(report,sha) {
+  const p=AUTONOMY_BROWSER_PREFLIGHT;
+  assert.equal(report.policy,AUTONOMY_BROWSER_POLICY);assert.equal(report.sha,sha);assert.equal(report.source,p.source);assert(['homepage','auth'].includes(report.scope));
+  assert.equal(sha256(JSON.stringify(report.previous)),p.rows,'Original failed browser results changed');assert.equal(report.previous.length,p.required);
+  const auth=report.scope==='auth';assert.equal(sha256(JSON.stringify(report.discovery)),auth?p.authDiscovery:p.discovery,'Required browser discovery changed');
+  assert.equal(report.discovery.length,auth?p.authRequired:p.required);
+  assert.equal(report.previous.filter(autonomyAffected).length,13,'Missing affected locale/browser definitions');
+  const retained=new Map(report.previous.filter(row=>passedBrowserCase(row)&&!autonomyAffected(row)).map(row=>[row.key,row]));
+  const counts=verifyBrowserUnion(report.discovery,retained,report.fresh);
+  if(auth)assert.equal(counts.reused,p.authReused,'Auth must retain exactly the already passed locale cases');
+  assert.deepEqual(report.counts,counts);return counts;
+}
+export function verifyAutonomyImageReuse(record,sha,{read}={}) {
+  const p=AUTONOMY_BROWSER_PREFLIGHT;assertAutonomyBrowserTree(sha,read);
+  assert.equal(record.sha,p.source);assert.equal(record.run,p.run);assert.equal(record.attempt,'1');
+  assert.equal(sha256(JSON.stringify(record)),p.image,'Retained image/test identity changed');return record.sha;
+}
+export function verifyImportedAutonomyImage(record,{sha,run,attempt},options) {
+  assert.equal(record.run,String(run));assert.equal(record.attempt,String(attempt));
+  const {localValidation,...original}=record;assert.equal(localValidation?.policy,'development-mac-v1');
+  assert.equal(localValidation.publicationSha,sha);assert.match(localValidation.evidence,/^[a-f0-9]{64}$/);
+  original.run=localValidation.run;original.attempt=localValidation.attempt;
+  assert.equal(sha256(JSON.stringify(original)),localValidation.recordHash);return verifyAutonomyImageReuse(original,sha,options);
+}
+export function autonomyReceiptImageSource(media,sha) {
+  if(!media.imageSourceSha||media.imageSourceSha===sha)return sha;
+  assert.equal(media.imageSourceSha,AUTONOMY_BROWSER_PREFLIGHT.source);assertAutonomyBrowserTree(sha);return media.imageSourceSha;
+}
+export async function runAutonomyBrowserContinuation(scope='homepage',env=process.env) {
+  const {verifyAutonomyBrowserRepair}=await import('./local-release-evidence.mjs');
+  assert(['homepage','auth'].includes(scope));assert.equal(env.GITHUB_JOB,'browser-validation');assert.equal(env.CI,'1');
+  const {previous}=verifyAutonomyBrowserRepair('.local-release',env.GITHUB_SHA,{allowPending:true});
+  const retained=new Map(previous.filter(row=>passedBrowserCase(row)&&!autonomyAffected(row)).map(row=>[row.key,row]));
+  const prefix=scope==='auth'?'autonomy-browser-auth':'autonomy-browser';
+  const run=(name,args,discovery=false)=>{
+    const file=path.resolve(`test-results/${prefix}-${name}.json`);fs.rmSync(file,{force:true});
+    const child=spawnSync('npm',['run',scope==='auth'?'test:auth':'test:homepage-core','--',...args,`--reporter=${discovery?'json':'list,json'}`],{env:{...env,PLAYWRIGHT_JSON_OUTPUT_NAME:file},stdio:discovery?'pipe':'inherit',maxBuffer:16*1024*1024});
+    assert.equal(child.status,0,`Autonomy browser ${name} failed; preserve the actual report and passing cases`);
+    return JSON.parse(fs.readFileSync(file));
+  };
+  const rawDiscovery=run('discovery',['--list'],true),discovery=browserRows(rawDiscovery,{discovery:true});
+  assert.equal(sha256(JSON.stringify(discovery)),scope==='auth'?AUTONOMY_BROWSER_PREFLIGHT.authDiscovery:AUTONOMY_BROWSER_PREFLIGHT.discovery,'Required browser discovery changed');
+  const pending=new Set(discovery.filter(row=>!retained.has(row.key)).map(row=>row.key)),list=[];
+  const visit=(suite,parents=[])=>{
+    for(const spec of suite.specs||[])for(const test of spec.tests||[])if(pending.has(`${test.projectName}:${spec.id}`))list.push(`[${test.projectName}] › ${spec.file} › ${[...parents,spec.title].join(' › ')}`);
+    for(const child of suite.suites||[])visit(child,[...parents,child.title]);
+  };
+  rawDiscovery.suites.forEach(suite=>visit(suite));assert.equal(list.length,pending.size);assert(pending.size>0);
+  const listFile=`test-results/${prefix}-pending.txt`;fs.writeFileSync(listFile,list.join('\n')+'\n');
+  const args=['--test-list',listFile,'--workers=1','--retries=0',`--output=test-results/${prefix}-artifacts`];
+  const selected=browserRows(run('selected-discovery',[...args,'--list'],true),{discovery:true});
+  assert.deepEqual(selected,discovery.filter(row=>pending.has(row.key)),'CLI selection changed required unresolved cases');
+  const fresh=browserRows(run('fresh',args));
+  const report={policy:AUTONOMY_BROWSER_POLICY,sha:env.GITHUB_SHA,source:AUTONOMY_BROWSER_PREFLIGHT.source,scope,previous,discovery,fresh,counts:verifyBrowserUnion(discovery,retained,fresh)};
+  verifyAutonomyBrowserReport(report,env.GITHUB_SHA);
+  fs.writeFileSync(`test-results/candidate-${scope}.json`,JSON.stringify(report));
+  console.log(JSON.stringify({scope,...report.counts,originalFailuresPreserved:true}));
+}
 export function verifyMigrationBrowserReport(report,sha) {
   assert.equal(report.policy,LOCAL_BROWSER_POLICY);assert.equal(report.sha,sha);
   assert.deepEqual(report.origins,BROWSER_ORIGINS);assert(['auth','homepage'].includes(report.scope));

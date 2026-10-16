@@ -1,7 +1,19 @@
 import assert from 'node:assert/strict';
 
+export async function verifyCanvasAssemblyRetentionSchema(query) {
+  const rows=await query("SELECT sql FROM sqlite_schema WHERE type='trigger' AND name='canvas_assembly_export_preserve'");
+  assert.equal(rows.length,1,'Required Canvas assembly retention guard missing');
+  const compact=value=>String(value||'').replace(/'(?:''|[^'])*'|\s+/g,token=>token.startsWith("'")?token:'').replace(/;$/,'');
+  assert.equal(compact(rows[0].sql),compact(`CREATE TRIGGER canvas_assembly_export_preserve AFTER UPDATE OF asset_id ON canvas_video_processing
+    WHEN NEW.asset_id=NEW.id AND json_extract(NEW.recipe_json,'$.version') IN (7,8)
+    AND json_extract(NEW.recipe_json,'$.assembly.version')=1 AND json_extract(NEW.recipe_json,'$.preview') IS NULL
+    BEGIN UPDATE canvas_export_versions SET state='saved',saved_at=NEW.updated_at WHERE id=NEW.id AND state='canvas'; END`),
+  'Canvas assembly retention must preserve only completed supported exact/creative private deliveries');
+}
+
 // Executed against migrated native D1 in acceptance and production readback.
 export async function verifyCanvasExportSchema(query) {
+  await verifyCanvasAssemblyRetentionSchema(query);
   await query(`SELECT p.id,p.node_id,p.recipe_json,p.audio_timeline_json,p.seam_result_json,p.preview_base_key,p.preview_base_etag,p.preview_base_bytes,h.latest_id,h.current_id,v.state,v.retired,v.node_id
     FROM canvas_video_processing p JOIN canvas_export_versions v ON v.id=p.id
     JOIN canvas_export_heads h ON h.run_id IS p.run_id AND h.node_id IS p.node_id LIMIT 0`);

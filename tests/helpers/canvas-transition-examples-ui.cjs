@@ -1,4 +1,5 @@
 const path=require('node:path');
+const armMotionWait=(target=globalThis)=>{target.window.exampleMotionSettled=new Promise(resolve=>target.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change',()=>resolve(),{once:true}));};
 exports.examples=async options=>{
  const {page,expect,locale,info}=options,de=locale==='de',{TRANSITIONS}=await import('../../js/shared/canvas-transitions.mjs');
  const {fixture}=require('./canvas-inspector-ui.cjs'),{state,visit,inspector,errors}=await fixture.setup(options),{nodeFor,outputFor,id,project}=fixture;
@@ -41,8 +42,18 @@ exports.examples=async options=>{
  await page.emulateMedia({reducedMotion:'reduce'});await shown('light-wash','png');await select.selectOption('bloom');await shown('bloom','png');await button.click();await shown('bloom');
  // Await the actual WebKit preference notification before selecting another effect.
  if(nativeCache&&!de)await page.evaluate(()=>{window.exampleMotionSettled=new Promise(resolve=>matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change',()=>resolve(),{once:true}));});
+ if(nativeCache&&de){
+  // Calibrate this wait independently: absent notification cannot admit the next
+  // selection; a deliberately delayed notification releases the same helper.
+  let notify,settled=false;const target={window:{},matchMedia:query=>{
+   expect(query).toBe('(prefers-reduced-motion: reduce)');
+   return {addEventListener:(event,listener,options)=>{expect(event).toBe('change');expect(options).toEqual({once:true});notify=listener;}};
+  }};
+  armMotionWait(target);target.window.exampleMotionSettled.then(()=>settled=true);await Promise.resolve();expect(settled).toBe(false);notify();await target.window.exampleMotionSettled;expect(settled).toBe(true);
+  await page.evaluate(armMotionWait);
+ }
  await page.emulateMedia({reducedMotion:'no-preference'});
- if(nativeCache&&!de)await page.evaluate(()=>window.exampleMotionSettled);
+ if(nativeCache)await page.evaluate(()=>window.exampleMotionSettled);
  if(!nativeCache)await cacheControls('fade');
  if(nativeCache){await select.selectOption('fade');await shown('fade');}
  // Failed persistence keeps the actual saved effect and its matching example.

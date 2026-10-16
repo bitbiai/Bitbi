@@ -15,7 +15,7 @@ for (const [name, method, expected] of [
   } finally { DB.close(); }
 });
 
-for (const method of ['canvasAssemblyCase', 'canvasInspectionCase']) test(`Canvas native control ${method}`, async () => {
+for (const method of ['canvasAssemblyCase', 'canvasInspectionCase', 'canvasAssemblyRetentionCase']) test(`Canvas native control ${method}`, async () => {
   const fs = require('node:fs'), path = require('node:path'), DB = new SqliteD1Database(); applyAuthMigrations(DB);
   const media = Object.fromEntries([['videoBase64','canvas-end-frame.mp4'], ['imageBase64','h3-frame.png'], ['musicBase64','member-music.mp3']].map(([key,name]) => [key, fs.readFileSync(path.join(__dirname,'fixtures/media',name)).toString('base64')]));
   try {
@@ -23,6 +23,26 @@ for (const method of ['canvasAssemblyCase', 'canvasInspectionCase']) test(`Canva
     expect((await controls[method]({ ...createAuthTestEnv(), DB },media)).providerCalls).toBe(0);
     expect((await DB.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);
   } finally { DB.close(); }
+});
+
+test('Canvas assembly retention migration preserves historical export dispositions', async () => {
+  const fs=require('node:fs'),path=require('node:path'),DB=new SqliteD1Database();
+  applyAuthMigrations(DB,{through:'0107_canvas_agent_autonomy.sql'});
+  try {
+    const {seedCanvasAssemblyRetentionMigration,verifyCanvasAssemblyRetentionMigration}=await import('./helpers/canvas-assembly-control.mjs');
+    const {verifyCanvasAssemblyRetentionSchema}=await import('../scripts/lib/canvas-export-readiness.mjs');
+    const env={...createAuthTestEnv(),DB},seed=await seedCanvasAssemblyRetentionMigration(env);
+    await expect(verifyCanvasAssemblyRetentionSchema(async sql=>(await DB.prepare(sql).all()).results)).rejects.toThrow('retention must preserve');
+    DB.exec(fs.readFileSync(path.join(process.cwd(),'workers/auth/migrations/0108_canvas_creative_export_retention.sql'),'utf8'));
+    expect(await verifyCanvasAssemblyRetentionMigration(env,seed)).toEqual({historicalRowsUnchanged:2,excludedInputs:6,providerCalls:0});
+    await verifyCanvasAssemblyRetentionSchema(async sql=>(await DB.prepare(sql).all()).results);
+    const definition=(await DB.prepare("SELECT sql FROM sqlite_schema WHERE type='trigger' AND name='canvas_assembly_export_preserve'").first()).sql;
+    for(const [before,after]of [["'$.version'","'$.VERSION'"],["'saved'","'SAVED'"],["'saved'","' saved '"],['IN (7,8)','IN (7,8,9)'],["state='canvas'","state='CANVAS'"]]) {
+      const changed=definition.replace(before,after);expect(changed).not.toBe(definition);
+      await expect(verifyCanvasAssemblyRetentionSchema(async()=>[{sql:changed}])).rejects.toThrow('retention must preserve');
+    }
+    expect((await DB.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);
+  } finally {DB.close();}
 });
 
 test('Canvas timing contract and broken-case controls are discovered by the Worker suite', () => {

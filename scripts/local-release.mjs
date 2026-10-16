@@ -1,4 +1,4 @@
-import {AUTONOMY_NATIVE_PREFLIGHT,verifyAutonomyNativeRepair,autonomyNativeContinuation,MODEL_BROWSER_PREFLIGHT,verifyModelBrowserRepair,modelBrowserContinuation,MODEL_WORKER_PREFLIGHT,verifyModelWorkerRepair,modelWorkerContinuation,MODEL_WORKFLOW_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,EXAMPLE_BROWSER_PREFLIGHT,canvasExampleBrowserContinuation,CANVAS_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,canvasExportStageContinuation,canvasPreflightProfile,assertCanvasPreflightTree,canvasPreflightPrefix,canvasWorkspaceStageContinuation,verifyCanvasPreflight} from './lib/local-release-evidence.mjs';
+import {AUTONOMY_BROWSER_PREFLIGHT,verifyAutonomyBrowserRepair,verifyAutonomyRetentionWorkers,autonomyBrowserContinuation,autonomyRetentionContinuation,AUTONOMY_NATIVE_PREFLIGHT,verifyAutonomyNativeRepair,autonomyNativeContinuation,MODEL_BROWSER_PREFLIGHT,verifyModelBrowserRepair,modelBrowserContinuation,MODEL_WORKER_PREFLIGHT,verifyModelWorkerRepair,modelWorkerContinuation,MODEL_WORKFLOW_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,EXAMPLE_BROWSER_PREFLIGHT,canvasExampleBrowserContinuation,CANVAS_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,canvasExportStageContinuation,canvasPreflightProfile,assertCanvasPreflightTree,canvasPreflightPrefix,canvasWorkspaceStageContinuation,verifyCanvasPreflight} from './lib/local-release-evidence.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -10,7 +10,7 @@ import { ensureEnvironment, docker, PACKAGES, cacheRoot, TOOL_PREFLIGHT, toolcha
 import { LOCAL_POLICY, validationPlan, selectedCommands, sha256, commandRuntimes, nativeBrowserKey } from './lib/local-release-plan.mjs';
 import { gitSelection, tree, REPOSITORY, publishedBase } from './pages-candidate.mjs';
 import { verifyLocalEvidence, LOCAL_WORKER_REPAIR, LOCAL_IMPORT_REPAIR, localRepairCommand, verifyImportRepairEvidence, LOCAL_REPAIR_REFRESH, LOCAL_CORE_REUSE, LOCAL_HOMEPAGE_REPORTS, verifyRetainedHomepageReports, assertLocalRepairTree, verifyLocalWorkerRepair, localWorkerContinuation } from './lib/local-release-evidence.mjs';
-import { MODEL_BROWSER_POLICY, runModelBrowserContinuation, BROWSER_ORIGINS, readMigrationBrowserPool, runMigrationBrowserContinuation, SMOOTH_BROWSER_CONTINUATION, EXAMPLE_CACHE_CONTINUATION, WORKSPACE_CONTINUATION, AUDIO_FIT_CONTINUATION, INSPECTOR_CONTINUATION,EXPORT_BROWSER_CONTINUATION, smoothProfile, SMOOTH_BROWSER_POLICY, isSmoothContinuation, runSmoothBrowserContinuation } from './lib/local-release-browser.mjs';
+import { AUTONOMY_BROWSER_POLICY, runAutonomyBrowserContinuation, MODEL_BROWSER_POLICY, runModelBrowserContinuation, BROWSER_ORIGINS, readMigrationBrowserPool, runMigrationBrowserContinuation, SMOOTH_BROWSER_CONTINUATION, EXAMPLE_CACHE_CONTINUATION, WORKSPACE_CONTINUATION, AUDIO_FIT_CONTINUATION, INSPECTOR_CONTINUATION,EXPORT_BROWSER_CONTINUATION, smoothProfile, SMOOTH_BROWSER_POLICY, isSmoothContinuation, runSmoothBrowserContinuation } from './lib/local-release-browser.mjs';
 import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,SMOOTH_REFRESH,permissionRefresh,assertPermissionContinuationTree,permissionContinuationPrefix,canvasStageContinuation} from './lib/local-release-evidence.mjs';
 import {runMediaImageStep,restoreMediaTestDiagnostics} from './lib/local-media-test-process.mjs';
 
@@ -196,11 +196,27 @@ async function runLocalRelease({ base, resume }) {
     const prior=canvasPreflightPrefix(bytes,{...state,commands});
     fs.mkdirSync(path.join(bundle,'reuse'),{recursive:true});fs.mkdirSync(path.join(bundle,'logs'),{recursive:true});
     fs.writeFileSync(path.join(bundle,'reuse/preflight-checkpoint.json'),bytes);
-    if([AUTONOMY_NATIVE_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].includes(preflightContinuation)){
-      const failedIndex=preflightContinuation===AUTONOMY_NATIVE_PREFLIGHT?41:preflightContinuation===MODEL_BROWSER_PREFLIGHT?49:preflightContinuation===MODEL_WORKER_PREFLIGHT?41:preflightContinuation===MODEL_WORKFLOW_PREFLIGHT?17:preflightContinuation===MODEL_SELECTION_PREFLIGHT?16:13;
+    if([AUTONOMY_BROWSER_PREFLIGHT,AUTONOMY_NATIVE_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].includes(preflightContinuation)){
+      const failedIndex=preflightContinuation===AUTONOMY_BROWSER_PREFLIGHT?50:preflightContinuation===AUTONOMY_NATIVE_PREFLIGHT?41:preflightContinuation===MODEL_BROWSER_PREFLIGHT?49:preflightContinuation===MODEL_WORKER_PREFLIGHT?41:preflightContinuation===MODEL_WORKFLOW_PREFLIGHT?17:preflightContinuation===MODEL_SELECTION_PREFLIGHT?16:13;
       const failed=fs.readFileSync(path.join(originalDirectory,`bundle/logs/${failedIndex}.log`));
       assert.equal(sha256(failed),preflightContinuation.failedLog,'Changed original failed preflight log');
       fs.writeFileSync(path.join(bundle,'reuse/preflight-failed.log'),failed);
+    }
+    if(preflightContinuation===AUTONOMY_BROWSER_PREFLIGHT){
+      const originalBundle=path.join(originalDirectory,'bundle'),origin=path.join(bundle,'reuse/autonomy-native-origin');
+      verifyCanvasPreflight(originalBundle,prior,selectedCommands(prior.selection,{GITHUB_SHA:prior.sha,CANDIDATE_BASE:prior.base}));
+      fs.mkdirSync(path.join(origin,'logs'),{recursive:true});fs.cpSync(path.join(originalBundle,'reuse'),path.join(origin,'reuse'),{recursive:true});
+      fs.mkdirSync(path.join(origin,'test-results'),{recursive:true});
+      for(const file of ['autonomy-launcher-fresh.tap','frontend-runtime.log'])fs.copyFileSync(path.join(originalBundle,'test-results',file),path.join(origin,'test-results',file));
+      // The upstream verifier authenticates the source manifest and its retained hosting proof.
+      fs.cpSync(path.join(originalBundle,'candidate'),path.join(origin,'candidate'),{recursive:true});
+      for(const row of prior.commands.slice(0,50))fs.copyFileSync(path.join(originalBundle,row.log),path.join(origin,row.log));
+      fs.copyFileSync(path.join(originalDirectory,'source/test-results/candidate-homepage.json'),path.join(bundle,'reuse/autonomy-browser-original.json'));
+      fs.copyFileSync(path.join(originalBundle,'test-results',AUTONOMY_BROWSER_PREFLIGHT.standardFile),path.join(bundle,'reuse/autonomy-browser-standard.json'));
+      fs.cpSync(path.join(originalBundle,'test-results'),path.join(bundle,'test-results'),{recursive:true});
+      fs.cpSync(path.join(originalBundle,'runtime'),path.join(bundle,'runtime'),{recursive:true});
+      for(const [from,to]of [['candidate/manifest.json','hosting-manifest.json'],['candidate/proof-frontend-runtime.json','hosting-proof.json']])fs.copyFileSync(path.join(originalBundle,from),path.join(bundle,'reuse',to));
+      verifyAutonomyBrowserRepair(bundle,sha,{allowPending:true});
     }
     if(preflightContinuation===AUTONOMY_NATIVE_PREFLIGHT){
       const originalBundle=path.join(originalDirectory,'bundle');
@@ -252,7 +268,7 @@ async function runLocalRelease({ base, resume }) {
     if(preflightContinuation.guardLog)fs.copyFileSync(path.join(originalDirectory,'bundle/logs/41.log'),path.join(bundle,'reuse/stage-guard.log'));
     if(preflightContinuation===EXPORT_NATIVE_PREFLIGHT)fs.copyFileSync(path.join(cacheRoot(),'runs',preflightContinuation.progressRun,'bundle/logs/41.log'),path.join(bundle,'reuse/stage-progress.log'));
     if(preflightContinuation===CANVAS_PREFLIGHT)fs.copyFileSync(path.join(cacheRoot(),'runs/515d1dd41492ad69e632db4a5271cf710cb4f334-757f0fae-019a-42d3-8df1-78556537af92/bundle/logs/41.log'),path.join(bundle,'reuse/stage-progress.log'));
-    if(preflightContinuation===AUTONOMY_NATIVE_PREFLIGHT||preflightContinuation===EXPORT_MEDIA_PREFLIGHT||preflightContinuation===MODEL_WORKER_PREFLIGHT||preflightContinuation===MODEL_BROWSER_PREFLIGHT){
+    if(preflightContinuation===AUTONOMY_BROWSER_PREFLIGHT||preflightContinuation===AUTONOMY_NATIVE_PREFLIGHT||preflightContinuation===EXPORT_MEDIA_PREFLIGHT||preflightContinuation===MODEL_WORKER_PREFLIGHT||preflightContinuation===MODEL_BROWSER_PREFLIGHT){
       fs.cpSync(path.join(originalDirectory,'runtime'),path.join(directory,'runtime'),{recursive:true});
       fs.cpSync(path.join(originalDirectory,'runtime'),path.join(bundle,'runtime'),{recursive:true});
     }
@@ -369,7 +385,7 @@ async function runLocalRelease({ base, resume }) {
     execFileSync('git', ['clone','--local','--no-hardlinks','--no-checkout','.',work], { stdio: 'pipe' });
     git(['checkout','--detach',sha], work);
     git(['remote','set-url','origin','https://github.com/bitbiai/Bitbi.git'], work);
-    if([AUTONOMY_NATIVE_PREFLIGHT.source,EXAMPLE_BROWSER_PREFLIGHT.source,MODEL_BROWSER_PREFLIGHT.source].includes(state.preflightContinuation?.source)||state.permissionContinuation&&state.permissionContinuation.source!==PERMISSION_CONTINUATION.source)fs.cpSync(path.join(bundle,'test-results'),path.join(work,'test-results'),{recursive:true});
+    if([AUTONOMY_BROWSER_PREFLIGHT.source,AUTONOMY_NATIVE_PREFLIGHT.source,EXAMPLE_BROWSER_PREFLIGHT.source,MODEL_BROWSER_PREFLIGHT.source].includes(state.preflightContinuation?.source)||state.permissionContinuation&&state.permissionContinuation.source!==PERMISSION_CONTINUATION.source)fs.cpSync(path.join(bundle,'test-results'),path.join(work,'test-results'),{recursive:true});
     if(originalDirectory&&!permissionContinuation&&!preflightContinuation)for(const name of ['candidate','_site','test-results'])fs.cpSync(path.join(originalDirectory,'source',name),path.join(work,name),{recursive:true});
     if(originalDirectory&&!permissionContinuation&&!preflightContinuation)for(const report of LOCAL_HOMEPAGE_REPORTS)fs.copyFileSync(path.join(bundle,'test-results',report),path.join(work,'test-results',report));
     // Exact committed source; unrelated owner's worktree edits are never copied.
@@ -386,10 +402,14 @@ async function runLocalRelease({ base, resume }) {
         docker(['cp',`${name}:${source}/.`,dest]);
       }
     }
-    if([AUTONOMY_NATIVE_PREFLIGHT.source,MODEL_WORKER_PREFLIGHT.source].includes(state.preflightContinuation?.source)){
+    if([AUTONOMY_BROWSER_PREFLIGHT.source,AUTONOMY_NATIVE_PREFLIGHT.source,MODEL_WORKER_PREFLIGHT.source].includes(state.preflightContinuation?.source)){
       const source='/workspace/.local-release/test-results';
       if(docker(['exec',name,'sh','-c',`if [ -d ${source} ]; then echo present; fi`]).trim()){
-        fs.mkdirSync(path.join(bundle,'test-results'),{recursive:true});docker(['cp',`${name}:${source}/.`,path.join(bundle,'test-results')]);
+        fs.mkdirSync(path.join(bundle,'test-results'),{recursive:true});
+        if(state.preflightContinuation?.source===AUTONOMY_BROWSER_PREFLIGHT.source){
+          for(const file of ['autonomy-retention-discovery.json','autonomy-retention-workers.json','autonomy-retention-launcher.tap','autonomy-retention-native.log'])
+            if(docker(['exec',name,'sh','-c',`if [ -f ${source}/${file} ]; then echo present; fi`]).trim())docker(['cp',`${name}:${source}/${file}`,path.join(bundle,'test-results',file)]);
+        }else docker(['cp',`${name}:${source}/.`,path.join(bundle,'test-results')]);
       }
     }
   };
@@ -417,7 +437,7 @@ async function runLocalRelease({ base, resume }) {
       docker(['exec',name,'chown','-R','1001:1001','/tmp/bitbi-release']);
     }
     const unprivileged=['exec',name,'/usr/bin/setpriv','--reuid=1001','--regid=1001','--clear-groups','--bounding-set=-all','--inh-caps=-all','--ambient-caps=-all','--no-new-privs'];
-    if(state.repair||state.permissionContinuation||[AUTONOMY_NATIVE_PREFLIGHT.source,EXAMPLE_BROWSER_PREFLIGHT.source,MODEL_OPERATION_PREFLIGHT.source,MODEL_SELECTION_PREFLIGHT.source,MODEL_WORKFLOW_PREFLIGHT.source,MODEL_WORKER_PREFLIGHT.source,MODEL_BROWSER_PREFLIGHT.source].includes(state.preflightContinuation?.source)) {
+    if(state.repair||state.permissionContinuation||[AUTONOMY_BROWSER_PREFLIGHT.source,AUTONOMY_NATIVE_PREFLIGHT.source,EXAMPLE_BROWSER_PREFLIGHT.source,MODEL_OPERATION_PREFLIGHT.source,MODEL_SELECTION_PREFLIGHT.source,MODEL_WORKFLOW_PREFLIGHT.source,MODEL_WORKER_PREFLIGHT.source,MODEL_BROWSER_PREFLIGHT.source].includes(state.preflightContinuation?.source)) {
       const tooling=path.join(directory,'tooling-inputs');fs.rmSync(tooling,{recursive:true,force:true});copyEvidenceToolInputs(bundle,tooling);
       docker(['cp',tooling,`${name}:/workspace/.local-release`]);fs.rmSync(tooling,{recursive:true,force:true});
       docker(['exec',name,'chown','-R','1001:1001','/workspace/.local-release']);
@@ -471,15 +491,19 @@ async function runLocalRelease({ base, resume }) {
           }
           const nativeManifest=json(path.join(work,'candidate/manifest.json'));
           assert.deepEqual(tree(path.join(work,'_site')),nativeManifest.files,'Native input differs from the candidate');
-          if(state.repair||state.permissionContinuation||state.preflightContinuation?.source===MODEL_BROWSER_PREFLIGHT.source)fs.cpSync(path.join(bundle,'reuse'),path.join(work,'.local-release/reuse'),{recursive:true});
-          if(state.preflightContinuation?.source===MODEL_BROWSER_PREFLIGHT.source){
+          if(state.repair||state.permissionContinuation||[AUTONOMY_BROWSER_PREFLIGHT.source,MODEL_BROWSER_PREFLIGHT.source].includes(state.preflightContinuation?.source))fs.cpSync(path.join(bundle,'reuse'),path.join(work,'.local-release/reuse'),{recursive:true});
+          if([AUTONOMY_BROWSER_PREFLIGHT.source,MODEL_BROWSER_PREFLIGHT.source].includes(state.preflightContinuation?.source)){
             fs.mkdirSync(path.join(work,'.local-release/test-results'),{recursive:true});
-            for(const file of Object.keys(MODEL_BROWSER_PREFLIGHT.homepageReports))fs.copyFileSync(path.join(bundle,'test-results',file),path.join(work,'.local-release/test-results',file));
+            for(const file of Object.keys((state.preflightContinuation.source===AUTONOMY_BROWSER_PREFLIGHT.source?AUTONOMY_BROWSER_PREFLIGHT:MODEL_BROWSER_PREFLIGHT).homepageReports))fs.copyFileSync(path.join(bundle,'test-results',file),path.join(work,'.local-release/test-results',file));
+          }
+          if(state.preflightContinuation?.source===AUTONOMY_BROWSER_PREFLIGHT.source){
+            fs.cpSync(path.join(bundle,'runtime'),path.join(work,'.local-release/runtime'),{recursive:true});
+            fs.cpSync(path.join(bundle,'test-results/private-media-image'),path.join(work,'.local-release/test-results/private-media-image'),{recursive:true});
           }
           // Each fresh browser invocation has a fresh profile/server. Shared
           // dependency installations are persistent, never browser/account state.
           const scope=command.name==='Run selected auth and admin tests'?'auth':command.name==='Run selected homepage core tests'?'homepage':null;
-          const browserRun=state.preflightContinuation?.source===MODEL_BROWSER_PREFLIGHT.source&&scope?modelBrowserContinuation(part.run,scope):state.preflightContinuation?.source===EXAMPLE_BROWSER_PREFLIGHT.source&&scope==='auth'?canvasExampleBrowserContinuation(part.run):isSmoothContinuation(state.permissionContinuation?.source)&&scope==='auth'?'node scripts/local-release.mjs smooth-browser-continuation':state.repair&&scope?`node scripts/local-release.mjs browser-continuation ${scope}`:part.run;
+          const browserRun=state.preflightContinuation?.source===AUTONOMY_BROWSER_PREFLIGHT.source&&scope?autonomyBrowserContinuation(part.run,scope):state.preflightContinuation?.source===MODEL_BROWSER_PREFLIGHT.source&&scope?modelBrowserContinuation(part.run,scope):state.preflightContinuation?.source===EXAMPLE_BROWSER_PREFLIGHT.source&&scope==='auth'?canvasExampleBrowserContinuation(part.run):isSmoothContinuation(state.permissionContinuation?.source)&&scope==='auth'?'node scripts/local-release.mjs smooth-browser-continuation':state.repair&&scope?`node scripts/local-release.mjs browser-continuation ${scope}`:part.run;
           result=spawnSync('/bin/bash',['--noprofile','--norc','-euo','pipefail','-c',browserRun],{cwd:work,
             env:{...safeEnv(),...env,...command.env,HOME:nativeHome,GITHUB_JOB:command.job,
               WRANGLER_SEND_METRICS:'false',npm_config_userconfig:path.join(nativeHome,'.npmrc'),
@@ -498,7 +522,7 @@ async function runLocalRelease({ base, resume }) {
         const q2 = /test-q2-runtime|test:workers/.test(command.run);
         const args = ['exec', '--user', q2 ? '1001:1001' : '0:0', ...Object.entries({ ...command.env, GITHUB_JOB: command.job }).filter(([key]) => key !== 'GH_TOKEN').flatMap(([key,value]) => ['--env',`${key}=${value}`]), name];
         if (!q2) args.push('/usr/bin/setpriv','--reuid=1001','--regid=1001','--clear-groups','--bounding-set=-all','--inh-caps=-all','--ambient-caps=-all','--no-new-privs');
-        const effective=state.preflightContinuation?.source===AUTONOMY_NATIVE_PREFLIGHT.source&&index===41?autonomyNativeContinuation(part.run):state.preflightContinuation?.source===MODEL_WORKER_PREFLIGHT.source&&index===41?modelWorkerContinuation(part.run):state.preflightContinuation?.source===EXPORT_NATIVE_PREFLIGHT.source&&index===41?canvasExportStageContinuation(part.run):state.preflightContinuation?.source===CANVAS_PREFLIGHT.source&&index===41?canvasWorkspaceStageContinuation(part.run):state.permissionContinuation?.source===PERMISSION_CONTINUATION.tail&&index===41?canvasStageContinuation(part.run):state.repair&&index===42?localWorkerContinuation():state.repair&&index===18?localRepairCommand(sha):part.run;
+        const effective=state.preflightContinuation?.source===AUTONOMY_BROWSER_PREFLIGHT.source&&index===41?autonomyRetentionContinuation(part.run):state.preflightContinuation?.source===AUTONOMY_NATIVE_PREFLIGHT.source&&index===41?autonomyNativeContinuation(part.run):state.preflightContinuation?.source===MODEL_WORKER_PREFLIGHT.source&&index===41?modelWorkerContinuation(part.run):state.preflightContinuation?.source===EXPORT_NATIVE_PREFLIGHT.source&&index===41?canvasExportStageContinuation(part.run):state.preflightContinuation?.source===CANVAS_PREFLIGHT.source&&index===41?canvasWorkspaceStageContinuation(part.run):state.permissionContinuation?.source===PERMISSION_CONTINUATION.tail&&index===41?canvasStageContinuation(part.run):state.repair&&index===42?localWorkerContinuation():state.repair&&index===18?localRepairCommand(sha):part.run;
         const execution=command.name==='Restore exact candidate static site'?'node scripts/local-release.mjs restore-boundary\n'+effective:effective;
         args.push('bash','--noprofile','--norc','-euo','pipefail','-c',execution);
         result = spawnSync('docker', ['--context','colima-bitbi-release',...args], { env: safeEnv(), stdio: ['ignore',fd,fd], timeout: 60 * 60 * 1000 });
@@ -514,6 +538,8 @@ async function runLocalRelease({ base, resume }) {
       if(state.preflightContinuation?.source===EXAMPLE_BROWSER_PREFLIGHT.source&&index===41)record.continuation=canvasExampleBrowserContinuation(command.run);
       if(state.preflightContinuation?.source===EXPORT_NATIVE_PREFLIGHT.source&&index===41)record.continuation=canvasExportStageContinuation(command.run);
       if(state.preflightContinuation?.source===CANVAS_PREFLIGHT.source&&index===41)record.continuation=canvasWorkspaceStageContinuation(command.run);
+      if(state.preflightContinuation?.source===AUTONOMY_BROWSER_PREFLIGHT.source&&index===41)record.continuation=autonomyRetentionContinuation(command.run);
+      if(state.preflightContinuation?.source===AUTONOMY_BROWSER_PREFLIGHT.source&&[50,51].includes(index)){record.continuation=autonomyBrowserContinuation(command.run,index===51?'auth':'homepage');record.browserContinuation=AUTONOMY_BROWSER_POLICY;}
       if(state.preflightContinuation?.source===AUTONOMY_NATIVE_PREFLIGHT.source&&index===41)record.continuation=autonomyNativeContinuation(command.run);
       if(state.preflightContinuation?.source===MODEL_WORKER_PREFLIGHT.source&&index===41)record.continuation=modelWorkerContinuation(command.run);
       if(state.preflightContinuation?.source===MODEL_BROWSER_PREFLIGHT.source&&[49,50].includes(index)){record.continuation=modelBrowserContinuation(command.run,index===50?'auth':'homepage');record.browserContinuation=MODEL_BROWSER_POLICY;}
@@ -522,7 +548,7 @@ async function runLocalRelease({ base, resume }) {
       if(state.permissionContinuation?.source===PERMISSION_CONTINUATION.tail&&index===41)record.continuation=canvasStageContinuation(command.run);
       state.commands[index] = record; state.status = record.exitCode === 0 ? 'running' : 'failed'; save(checkpoint, state);
       assert.equal(record.exitCode, 0, `Local check failed: ${command.name}. Evidence: ${logFile}. Resume this exact source with --resume ${directory}`);
-      if(([AUTONOMY_NATIVE_PREFLIGHT.source,EXAMPLE_BROWSER_PREFLIGHT.source,MODEL_BROWSER_PREFLIGHT.source].includes(state.preflightContinuation?.source)||state.permissionContinuation&&state.permissionContinuation.source!==PERMISSION_CONTINUATION.source)&&index===34)docker([...unprivileged,'node','--input-type=module','-e',"import fs from 'node:fs';import{restoreCanvasHostingProof}from'./scripts/lib/local-release-evidence.mjs';fs.cpSync('.local-release/reuse','reuse',{recursive:true});restoreCanvasHostingProof('.');fs.rmSync('reuse',{recursive:true});"]);
+      if(([AUTONOMY_BROWSER_PREFLIGHT.source,AUTONOMY_NATIVE_PREFLIGHT.source,EXAMPLE_BROWSER_PREFLIGHT.source,MODEL_BROWSER_PREFLIGHT.source].includes(state.preflightContinuation?.source)||state.permissionContinuation&&state.permissionContinuation.source!==PERMISSION_CONTINUATION.source)&&index===34)docker([...unprivileged,'node','--input-type=module','-e',"import fs from 'node:fs';import{restoreCanvasHostingProof}from'./scripts/lib/local-release-evidence.mjs';fs.cpSync('.local-release/reuse','reuse',{recursive:true});restoreCanvasHostingProof('.');fs.rmSync('reuse',{recursive:true});"]);
       if([SMOOTH_BROWSER_CONTINUATION.accepted,SMOOTH_BROWSER_CONTINUATION.completed].includes(state.permissionContinuation?.source)&&index===44)docker([...unprivileged,'node','--input-type=module','-e',"import fs from 'node:fs';import{restoreSmoothBrowserProof}from'./scripts/lib/local-release-browser.mjs';fs.cpSync('.local-release/reuse','reuse',{recursive:true});restoreSmoothBrowserProof('.',{sha:process.env.GITHUB_SHA});fs.rmSync('reuse',{recursive:true});"]);
       if(state.repair&&index===35) {
         // Candidate source metadata is new; the tested package remains byte-identical.
@@ -550,10 +576,14 @@ async function runLocalRelease({ base, resume }) {
   } finally {
     if(created) {
       try {
-        if([AUTONOMY_NATIVE_PREFLIGHT.source,MODEL_WORKER_PREFLIGHT.source].includes(state.preflightContinuation?.source)){
+        if([AUTONOMY_BROWSER_PREFLIGHT.source,AUTONOMY_NATIVE_PREFLIGHT.source,MODEL_WORKER_PREFLIGHT.source].includes(state.preflightContinuation?.source)){
           const source='/workspace/.local-release/test-results';
           if(docker(['exec',name,'sh','-c',`if [ -d ${source} ]; then echo present; fi`]).trim()){
-            fs.mkdirSync(path.join(bundle,'test-results'),{recursive:true});docker(['cp',`${name}:${source}/.`,path.join(bundle,'test-results')]);
+            fs.mkdirSync(path.join(bundle,'test-results'),{recursive:true});
+        if(state.preflightContinuation?.source===AUTONOMY_BROWSER_PREFLIGHT.source){
+          for(const file of ['autonomy-retention-discovery.json','autonomy-retention-workers.json','autonomy-retention-launcher.tap','autonomy-retention-native.log'])
+            if(docker(['exec',name,'sh','-c',`if [ -f ${source}/${file} ]; then echo present; fi`]).trim())docker(['cp',`${name}:${source}/${file}`,path.join(bundle,'test-results',file)]);
+        }else docker(['cp',`${name}:${source}/.`,path.join(bundle,'test-results')]);
           }
         }
         const savedRuntime=path.join(directory,'runtime');
@@ -587,6 +617,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     if (command === 'prepare') { assert.equal(args.length, 0); console.log(JSON.stringify(await withReleaseLock(()=>ensureEnvironment()))); }
     else if (command === 'restore-boundary') {assert.equal(args.length,0);prepareCandidateRestore();}
     else if (command === 'verify-worker-repair') {assert.equal(args.length,1);console.log(JSON.stringify(verifyLocalWorkerRepair(path.resolve(args[0]),git(['rev-parse','HEAD'])).result));}
+    else if (command === 'verify-autonomy-retention-pending'||command === 'verify-autonomy-retention-workers') {
+      assert.equal(args.length,1);console.log(JSON.stringify(verifyAutonomyRetentionWorkers(path.resolve(args[0]),git(['rev-parse','HEAD']),{allowPending:command==='verify-autonomy-retention-pending'}).result));
+    }
     else if (command === 'verify-autonomy-native-pending'||command === 'verify-autonomy-native-repair') {
       assert.equal(args.length,1);const verified=verifyAutonomyNativeRepair(path.resolve(args[0]),git(['rev-parse','HEAD']),{allowPending:command==='verify-autonomy-native-pending'});
       console.log(JSON.stringify(verified.result||{workerPassed:1471,processorPassed:true,launcherRetained:26,pending:1}));
@@ -598,6 +631,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       console.log(JSON.stringify(pending?{originalPassed:1452,pending:2,total:1454}:verified.result));
     }
     else if (command === 'smooth-browser-continuation') {assert.equal(args.length,0);runSmoothBrowserContinuation();}
+    else if (command === 'autonomy-browser-continuation') {assert(args.length<=1);await runAutonomyBrowserContinuation(args[0]||'homepage');}
     else if (command === 'model-browser-continuation') {assert(args.length<=1);await runModelBrowserContinuation(args[0]||'homepage');}
     else if (command === 'browser-continuation') {assert.equal(args.length,1);assertLocalRepairTree(git(['rev-parse','HEAD']));runMigrationBrowserContinuation(args[0]);}
     else if (command === 'prepare-native') {assert.equal(args.length,0);console.log(JSON.stringify(await withReleaseLock(()=>ensureNativeBrowsers())));}

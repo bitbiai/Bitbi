@@ -1,5 +1,5 @@
 import {normalizeCanvasAgentConfigDelta} from './canvas-agent-release.mjs';
-import {verifyImportedSmoothImage} from './local-release-browser.mjs';
+import {verifyImportedSmoothImage,smoothReceiptImageSource,AUTONOMY_BROWSER_PREFLIGHT,verifyImportedAutonomyImage,autonomyReceiptImageSource} from './local-release-browser.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -216,6 +216,19 @@ export function verifyLoadedMediaImage(record,image,identity) {
   for(const [key,value]of Object.entries(identity.runtime))assert.deepEqual(image.Config?.[key],value,`Loaded runtime configuration differs: ${key}`);
   assert.equal(image.Config?.Labels?.['org.opencontainers.image.revision'],record.sha);
 }
+// Publication identity does not change the tested OCI image's source identity.
+// Cross-source reuse is admitted only by a closed, source-bound repair proof.
+export function publicationImageSource(record,context,options) {
+  if(record.sha===context.sha)return record.sha;
+  return record.sha===AUTONOMY_BROWSER_PREFLIGHT.source
+    ?verifyImportedAutonomyImage(record,context,options)
+    :verifyImportedSmoothImage(record,context,options);
+}
+export function receiptImageSource(media,sha) {
+  return media.imageSourceSha===AUTONOMY_BROWSER_PREFLIGHT.source
+    ?autonomyReceiptImageSource(media,sha)
+    :smoothReceiptImageSource(media,sha);
+}
 export async function publishMedia(c,secretFile,{reuse,listArtifacts=collection,fetchArtifact=fetch,command=run,verifyActive=mediaActive}={}) {
   const source=reuse||mediaEvidenceRun(),sha=c.recoverySource?c.acceptedSource.sha:reuse?.sha||source.imageSha||c.sha;
   if(c.recoverySource)assert(reuse?.sha===c.recoverySource.sha,'Recovery cannot publish a new media component');
@@ -240,7 +253,7 @@ with zipfile.ZipFile(p/'image.zip') as z:
   assert stat.S_IFMT(e.external_attr>>16) in (0,stat.S_IFREG)
   with (p/e.filename).open('xb') as f:f.write(z.read(e))`,dir]);
     const record=JSON.parse(fs.readFileSync(path.join(dir,'image.json')));
-    const imageSha=record.sha===sha?sha:verifyImportedSmoothImage(record,{sha,run:source.run,attempt:source.attempt});
+    const imageSha=publicationImageSource(record,{sha,run:source.run,attempt:source.attempt});
     verifyMediaImage(record,{base:c.base,sha:imageSha,run:source.run,attempt:source.attempt,archive:path.join(dir,'image.tar')});
     command('docker',['load','--input',path.join(dir,'image.tar')]);
     const image=JSON.parse(command('docker',['image','inspect',record.tag]))[0];verifyLoadedMediaImage(record,image,mediaArchiveIdentity(path.join(dir,'image.tar')));

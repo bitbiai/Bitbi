@@ -2,11 +2,21 @@ const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),{spa
 const {SqliteD1Database,applyAuthMigrations}=require('./sqlite-d1.js');
 const {createAuthTestEnv}=require('./auth-worker-harness.js');
 const withinGain=(a,min,max)=>a.input>.05&&a.original/a.input>min&&a.original/a.input<max;
+const withinFade=a=>a.time>=24&&a.time<24.6&&a.input>.05&&a.original>0&&a.original/a.input<.3;
+const queueRendering=(previous,delivered,processor)=>previous.then(()=>delivered).then(processor);
 exports.audioUi=async({page,expect,locale,browserName,mockSharedAuth,createCanvasApiMock,info})=>{
   // The paired-window oracle accepts intended gain, but rejects the stale unity
   // window that passed the former lower-bound-only synchronization, and silence.
   expect(withinGain({input:.1,original:.03},.24,.36)).toBe(true);
   for(const a of [{input:.1,original:.1},{input:0,original:0},{input:.1,original:.02},{input:.1,original:.04}])expect(withinGain(a,.24,.36)).toBe(false);
+  expect(withinFade({time:24.3,input:.1,original:.015})).toBe(true);
+  for(const a of [{time:24.3,input:0,original:0},{time:24.3,input:.1,original:0},{time:24.3,input:.1,original:.06},{time:24.3,input:.1,original:.1},{time:23.9,input:.1,original:.015},{time:24.6,input:.1,original:.015}])expect(withinFade(a)).toBe(false);
+  // The same queue used below must remain pending until both the HTTP delivery
+  // and processor finish; exposing an already-resolved promise races Refresh.
+  let deliver,finish,started,processStarted=false,completed=false;
+  const delivered=new Promise(resolve=>deliver=resolve),processed=new Promise(resolve=>finish=resolve),processing=new Promise(resolve=>started=resolve);
+  const queued=queueRendering(Promise.resolve(),delivered,()=>{processStarted=true;started();return processed;});queued.then(()=>completed=true);
+  await Promise.resolve();await Promise.resolve();expect(processStarted).toBe(false);expect(completed).toBe(false);deliver();await processing;await Promise.resolve();expect(completed).toBe(false);finish();await queued;expect(completed).toBe(true);
   const {canvasAudioFixture}=await import('./canvas-audio-control.mjs');
   const {processCanvasExports}=await import('../../services/homepage-ffmpeg-processor/canvas-full-video.mjs');
   const DB=new SqliteD1Database();applyAuthMigrations(DB);
@@ -41,8 +51,10 @@ exports.audioUi=async({page,expect,locale,browserName,mockSharedAuth,createCanva
       ...(req.headers()['idempotency-key']?{'Idempotency-Key':req.headers()['idempotency-key']}:{}),...(req.headers().range?{Range:req.headers().range}:{})});
     const headers=Object.fromEntries(response.headers),status=response.status;
     if(url.pathname.endsWith('/full-video')&&method==='POST'&&req.postDataJSON()?.backgroundMusic){
-      const body=await response.json();expect(response.ok,JSON.stringify(body)).toBe(true);exports.push(body.data.export);
-      await route.fulfill({status,headers,body:JSON.stringify(body)});rendering=rendering.then(processor);return;
+      const body=await response.json();expect(response.ok,JSON.stringify(body)).toBe(true);
+      const delivered=route.fulfill({status,headers,body:JSON.stringify(body)});
+      rendering=queueRendering(rendering,delivered,processor);exports.push(body.data.export);
+      await delivered;return;
     }
     const bytes=Buffer.from(await response.arrayBuffer());
     if(url.searchParams.has('previewBase')&&headers['content-range'])expect(Number(headers['content-range'].split('/')[1])).toBeGreaterThan(10000);
@@ -128,8 +140,11 @@ exports.audioUi=async({page,expect,locale,browserName,mockSharedAuth,createCanva
         await expect.poll(async()=>withinGain(await signal(),.24,.36)).toBe(true);
         await result.evaluate(v=>{v.currentTime=27;});
         await expect.poll(async()=>withinGain(await signal(),.52,.68)).toBe(true);
-        await result.evaluate(v=>{v.currentTime=24;v.playbackRate=.1;});
-        await expect.poll(async()=>{const a=await signal();return a.time>=24&&a.time<24.6&&a.original/a.input<.3;}).toBe(true);
+        // At .1 speed native WebKit emits sparse/zero 1 kHz windows. Observe the
+        // real fade at ordinary speed with usable paired input, without extending
+        // its media-time window, gain threshold or assertion deadline.
+        await result.evaluate(v=>{v.playbackRate=1;v.currentTime=24;});
+        await expect.poll(async()=>withinFade(await signal()),{intervals:[25]}).toBe(true);
         await result.evaluate(v=>{v.pause();v.playbackRate=1;v.currentTime=26;});
         await originalOn().uncheck();await musicOn().check();
         expect(await result.evaluate(v=>v.paused)).toBe(true);

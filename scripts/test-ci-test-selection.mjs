@@ -68,6 +68,39 @@ function selection(files, options) {
   return selected;
 }
 
+// These exact helpers have existing callers. Mixed release changes must not
+// lose them when a narrower Canvas-only policy no longer applies.
+{
+  const assembly='tests/helpers/canvas-assembly-control.mjs';
+  const browser=['tests/helpers/canvas-audio-ui.cjs','tests/helpers/canvas-transition-examples-ui.cjs'];
+  const source=file=>fs.readFileSync(path.join(repoRoot,file),'utf8');
+  const scripts=JSON.parse(source('package.json')).scripts;
+  assert(source('tests/q2-canvas-agent.spec.js').includes("import('./helpers/canvas-assembly-control.mjs')"));
+  assert(source('tests/helpers/q2-runtime/control.mjs').includes("from '../canvas-assembly-control.mjs'"));
+  assert(source('playwright.workers.config.js').includes("'**/q2-*.spec.js'"));
+  assert.match(scripts['test:workers'],/playwright test -c playwright\.workers\.config\.js.*npm run test:q2-runtime/);
+  assert.match(scripts['test:q2-runtime'],/node scripts\/test-q2-runtime\.mjs$/);
+  for(const helper of browser){
+    assert(source('tests/canvas.spec.js').includes(`require('./helpers/${path.basename(helper)}')`));
+    const selected=selection([helper]);
+    assert.equal(selected.policy,'impact-v1');assert(selected.homepage&&selected.runtime);
+    for(const key of ['full','workers','auth','assets','carousel','dependencies'])assert.equal(selected[key],false,helper+': '+key);
+    assert(requiredJobs(selected)['browser-validation'].includes('Run selected homepage core tests'));
+  }
+  assert.match(scripts['test:homepage-core'],/tests\/canvas\.spec\.js/);
+  for(const project of ['chromium','webkit-canvas'])assert(scripts['test:homepage-core'].includes('--project='+project));
+  const worker=selection([assembly]);assert(worker.workers&&worker.runtime);
+  for(const key of ['full','homepage','auth','assets','carousel','dependencies'])assert.equal(worker[key],false,assembly+': '+key);
+  assert(requiredJobs(worker)['worker-validation'].includes('Run worker route tests'));
+  const mixed=[assembly,...browser,'workers/auth/migrations/0108_canvas_creative_export_retention.sql','scripts/lib/ci-test-selection.mjs'];
+  const union=selection(mixed);assert.equal(union.policy,'impact-v1');
+  for(const key of ['homepage','workers','auth','static','runtime'])assert.equal(union[key],true,key);
+  for(const key of ['full','assets','carousel','dependencies'])assert.equal(union[key],false,key);
+  assert.equal(requiresPrivateMediaImage([assembly,...browser]),false,'Fixture ownership cannot request a new processor image');
+  for(const file of ['tests/helpers/canvas-unknown-control.mjs',assembly+'.unreviewed',...browser.map(file=>file+'.unreviewed')])assert(selection([...mixed,file]).full,file);
+  assert(selection(mixed,{forceFull:true}).full,'An explicit full run still wins');
+}
+
 // Unknown validation configuration still executes the complete retained matrix.
 for (const file of ['tests/appearance-runtime.mjs', 'tests/admin-model-status-runtime.mjs']) {
   const selected = selection(['workers/auth/src/routes/canvas.js', 'workers/auth/migrations/0099_seedance_25_custom_tariffs.sql', file]);

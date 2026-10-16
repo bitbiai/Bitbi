@@ -1,10 +1,93 @@
 import { deleteAllUserAiAssets } from '../../workers/auth/src/routes/ai/lifecycle.js';
 import { canvasAudioFixture } from './canvas-audio-control.mjs';
 import { prepareCanvasMediaInspection, readCanvasMediaInspection, attachCanvasInspectionFrame } from '../../workers/auth/src/lib/canvas-media-inspections.js';
+import { sha256Hex } from '../../workers/auth/src/lib/tokens.js';
 const check=(value,message)=>{if(!value)throw new Error(message);};
 const bytes=value=>Uint8Array.from(atob(value),c=>c.charCodeAt(0));
 const headers={Authorization:'Bearer synthetic-audio-processor'};
 const base='/api/internal/homepage/hero-videos/canvas-exports/jobs';
+
+// This seed runs against 0107, before the forward-only retention correction.
+// Its rows deliberately include the historical creative output which exposed
+// the bug; installing the new trigger must not silently reclassify that output.
+export async function seedCanvasAssemblyRetentionMigration(env) {
+    const owner='canvas-retention-migration-member',now=new Date().toISOString();
+    const id=async label=>(await sha256Hex(owner+label)).slice(0,32),project=await id('project'),node=await id('node');
+    await env.DB.prepare("INSERT INTO users(id,email,password_hash,created_at,role,status,email_verified_at,verification_method) VALUES(?,?,?,?,'user','active',?,'email')").bind(owner,owner+'@example.invalid','synthetic',now,now).run();
+    await env.DB.prepare("INSERT INTO canvas_projects(id,user_id,title,locale,created_at,updated_at) VALUES(?,?,'Retention fixture','en',?,?)").bind(project,owner,now,now).run();
+    await env.DB.prepare("INSERT INTO canvas_nodes(id,project_id,user_id,type,title,x,y,config_json,content_json,created_at,updated_at) VALUES(?,?,?,'asset_reference','Retention anchor',0,0,'{}','{}',?,?)").bind(node,project,owner,now,now).run();
+    const ids=[];
+    for(const version of [7,8]) {
+        const key=await id('historical-'+version);ids.push(key);
+        await env.DB.prepare("INSERT INTO canvas_video_processing(id,user_id,project_id,node_id,kind,sources_json,recipe_json,next_attempt_at,created_at,updated_at) VALUES(?,?,?,?,'concat','[]',?,?,?,?)")
+            .bind(key,owner,project,node,JSON.stringify({version,assembly:{version:1}}),now,now,now).run();
+        await env.DB.prepare("UPDATE canvas_video_processing SET asset_id=id,status='ready' WHERE id=?").bind(key).run();
+    }
+    const rows=(await env.DB.prepare('SELECT p.*,v.state,v.saved_at,v.retired FROM canvas_video_processing p JOIN canvas_export_versions v ON v.id=p.id WHERE p.project_id=? ORDER BY p.id').bind(project).all()).results;
+    check(rows.find(r=>r.id===ids[0]).state==='saved'&&rows.find(r=>r.id===ids[1]).state==='canvas','The populated predecessor must demonstrate exact7 saved and historical creative8 unsaved');
+    return {owner,project,node,ids,rows};
+}
+
+export async function verifyCanvasAssemblyRetentionMigration(env,seed) {
+    const rows=(await env.DB.prepare('SELECT p.*,v.state,v.saved_at,v.retired FROM canvas_video_processing p JOIN canvas_export_versions v ON v.id=p.id WHERE p.project_id=? ORDER BY p.id').bind(seed.project).all()).results;
+    check(JSON.stringify(rows)===JSON.stringify(seed.rows),'Installing retention support cannot backfill or mutate any historical export row');
+    // Exercise excluded inputs directly at the D1 trigger boundary. Unsupported
+    // recipes cannot be admitted through the ordinary export API at all.
+    const controls=[
+        {label:'preview7',recipe:{version:7,assembly:{version:1},preview:{seamIndex:0}}},
+        {label:'preview8',recipe:{version:8,assembly:{version:1},preview:{seamIndex:0}}},
+        {label:'nonassembly',recipe:{version:8}},
+        {label:'unknownrecipe',recipe:{version:9,assembly:{version:1}}},
+        {label:'unknownassembly',recipe:{version:8,assembly:{version:2}}},
+        {label:'differentasset',recipe:{version:8,assembly:{version:1}},differentAsset:true},
+    ];
+    const now=new Date().toISOString();
+    for(const control of controls) {
+        const id=(await sha256Hex(seed.owner+control.label)).slice(0,32);
+        await env.DB.prepare("INSERT INTO canvas_video_processing(id,user_id,project_id,node_id,kind,sources_json,recipe_json,next_attempt_at,created_at,updated_at) VALUES(?,?,?,?,'concat','[]',?,?,?,?)")
+            .bind(id,seed.owner,seed.project,seed.node,JSON.stringify(control.recipe),now,now,now).run();
+        await env.DB.prepare("UPDATE canvas_video_processing SET asset_id=?,status='ready' WHERE id=?").bind(control.differentAsset?seed.ids[0]:id,id).run();
+        const disposition=await env.DB.prepare('SELECT state,saved_at FROM canvas_export_versions WHERE id=?').bind(id).first();
+        check(disposition.state==='canvas'&&disposition.saved_at===null,control.label+' must not become a permanent delivery');
+    }
+    return {historicalRowsUnchanged:2,excludedInputs:controls.length,providerCalls:0};
+}
+
+export async function canvasAssemblyRetentionCase(env,media) {
+    const f=await canvasAudioFixture(env,{...media,scope:'assembly-retention'}),completed=[];
+    for(const [version,target]of [[7,{seconds:4,toleranceSeconds:.5}],[8,{seconds:6,mode:'creative'}]]) {
+        const view=await f.readProject();
+        const assembly={version:1,anchorNodeId:f.last.id,clips:[{nodeId:f.first.id,trim:{start:0,duration:4},transition:{preset:'none'}}],target,backgroundMusic:{enabled:false,gain:1},smoothJoins:false};
+        const saved=await f.data(await f.request(f.projectPath+'/assembly','PATCH',{revision:view.project.revision,assembly}));
+        const accepted=await f.data(await f.request(f.endpoint,'POST',{assemblyRevision:saved.revision,backgroundMusic:assembly.backgroundMusic},{'Idempotency-Key':'retention-export-version-'+version}));
+        const job=accepted.export;check(job.recipe.version===version,'Ordinary target selection must admit the expected immutable recipe');
+        const pending=await f.db.prepare('SELECT state,saved_at FROM canvas_export_versions WHERE id=?').bind(job.id).first();
+        check(pending.state==='canvas'&&pending.saved_at===null,'Acceptance alone is not a completed saved delivery');
+        // Isolate our due job from valid unrelated work in the shared native DB.
+        await f.db.prepare('UPDATE canvas_video_processing SET next_attempt_at=? WHERE id=?').bind('1800-01-01',job.id).run();
+        const claimed=(await f.data(await f.request(base+'/claim','POST',{protocol:1,recipeProtocol:9,limit:1},headers))).jobs;
+        check(claimed.length===1&&claimed[0].id===job.id,'The real processor must lease this exact accepted version');
+        const form=new FormData();form.set('video',new Blob([bytes(media.videoBase64)],{type:'video/mp4'}),'completed.mp4');
+        form.set('duration','4');form.set('width','320');form.set('height','320');
+        form.set('audioTimeline',JSON.stringify([{start:0,duration:4,overlap:0,originalAudioFit:{policy:'fit-picture-v1',trimStart:0,trimEnd:0}}]));
+        form.set('seamResult',JSON.stringify({policy:'motion-anchors-v1',improved:0,seams:[]}));
+        const result=await f.data(await f.request(base+'/'+job.id+'/complete','POST',form,{...headers,'X-BITBI-Canvas-Claim':claimed[0].claim}));
+        check(result.asset_id===job.id&&result.status==='preview_pending','Real private completion must attach the accepted immutable asset');
+        const current=(await f.data(await f.request(f.endpoint))).current;
+        check(current.id===job.id&&current.storage==='assets'&&current.duration===4,'Completed exact and creative assemblies are automatically saved without the agent or Save action');
+        const asset=await f.db.prepare('SELECT visibility,r2_key FROM ai_text_assets WHERE id=? AND user_id=?').bind(job.id,f.owner).first();
+        check(asset.visibility==='private'&&asset.r2_key,'Permanent storage never authorizes public publication');
+        const response=await f.request(current.asset.file_url);
+        const delivered=new Uint8Array(await response.arrayBuffer()),expected=bytes(media.videoBase64);
+        check(response.status===200&&delivered.length===expected.length&&delivered.every((value,index)=>value===expected[index]),'The ordinary private asset route serves the original completed bytes');
+        completed.push(job.id);
+    }
+    const states=(await f.db.prepare('SELECT id,state FROM canvas_export_versions WHERE id IN (?,?)').bind(...completed).all()).results;
+    check(states.length===2&&states.every(row=>row.state==='saved'),'A newer creative delivery cannot retire the previous saved exact export');
+    check(f.calls.length===0,'Delivery retention never starts inference');
+    check((await f.db.prepare('PRAGMA foreign_key_check').all()).results.length===0,'Retention preserves all ownership and project relations');
+    return {completedVersions:[7,8],savedExports:2,private:true,providerCalls:0};
+}
 
 export async function canvasAssemblyCase(env,media) {
     const f=await canvasAudioFixture(env,{...media,scope:'assembly'}),path=f.projectPath+'/assembly';

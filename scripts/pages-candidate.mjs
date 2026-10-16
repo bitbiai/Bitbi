@@ -5,7 +5,7 @@ import { repairDelta, repairKind } from './lib/media-repair-source.mjs';
 import { assertBrowserSourceIdentity, assertBrowserReportArtifact, assertOriginalBrowserJob, verifyBrowserRepairProof, runBrowserRepair } from './lib/browser-fixture-repair.mjs';
 import { hostingPolicy, prepareFrontend, verifyFrontend, cloudflarePublishedBase } from './lib/frontend-hosting.mjs';
 import { LOCAL_REQUIRED_JOBS, localPolicyAt } from './lib/local-release-evidence.mjs';
-import { MODEL_BROWSER_POLICY, verifyModelBrowserReport, LOCAL_BROWSER_POLICY, verifyMigrationBrowserReport, SMOOTH_BROWSER_POLICY, verifySmoothBrowserReport } from './lib/local-release-browser.mjs';
+import { AUTONOMY_BROWSER_POLICY, verifyAutonomyBrowserReport, MODEL_BROWSER_POLICY, verifyModelBrowserReport, LOCAL_BROWSER_POLICY, verifyMigrationBrowserReport, SMOOTH_BROWSER_POLICY, verifySmoothBrowserReport } from './lib/local-release-browser.mjs';
 import {CANVAS_AGENT_DEPLOY_SOURCE,resolveCanvasAgentDeploySource,resolveCanvasAgentRecoverySource,verifyCanvasAgentRecoverySource,assertCanvasAgentPublicationDelta,assertCanvasAgentDeployArtifact} from './lib/canvas-agent-deploy-continuation.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -376,6 +376,10 @@ export function candidateProof(manifest, { job, reportFile, readJson = file => J
   const reports=names.map(name=>readJson(name));
   const counts=[];
   for(const [index,report] of reports.entries()) {
+    if(report.policy===AUTONOMY_BROWSER_POLICY) {
+      assert.equal(job,'browser-validation');assert(['homepage','auth'].includes(report.scope));assert.equal(names[index],`test-results/candidate-${report.scope}.json`);
+      counts.push(verifyAutonomyBrowserReport(report,manifest.sha).required);continue;
+    }
     if(report.policy===MODEL_BROWSER_POLICY) {
       assert.equal(job,'browser-validation');assert(['homepage','auth'].includes(report.scope));assert.equal(names[index],`test-results/candidate-${report.scope}.json`);
       counts.push(verifyModelBrowserReport(report,manifest.sha).required);continue;

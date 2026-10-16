@@ -1,6 +1,45 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
-import {verifyCanvasExportSchema} from '../../../scripts/lib/canvas-export-readiness.mjs';
+import {verifyCanvasExportSchema,verifyCanvasAssemblyRetentionSchema} from '../../../scripts/lib/canvas-export-readiness.mjs';
+
+async function migrateCanvasRetention(f) {
+  let snapshot;
+  for(const migration of f.migrations) {
+    if(migration.path.startsWith('0108')) {
+      const response=await f.control('/canvas-retention-migration-seed',{});
+      assert.equal(response.status,200,await response.clone().text());snapshot=await response.json();
+      await assert.rejects(()=>verifyCanvasAssemblyRetentionSchema(sql=>f.rows(sql)),/retention must preserve/);
+    }
+    await f.db.batch(migration.statements.map(s=>f.db.prepare(s)));
+  }
+  assert(snapshot,'The retention migration boundary must be exercised');
+  await f.test('canvas_assembly_retention_populated_migration',async()=>{
+    const response=await f.control('/canvas-retention-migration-verify',snapshot);
+    assert.equal(response.status,200,await response.clone().text());
+    assert.deepEqual(await response.json(),{historicalRowsUnchanged:2,excludedInputs:6,providerCalls:0});
+    await verifyCanvasAssemblyRetentionSchema(sql=>f.rows(sql));
+    const [{sql:definition}]=await f.rows("SELECT sql FROM sqlite_schema WHERE type='trigger' AND name='canvas_assembly_export_preserve'");
+    for(const [before,after]of [["'$.version'","'$.VERSION'"],["'saved'","'SAVED'"],["'saved'","' saved '"],['IN (7,8)','IN (7,8,9)'],["state='canvas'","state='CANVAS'"]]) {
+      const changed=definition.replace(before,after);assert.notEqual(changed,definition);
+      await assert.rejects(()=>verifyCanvasAssemblyRetentionSchema(async()=>[{sql:changed}]),/retention must preserve/);
+    }
+    assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
+  });
+}
+
+export async function runCanvasRetentionTests(f,{prepared=false}={}) {
+  if(!prepared)await migrateCanvasRetention(f);
+  await f.test('canvas_assembly_completed_delivery_retention',async()=>{
+    const response=await f.control('/canvas-assembly-retention',{
+      videoBase64:fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4',import.meta.url)).toString('base64'),
+      imageBase64:fs.readFileSync(new URL('../../fixtures/media/h3-frame.png',import.meta.url)).toString('base64'),
+      musicBase64:fs.readFileSync(new URL('../../fixtures/media/member-music.mp3',import.meta.url)).toString('base64'),
+    });
+    assert.equal(response.status,200,await response.clone().text());
+    assert.deepEqual(await response.json(),{completedVersions:[7,8],savedExports:2,private:true,providerCalls:0});
+    assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
+  });
+}
 
 // Real Auth bundle, native D1/R2/Images; only the AI service response is synthetic.
 export async function runCanvasCompletionTests(f, { prepared = false } = {}) {
@@ -97,7 +136,7 @@ export async function runCanvasTransitionTests(f,{prepared=false}={}) {
 }
 
 export async function runCanvasTests(f) {
-  for (const migration of f.migrations) await f.db.batch(migration.statements.map(s => f.db.prepare(s)));
+  await migrateCanvasRetention(f);
   await f.test('canvas_export_release_schema_queries',()=>verifyCanvasExportSchema(sql=>f.rows(sql)));
   const now = new Date().toISOString(), adminId = 'q2-workerd-admin', memberId = 'q2-workerd-member';
   for (const [id, role] of [[adminId, 'admin'], [memberId, 'user']]) await f.sql('INSERT INTO users(id,email,password_hash,created_at,role,status,email_verified_at,verification_method) VALUES(?,?,?,?,?,?,?,?)', id, id+'@example.invalid', 'synthetic', now, role, 'active', now, 'email').run();
@@ -509,6 +548,7 @@ export async function runCanvasTests(f) {
     assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
   });
   await runCanvasCompletionTests(f, { prepared: true });
+  await runCanvasRetentionTests(f,{prepared:true});
   await runCanvasAudioTests(f, { prepared: true });
   await runCanvasTransitionTests(f,{prepared:true});
   for(const name of ['late','evaluate','lease','cancel','manual','newer','failed','rejected','ambiguous','callback-guards','normalization-recovery','bounded-review','legacy']) await f.test(`canvas_durable_model_operation_${name.replaceAll('-','_')}`,async()=>{
