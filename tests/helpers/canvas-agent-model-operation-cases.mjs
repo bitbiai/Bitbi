@@ -6,7 +6,7 @@ import { reconcileCanvasAgentModelOperations } from '../../workers/auth/src/lib/
 import { releaseExpiredAiDispatch,claimAiDispatch,markAiDispatchUnknown } from '../../workers/auth/src/lib/ai-dispatch-state.js';
 import { beginMemberAiUsageAttempt } from '../../workers/auth/src/lib/member-ai-usage-attempts.js';
 const check=(value,message)=>{if(!value)throw new Error(message);};
-async function rejected(operation,code){try{await operation();}catch(error){check(String(error.code||error.message).includes(code),`Expected ${code}`);return;}throw new Error(`Missing rejection ${code}`);}
+async function rejected(operation,code){try{await operation();}catch(error){check([error.code,error.message].some(value=>String(value||'').split(/[^a-z0-9_]+/i).includes(code)),`Expected ${code}`);return;}throw new Error(`Missing rejection ${code}`);}
 const rawRun=f=>f.db.prepare('SELECT * FROM canvas_agent_runs WHERE id=?').bind(f.runId).first();
 const attempt=async f=>f.db.prepare('SELECT * FROM member_ai_usage_attempts_v2 WHERE id=?').bind((await f.operation()).usage_attempt_id).first();
 const debits=async f=>(await f.db.prepare("SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0").bind(f.owner).first()).n;
@@ -88,6 +88,16 @@ export async function canvasModelOperationCase(base,name) {
         } finally {console.error=previous;}
         check(logs.length===3&&logs.every(line=>line.includes('/api/internal/ai/canvas-agent-result/:token')&&!line.includes(callback.split('/').at(-1))),'Every method redacts the callback capability from real diagnostics');
         await rejected(()=>f.db.prepare("UPDATE canvas_agent_model_operations SET input_digest='changed' WHERE id=?").bind(original.id).run(),'canvas_agent_model_identity_immutable');
+        check((await f.operation()).input_digest===original.input_digest,'The rejected mutation preserves the original immutable input');
+        let permittedRejected=false;
+        try {await rejected(()=>f.db.prepare('UPDATE canvas_agent_model_operations SET input_digest=? WHERE id=?').bind(original.input_digest,original.id).run(),'canvas_agent_model_identity_immutable');}
+        catch(error){permittedRejected=error.message==='Missing rejection canvas_agent_model_identity_immutable';}
+        check(permittedRejected,'An allowed unchanged write cannot satisfy the rejection guard');
+        let unrelatedRejected=false;
+        try {await rejected(()=>f.db.prepare("UPDATE canvas_agent_model_operations SET nonexistent_fixture_column='changed' WHERE id=?").bind(original.id).run(),'canvas_agent_model_identity_immutable');}
+        catch(error){unrelatedRejected=error.message==='Expected canvas_agent_model_identity_immutable';}
+        check(unrelatedRejected,'An unrelated SQLite error cannot satisfy the immutable identity guard');
+        check((await f.operation()).input_digest===original.input_digest,'SQL guard controls leave the original input intact');
         check((await f.complete()).status===200,'Known valid callback calibrates the rejection controls');
         const response=(await f.operation()).response_json;
         check((await f.complete()).status===200,'Identical terminal callback replay is acknowledged');

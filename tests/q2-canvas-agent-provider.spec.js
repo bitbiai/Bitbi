@@ -110,7 +110,9 @@ test('Canvas late background results normalize after disablement, with exact usa
     expect(result.status).toBe(200);
     expect(result.body).toMatchObject({ ok: true, requestId: prepared.requestId, model, responseId: 'chatcmpl_canvas_background', outcome: 'completed',
       usage: { input_tokens: 100, output_tokens: 50, output_tokens_details: { thinking_tokens: 50 }, provider: { total_tokens: 200 } } });
-    expect(result.body[kind === 'plan' ? 'plan' : 'evaluation']).toEqual(kind === 'plan' ? plan() : evaluation());
+    // Ordinary Canvas plans normalize an omitted update list to an empty one.
+    // Keep the full independent content comparison, including that default.
+    expect(result.body[kind === 'plan' ? 'plan' : 'evaluation']).toEqual(kind === 'plan' ? { ...plan(), updates: [] } : evaluation());
     expect(JSON.stringify(result.body)).not.toMatch(/Private reasoning|imageData|base64/);
     expect((await f.call('normalize', body)).body).toEqual(result.body);
   }

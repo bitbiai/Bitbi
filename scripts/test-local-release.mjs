@@ -632,12 +632,73 @@ testSmoothContinuation(EXPORT_BROWSER_CONTINUATION);
 // evolving working-tree files; the real verifier still pins the original hashes.
 const historicalExportFile=file=>execFileSync('git',['show','5f0384373bd7e1505beaa5f243e2f085e2958c95:'+file]);
 
-for(const source of ['9443369e0780144d2ffeea3900d3b86ccd57bc85','b71dd6212ee83e9fad0d60a8cf9c03dbaa0087d5','a56a8baf0a74dfc826e5b8ae884b4022ebf2633d']){
- const {MODEL_WORKFLOW_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,canvasPreflightProfile,assertCanvasPreflightTree,canvasPreflightPrefix,verifyCanvasPreflight}=await import('./lib/local-release-evidence.mjs');
- const p=canvasPreflightProfile(source),workflowRepair=p===MODEL_WORKFLOW_PREFLIGHT,selectionRepair=p===MODEL_SELECTION_PREFLIGHT,failedIndex=workflowRepair?17:selectionRepair?16:13;
- const chained=selectionRepair||workflowRepair,originDirectory=workflowRepair?'model-selection-origin':'model-operation-origin';
- assert(p);assert.deepEqual(p.retain,workflowRepair?[1,4,5,6,7,8,9,10,11,12,13,14,15,16]:selectionRepair?[1,4,5,6,7,8,9,10,11,12,13,14,15]:[1,4,5,6,7,8,9,12]);
- for(const affected of (workflowRepair?[0,2,3,17,18,41,42,48,51]:selectionRepair?[0,2,3,16,17,41,42,48,51]:[0,2,3,10,11,13,18,41,42,48,51]))assert(!p.retain.includes(affected),'Changed checks and all unexecuted acceptance must run');
+function testModelWorkerEvidence(directory,head,command,{verifyModelWorkerRepair,modelWorkerContinuation}) {
+ const verify=()=>verifyModelWorkerRepair(directory,head);
+ const pending=verifyModelWorkerRepair(directory,head,{allowPending:true});
+ assert(!pending.result,'Source evidence alone must not claim completed Worker acceptance');
+ const previous=pending.previous,passed=row=>row.results.length===1&&row.results[0].status==='passed'&&row.results[0].retry===0&&!row.results[0].error;
+ assert.equal(previous.length,1454);assert.equal(previous.filter(passed).length,1452);
+ const failures=previous.filter(row=>!passed(row));
+ assert.deepEqual(failures.map(row=>[row.file,row.title]).sort(),[
+  ['q2-canvas-agent-model-operation.spec.js','Canvas durable model operation callback-guards'],
+  ['q2-canvas-agent-provider.spec.js','Canvas late background results normalize after disablement, with exact usage and no new provider call'],
+ ]);
+ assert(failures.every(row=>row.results.length===2&&row.results.every(result=>result.status==='failed')),'Both original attempts remain failed');
+ assert.throws(verify,'A source-only checkpoint cannot replace the two fresh results');
+ const reports=path.join(directory,'test-results');fs.mkdirSync(reports,{recursive:true});
+ // These isolated verifier inputs are explicitly synthetic. Their identities
+ // come from the complete real failed execution; no product test is run here.
+ const spec=row=>({id:row.id,file:row.file,title:row.title,line:1,column:1,tests:[{projectName:''}]});
+ const discovery={config:{workers:1},suites:[{title:'Synthetic full discovery for verifier controls',specs:previous.map(spec)}],errors:[]};
+ const fresh={config:{workers:1},suites:[{title:'Synthetic fresh results for verifier controls',specs:failures.map(row=>({...spec(row),tests:[{projectName:'',expectedStatus:'passed',status:'expected',results:[{status:'passed',retry:0}]}]}))}],errors:[],stats:{expected:2,unexpected:0,flaky:0,skipped:0}};
+ const discoveryFile=path.join(reports,'model-worker-discovery.json'),freshFile=path.join(reports,'model-worker-fresh.json');
+ const save=(file,value)=>fs.writeFileSync(file,JSON.stringify(value,null,2));
+ save(discoveryFile,discovery);assert(!verifyModelWorkerRepair(directory,head,{allowPending:true}).result);
+ assert.throws(verify,'Complete discovery alone cannot replace executed results');
+ save(freshFile,fresh);
+ const accepted=verify();assert.deepEqual(accepted.result,{originalPassed:1452,progressPassed:2,correctedPassed:0,total:1454});
+ const progress=failures.map(row=>({...row,results:[{status:'passed',retry:0}]}));
+ const union={previous,discovery:previous.map(({results,...identity})=>identity),progress,corrected:[]};
+ assert.deepEqual(verifyWorkerUnion(union),accepted.result);
+ for(const change of [r=>r.previous.pop(),r=>r.discovery.pop(),r=>r.discovery.push(r.discovery[0]),r=>r.discovery[0].title='Foreign case',
+  r=>r.progress.pop(),r=>r.progress.push(r.progress[0]),r=>r.progress.push(previous.find(passed)),r=>r.progress[0].results[0].status='failed',
+  r=>r.progress[0].results[0].retry=1,r=>r.progress[0].results[0].error=true,r=>r.progress[0].id='foreign-case',r=>r.corrected.push(r.progress[0])]){
+  const changed=structuredClone(union);change(changed);assert.throws(()=>verifyWorkerUnion(changed));
+ }
+ for(const file of ['reuse/preflight-checkpoint.json','reuse/preflight-failed.log','reuse/original-worker-discovery.json','reuse/original-worker-last-run.json','test-results/model-worker-discovery.json','test-results/model-worker-fresh.json']){
+  const target=path.join(directory,file),bytes=fs.readFileSync(target);
+  fs.unlinkSync(target);assert.throws(verify);fs.writeFileSync(target,'{}');assert.throws(verify);fs.writeFileSync(target,bytes);
+ }
+ for(const change of [r=>{r.suites[0].specs.pop();r.stats.expected=1;},r=>{r.suites[0].specs.push(r.suites[0].specs[0]);r.stats.expected=3;},
+  r=>r.suites[0].specs[0].id='foreign-case',r=>r.suites[0].specs[0].title='Foreign title',r=>r.suites[0].specs[0].file='workers.spec.js',
+  r=>r.suites[0].specs[0].tests[0].results[0].retry=1,r=>r.suites[0].specs[0].tests[0].results[0].error={message:'Synthetic failure'},
+  r=>{const test=r.suites[0].specs[0].tests[0];test.status='unexpected';test.results[0].status='failed';r.stats.expected=1;r.stats.unexpected=1;},
+  r=>{const test=r.suites[0].specs[0].tests[0];test.status='skipped';test.results[0].status='skipped';r.stats.expected=1;r.stats.skipped=1;},
+  r=>{const test=r.suites[0].specs[0].tests[0];test.status='flaky';test.results=[{status:'failed',retry:0},{status:'passed',retry:1}];r.stats.expected=1;r.stats.flaky=1;},
+  r=>r.config.workers=2,r=>delete r.config.workers,r=>r.errors.push({message:'Synthetic report error'})]){
+  const changed=structuredClone(fresh);change(changed);save(freshFile,changed);assert.throws(verify);
+ }
+ save(freshFile,fresh);
+ for(const change of [r=>r.suites[0].specs.pop(),r=>r.suites[0].specs.push(r.suites[0].specs[0]),r=>r.suites[0].specs[0].title='Foreign discovery',r=>r.suites[0].specs[0].file='foreign.spec.js']){
+  const changed=structuredClone(discovery);change(changed);save(discoveryFile,changed);assert.throws(verify);
+ }
+ save(discoveryFile,discovery);assert.deepEqual(verify().result,accepted.result);
+ const continued=modelWorkerContinuation(command.run);
+ assert(continued.includes('--retries=0')&&continued.includes('model-worker-fresh.json'));
+ assert(continued.includes('npm run test:homepage-ffmpeg-processor')&&continued.includes('npm run test:q2-runtime'),'The unexecuted media/native tail remains mandatory');
+ assert(!continued.includes('npm run test:workers'),'The complete Worker suite must not execute again');
+ assert.throws(()=>modelWorkerContinuation('echo no Worker command'));
+ assert.throws(()=>modelWorkerContinuation(command.run+'\nnpm run test:workers'));
+ const syntax=spawnSync('/bin/bash',['-n'],{input:continued,encoding:'utf8'});assert.equal(syntax.status,0,syntax.stderr);
+ console.log('Worker continuation: real 1452/2 source union, incomplete acceptance, altered reports, omitted/duplicate/foreign/failed/skipped/retried cases and changed command controls reject.');
+}
+
+for(const source of ['9443369e0780144d2ffeea3900d3b86ccd57bc85','b71dd6212ee83e9fad0d60a8cf9c03dbaa0087d5','a56a8baf0a74dfc826e5b8ae884b4022ebf2633d','51fb4088d317baea440d037d9301c7f48e07e41e']){
+ const {MODEL_WORKER_PREFLIGHT,verifyModelWorkerRepair,modelWorkerContinuation,MODEL_WORKFLOW_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,canvasPreflightProfile,assertCanvasPreflightTree,canvasPreflightPrefix,verifyCanvasPreflight}=await import('./lib/local-release-evidence.mjs');
+ const p=canvasPreflightProfile(source),workerRepair=p===MODEL_WORKER_PREFLIGHT,workflowRepair=p===MODEL_WORKFLOW_PREFLIGHT,selectionRepair=p===MODEL_SELECTION_PREFLIGHT,failedIndex=workerRepair?41:workflowRepair?17:selectionRepair?16:13;
+ const chained=selectionRepair||workflowRepair||workerRepair,originDirectory=workerRepair?'model-workflow-origin':workflowRepair?'model-selection-origin':'model-operation-origin';
+ assert(p);assert.deepEqual(p.retain,workerRepair?[1,4,5,6,7,8,9,10,11,12,13,14,15,16,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,40]:workflowRepair?[1,4,5,6,7,8,9,10,11,12,13,14,15,16]:selectionRepair?[1,4,5,6,7,8,9,10,11,12,13,14,15]:[1,4,5,6,7,8,9,12]);
+ for(const affected of (workerRepair?[0,2,3,17,34,35,36,37,38,39,41,42,48,51]:workflowRepair?[0,2,3,17,18,41,42,48,51]:selectionRepair?[0,2,3,16,17,41,42,48,51]:[0,2,3,10,11,13,18,41,42,48,51]))assert(!p.retain.includes(affected),'Changed checks and all unexecuted acceptance must run');
  // Query real isolated Git trees, sharing only read-only original objects. This
  // never changes the checkout/index and does not execute a retained command.
  const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-model-preflight-'));
@@ -648,7 +709,10 @@ for(const source of ['9443369e0780144d2ffeea3900d3b86ccd57bc85','b71dd6212ee83e9
   execFileSync('git',['init','--bare',bare],{stdio:'pipe'});
   const objects=path.resolve(execFileSync('git',['rev-parse','--git-path','objects'],{encoding:'utf8'}).trim());
   fs.writeFileSync(path.join(bare,'objects/info/alternates'),objects+'\n');
-  const fixes=workflowRepair?{
+  const fixes=workerRepair?{
+   'tests/helpers/canvas-agent-model-operation-cases.mjs':execFileSync('git',['cat-file','blob','72adeca318d1daeb00fc5fcb5d0161668f7c3c85']),
+   'tests/q2-canvas-agent-provider.spec.js':execFileSync('git',['cat-file','blob','be9047002640b1aba8bab058e58027d0f0fdf248']),
+  }:workflowRepair?{
    'scripts/test-local-release.mjs':fs.readFileSync('scripts/test-local-release.mjs'),
   }:selectionRepair?{
    'scripts/test-ci-test-selection.mjs':execFileSync('git',['cat-file','blob','f9a66de2cd4adf47a4512a697584cc6f6c672ea2']),
@@ -667,7 +731,7 @@ for(const source of ['9443369e0780144d2ffeea3900d3b86ccd57bc85','b71dd6212ee83e9
    return read(['commit-tree',tree,'-p',parent],Buffer.from('Synthetic continuation boundary\n')).toString().trim();
   };
   const accepted=commit(fixes);assertCanvasPreflightTree(accepted,read,p);
-  for(const file of ['workers/auth/src/index.js','js/pages/canvas/agent.js','tests/canvas.spec.js','package-lock.json','.github/workflows/static.yml','config/release-validation.yml','scripts/lib/ci-test-selection.mjs',...(chained?['config/release-compat.json','scripts/test-release-compat.mjs']:[]),...(workflowRepair?['scripts/test-ci-test-selection.mjs']:[])]){
+  for(const file of ['workers/auth/src/index.js','js/pages/canvas/agent.js','tests/canvas.spec.js','package-lock.json','.github/workflows/static.yml','config/release-validation.yml','scripts/lib/ci-test-selection.mjs',...(chained?['config/release-compat.json','scripts/test-release-compat.mjs']:[]),...((workflowRepair||workerRepair)?['scripts/test-ci-test-selection.mjs']:[]),...(workerRepair?['tests/grok-chat-workers.spec.js','tests/q2-canvas-agent-model-operation.spec.js']:[])]){
    const changed=commit({...fixes,[file]:Buffer.from('Unrelated change')});
    assert.throws(()=>assertCanvasPreflightTree(changed,read,p),/changed product, tests, selection or environment/);
   }
@@ -716,10 +780,15 @@ for(const source of ['9443369e0780144d2ffeea3900d3b86ccd57bc85','b71dd6212ee83e9
    });
    const evidence={...context,commands:rows,preflightContinuation:{source:p.source,checkpoint:p.checkpoint}};
    if(chained)fs.cpSync(path.join(evidenceRoot,'reuse',originDirectory),path.join(bundle,'reuse',originDirectory),{recursive:true});
+   if(workerRepair){
+    for(const file of ['original-worker-discovery.json','original-worker-last-run.json'])fs.copyFileSync(path.join(evidenceRoot,'reuse',file),path.join(bundle,'reuse',file));
+    testModelWorkerEvidence(bundle,head,commands[41],{verifyModelWorkerRepair,modelWorkerContinuation});
+    evidence.commands[41].continuation=modelWorkerContinuation(commands[41].run);
+   }
    verifyCanvasPreflight(bundle,evidence,commands);
-   for(const index of (workflowRepair?[0,17,18,48]:selectionRepair?[0,16,17,48]:[0,10,13,18,48])){
+   for(const index of (workerRepair?[0,17,34,41,48]:workflowRepair?[0,17,18,48]:selectionRepair?[0,16,17,48]:[0,10,13,18,48])){
     const forged=structuredClone(evidence);forged.commands[index].reusedFrom=p.source;
-    assert.throws(()=>verifyCanvasPreflight(bundle,forged,commands),/cannot inherit/);
+    assert.throws(()=>verifyCanvasPreflight(bundle,forged,commands));
    }
    const retained=path.join(bundle,original.commands[1].log),retainedBytes=fs.readFileSync(retained);
    fs.unlinkSync(retained);assert.throws(()=>verifyCanvasPreflight(bundle,evidence,commands));
@@ -731,7 +800,7 @@ for(const source of ['9443369e0780144d2ffeea3900d3b86ccd57bc85','b71dd6212ee83e9
    if(chained){
     const provenance=structuredClone(evidence);provenance.commands[1].reusedFrom=p.source;
     assert.throws(()=>verifyCanvasPreflight(bundle,provenance,commands),'Earlier retained rows must keep their original source');
-    for(const file of ['reuse/preflight-checkpoint.json','reuse/preflight-failed.log','logs/1.log',...(workflowRepair?['reuse/model-operation-origin/reuse/preflight-checkpoint.json','reuse/model-operation-origin/reuse/preflight-failed.log','reuse/model-operation-origin/logs/1.log']:[])]){
+    for(const file of ['reuse/preflight-checkpoint.json','reuse/preflight-failed.log','logs/1.log',...(workflowRepair?['reuse/model-operation-origin/reuse/preflight-checkpoint.json','reuse/model-operation-origin/reuse/preflight-failed.log','reuse/model-operation-origin/logs/1.log']:[]),...(workerRepair?['reuse/model-selection-origin/reuse/preflight-checkpoint.json','reuse/model-selection-origin/reuse/preflight-failed.log','reuse/model-selection-origin/reuse/model-operation-origin/reuse/preflight-checkpoint.json','reuse/model-selection-origin/reuse/model-operation-origin/logs/1.log']:[])]){
      const origin=path.join(bundle,'reuse',originDirectory,file),originalBytes=fs.readFileSync(origin);
      fs.unlinkSync(origin);assert.throws(()=>verifyCanvasPreflight(bundle,evidence,commands));
      fs.writeFileSync(origin,'forged origin');assert.throws(()=>verifyCanvasPreflight(bundle,evidence,commands));
