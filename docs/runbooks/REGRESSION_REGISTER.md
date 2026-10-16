@@ -2056,6 +2056,17 @@ callbacks expose completion only; actual activity events are separate. Evidence
 and publication receipts belong in the private local-release checkpoint. New paid
 provider acceptance is separately authorized; controlled results do not prove it.
 
+The `77e48e23` local Linux candidate passed 1,471 Worker cases and the real
+processor fixtures, then stopped at launcher case 16: its isolated schema-query
+stub returned the old generic seven guards for the new eight-guard autonomy
+query. Update that specific group, preserving the other groups and the executable
+wrong-cwd/ENOENT countercontrol. The focused caller is `node --test
+--test-name-pattern="Canvas reference fixture reads" scripts/test-q2-runtime-launcher.mjs`.
+Retain the immutable failed checkpoint/log and completed cases; the protected
+continuation must run that corrected case, the unexecuted native tail and remaining
+selected acceptance. A fixture failure is neither a product failure nor permission
+to omit native D1 acceptance or repeat passed suites.
+
 ### Canvas agent editability and inspector fixtures — 2026-10-15
 
 The production assistant must persist creative settings in the same ordinary

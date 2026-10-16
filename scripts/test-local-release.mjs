@@ -1039,3 +1039,116 @@ for(const source of ['9443369e0780144d2ffeea3900d3b86ccd57bc85','b71dd6212ee83e9
  }
  console.log('Model browser continuation: actual isolated Git rejects unrelated product/tests, missing or changed correction, foreign parent, deleted file and symlink.');
 }
+
+{
+ const {AUTONOMY_NATIVE_PREFLIGHT:p,canvasPreflightProfile,assertCanvasPreflightTree,canvasPreflightPrefix,verifyAutonomyNativeRepair,autonomyNativeContinuation}=await import('./lib/local-release-evidence.mjs');
+ assert.equal(canvasPreflightProfile(p.source),p);
+ const fixture='scripts/test-q2-runtime-launcher.mjs',doc='docs/runbooks/REGRESSION_REGISTER.md',title='Canvas reference fixture reads the staged bytes from a non-repository cwd';
+ assert.deepEqual(Object.keys(p.specs),[fixture,doc]);
+ const fixed=execFileSync('git',['cat-file','blob','164fe75cb39e9a6dad6645e6aecc8a74c75fbebf']);
+ const fixedDoc=execFileSync('git',['cat-file','blob','c00726e7c9940c1a9886e3cc4d8a0affcddf8d54']);
+ assert.equal(sha256(fixed),p.specs[fixture]);assert.equal(sha256(fixedDoc),p.specs[doc]);
+ const reviewed={[fixture]:fixed,[doc]:fixedDoc};
+ for(const index of [0,2,3,12,17,28,29,34,35,37,38,39,41,42,43,44,45,46,47,48,49,50,51,52])assert(!p.retain.includes(index),'Changed verifiers and unexecuted acceptance cannot inherit passes');
+ for(const index of [1,4,13,14,15,16,18,27,30,33,36,40])assert(p.retain.includes(index),'Unchanged completed commands keep their existing evidence');
+ const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-autonomy-native-tree-')),bare=path.join(temporary,'git');
+ const env={...process.env,GIT_AUTHOR_NAME:'Synthetic',GIT_AUTHOR_EMAIL:'synthetic@example.invalid',GIT_COMMITTER_NAME:'Synthetic',GIT_COMMITTER_EMAIL:'synthetic@example.invalid'};
+ const read=(args,input)=>execFileSync('git',['--git-dir',bare,...args],{env,input,stdio:['pipe','pipe','pipe']});
+ try{
+  execFileSync('git',['init','--bare',bare],{stdio:'pipe'});
+  fs.writeFileSync(path.join(bare,'objects/info/alternates'),path.resolve(execFileSync('git',['rev-parse','--git-path','objects'],{encoding:'utf8'}).trim())+'\n');
+  const commit=(changes,parent=p.source)=>{
+   read(['read-tree',p.source]);
+   for(const [file,value]of Object.entries(changes)){
+    if(value===null){read(['update-index','--index-info'],Buffer.from(`0 ${'0'.repeat(40)}\t${file}\n`));continue;}
+    const blob=read(['hash-object','-w','--stdin'],value.content??value).toString().trim();
+    read(['update-index','--add','--cacheinfo',`${value.mode||'100644'},${blob},${file}`]);
+   }
+   return read(['commit-tree',read(['write-tree']).toString().trim(),'-p',parent],Buffer.from('Synthetic autonomy launcher continuation boundary\n')).toString().trim();
+  };
+  const accepted=commit(reviewed);assertCanvasPreflightTree(accepted,read,p);
+  for(const file of ['workers/auth/src/routes/canvas-agent.js','workers/auth/migrations/0107_canvas_agent_autonomy.sql','workers/shared/canvas-agent-plan.mjs','js/pages/canvas/agent.js','tests/canvas.spec.js','tests/helpers/canvas-agent-autonomy-ui.cjs','tests/helpers/q2-runtime/canvas-agent.mjs','services/homepage-ffmpeg-processor/canvas-full-video.mjs','package.json','package-lock.json','.github/workflows/static.yml','config/release-validation.yml','config/release-compat.json','scripts/lib/ci-test-selection.mjs','docs/runbooks/REGRESSION_REGISTER.md'])
+   assert.throws(()=>assertCanvasPreflightTree(commit({...reviewed,[file]:Buffer.from('Unrelated change')}),read,p));
+  for(const changes of [{},{[fixture]:fixed},{[doc]:fixedDoc}])assert.throws(()=>assertCanvasPreflightTree(commit(changes),read,p),'Both reviewed corrections are required');
+  for(const file of [fixture,doc])for(const value of [Buffer.from('Unreviewed correction'),read(['show',`${p.source}:${file}`])])assert.throws(()=>assertCanvasPreflightTree(commit({...reviewed,[file]:value}),read,p));
+  for(const value of [null,{mode:'120000',content:Buffer.from('outside')}])assert.throws(()=>assertCanvasPreflightTree(commit({...reviewed,'scripts/local-release.mjs':value}),read,p));
+  assert.throws(()=>assertCanvasPreflightTree(commit(reviewed,accepted),read,p),'A later descendant is not the closed direct successor');
+  assert.throws(()=>canvasPreflightPrefix(Buffer.from(JSON.stringify({sha:p.source})),{sha:accepted},read));
+ }finally{fs.rmSync(temporary,{recursive:true,force:true});}
+
+ const before=Array.from({length:27},(_,index)=>({title:index===0?title:`Previously passed launcher ${index}`,status:index===0?'failed':'passed'}));
+ const after=[{title,status:'passed'}];verifyNativeCaseUnion(before,after,[title]);
+ for(const rows of [[],[{title,status:'failed'}],[{title,status:'skipped'}],[...after,...after],[...after,before[1]],[{title:'Foreign launcher',status:'passed'}],[...after,{title:'Foreign skipped launcher',status:'skipped'}]])
+  assert.throws(()=>verifyNativeCaseUnion(before,rows,[title]));
+ for(const rows of [before.slice(1),[...before,before[1]],before.map((row,index)=>index===0?{...row,status:'passed'}:row),before.map((row,index)=>index===1?{...row,status:'failed'}:row)])
+  assert.throws(()=>verifyNativeCaseUnion(rows,after,[title]));
+ assert.throws(()=>autonomyNativeContinuation('echo omitted Worker branch'));
+ // Exercise only shell sequencing with a local stub: no suite, provider or
+ // native runner is invoked, and a failed boundary must prevent its successors.
+ const flow=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-autonomy-native-flow-'));
+ try{
+  const shell=autonomyNativeContinuation('if false; then\n  exit 99\nelse\n  npm run test:workers\nfi\n');
+  const stub=`set -e\nnode() {\n case "$1:$2" in\n scripts/local-release.mjs:verify-autonomy-native-pending) stage=pending;;\n --test:*) stage=launcher; printf '%s\\n' 'Synthetic launcher diagnostic';;\n scripts/local-release.mjs:verify-autonomy-native-repair) stage=proof;;\n scripts/test-q2-runtime.mjs:) stage=native;;\n *) return 98;;\n esac\n printf '%s\\n' "$stage" >> "$TRACE"\n if [ "$stage" = "$FAIL_STAGE" ]; then return 61; fi\n}\n`;
+  const stages=['pending','launcher','proof','native'];
+  for(const failed of ['',...stages]){
+   const trace=path.join(flow,'trace');fs.rmSync(trace,{force:true});fs.rmSync(path.join(flow,'.local-release'),{recursive:true,force:true});
+   const result=spawnSync('/bin/bash',['-c',stub+shell],{cwd:flow,env:{...process.env,TRACE:trace,FAIL_STAGE:failed},encoding:'utf8'});
+   assert.equal(result.status,failed?61:0,result.stderr);
+   assert.deepEqual(fs.readFileSync(trace,'utf8').trim().split('\n'),failed?stages.slice(0,stages.indexOf(failed)+1):stages);
+   if(failed==='launcher')assert.match(fs.readFileSync(path.join(flow,'.local-release/test-results/autonomy-launcher-fresh.tap'),'utf8'),/Synthetic launcher diagnostic/);
+  }
+ }finally{fs.rmSync(flow,{recursive:true,force:true});}
+
+ const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+ const parents=execFileSync('git',['rev-list','--parents','-n','1',head],{encoding:'utf8'}).trim().split(/\s+/);
+ if(parents.length===2&&parents[1]===p.source){
+  // Actual private failed evidence is staged by the single resumed release
+  // caller. It is never a committed fixture or rewritten as a historical pass.
+  const root='.local-release',checkpoint=path.join(root,'reuse/preflight-checkpoint.json');
+  assert(fs.existsSync(checkpoint),'Autonomy continuation requires its actual source checkpoint');
+  const bytes=fs.readFileSync(checkpoint),original=JSON.parse(bytes);
+  const selection=gitSelection(original.base,head),commands=selectedCommands(selection,{GITHUB_SHA:head,CANDIDATE_BASE:original.base});
+  const context={sha:head,base:original.base,planHash:validationPlan().digest,selection,environment:original.environment,commands};
+  assert.equal(commands.length,53);assert.equal(canvasPreflightPrefix(bytes,context).sha,p.source);
+  for(const change of [r=>r.status='passed',r=>r.sha='f'.repeat(40),r=>r.commands[41].exitCode=0,r=>r.commands[0].exitCode=1,r=>r.commands[1].logHash='changed',r=>r.commands.pop(),r=>r.commands[1].reusedFrom='foreign']){
+   const broken=structuredClone(original);change(broken);assert.throws(()=>canvasPreflightPrefix(Buffer.from(JSON.stringify(broken)),context));
+  }
+  for(const change of [r=>r.base='b'.repeat(40),r=>r.planHash='changed',r=>r.environment.key='changed',r=>r.environment.image='changed',r=>r.selection.full=!r.selection.full,r=>r.commands.pop(),r=>r.commands[41].run='echo skipped',r=>r.commands[49].run='echo skipped']){
+   const broken=structuredClone(context);change(broken);assert.throws(()=>canvasPreflightPrefix(bytes,broken));
+  }
+  const proof=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-autonomy-native-proof-'));
+  try{
+   fs.mkdirSync(path.join(proof,'reuse'));fs.mkdirSync(path.join(proof,'test-results'));
+   for(const file of ['preflight-checkpoint.json','preflight-failed.log'])fs.copyFileSync(path.join(root,'reuse',file),path.join(proof,'reuse',file));
+   const verify=()=>verifyAutonomyNativeRepair(proof,head);
+   assert.equal(verifyAutonomyNativeRepair(proof,head,{allowPending:true}).result,null);
+   assert.throws(verify,'Retained Worker/processor/26 launcher passes cannot replace the failed launcher or unexecuted native tail');
+   const source=fs.readFileSync(path.join(proof,'reuse/preflight-failed.log'),'utf8');
+   const originalLauncher=tapResults(source.slice(source.lastIndexOf('TAP version 13')));
+   assert.equal(originalLauncher.length,27);assert.equal(originalLauncher.filter(row=>row.status==='passed').length,26);
+   assert.deepEqual(originalLauncher.filter(row=>row.status!=='passed'),[{title,status:'failed'}]);
+   const reportFile=path.join(proof,'test-results/autonomy-launcher-fresh.tap');
+   const tap=rows=>['TAP version 13',...rows.flatMap((row,index)=>[`# Subtest: ${row.title}`,`${row.status==='failed'?'not ok':'ok'} ${index+1} - ${row.title}${row.status==='skipped'?' # SKIP test name does not match pattern':''}`]),`1..${rows.length}`,`# tests ${rows.length}`,'# suites 0',`# pass ${rows.filter(row=>row.status==='passed').length}`,`# fail ${rows.filter(row=>row.status==='failed').length}`,'# cancelled 0',`# skipped ${rows.filter(row=>row.status==='skipped').length}`,'# todo 0',''].join('\n');
+   const accepted=tap(after),save=value=>fs.writeFileSync(reportFile,value);
+   // Synthetic fresh TAP calibrates only this verifier. Actual publication
+   // still requires the separately executed failed case and native tail.
+   save(accepted);const expected={workerPassed:1471,processorPassed:true,launcherRetained:26,launcherFresh:1,launcherTotal:27};assert.deepEqual(verify().result,expected);
+   for(const rows of [[],[{title,status:'failed'}],[{title,status:'skipped'}],[...after,...after],[...after,originalLauncher.find(row=>row.status==='passed')],[{title:'Foreign launcher result',status:'passed'}],[...after,{title:'Foreign skipped result',status:'skipped'}]]){save(tap(rows));assert.throws(verify);}
+   for(const content of ['',accepted.replace('ok 1 -','not ok 1 -'),accepted.replace('# fail 0','# fail 1'),accepted.replace('# cancelled 0','# cancelled 1')]){save(content);assert.throws(verify);}
+   save(accepted);
+   for(const file of ['reuse/preflight-checkpoint.json','reuse/preflight-failed.log','test-results/autonomy-launcher-fresh.tap']){
+    const target=path.join(proof,file),saved=fs.readFileSync(target);fs.unlinkSync(target);assert.throws(verify);fs.writeFileSync(target,'forged success');assert.throws(verify);fs.writeFileSync(target,saved);
+   }
+   assert.deepEqual(verify().result,expected);
+   const continuation=autonomyNativeContinuation(commands[41].run);
+   assert(!continuation.includes('npm run test:workers'),'The already passed full Worker chain must not repeat');
+   assert(continuation.includes(`--test-name-pattern='^${title}$'`));
+   assert(continuation.endsWith('  node scripts/test-q2-runtime.mjs\nfi\n'),'The unexecuted native suite must remain the final ordinary branch action');
+   assert(continuation.includes('verify-autonomy-native-pending')&&continuation.includes('verify-autonomy-native-repair'));
+   for(const changed of ['echo skipped',commands[41].run+'\n  npm run test:workers',commands[41].run.replace('  npm run test:workers','  echo skipped')])assert.throws(()=>autonomyNativeContinuation(changed));
+   const syntax=spawnSync('/bin/bash',['-n'],{input:continuation,encoding:'utf8'});assert.equal(syntax.status,0,syntax.stderr);
+   console.log('Autonomy launcher continuation: exact failed checkpoint and 1471 Worker/processor/26 launcher passes retained; missing, tampered, failed, skipped, duplicate, foreign and repeated-passed fresh inputs reject. Native runtime remains required.');
+  }finally{fs.rmSync(proof,{recursive:true,force:true});}
+ }
+ console.log('Autonomy launcher continuation: actual Git pins the reviewed fixture and rejects product, schema, selection, environment, unrelated documentation, symlink, deletion and foreign-parent changes.');
+}
