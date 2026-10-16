@@ -10,8 +10,8 @@ import { environmentInputs, environmentKey, toolchainPins } from './local-releas
 import { gitSelection, tree, verifyManifest, verifyProofs, candidateProof, proofJobs, REPOSITORY } from '../pages-candidate.mjs';
 import { verifyFrontend } from './frontend-hosting.mjs';
 import { browserRows } from './browser-fixture-repair.mjs';
-import { AUTONOMY_BROWSER_POLICY, AUTONOMY_BROWSER_PREFLIGHT, assertAutonomyBrowserTree, verifyAutonomyBrowserReport, verifyAutonomyImageReuse, MODEL_BROWSER_POLICY, MODEL_BROWSER_PREFLIGHT, verifyModelBrowserReport, LOCAL_BROWSER_POLICY, readMigrationBrowserPool, SMOOTH_BROWSER_POLICY, SMOOTH_BROWSER_CONTINUATION, EXAMPLE_CACHE_CONTINUATION, WORKSPACE_CONTINUATION, AUDIO_FIT_CONTINUATION, INSPECTOR_CONTINUATION,EXPORT_BROWSER_CONTINUATION, smoothProfile, isSmoothContinuation, assertSmoothContinuationTree, verifySmoothBrowserReport, restoreSmoothBrowserProof } from './local-release-browser.mjs';
-export {AUTONOMY_BROWSER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT} from './local-release-browser.mjs';
+import { AUTONOMY_BROWSER_PROGRESS, isAutonomyBrowserProgress, AUTONOMY_BROWSER_POLICY, AUTONOMY_BROWSER_PREFLIGHT, assertAutonomyBrowserTree, verifyAutonomyBrowserReport, verifyAutonomyImageReuse, MODEL_BROWSER_POLICY, MODEL_BROWSER_PREFLIGHT, verifyModelBrowserReport, LOCAL_BROWSER_POLICY, readMigrationBrowserPool, SMOOTH_BROWSER_POLICY, SMOOTH_BROWSER_CONTINUATION, EXAMPLE_CACHE_CONTINUATION, WORKSPACE_CONTINUATION, AUDIO_FIT_CONTINUATION, INSPECTOR_CONTINUATION,EXPORT_BROWSER_CONTINUATION, smoothProfile, isSmoothContinuation, assertSmoothContinuationTree, verifySmoothBrowserReport, restoreSmoothBrowserProof } from './local-release-browser.mjs';
+export {AUTONOMY_BROWSER_PROGRESS,AUTONOMY_BROWSER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT} from './local-release-browser.mjs';
 
 export const LOCAL_REQUIRED_JOBS = { 'release-compatibility': [
   'Preflight complete static release plan', 'Select tests from changed files',
@@ -797,8 +797,61 @@ function autonomyNativeRecords(directory,log) {
   const files=fs.readdirSync(folder).filter(file=>file==='result.json'||file.endsWith('__result.json'));assert.equal(files.length,1);
   return JSON.parse(fs.readFileSync(path.join(folder,files[0]))).reports.flatMap(suite=>suite.records);
 }
+// One failed planner assertion after a completed prefix. The original e8
+// acceptance remains authoritative; this receipt adds only the genuine 0f work.
+export function verifyAutonomyBrowserProgress(directory,head) {
+  assertAutonomyBrowserTree(head);assert(isAutonomyBrowserProgress(head),'Not the exact autonomy planner successor');
+  const p=AUTONOMY_BROWSER_PROGRESS,folder=path.join(directory,'reuse/autonomy-browser-progress');
+  const bytes=fs.readFileSync(path.join(folder,'checkpoint.json'));
+  assert.equal(sha256(bytes),p.checkpoint,'Changed failed autonomy planner checkpoint');
+  const original=JSON.parse(bytes),baseBytes=fs.readFileSync(path.join(directory,'reuse/preflight-checkpoint.json'));
+  assert.equal(sha256(baseBytes),AUTONOMY_BROWSER_PREFLIGHT.checkpoint);const base=JSON.parse(baseBytes);
+  assert.equal(original.sha,p.source);assert.equal(original.id,p.run);assert.equal(original.status,'failed');
+  assert.deepEqual(original.preflightContinuation,{source:base.sha,checkpoint:AUTONOMY_BROWSER_PREFLIGHT.checkpoint});
+  for(const key of ['base','planHash'])assert.equal(original[key],base[key]);
+  const stableEnvironment=({preparationMs,...identity})=>identity;
+  assert.deepEqual(stableEnvironment(original.environment),stableEnvironment(base.environment));assert.equal(original.commands.length,51);
+  const flags=({files,reasons,...rest})=>rest;assert.deepEqual(flags(original.selection),flags(base.selection));
+  const commands=selectedCommands(original.selection,{GITHUB_SHA:original.sha,CANDIDATE_BASE:original.base});
+  for(let i=0;i<original.commands.length;i++){
+    const row=original.commands[i];
+    if(i<=14){
+      assert(row);assert.equal(row.exitCode,i===14?1:0);assert.deepEqual(row.command,commands[i]);
+      assert.equal(sha256(fs.readFileSync(path.join(folder,'logs',`${i}.log`))),row.logHash,'Changed autonomy planner progress log');
+    }else if(!AUTONOMY_BROWSER_PREFLIGHT.retain.includes(i))assert.equal(row,null,'Unexecuted command acquired evidence');
+    if(AUTONOMY_BROWSER_PREFLIGHT.retain.includes(i))assert.deepEqual(row,{...base.commands[i],reusedFrom:base.commands[i].reusedFrom||base.sha},'Changed inherited autonomy proof');
+  }
+  const failed=fs.readFileSync(path.join(folder,'logs/14.log'));
+  assert.equal(sha256(failed),p.failedLog,'Changed failed planner prefix log');
+  assert(failed.toString().includes('test-canvas-agent-release.mjs:22:9'));
+  return {original,retained:[...p.retain]};
+}
+export function autonomyReleasePlanContinuation(command) {
+  assert.equal(command,'npm run test:release-plan','Unexpected planner continuation caller');
+  return 'node scripts/local-release.mjs autonomy-release-plan-continuation';
+}
+export function autonomyReleasePlanSource(source) {
+  assert.equal(sha256(source),AUTONOMY_BROWSER_PROGRESS.plannerSource,'Changed planner source cannot inherit prefix evidence');
+  const text=source.toString(),begin=text.indexOf('\n{\n  const {backendContinuationSupported}'),tail=text.indexOf("await import('./test-canvas-agent-release.mjs');");
+  assert(begin>0&&tail>begin);assert.equal(text.indexOf("await import('./test-canvas-agent-release.mjs');",tail+1),-1);
+  return text.slice(0,begin)+'\n'+text.slice(tail);
+}
+export async function runAutonomyReleasePlanContinuation() {
+  const head=gitBytes(['rev-parse','HEAD']).toString().trim();
+  verifyAutonomyBrowserProgress(path.resolve('.local-release'),head);
+  const source=autonomyReleasePlanSource(fs.readFileSync('scripts/test-release-plan.mjs'));
+  const file=path.resolve(`scripts/.autonomy-release-plan-${process.pid}.mjs`);
+  fs.writeFileSync(file,source,{flag:'wx'});
+  try {
+    console.log('Autonomy planner continuation: retained the pinned completed prefix; starting test-canvas-agent-release.mjs.');
+    const {pathToFileURL}=await import('node:url');await import(pathToFileURL(file).href);
+    console.log('Autonomy planner continuation: complete remaining release-plan assertions passed.');
+  }
+  finally {fs.rmSync(file,{force:true});}
+}
 export function verifyAutonomyBrowserRepair(directory,head,{allowPending=false}={}) {
   const p=AUTONOMY_BROWSER_PREFLIGHT;assertCanvasPreflightTree(head,gitBytes,p);
+  if(isAutonomyBrowserProgress(head))verifyAutonomyBrowserProgress(directory,head);
   const pinned=(file,hash)=>{const bytes=fs.readFileSync(path.join(directory,'reuse',file));assert.equal(sha256(bytes),hash,`Changed original autonomy browser evidence: ${file}`);return bytes;};
   const original=JSON.parse(pinned('preflight-checkpoint.json',p.checkpoint));
   assert.equal(original.sha,p.source);assert.equal(original.status,'failed');assert.equal(original.commands.length,51);
@@ -1044,8 +1097,20 @@ export function verifyCanvasPreflight(directory,evidence,commands){
     assert(log.toString().includes('ok 1 - Every offered transition has a small distinct decoded GIF'));
     restoreCanvasHostingProof(directory,{verifyOnly:true});
   }
+  const progress=profile===AUTONOMY_BROWSER_PREFLIGHT&&isAutonomyBrowserProgress(evidence.sha)?verifyAutonomyBrowserProgress(directory,evidence.sha):null;
+  if(progress)assert.deepEqual(evidence.preflightProgress,{source:AUTONOMY_BROWSER_PROGRESS.source,checkpoint:AUTONOMY_BROWSER_PROGRESS.checkpoint});
+  else assert(!evidence.preflightProgress,'Unexpected planner progress receipt');
   for(const [i,row]of evidence.commands.entries()){
-    if(profile.retain.includes(i)){
+    if(progress&&progress.retained.includes(i)){
+      assert.deepEqual(row,{...progress.original.commands[i],reusedFrom:progress.original.sha});
+      assert.equal(sha256(fs.readFileSync(path.join(directory,row.log))),row.logHash);
+    }else if(progress&&i===14){
+      assert(!row.reusedFrom);assert.equal(row.continuation,autonomyReleasePlanContinuation(commands[i].run));
+      const log=fs.readFileSync(path.join(directory,row.log),'utf8');
+      assert(log.includes('Autonomy planner continuation: retained the pinned completed prefix; starting test-canvas-agent-release.mjs.'));
+      assert(log.includes('Autonomy planner continuation: complete remaining release-plan assertions passed.'));
+      assert(!log.includes('Release planner tests passed.')&&!log.includes('Auth configuration: reviewed absent-to-off'),'Completed planner prefix repeated');
+    }else if(profile.retain.includes(i)){
       assert.deepEqual({...row,reusedFrom:undefined},{...original.commands[i],reusedFrom:undefined});assert.equal(row.reusedFrom,original.commands[i].reusedFrom||original.sha);
       assert.equal(sha256(fs.readFileSync(path.join(directory,row.log))),original.commands[i].logHash);
     }else if([50,51].includes(i)&&profile===AUTONOMY_BROWSER_PREFLIGHT){

@@ -1154,9 +1154,20 @@ for(const source of ['9443369e0780144d2ffeea3900d3b86ccd57bc85','b71dd6212ee83e9
 }
 
 {
- const {AUTONOMY_BROWSER_POLICY:policy,AUTONOMY_BROWSER_PREFLIGHT:p,assertAutonomyBrowserTree,verifyAutonomyBrowserReport}=await import('./lib/local-release-browser.mjs');
- const {canvasPreflightProfile,canvasPreflightPrefix,verifyAutonomyBrowserRepair,autonomyBrowserContinuation,verifyAutonomyRetentionWorkers,autonomyRetentionContinuation}=await import('./lib/local-release-evidence.mjs');
+ const {AUTONOMY_BROWSER_POLICY:policy,AUTONOMY_BROWSER_PREFLIGHT:p,AUTONOMY_BROWSER_PROGRESS:progressProfile,assertAutonomyBrowserTree,verifyAutonomyBrowserReport}=await import('./lib/local-release-browser.mjs');
+ const {canvasPreflightProfile,canvasPreflightPrefix,verifyAutonomyBrowserRepair,verifyAutonomyBrowserProgress,autonomyReleasePlanContinuation,autonomyReleasePlanSource,autonomyBrowserContinuation,verifyAutonomyRetentionWorkers,autonomyRetentionContinuation}=await import('./lib/local-release-evidence.mjs');
  assert.equal(canvasPreflightProfile(p.source),p);
+ assert.equal(progressProfile.source,'0f82b547f0bed2b6af78723fbba1ea835abe63ac');
+ assert.deepEqual(progressProfile.retain,[13],'Only the newly completed unchanged compatibility check joins retained evidence');
+ assert.deepEqual(progressProfile.specs,{'scripts/test-canvas-agent-release.mjs':'f871928546c81fc5436616a85dab3d1ead7485476209ef3e0debbeaed277a415'});
+ assert.equal(autonomyReleasePlanContinuation('npm run test:release-plan'),'node scripts/local-release.mjs autonomy-release-plan-continuation');
+ for(const command of ['echo skipped','npm run test:release-plan\nnpm run test:release-plan','npm run test:release-plan && echo omitted','node scripts/test-canvas-agent-release.mjs'])assert.throws(()=>autonomyReleasePlanContinuation(command));
+ const planner=execFileSync('git',['show',`${progressProfile.source}:scripts/test-release-plan.mjs`]).toString(),tailSource=autonomyReleasePlanSource(planner);
+ const unexecuted=planner.slice(planner.indexOf("await import('./test-canvas-agent-release.mjs');"));
+ assert(tailSource.endsWith(unexecuted),'Every unexecuted planner assertion stays byte-identical and ordered');
+ assert.equal(tailSource.slice(0,-unexecuted.length),planner.split('\n{\n')[0]+'\n','Only imports, paths and createContext precede the unexecuted tail');
+ for(const passed of ['Seedance: reviewed custom tariff migration','Release planner tests passed.','Auth configuration: reviewed absent-to-off',"await import('./test-media-auth-config.mjs');"])assert(!tailSource.includes(passed),'Completed planner controls must not execute again');
+ for(const source of [planner+'\n',planner.replace("await import('./test-canvas-agent-release.mjs');",''),planner.replace("await import('./test-canvas-agent-release.mjs');","await import('./foreign.mjs');"),tailSource])assert.throws(()=>autonomyReleasePlanSource(source));
  // Exact historical Git objects, independent of later working-tree changes.
  const blobs={
   'tests/helpers/canvas-agent-autonomy-ui.cjs':'4f19b52ef05b624842ffdf28c66a5a2643f24f63',
@@ -1195,8 +1206,8 @@ for(const source of ['9443369e0780144d2ffeea3900d3b86ccd57bc85','b71dd6212ee83e9
  try{
   execFileSync('git',['init','--bare',bare],{stdio:'pipe'});
   fs.writeFileSync(path.join(bare,'objects/info/alternates'),path.resolve(execFileSync('git',['rev-parse','--git-path','objects'],{encoding:'utf8'}).trim())+'\n');
-  const commit=(changes,parent=p.source)=>{
-   read(['read-tree',p.source]);
+  const commit=(changes,parent=p.source,base=p.source)=>{
+   read(['read-tree',base]);
    for(const [file,value]of Object.entries(changes)){
     if(value===null){read(['update-index','--index-info'],Buffer.from(`0 ${'0'.repeat(40)}\t${file}\n`));continue;}
     const blob=read(['hash-object','-w','--stdin'],value.content??value).toString().trim();
@@ -1214,12 +1225,21 @@ for(const source of ['9443369e0780144d2ffeea3900d3b86ccd57bc85','b71dd6212ee83e9
   for(const value of [null,{mode:'120000',content:Buffer.from('outside')}])assert.throws(()=>assertAutonomyBrowserTree(commit({...reviewed,'scripts/local-release.mjs':value}),read));
   assert.throws(()=>assertAutonomyBrowserTree(commit(reviewed,accepted),read),'A descendant is not the closed direct successor');
   assert.throws(()=>canvasPreflightPrefix(Buffer.from(JSON.stringify({sha:p.source})),{sha:accepted},read));
+  const progress='0f82b547f0bed2b6af78723fbba1ea835abe63ac',file='scripts/test-canvas-agent-release.mjs';
+  const correction=execFileSync('git',['cat-file','blob','29f5f55d7fb6dc4f9cc1fa51bccd8925fb32d02e']);
+  assert.equal(sha256(correction),'f871928546c81fc5436616a85dab3d1ead7485476209ef3e0debbeaed277a415');
+  const tail=changes=>commit(changes,progress,progress),fixed=tail({[file]:correction});
+  assertAutonomyBrowserTree(fixed,read);
+  for(const changes of [{},{[file]:Buffer.from('Unreviewed expectation')},{[file]:null},{[file]:{mode:'120000',content:Buffer.from('outside')}}])assert.throws(()=>assertAutonomyBrowserTree(tail(changes),read));
+  for(const unrelated of ['js/pages/canvas/agent.js','config/release-compat.json','workers/auth/migrations/0108_canvas_creative_export_retention.sql','scripts/test-release-plan.mjs','scripts/lib/ci-test-selection.mjs'])
+   assert.throws(()=>assertAutonomyBrowserTree(tail({[file]:correction,[unrelated]:Buffer.from('Unreviewed progress change')}),read));
+  assert.throws(()=>assertAutonomyBrowserTree(commit({[file]:correction},fixed,progress),read),'Only the exact failed progress source can parent this correction');
  }finally{fs.rmSync(temporary,{recursive:true,force:true});}
  for(const scope of ['homepage','auth','foreign'])assert.throws(()=>autonomyBrowserContinuation('echo omitted acceptance',scope));
 
  const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
  const parents=execFileSync('git',['rev-list','--parents','-n','1',head],{encoding:'utf8'}).trim().split(/\s+/);
- if(parents.length===2&&parents[1]===p.source){
+ if(parents.length===2&&[p.source,'0f82b547f0bed2b6af78723fbba1ea835abe63ac'].includes(parents[1])){
   const root='.local-release',bytes=fs.readFileSync(path.join(root,'reuse/preflight-checkpoint.json')),original=JSON.parse(bytes);
   const selection=gitSelection(original.base,head),commands=selectedCommands(selection,{GITHUB_SHA:head,CANDIDATE_BASE:original.base});
   const context={sha:head,base:original.base,planHash:validationPlan().digest,selection,environment:original.environment,commands};
@@ -1239,6 +1259,21 @@ for(const source of ['9443369e0780144d2ffeea3900d3b86ccd57bc85','b71dd6212ee83e9
    for(const file of Object.keys(p.homepageReports))fs.copyFileSync(path.join(root,'test-results',file),path.join(reports,file));
    const verify=()=>verifyAutonomyBrowserRepair(proof,head),pending=verifyAutonomyBrowserRepair(proof,head,{allowPending:true});
    assert.equal(pending.result,null);assert.throws(verify,'Retained acceptance cannot replace the required new cases');
+   if(parents[1]===progressProfile.source){
+    const progress=()=>verifyAutonomyBrowserProgress(proof,head),accepted=progress();
+    assert.equal(accepted.original.sha,progressProfile.source);assert.equal(accepted.original.status,'failed');assert.equal(accepted.original.commands.length,51);
+    assert(accepted.original.commands.slice(0,14).every(row=>row.exitCode===0));assert.equal(accepted.original.commands[14].exitCode,1);assert.equal(accepted.original.commands[15],null);
+    assert.deepEqual(accepted.retained,[13]);assert.equal(accepted.original.commands[42].reusedFrom,p.source,'The original image stays attributed to its completed e8 execution');
+    for(const file of ['checkpoint.json','logs/0.log','logs/13.log','logs/14.log']){
+     const target=path.join(proof,'reuse/autonomy-browser-progress',file),saved=fs.readFileSync(target);
+     fs.unlinkSync(target);assert.throws(progress);assert.throws(()=>verifyAutonomyBrowserRepair(proof,head,{allowPending:true}));fs.writeFileSync(target,'{}');assert.throws(progress);fs.writeFileSync(target,saved);
+    }
+    const target=path.join(proof,'reuse/autonomy-browser-progress/checkpoint.json'),saved=fs.readFileSync(target);
+    for(const change of [r=>r.status='passed',r=>r.commands[14].exitCode=0,r=>r.commands[13].exitCode=1,r=>r.commands[13].logHash='foreign',r=>r.commands[15]=r.commands[13],r=>r.commands[42].reusedFrom=progressProfile.source,r=>delete r.preflightContinuation]){
+     const broken=JSON.parse(saved);change(broken);fs.writeFileSync(target,JSON.stringify(broken));assert.throws(progress);fs.writeFileSync(target,saved);
+    }
+    assert.deepEqual(progress().retained,[13]);
+   }
    const previous=pending.previous,discovery=previous.map(({key,file,title,project})=>({key,file,title,project}));
    const changed=previous.filter(row=>row.file==='canvas.spec.js'&&(/^Canvas autonomy (en|de): persisted budget_edits$/.test(row.title)||/^Canvas editable film (en|de): rerun remove reorder sound export reopen$/.test(row.title)||/^Canvas asset audio (en|de): typed references, persistent controls and real export$/.test(row.title)||(row.project==='webkit-canvas'&&row.title==='Canvas transition examples de: isolated illustrations and motion controls')));
    const changedDefinitions=['chromium','webkit-canvas'].flatMap(project=>['en','de'].flatMap(locale=>[[project,`Canvas autonomy ${locale}: persisted budget_edits`],[project,`Canvas editable film ${locale}: rerun remove reorder sound export reopen`],[project,`Canvas asset audio ${locale}: typed references, persistent controls and real export`]]));

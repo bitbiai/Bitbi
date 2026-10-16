@@ -16,20 +16,27 @@ const load=worker=>JSON.parse(fs.readFileSync(path.join(root,`workers/${worker}/
   'workers/auth/src/lib/canvas-agent-model-operations.js','workers/auth/src/lib/canvas-agent-planning.js',
   'js/pages/canvas/agent.js','js/pages/canvas/agent-copy.js'];
  const context={...loadReleaseCompatibilityContext(root),repoRoot:root},plan=createReleasePlan(context,{changedFiles});
- assert(backendContinuationSupported(plan));assertSupportedBackendMigrations([migration]);
+ // The changed migration can precede the required current schema checkpoint.
+ const checkpoint=context.manifest.release.schemaCheckpoints.auth.latest;
+ assert(backendContinuationSupported(plan));assertSupportedBackendMigrations([migration,checkpoint]);
  assert.deepEqual(plan.workerDeploys.map(step=>step.worker),['ai','auth']);
  assert.deepEqual(plan.deploySteps.map(step=>step.type),['schema-checkpoint','worker','worker','static']);
- assert.equal(plan.schemaApplies[0].latestMigration,migration);
+ assert.equal(plan.schemaApplies[0].latestMigration,checkpoint);
  assert(!plan.workerDeploys.some(step=>step.worker==='media'),'Planner repair must retain the unchanged media activation');
  assert(plan.manualPrerequisites.required.some(item=>item.name==='H3_CLOUDFLARE_API_TOKEN'&&item.worker==='auth'));
  for(const file of ['workers/ai/src/lib/generation-timeout.js','workers/ai/src/routes/unreviewed-background.js','workers/ai/wrangler.jsonc'])
   assert(!backendContinuationSupported(createReleasePlan(context,{changedFiles:[...changedFiles,file]})),'No broad AI transport/config exception');
- assert.throws(()=>assertSupportedBackendMigrations([migration,'0108_unreviewed.sql']));
+ assert.throws(()=>assertSupportedBackendMigrations([migration,'0999_unreviewed.sql']));
+ const retention=createReleasePlan(context,{changedFiles:['workers/auth/migrations/0108_canvas_creative_export_retention.sql','config/release-compat.json']});
+ assert(backendContinuationSupported(retention));assertSupportedBackendMigrations(['0108_canvas_creative_export_retention.sql']);
+ assert.equal(retention.schemaApplies[0].latestMigration,checkpoint);
+ assert.deepEqual(retention.workerDeploys.map(step=>step.worker),['auth']);
+ assert(!retention.deploySteps.some(step=>step.type==='service'),'Retention-only schema work must not redeploy the media processor');
  const creative=createReleasePlan(context,{changedFiles:[...changedFiles,'services/homepage-ffmpeg-processor/canvas-assembly-contract.mjs','workers/auth/src/lib/canvas-export-recipes.js']});
  assert(backendContinuationSupported(creative));
  assert.deepEqual(creative.workerDeploys.map(step=>step.worker),['ai','media','auth']);
  assert(creative.deploySteps.some(step=>step.type==='service'&&step.service==='homepage-ffmpeg-processor'));
- assert.equal(creative.schemaApplies[0].latestMigration,migration);
+ assert.equal(creative.schemaApplies[0].latestMigration,checkpoint);
 }
 for(const worker of ['auth','ai']) {
  const after=load(worker),before=structuredClone(after);for(const key of worker==='auth'?['CANVAS_AGENT_ENABLED','ENABLE_GROK_4_7']:['ENABLE_GROK_4_7'])delete before.vars[key];
