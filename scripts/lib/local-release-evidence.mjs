@@ -10,7 +10,8 @@ import { environmentInputs, environmentKey, toolchainPins } from './local-releas
 import { gitSelection, tree, verifyManifest, verifyProofs, candidateProof, proofJobs, REPOSITORY } from '../pages-candidate.mjs';
 import { verifyFrontend } from './frontend-hosting.mjs';
 import { browserRows } from './browser-fixture-repair.mjs';
-import { LOCAL_BROWSER_POLICY, readMigrationBrowserPool, SMOOTH_BROWSER_POLICY, SMOOTH_BROWSER_CONTINUATION, EXAMPLE_CACHE_CONTINUATION, WORKSPACE_CONTINUATION, AUDIO_FIT_CONTINUATION, INSPECTOR_CONTINUATION,EXPORT_BROWSER_CONTINUATION, smoothProfile, isSmoothContinuation, assertSmoothContinuationTree, verifySmoothBrowserReport, restoreSmoothBrowserProof } from './local-release-browser.mjs';
+import { MODEL_BROWSER_POLICY, MODEL_BROWSER_PREFLIGHT, verifyModelBrowserReport, LOCAL_BROWSER_POLICY, readMigrationBrowserPool, SMOOTH_BROWSER_POLICY, SMOOTH_BROWSER_CONTINUATION, EXAMPLE_CACHE_CONTINUATION, WORKSPACE_CONTINUATION, AUDIO_FIT_CONTINUATION, INSPECTOR_CONTINUATION,EXPORT_BROWSER_CONTINUATION, smoothProfile, isSmoothContinuation, assertSmoothContinuationTree, verifySmoothBrowserReport, restoreSmoothBrowserProof } from './local-release-browser.mjs';
+export {MODEL_BROWSER_PREFLIGHT} from './local-release-browser.mjs';
 
 export const LOCAL_REQUIRED_JOBS = { 'release-compatibility': [
   'Preflight complete static release plan', 'Select tests from changed files',
@@ -257,7 +258,7 @@ export function restoreCanvasHostingProof(directory,{verifyOnly=false}={}) {
   const permission=path.join(directory,'reuse/test-results/permission-checkpoint.json');
   const checkpoint=fs.existsSync(permission)?permission:preflight;
   const source=fs.existsSync(checkpoint)?JSON.parse(fs.readFileSync(checkpoint)).sha:null;
-  const p=source===EXAMPLE_BROWSER_PREFLIGHT.source?{...EXAMPLE_BROWSER_PREFLIGHT,tail:source}:[EXAMPLE_CACHE_CONTINUATION.source,EXPORT_BROWSER_CONTINUATION.source,WORKSPACE_CONTINUATION.source,AUDIO_FIT_CONTINUATION.source,INSPECTOR_CONTINUATION.source].includes(source)?{...smoothProfile(source),tail:source}:PERMISSION_CONTINUATION,read=(file,hash)=>{const bytes=fs.readFileSync(path.join(directory,'reuse',file));assert.equal(sha256(bytes),hash);return JSON.parse(bytes);};
+  const p=source===MODEL_BROWSER_PREFLIGHT.source?{...MODEL_BROWSER_PREFLIGHT,tail:source}:source===EXAMPLE_BROWSER_PREFLIGHT.source?{...EXAMPLE_BROWSER_PREFLIGHT,tail:source}:[EXAMPLE_CACHE_CONTINUATION.source,EXPORT_BROWSER_CONTINUATION.source,WORKSPACE_CONTINUATION.source,AUDIO_FIT_CONTINUATION.source,INSPECTOR_CONTINUATION.source].includes(source)?{...smoothProfile(source),tail:source}:PERMISSION_CONTINUATION,read=(file,hash)=>{const bytes=fs.readFileSync(path.join(directory,'reuse',file));assert.equal(sha256(bytes),hash);return JSON.parse(bytes);};
   const original=read('hosting-manifest.json',p.manifest),oldProof=read('hosting-proof.json',p.proof);
   const manifest=JSON.parse(fs.readFileSync(path.join(directory,'candidate/manifest.json')));
   verifyMigrationCandidateBytes(directory,original,manifest,{allowLabGuard:false,workspaceRepair:source===WORKSPACE_CONTINUATION.source});assert.deepEqual(manifest.hosting,original.hosting);
@@ -502,6 +503,7 @@ export function verifyLocalEvidence(directory, expected, { now = Date.now(), sel
     const runtimes=commandRuntimes(command).map(part=>part.runtime);
     if(runtimes.includes('native-browser-v1'))assert.deepEqual(result.runtimes,runtimes,'Missing/mismatched browser execution environment');
     if(evidence.repair&&['Run selected auth and admin tests','Run selected homepage core tests'].includes(command.name))assert.equal(result.browserContinuation,LOCAL_BROWSER_POLICY);
+    else if(evidence.preflightContinuation?.source===MODEL_BROWSER_PREFLIGHT.source&&['Run selected homepage core tests','Run selected auth and admin tests'].includes(command.name))assert.equal(result.browserContinuation,MODEL_BROWSER_POLICY);
     else if(isSmoothContinuation(evidence.permissionContinuation?.source)&&command.name==='Run selected auth and admin tests')assert.equal(result.browserContinuation,SMOOTH_BROWSER_POLICY);
     else assert(!result.browserContinuation,'Unreviewed browser continuation');
     assert(result.durationMs >= 0 && Number.isFinite(result.durationMs));
@@ -645,13 +647,66 @@ export function modelWorkerContinuation(command) {
   // Keep the grep end-anchor/quote literal; string replacement expands $'.
   return command.replace('  npm run test:workers',()=>fresh);
 }
+export function modelBrowserContinuation(command,scope='homepage') {
+  if(scope==='auth'){
+    const original='  PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:auth -- --output=test-results/browser-artifacts --reporter=list,json';
+    assert.equal(command.split(original).length,2);assert(command.endsWith('else\n'+original+'\nfi\n'),'Changed ordinary Auth browser branch');
+    return command.replace(original,()=> '  node scripts/local-release.mjs model-browser-continuation auth');
+  }
+  assert.equal(scope,'homepage');
+  assert.equal(command.trim(),'PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-homepage.json npm run test:homepage-core -- --output=test-results/browser-artifacts --reporter=list,json','Changed ordinary core browser command');
+  return 'node scripts/local-release.mjs model-browser-continuation';
+}
+export function verifyModelBrowserRepair(directory,head,{allowPending=false}={}) {
+  const p=MODEL_BROWSER_PREFLIGHT;assertCanvasPreflightTree(head,gitBytes,p);
+  const pinned=(file,hash)=>{const bytes=fs.readFileSync(path.join(directory,'reuse',file));assert.equal(sha256(bytes),hash,`Changed original browser evidence: ${file}`);return bytes;};
+  const original=JSON.parse(pinned('preflight-checkpoint.json',p.checkpoint));
+  assert.equal(original.sha,p.source);assert.equal(original.status,'failed');assert.equal(original.commands.length,50);
+  assert(original.commands.slice(0,49).every(row=>row.exitCode===0));assert.equal(original.commands[49].exitCode,1);
+  pinned('preflight-failed.log',p.failedLog);
+  const origin=path.join(directory,'reuse/model-worker-origin');
+  verifyCanvasPreflight(origin,original,selectedCommands(original.selection,{GITHUB_SHA:original.sha,CANDIDATE_BASE:original.base}));
+  for(const row of original.commands.slice(0,49))assert.equal(sha256(fs.readFileSync(path.join(origin,row.log))),row.logHash,'Changed retained upstream execution log');
+  const previous=browserRows(JSON.parse(pinned('model-browser-original.json',p.report)));
+  assert.equal(sha256(JSON.stringify(previous)),p.rows);assert.equal(previous.length,p.required);
+  const standard=browserRows(JSON.parse(pinned('model-browser-standard.json',p.standardDiscovery)),{discovery:true});
+  const auth=standard.filter(row=>row.project==='chromium'&&(/^(auth-admin|wallet-nav|locale|oma2-q1-member)\.spec\.js$/.test(row.file)||row.file.startsWith('oma2-q3-')));
+  assert.equal(sha256(JSON.stringify(auth)),p.authDiscovery);assert.equal(auth.length,p.authRequired);
+  const overlap=previous.filter(row=>auth.some(item=>item.key===row.key));
+  assert.equal(overlap.length,p.authReused);assert(overlap.every(row=>row.file==='locale.spec.js'&&row.project==='chromium'&&row.expectedStatus==='passed'&&row.status==='expected'&&row.results.length===1&&row.results[0].status==='passed'&&row.results[0].retry===0&&!row.results[0].error),'Only the actual first-attempt locale passes may be retained for Auth');
+  for(const [file,hash]of Object.entries(p.homepageReports))assert.equal(sha256(fs.readFileSync(path.join(directory,'test-results',file))),hash,'Changed retained homepage acceptance');
+  if(allowPending)return {original,previous,result:null};
+  const result={};
+  for(const scope of ['homepage','auth']){
+    const prefix=scope==='auth'?'model-browser-auth':'model-browser';
+    const raw=JSON.parse(fs.readFileSync(path.join(directory,`test-results/${prefix}-fresh.json`)));
+    assert.deepEqual(raw.errors,[]);assert.equal(raw.config.workers,1);
+    const discovery=browserRows(JSON.parse(fs.readFileSync(path.join(directory,`test-results/${prefix}-discovery.json`))),{discovery:true});
+    const report=JSON.parse(fs.readFileSync(path.join(directory,`test-results/candidate-${scope}.json`)));
+    assert.equal(report.scope,scope);assert.deepEqual(report.previous,previous);assert.deepEqual(report.discovery,discovery);assert.deepEqual(report.fresh,browserRows(raw));
+    result[scope]=verifyModelBrowserReport(report,head);
+  }
+  return {original,previous,result};
+}
 export function canvasExampleBrowserContinuation(command){
   const passed='  node --test tests/canvas-transition-examples.test.mjs\n';
   assert.equal(command.split(passed).length,2);assert(command.includes("--grep 'Canvas transition examples'"));
   return command.replace(passed,''); // Pinned decoded-asset pass remains in the archived original log.
 }
-export const canvasPreflightProfile=source=>[CANVAS_PREFLIGHT,EXPORT_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,EXAMPLE_PREFLIGHT,EXAMPLE_BROWSER_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT].find(p=>p.source===source)||null;
+export const canvasPreflightProfile=source=>[CANVAS_PREFLIGHT,EXPORT_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,EXAMPLE_PREFLIGHT,EXAMPLE_BROWSER_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].find(p=>p.source===source)||null;
 export function assertCanvasPreflightTree(head,read=gitBytes,profile=CANVAS_PREFLIGHT){
+  if(profile===MODEL_BROWSER_PREFLIGHT){
+    assertCanvasPreflightTree(profile.source,read,MODEL_WORKER_PREFLIGHT);
+    assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,profile.source],'Browser continuation requires the direct source successor');
+    const files=read(['diff','--name-only',profile.source,head]).toString().trim().split('\n').filter(Boolean);
+    assert(files.every(file=>[...Object.keys(profile.specs),'scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/lib/local-release-browser.mjs','scripts/pages-candidate.mjs','scripts/test-local-release.mjs'].includes(file)),'Browser continuation changed product, tests, selection or environment');
+    for(const [file,hash]of Object.entries(profile.specs)){
+      assert(files.includes(file),'Missing reviewed browser fixture correction');
+      assert.equal(sha256(read(['show',`${head}:${file}`])),hash,'Unreviewed browser fixture correction');
+    }
+    for(const file of files)assert(/^100644 blob [0-9a-f]{40}\t/.test(read(['ls-tree',head,'--',file]).toString()),'Continuation input must remain an ordinary file');
+    return;
+  }
   if(profile===MODEL_WORKER_PREFLIGHT){
     assertCanvasPreflightTree(profile.source,read,MODEL_WORKFLOW_PREFLIGHT);
     assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,profile.source],'Worker continuation requires the direct source successor');
@@ -768,11 +823,12 @@ export function canvasPreflightPrefix(bytes,{sha,base,planHash,environment,comma
   assertCanvasPreflightTree(sha,read,profile);assert.equal(sha256(bytes),profile.checkpoint,'Changed failed preflight checkpoint');
   assert.equal(original.sha,profile.source);assert.equal(original.status,'failed');
   assert.equal(original.base,base);assert.equal(original.planHash,planHash);assert.equal(original.environment.key,environment.key);
-  assert.equal(original.commands.length,profile===MODEL_WORKER_PREFLIGHT?42:profile===MODEL_WORKFLOW_PREFLIGHT?18:profile===MODEL_SELECTION_PREFLIGHT?17:profile===MODEL_OPERATION_PREFLIGHT?14:profile===EXAMPLE_BROWSER_PREFLIGHT?42:profile===EXAMPLE_PREFLIGHT?18:profile===EXPORT_PREFLIGHT?16:profile===EXPORT_MEDIA_PREFLIGHT?43:42);assert.equal(original.commands[profile===MODEL_WORKER_PREFLIGHT?41:profile===MODEL_WORKFLOW_PREFLIGHT?17:profile===MODEL_SELECTION_PREFLIGHT?16:profile===MODEL_OPERATION_PREFLIGHT?13:profile===EXAMPLE_BROWSER_PREFLIGHT?41:profile===EXAMPLE_PREFLIGHT?17:profile===EXPORT_PREFLIGHT?15:profile===EXPORT_MEDIA_PREFLIGHT?42:41].exitCode,1);
+  assert.equal(original.commands.length,profile===MODEL_BROWSER_PREFLIGHT?50:profile===MODEL_WORKER_PREFLIGHT?42:profile===MODEL_WORKFLOW_PREFLIGHT?18:profile===MODEL_SELECTION_PREFLIGHT?17:profile===MODEL_OPERATION_PREFLIGHT?14:profile===EXAMPLE_BROWSER_PREFLIGHT?42:profile===EXAMPLE_PREFLIGHT?18:profile===EXPORT_PREFLIGHT?16:profile===EXPORT_MEDIA_PREFLIGHT?43:42);assert.equal(original.commands[profile===MODEL_BROWSER_PREFLIGHT?49:profile===MODEL_WORKER_PREFLIGHT?41:profile===MODEL_WORKFLOW_PREFLIGHT?17:profile===MODEL_SELECTION_PREFLIGHT?16:profile===MODEL_OPERATION_PREFLIGHT?13:profile===EXAMPLE_BROWSER_PREFLIGHT?41:profile===EXAMPLE_PREFLIGHT?17:profile===EXPORT_PREFLIGHT?15:profile===EXPORT_MEDIA_PREFLIGHT?42:41].exitCode,1);
   if(profile===MODEL_SELECTION_PREFLIGHT)assert.deepEqual(original.preflightContinuation,{source:MODEL_OPERATION_PREFLIGHT.source,checkpoint:MODEL_OPERATION_PREFLIGHT.checkpoint},'Missing original preflight chain');
   if(profile===MODEL_WORKFLOW_PREFLIGHT)assert.deepEqual(original.preflightContinuation,{source:MODEL_SELECTION_PREFLIGHT.source,checkpoint:MODEL_SELECTION_PREFLIGHT.checkpoint},'Missing original preflight chain');
   if(profile===MODEL_WORKER_PREFLIGHT)assert.deepEqual(original.preflightContinuation,{source:MODEL_WORKFLOW_PREFLIGHT.source,checkpoint:MODEL_WORKFLOW_PREFLIGHT.checkpoint},'Missing original preflight chain');
-  if([MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT].includes(profile)){
+  if(profile===MODEL_BROWSER_PREFLIGHT)assert.deepEqual(original.preflightContinuation,{source:MODEL_WORKER_PREFLIGHT.source,checkpoint:MODEL_WORKER_PREFLIGHT.checkpoint},'Missing original preflight chain');
+  if([MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].includes(profile)){
     const flags=({files,reasons,...metadata})=>metadata;
     assert.deepEqual(flags(selection),flags(original.selection),'Changed selection cannot inherit preflight evidence');
     assert.equal(environment.image,original.environment.image,'Changed execution image');
@@ -800,7 +856,8 @@ export function verifyCanvasPreflight(directory,evidence,commands){
   const profile=canvasPreflightProfile(evidence.preflightContinuation?.source);assert(profile,'Unknown preflight origin');
   assert.deepEqual(evidence.preflightContinuation,{source:profile.source,checkpoint:profile.checkpoint});
   const original=canvasPreflightPrefix(fs.readFileSync(path.join(directory,'reuse/preflight-checkpoint.json')),{...evidence,commands});
-  if([MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT].includes(profile))assert.equal(sha256(fs.readFileSync(path.join(directory,'reuse/preflight-failed.log'))),profile.failedLog,'Changed original failed preflight log');
+  if([MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].includes(profile))assert.equal(sha256(fs.readFileSync(path.join(directory,'reuse/preflight-failed.log'))),profile.failedLog,'Changed original failed preflight log');
+  if(profile===MODEL_BROWSER_PREFLIGHT){verifyModelBrowserRepair(directory,evidence.sha);restoreCanvasHostingProof(directory,{verifyOnly:true});}
   if(profile===MODEL_WORKER_PREFLIGHT)verifyModelWorkerRepair(directory,evidence.sha);
   if(profile===MODEL_WORKFLOW_PREFLIGHT)verifyCanvasPreflight(path.join(directory,'reuse/model-selection-origin'),original,selectedCommands(original.selection,{GITHUB_SHA:original.sha,CANDIDATE_BASE:original.base}));
   if(profile===MODEL_SELECTION_PREFLIGHT)verifyCanvasPreflight(path.join(directory,'reuse/model-operation-origin'),original,selectedCommands(original.selection,{GITHUB_SHA:original.sha,CANDIDATE_BASE:original.base}));
@@ -813,6 +870,8 @@ export function verifyCanvasPreflight(directory,evidence,commands){
     if(profile.retain.includes(i)){
       assert.deepEqual({...row,reusedFrom:undefined},{...original.commands[i],reusedFrom:undefined});assert.equal(row.reusedFrom,original.commands[i].reusedFrom||original.sha);
       assert.equal(sha256(fs.readFileSync(path.join(directory,row.log))),original.commands[i].logHash);
+    }else if([49,50].includes(i)&&profile===MODEL_BROWSER_PREFLIGHT){
+      assert(!row.reusedFrom);assert.equal(row.browserContinuation,MODEL_BROWSER_POLICY);assert.equal(row.continuation,modelBrowserContinuation(commands[i].run,i===50?'auth':'homepage'));
     }else if(i===41&&profile===MODEL_WORKER_PREFLIGHT){
       assert(!row.reusedFrom);assert.equal(row.continuation,modelWorkerContinuation(commands[i].run));
     }else if(i===41&&profile===EXAMPLE_BROWSER_PREFLIGHT){

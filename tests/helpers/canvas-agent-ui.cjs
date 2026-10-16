@@ -176,7 +176,19 @@ exports.outcome=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMoc
     await expect(value(de?'Im Guthaben reserviert (Credits)':'Reserved in wallet (credits)')).toHaveText('127');
     await expect(panel).toContainText(de?'Die Antwortfrist ist abgelaufen':'The response deadline has passed');
     await expect(panel).toContainText(de?'Sie wird nicht erneut gesendet':'It will not be sent again');
-    await expect(panel.locator('details').filter({has:page.getByText(de?'Produktionsdetails':'Production details',{exact:true})})).not.toHaveAttribute('open','');
+    const details=panel.locator('.canvas-agent__production > details');
+    await expect(details).toHaveCount(1);await expect(details).toBeVisible();
+    const detailsToggle=details.locator(':scope > summary');
+    await expect(detailsToggle).toHaveText(de?'Produktionsdetails':'Production details');
+    const expectClosed=options=>expect(details).not.toHaveAttribute('open','',options);
+    await expectClosed();
+    // A visible opened disclosure must fail the same closed-state assertion;
+    // hidden availability diagnostics with the same label cannot satisfy it.
+    await detailsToggle.click();await expect(details).toHaveAttribute('open','');
+    let openRejected=false;
+    try {await expectClosed({timeout:150});}catch(error){openRejected=String(error.message).includes('toHaveAttribute');}
+    expect(openRejected).toBe(true);
+    await detailsToggle.click();await expectClosed();
     await expect(form).toBeHidden();
     const resume=panel.getByRole('button',{name:de?'Fortsetzen':'Resume',exact:true,includeHidden:true});
     await expect(resume).toBeHidden();

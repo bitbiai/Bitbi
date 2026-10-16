@@ -92,6 +92,71 @@ export function verifyBrowserUnion(discovery,retained,fresh) {
   }
   return {required:discovery.length,reused:discovery.length-needed.length,executed:fresh.length};
 }
+// One exact fixture correction, pinned to the completed failed local run. Keep
+// both the original failures and successful overlapping Locale cases intact.
+export const MODEL_BROWSER_POLICY='local-canvas-agent-browser-continuation-v1';
+export const MODEL_BROWSER_PREFLIGHT=Object.freeze({
+  source:'09accfa2f12ce4f0284ca06f1f8af5782f8704f2',
+  run:'09accfa2f12ce4f0284ca06f1f8af5782f8704f2-52cb160a-2e45-4f05-9297-e2719019160e',
+  checkpoint:'7e5466dd86287c5099e1befbcb0ae4f8d1305041e0d946579c45799f01cc6fe1',
+  failedLog:'15bd9bdba31b12b905ffddc91d84fc04b8d4db71c1f9e275c6c3bc0380846d0b',
+  report:'b65bb2e27f5e6dfc81090bd6a16b3665ca8a389ad10e66dce7ea02d470ce06b1',
+  rows:'cb97a41ef9daf5ab2f0de4f9e889af9f0263086da35514dd3c3d551399a3ea90',
+  discovery:'6c5d083fd145a5663254da73656e1fd51d0fe12a337095ef5c695fd1a6b686da',required:566,
+  standardDiscovery:'a5569d74218c4b1adaacf0870d5b5d026596480513a98a1a8c2e9c4c94e24951',
+  standardFile:'homepage-discovery-JDxj9q/standard.json',
+  authDiscovery:'7f7b08cedcd4e7883649e1210b89e8179b867ce7e9611481df2b8a22c0c6b903',authRequired:709,authReused:25,
+  manifest:'7581b14dac052bea8392a7f41827c056ef9afd8b8a28c1a7244f548d65287043',
+  proof:'357c842b04bd21034b1698f345ed11c3990989866af5862f4fcf651434403ecf',
+  homepageReports:Object.freeze({
+    'homepage-functional.json':'7e5fba51da6a056628d532e72e2b23a2e646448fc41b29a754db33be489c58f3',
+    'homepage-discovery.json':'c31395cc77f8a55cf63db15ae1deaf3c79685cacb59e029a6d40479a62ff0d0f',
+  }),
+  specs:Object.freeze({'tests/helpers/canvas-agent-ui.cjs':'8652ec65050fece55e7a9ab2365bc3d1234f021dc0beabfbfa92b2653e91e52f'}),
+  retain:[1,4,5,6,7,8,9,10,11,12,13,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,36,40,41,42,43,44,45,46],
+});
+export function verifyModelBrowserReport(report,sha) {
+  const p=MODEL_BROWSER_PREFLIGHT;
+  assert.equal(report.policy,MODEL_BROWSER_POLICY);assert.equal(report.sha,sha);assert.equal(report.source,p.source);assert(['homepage','auth'].includes(report.scope));
+  const auth=report.scope==='auth';
+  assert.equal(sha256(JSON.stringify(report.previous)),p.rows,'Original failed browser results changed');
+  assert.equal(sha256(JSON.stringify(report.discovery)),auth?p.authDiscovery:p.discovery,'Required browser discovery changed');
+  assert.equal(report.previous.length,p.required);assert.equal(report.discovery.length,auth?p.authRequired:p.required);
+  const retained=new Map(report.previous.filter(passedBrowserCase).map(row=>[row.key,row]));
+  const counts=verifyBrowserUnion(report.discovery,retained,report.fresh);
+  if(auth)assert.equal(counts.reused,p.authReused,'Auth must retain exactly the already passed locale cases');
+  assert.deepEqual(report.counts,counts);return counts;
+}
+export async function runModelBrowserContinuation(scope='homepage',env=process.env) {
+  const {verifyModelBrowserRepair}=await import('./local-release-evidence.mjs');
+  assert(['homepage','auth'].includes(scope));assert.equal(env.GITHUB_JOB,'browser-validation');assert.equal(env.CI,'1');
+  const {previous}=verifyModelBrowserRepair('.local-release',env.GITHUB_SHA,{allowPending:true});
+  const retained=new Map(previous.filter(passedBrowserCase).map(row=>[row.key,row]));
+  const prefix=scope==='auth'?'model-browser-auth':'model-browser';
+  const run=(name,args,discovery=false)=>{
+    const file=path.resolve(`test-results/${prefix}-${name}.json`);fs.rmSync(file,{force:true});
+    const child=spawnSync('npm',['run',scope==='auth'?'test:auth':'test:homepage-core','--',...args,`--reporter=${discovery?'json':'list,json'}`],{env:{...env,PLAYWRIGHT_JSON_OUTPUT_NAME:file},stdio:discovery?'pipe':'inherit',maxBuffer:16*1024*1024});
+    assert.equal(child.status,0,`Model browser ${name} failed; preserve the actual report and passing cases`);
+    return JSON.parse(fs.readFileSync(file));
+  };
+  const rawDiscovery=run('discovery',['--list'],true),discovery=browserRows(rawDiscovery,{discovery:true});
+  assert.equal(sha256(JSON.stringify(discovery)),scope==='auth'?MODEL_BROWSER_PREFLIGHT.authDiscovery:MODEL_BROWSER_PREFLIGHT.discovery,'Required browser discovery changed');
+  const pending=new Set(discovery.filter(row=>!retained.has(row.key)).map(row=>row.key)),list=[];
+  const visit=(suite,parents=[])=>{
+    for(const spec of suite.specs||[])for(const test of spec.tests||[])if(pending.has(`${test.projectName}:${spec.id}`))list.push(`[${test.projectName}] › ${spec.file} › ${[...parents,spec.title].join(' › ')}`);
+    for(const child of suite.suites||[])visit(child,[...parents,child.title]);
+  };
+  rawDiscovery.suites.forEach(suite=>visit(suite));assert.equal(list.length,pending.size);assert(pending.size>0);
+  const listFile=`test-results/${prefix}-pending.txt`;fs.writeFileSync(listFile,list.join('\n')+'\n');
+  const args=['--test-list',listFile,'--workers=1','--retries=0',`--output=test-results/${prefix}-artifacts`];
+  const selected=browserRows(run('selected-discovery',[...args,'--list'],true),{discovery:true});
+  assert.deepEqual(selected,discovery.filter(row=>pending.has(row.key)),'CLI selection changed required unresolved cases');
+  const fresh=browserRows(run('fresh',args));
+  const report={policy:MODEL_BROWSER_POLICY,sha:env.GITHUB_SHA,source:MODEL_BROWSER_PREFLIGHT.source,scope,previous,discovery,fresh,counts:verifyBrowserUnion(discovery,retained,fresh)};
+  verifyModelBrowserReport(report,env.GITHUB_SHA);
+  fs.writeFileSync(`test-results/candidate-${scope}.json`,JSON.stringify(report));
+  console.log(JSON.stringify({scope,...report.counts,originalFailuresPreserved:true}));
+}
 export function verifyMigrationBrowserReport(report,sha) {
   assert.equal(report.policy,LOCAL_BROWSER_POLICY);assert.equal(report.sha,sha);
   assert.deepEqual(report.origins,BROWSER_ORIGINS);assert(['auth','homepage'].includes(report.scope));

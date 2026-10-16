@@ -905,3 +905,137 @@ for(const source of ['9443369e0780144d2ffeea3900d3b86ccd57bc85','b71dd6212ee83e9
   console.log('Synthetic union counterchecks: real 2 Chromium and 1 WebKit passes retained; missing, failed, retried, duplicate or substituted WebKit results block candidate acceptance.');
  }
 }
+
+{
+ const {MODEL_BROWSER_POLICY,MODEL_BROWSER_PREFLIGHT:p,verifyModelBrowserReport}=await import('./lib/local-release-browser.mjs');
+ const {canvasPreflightProfile,assertCanvasPreflightTree,canvasPreflightPrefix,verifyModelBrowserRepair,modelBrowserContinuation}=await import('./lib/local-release-evidence.mjs');
+ assert.equal(canvasPreflightProfile(p.source),p);
+ assert.deepEqual(Object.keys(p.specs),['tests/helpers/canvas-agent-ui.cjs']);
+ for(const index of [0,2,3,14,15,16,17,18,34,35,37,38,39,47,48,49,50,51])assert(!p.retain.includes(index),'Changed verifiers and unfinished acceptance cannot inherit a pass');
+ for(const index of [40,41,42,43,44,45,46])assert(p.retain.includes(index),'Completed Worker, media, native and upstream browser evidence must remain retained');
+ const fixture='tests/helpers/canvas-agent-ui.cjs',fix=execFileSync('git',['cat-file','blob','3d6b12e8bc9728da44c3849ae167f579b39dc642']);
+ assert.equal(sha256(fix),p.specs[fixture]);
+ const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-model-browser-tree-')),bare=path.join(tmp,'git');
+ const env={...process.env,GIT_AUTHOR_NAME:'Synthetic',GIT_AUTHOR_EMAIL:'synthetic@example.invalid',GIT_COMMITTER_NAME:'Synthetic',GIT_COMMITTER_EMAIL:'synthetic@example.invalid'};
+ const read=(args,input)=>execFileSync('git',['--git-dir',bare,...args],{env,input,stdio:['pipe','pipe','pipe']});
+ try{
+  execFileSync('git',['init','--bare',bare],{stdio:'pipe'});
+  fs.writeFileSync(path.join(bare,'objects/info/alternates'),path.resolve(execFileSync('git',['rev-parse','--git-path','objects'],{encoding:'utf8'}).trim())+'\n');
+  const commit=(changes,parent=p.source)=>{
+   read(['read-tree',p.source]);
+   for(const [file,value]of Object.entries(changes)){
+    if(value===null){read(['update-index','--index-info'],Buffer.from(`0 ${'0'.repeat(40)}\t${file}\n`));continue;}
+    const blob=read(['hash-object','-w','--stdin'],value.content??value).toString().trim();
+    read(['update-index','--add','--cacheinfo',`${value.mode||'100644'},${blob},${file}`]);
+   }
+   return read(['commit-tree',read(['write-tree']).toString().trim(),'-p',parent],Buffer.from('Synthetic browser continuation boundary\n')).toString().trim();
+  };
+  const accepted=commit({[fixture]:fix});assertCanvasPreflightTree(accepted,read,p);
+  for(const file of ['js/pages/canvas/agent.js','workers/auth/src/index.js','tests/canvas.spec.js','tests/helpers/canvas-agent-model-recovery-ui.cjs','tests/helpers/canvas-agent-model-operation-cases.mjs','tests/q2-canvas-agent-provider.spec.js','package-lock.json','.github/workflows/static.yml','config/release-validation.yml','config/release-compat.json','scripts/lib/ci-test-selection.mjs','scripts/lib/homepage-test-selection.mjs'])
+   assert.throws(()=>assertCanvasPreflightTree(commit({[fixture]:fix,[file]:Buffer.from('Unrelated change')}),read,p),/changed product, tests, selection or environment/);
+  assert.throws(()=>assertCanvasPreflightTree(commit({}),read,p),/Missing reviewed browser fixture/);
+  assert.throws(()=>assertCanvasPreflightTree(commit({[fixture]:Buffer.from('Unreviewed fixture')}),read,p),/Unreviewed browser fixture/);
+  for(const value of [null,{mode:'120000',content:Buffer.from('outside')}])
+   assert.throws(()=>assertCanvasPreflightTree(commit({[fixture]:fix,'scripts/local-release.mjs':value}),read,p),/ordinary file/);
+  assert.throws(()=>assertCanvasPreflightTree(commit({[fixture]:fix},accepted),read,p),/direct source successor/);
+  assert.throws(()=>canvasPreflightPrefix(Buffer.from(JSON.stringify({sha:p.source})),{sha:accepted},read),/Changed failed preflight checkpoint/);
+ }finally{fs.rmSync(tmp,{recursive:true,force:true});}
+
+ const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+ const parents=execFileSync('git',['rev-list','--parents','-n','1',head],{encoding:'utf8'}).trim().split(/\s+/);
+ if(parents.length===2&&parents[1]===p.source){
+  // Private failed evidence is supplied by the resumed real caller, never
+  // committed as a fixture or rewritten as successful historical execution.
+  const root='.local-release',checkpoint=path.join(root,'reuse/preflight-checkpoint.json');
+  assert(fs.existsSync(checkpoint),'Browser continuation requires its actual failed source checkpoint');
+  const bytes=fs.readFileSync(checkpoint),original=JSON.parse(bytes);
+  const selection=gitSelection(original.base,head),commands=selectedCommands(selection,{GITHUB_SHA:head,CANDIDATE_BASE:original.base});
+  const context={sha:head,base:original.base,planHash:validationPlan().digest,selection,environment:original.environment,commands};
+  assert.equal(canvasPreflightPrefix(bytes,context).sha,p.source);
+  for(const change of [r=>r.status='passed',r=>r.commands[49].exitCode=0,r=>r.commands[41].exitCode=1,r=>r.commands[40].logHash='changed',r=>r.commands.pop(),r=>delete r.preflightContinuation]){
+   const broken=structuredClone(original);change(broken);assert.throws(()=>canvasPreflightPrefix(Buffer.from(JSON.stringify(broken)),context));
+  }
+  for(const change of [r=>r.base='b'.repeat(40),r=>r.planHash='changed',r=>r.environment.key='changed',r=>r.environment.image='changed',r=>r.selection.full=true,r=>r.commands.pop(),r=>r.commands[41].run='echo skipped',r=>r.commands[49].run='echo skipped']){
+   const broken=structuredClone(context);change(broken);assert.throws(()=>canvasPreflightPrefix(bytes,broken));
+  }
+  const proof=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-model-browser-proof-'));
+  try{
+   fs.mkdirSync(path.join(proof,'reuse'));
+   for(const file of ['preflight-checkpoint.json','preflight-failed.log','model-browser-original.json','model-browser-standard.json'])fs.copyFileSync(path.join(root,'reuse',file),path.join(proof,'reuse',file));
+   fs.cpSync(path.join(root,'reuse/model-worker-origin'),path.join(proof,'reuse/model-worker-origin'),{recursive:true});
+   const reports=path.join(proof,'test-results');fs.mkdirSync(reports);
+   for(const file of Object.keys(p.homepageReports))fs.copyFileSync(path.join(root,'test-results',file),path.join(reports,file));
+   const verify=()=>verifyModelBrowserRepair(proof,head);
+   const pending=verifyModelBrowserRepair(proof,head,{allowPending:true});assert.equal(pending.result,null);
+   assert.throws(verify,'Source evidence alone cannot replace fresh browser execution');
+   const previous=pending.previous,discovery=previous.map(({key,file,title,project})=>({key,file,title,project}));
+   const retained=new Map(previous.filter(passedBrowserCase).map(row=>[row.key,row]));
+   const unresolved=previous.filter(row=>!retained.has(row.key));
+   assert.deepEqual(unresolved.map(row=>[row.project,row.title]).sort(),['chromium','webkit-canvas'].flatMap(project=>['en','de'].map(locale=>[project,`Canvas agent ${locale}: outcome`])).sort(),'Only the four failed outcome cases may run again');
+   const fresh=unresolved.map(row=>({...row,expectedStatus:'passed',status:'expected',results:[{status:'passed',retry:0,error:false}]}));
+   const report={policy:MODEL_BROWSER_POLICY,sha:head,source:p.source,scope:'homepage',previous,discovery,fresh,counts:verifyBrowserUnion(discovery,retained,fresh)};
+   assert.deepEqual(report.counts,{required:566,reused:562,executed:4});assert.equal(report.counts.required,p.required);
+   // Synthetic fresh rows calibrate the verifier only; the final release must
+   // separately provide executed raw reports with these exact unresolved IDs.
+   const rawRows=rows=>({config:{workers:1},suites:[{title:'Synthetic verifier controls',specs:rows.map(row=>({id:row.key.slice(row.project.length+1),file:row.file,title:row.title,tests:[{projectName:row.project,expectedStatus:row.expectedStatus,status:row.status,results:row.results}]}))}],errors:[],stats:{expected:rows.length,unexpected:0,flaky:0,skipped:0}});
+   const raw=rawRows(fresh);
+   const wrapperFile=path.join(reports,'candidate-homepage.json'),freshFile=path.join(reports,'model-browser-fresh.json'),discoveryFile=path.join(reports,'model-browser-discovery.json');
+   const save=(file,value)=>fs.writeFileSync(file,JSON.stringify(value,null,2));
+   fs.copyFileSync(path.join(proof,'reuse/model-browser-original.json'),discoveryFile);
+   save(freshFile,raw);assert.throws(verify,'Raw execution without its bound union is incomplete');save(wrapperFile,report);
+   assert.throws(verify,'Completed core evidence cannot replace unexecuted Auth acceptance');
+   assert.deepEqual(verifyModelBrowserReport(report,head),report.counts);
+   const standard=JSON.parse(fs.readFileSync(path.join(proof,'reuse/model-browser-standard.json')));
+   // Match the independent ordinary package.json test:auth file/project scope.
+   const authDiscovery=browserRows(standard,{discovery:true}).filter(row=>row.project==='chromium'&&(/^(auth-admin|wallet-nav|locale|oma2-q1-member)\.spec\.js$/.test(row.file)||/^oma2-q3-.*\.spec\.js$/.test(row.file)));
+   assert.equal(authDiscovery.length,709);assert.equal(sha256(JSON.stringify(authDiscovery)),p.authDiscovery);
+   const overlap=authDiscovery.filter(row=>retained.has(row.key));
+   assert.equal(overlap.length,25);assert(overlap.every(row=>row.file==='locale.spec.js'&&row.project==='chromium'));
+   const authFresh=authDiscovery.filter(row=>!retained.has(row.key)).map(row=>({...row,expectedStatus:'passed',status:'expected',results:[{status:'passed',retry:0,error:false}]}));
+   assert.equal(authFresh.length,684);assert(authFresh.every(row=>row.file!=='locale.spec.js'));
+   const auth={...report,scope:'auth',discovery:authDiscovery,fresh:authFresh,counts:{required:709,reused:25,executed:684}};
+   const authRaw=rawRows(authFresh),authFile=path.join(reports,'candidate-auth.json'),authFreshFile=path.join(reports,'model-browser-auth-fresh.json'),authDiscoveryFile=path.join(reports,'model-browser-auth-discovery.json');
+   save(authDiscoveryFile,rawRows(authDiscovery));save(authFreshFile,authRaw);assert.throws(verify,'Raw Auth execution must have its bound union');save(authFile,auth);
+   const expected={homepage:report.counts,auth:auth.counts};assert.deepEqual(verify().result,expected);
+   assert.deepEqual(verifyModelBrowserReport(auth,head),auth.counts);
+   const candidate=r=>candidateProof({sha:head,selection:{homepage:true}},{job:'browser-validation',readJson:()=>r});
+   assert.equal(candidate(report).tests,p.required);
+   const combined=(core=report,account=auth)=>candidateProof({sha:head,selection:{homepage:true,auth:true}},{job:'browser-validation',readJson:file=>file.endsWith('candidate-auth.json')?account:core});
+   assert.equal(combined().tests,p.required+709);
+   assert.throws(()=>combined(auth,report),'Reports from different scopes cannot be substituted');
+   for(const change of [r=>r.policy='unknown',r=>r.sha='f'.repeat(40),r=>r.source='f'.repeat(40),r=>r.scope='auth',r=>r.previous.pop(),r=>r.previous.find(passedBrowserCase).results[0].status='failed',
+    r=>r.discovery.pop(),r=>r.discovery.push(r.discovery[0]),r=>r.discovery[0].title='Foreign discovery',r=>r.fresh.pop(),r=>r.fresh.push(r.fresh[0]),r=>r.fresh.push(previous.find(passedBrowserCase)),
+    r=>r.fresh[0].key='foreign-case',r=>r.fresh[0].file='foreign.spec.js',r=>r.fresh[0].project='foreign',r=>r.fresh[0].expectedStatus='failed',r=>r.fresh[0].status='skipped',r=>r.fresh[0].results[0].status='skipped',
+    r=>r.fresh[0].results[0].status='failed',r=>r.fresh[0].results[0].retry=1,r=>r.fresh[0].results[0].error=true,r=>r.fresh[0].results.unshift({status:'failed',retry:0,error:true}),r=>r.counts.reused++,r=>delete r.fresh]){
+    const broken=structuredClone(report);change(broken);assert.throws(()=>candidate(broken));
+   }
+   assert.throws(()=>candidateProof({sha:head,selection:{}},{job:'homepage-validation',reportFile:'test-results/candidate-homepage.json',readJson:()=>report}));
+   for(const change of [r=>r.discovery.pop(),r=>r.discovery.push(r.discovery[0]),r=>r.discovery[0].project='webkit-canvas',r=>r.discovery[0].key='foreign',
+    r=>r.fresh.pop(),r=>r.fresh.push(r.fresh[0]),r=>r.fresh.push(previous.find(row=>row.key===overlap[0].key)),r=>r.fresh[0].results[0].status='skipped',r=>r.fresh[0].results[0].status='failed',r=>r.fresh[0].results[0].retry=1,
+    r=>r.previous.find(row=>row.key===overlap[0].key).results[0].status='skipped',r=>r.previous.find(row=>row.key===overlap[0].key).results[0].retry=1,r=>r.previous.find(row=>row.key===overlap[0].key).project='webkit-canvas',r=>r.counts.reused=0]){
+    const broken=structuredClone(auth);change(broken);assert.throws(()=>combined(report,broken));
+   }
+   for(const file of ['reuse/preflight-checkpoint.json','reuse/preflight-failed.log','reuse/model-browser-original.json','reuse/model-browser-standard.json','reuse/model-worker-origin/reuse/preflight-checkpoint.json','reuse/model-worker-origin/reuse/preflight-failed.log','reuse/model-worker-origin/reuse/original-worker-last-run.json','reuse/model-worker-origin/test-results/model-worker-fresh.json','reuse/model-worker-origin/logs/41.log','reuse/model-worker-origin/reuse/model-workflow-origin/reuse/preflight-checkpoint.json','reuse/model-worker-origin/reuse/model-workflow-origin/reuse/model-selection-origin/reuse/model-operation-origin/logs/1.log','test-results/model-browser-discovery.json','test-results/model-browser-fresh.json','test-results/candidate-homepage.json','test-results/model-browser-auth-discovery.json','test-results/model-browser-auth-fresh.json','test-results/candidate-auth.json',...Object.keys(p.homepageReports).map(file=>'test-results/'+file)]){
+    const target=path.join(proof,file),saved=fs.readFileSync(target);
+    fs.unlinkSync(target);assert.throws(verify);fs.writeFileSync(target,'{}');assert.throws(verify);fs.writeFileSync(target,saved);
+   }
+   for(const change of [r=>r.config.workers=2,r=>delete r.config.workers,r=>r.errors.push({message:'Synthetic report error'}),r=>r.suites[0].specs[0].id='foreign',
+    r=>{r.suites[0].specs.pop();r.stats.expected--;},r=>{r.suites[0].specs.push(r.suites[0].specs[0]);r.stats.expected++;},r=>r.suites[0].specs[0].tests[0].results[0].retry=1,
+    r=>{const test=r.suites[0].specs[0].tests[0];test.status='skipped';test.results[0].status='skipped';r.stats.expected--;r.stats.skipped++;}]){
+    for(const [file,accepted]of [[freshFile,raw],[authFreshFile,authRaw]]){const broken=structuredClone(accepted);change(broken);save(file,broken);assert.throws(verify);save(file,accepted);}
+   }
+   assert.deepEqual(verify().result,expected);
+   assert.equal(modelBrowserContinuation(commands[49].run),'node scripts/local-release.mjs model-browser-continuation');
+   for(const changed of ['echo skipped',commands[49].run+'\nnpm run test:homepage-core',commands[49].run.replace('--reporter=list,json','--reporter=list')])assert.throws(()=>modelBrowserContinuation(changed));
+   const ordinaryAuth='PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:auth -- --output=test-results/browser-artifacts --reporter=list,json';
+   const continuedAuth=modelBrowserContinuation(commands[50].run,'auth');
+   assert.equal(continuedAuth,commands[50].run.replace(ordinaryAuth,'node scripts/local-release.mjs model-browser-continuation auth'),'Only the ordinary Auth branch may change');
+   assert(!continuedAuth.includes('npm run test:auth'),'Already passed locale cases must not repeat through the full Auth caller');
+   for(const changed of ['echo skipped',commands[50].run+'\n'+ordinaryAuth,commands[50].run.replace(ordinaryAuth,'echo skipped')])assert.throws(()=>modelBrowserContinuation(changed,'auth'));
+   assert.throws(()=>modelBrowserContinuation(commands[50].run,'foreign'));
+   const syntax=spawnSync('/bin/bash',['-n'],{input:continuedAuth,encoding:'utf8'});assert.equal(syntax.status,0,syntax.stderr);
+   console.log(`Browser continuation: original ${previous.length}-case report and recursive Worker chain verified; ${retained.size} unchanged passes plus ${fresh.length} synthetic fresh verifier controls, with missing/foreign/failed/skipped/retried/duplicate evidence rejected.`);
+  }finally{fs.rmSync(proof,{recursive:true,force:true});}
+ }
+ console.log('Model browser continuation: actual isolated Git rejects unrelated product/tests, missing or changed correction, foreign parent, deleted file and symlink.');
+}
