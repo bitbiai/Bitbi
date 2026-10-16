@@ -1,11 +1,19 @@
 # Canvas production assistant
 
-The Canvas **Create with AI / Mit KI erstellen** panel accepts a film brief, an
-explicit target duration and an explicitly authorized credit ceiling. Create or
-open a normal Canvas project first. Missing duration persists a clarification;
-no inference or media generation starts. After that question, the user can
-explicitly delegate duration selection (the displayed target is 60 seconds).
-Revisions start from the currently saved graph and its current assembly.
+The Canvas **Create with AI / Mit KI erstellen** panel accepts a short film brief
+and an explicitly authorized credit ceiling. Duration is optional: the planner
+chooses a suitable creative target within the cap when it is absent. A supplied
+duration is a creative target, not a runtime deadline or an exact success gate.
+Create or open a normal Canvas project, set the ceiling and start once. Revisions
+read the currently saved graph and assembly, including manual edits.
+
+The reopenable assistant shows real actions, model/tool identities, a persisted
+storyboard, partial outputs and authoritative costs before final completion.
+Proposal visibility does not depend on executable validation or graph creation.
+The ordinary model adapters validate conditional settings before paid media
+dispatch. Safe defaults may be filled locally; changing an explicit creative
+choice requires a bounded, separately accounted planning correction. At most two
+preflight corrections are admitted within the same authorized ceiling.
 
 ## Editable deliverables
 
@@ -23,6 +31,12 @@ mark the old export as stale while retaining its immutable saved version.
 Removing a node from the active graph does not cascade-delete retained clips.
 Required reference repairs remain explicit. Editing and exporting do not depend
 on Grok or the agent feature switch.
+
+The ordinary assembly editor exposes Creative/Exact duration mode. Existing exact
+targets retain their tolerance and recipe semantics. New creative targets report
+measured duration without padding, repetitions or retries solely to match a
+number. Media validity, source sequence, trims and resource bounds remain strict.
+Creative targets use the versioned recipe/processor compatibility boundary.
 
 ## Execution and accounting
 
@@ -56,13 +70,27 @@ resuming a stale plan is refused. A revision requires a new explicit budget and
 reads the saved current project. Late results retain their history without
 overwriting newer node decisions.
 
-The cap constrains allocations atomically; existing member usage reservations and
-the existing ledger perform the actual charge. Status distinguishes allocated
-ceilings, wallet reservations, charged credits and uncertain accepted outcomes.
-Tariff changes require renewed admission. Planning and sampled-frame evaluation
-use the existing pinned tariff and authoritative reported token quantities.
+The cap constrains allocations atomically across the project's assistant runs;
+existing member usage reservations and the existing ledger perform the actual
+charge. Each operation contributes one commitment: its unsettled ceiling or its
+actual settled charge. Allocation, reservation and settlement are not added as
+three expenses. Unknown accepted work retains its commitment. Normal manual
+generation retains its separate explicit user authorization. Planner context
+contains the cap, actual charges, reservations, commitments, remaining headroom
+and its prospective planning ceiling. Tariff changes require renewed admission.
+Planning and sampled-frame evaluation use the pinned tariff and reported usage.
 Evaluation reserves the documented maximum context because no dependable image
 token formula has been verified; this ceiling is **not** reported as actual spend.
+If that optional review cannot fit, the assistant explicitly reports technical
+validation only; it does not claim visual approval. Final technical checks remain
+mandatory.
+
+A necessary increase pauses before new commitment and shows the affected action,
+additional maximum and exact new ceiling. Accept/Decline bind to the request,
+project revision, budget revision and tariff. Duplicate acceptance cannot change
+the amount; stale decisions fail. Decline retains the old ceiling and existing
+work, then permits a bounded cheaper correction or explains the limitation. A
+declined increase is not repeatedly requested. Silence grants no authority.
 
 Ambiguous dispatch never starts a replacement generation. Original queue receipts
 repair a stale `canvas_video_pending` projection; known image save-pending work
@@ -73,6 +101,17 @@ new inference. Its reservation remains held until matched terminal evidence
 allows reconciliation; cancellation is not a refund. Cloudflare documents
 webhook delivery as best effort, without retries. Missing delivery therefore
 ends in an explicit review state, not fabricated success or automatic replay.
+Pause, cancel and takeover preserve the cause/history and paid proposals. A
+completed operation without its expected plan is an explicit invariant error.
+
+The deployed Cloudflare REST background route documents terminal callbacks, not
+pre-completion summary events. The model's separate Chat Completions streaming
+capability does not turn that callback into a stream. Only the documented bounded
+`reasoning_content` summary is retained, labelled as received at completion;
+hidden/encrypted reasoning is excluded. The assistant's live activity stream is
+the persisted tool/action log, delivered through an authenticated observer with
+cursor replay and polling fallback. It does not simulate token streaming or own
+background execution. Closing or reconnecting the panel creates no inference.
 Pause/cancel stop new admission; they do not promise provider cancellation or
 reimbursement. Bounded visual rejection can produce up to two explicitly new
 variants of affected shots and genuine dependents, with at most two evaluations.
@@ -102,12 +141,13 @@ there are no fabricated quality scores or live comparative benchmark claims.
 The production target is 3–180 seconds, subject to existing project, media-size,
 model, storage and credit limits. There is no quota increase, arbitrary external
 media service, model-generated shell/FFmpeg command or automatic public publishing.
-The fixed duration tolerance is ±0.5 seconds. Recipe v7 and processor protocol v8
-measure source timing and final output; older export recipes remain supported.
+Creative targets use recipe v8 and processor protocol v9. Existing exact targets
+retain recipe v7 and their tolerance; older export recipes remain supported.
 Thirteen 10-second clips, twelve 0.5-second overlaps and a final 6-second trim yield
 120 seconds. Twelve untrimmed 10-second clips with eleven such overlaps yield
-114.5 seconds and cannot pass a 120-second target. No padding or repeated footage
-conceals a shortfall. Actual source quality determines export normalization.
+114.5 seconds. The measured duration is reported honestly against the creative
+target; the legacy Exact mode still enforces its tolerance. No padding or repeated
+footage conceals a shortfall. Actual source quality determines normalization.
 Sampled frames cannot establish complete motion, sound or unsampled-shot quality.
 
 ## Model and release prerequisites
@@ -125,22 +165,29 @@ and log collection, validates the actual returned model/envelope, and has no
 automatic inference retries. Existing Grok 4.6/Fable chat and one-shot Canvas text
 remain independent. No private administrator history or tools enter a member run.
 
-The model-operation repair deploys its additive Auth migration, AI Worker, Auth
-Worker and static frontend, in that order. The unchanged private media service
-retains its existing activation. The moving required
+The autonomy update requires the additive Auth migration, compatible private
+media processor, AI Worker, dependent Auth Worker and tested frontend. The moving required
 schema checkpoint is owned by [`release-compat.json`](../../config/release-compat.json).
 The existing protected release continuation is the only publication path. Config
 and binding readiness are separate from actual account access and film quality.
 
-On 2026-10-15 the authorized non-inference Cloudflare model-catalog read returned
-HTTP 403 / code 10000. That read credential cannot establish account model access;
-it is not evidence that inference is unavailable. No paid live inference was run.
-Live verification requires the deployed AI binding/gateway to have funded access
-to this exact model and an explicitly authorized paid acceptance cap. Credentials
-remain in the existing secret mechanisms, never in chat or logs.
+A retained production receipt on 2026-10-16 confirms a completed Grok planning
+response, followed by an incompatible H3 plan before media dispatch. The actual
+ledger debit was 78 credits against a 127-credit ceiling. This is separate from
+the older unknown attempt's held 127-credit reservation. The stopped production
+is not silently resumed. This receipt does not establish complete autonomous-film
+acceptance of a later candidate. Any new paid acceptance needs its own explicit
+cap. Credentials remain in existing secret mechanisms, never in chat or logs.
 
 ## Executable acceptance
 
+- [`tests/q2-canvas-agent-autonomy.spec.js`](../../tests/q2-canvas-agent-autonomy.spec.js)
+  covers actual ledger commitments, atomic project ceilings, exact consent,
+  duplicate/stale/foreign decisions, proposals, stopped-state preservation and
+  missing-plan invariants. Its core cases also run with native D1.
+- [`tests/q2-canvas-agent-preflight.spec.js`](../../tests/q2-canvas-agent-preflight.spec.js)
+  exercises real conditional H3 rejection and repair, creative duration, ordinary
+  editable graph execution and the processor recipe compatibility boundary.
 - [`tests/q2-canvas-agent-model-operation.spec.js`](../../tests/q2-canvas-agent-model-operation.spec.js)
   and its shared native cases exercise original dispatch identity, late plan/evaluation
   receipts, unknown/failure/rejection distinctions, bounded recovery, held credits
@@ -165,14 +212,13 @@ protected deployment and paid live-provider verification are distinct evidence.
 Use the [main-only release runbook](MAIN_ONLY_RELEASE_RUNBOOK.md) and the actual
 complete-diff selector; this document does not authorize production mutations.
 
-The focused browser check passed 32 cases across Chromium/WebKit and EN/DE,
-including the normal image/video/music Inspector regressions. The
+The focused browser cases cover Chromium/WebKit and EN/DE, including ordinary
+image/video/music Inspector regressions. The
 [`assistant fixture`](../../tests/helpers/canvas-agent-ui.cjs) checks desktop and
 390-pixel layouts, labeled controls, Escape/focus return, genuine video playback,
-missing and competing duration clarification, stable start identity after a lost
+optional and explicit creative duration, stable start identity after a lost
 response, and hostile output rejection. Film duration is distinguished from shot
-length; a further four-browser-case check passed after explicit German adjective
-normalization (`zweiminütiger` / `2-minütigen`). The
+length, including German adjectives (`zweiminütiger` / `2-minütigen`). The
 [`editable-film fixture`](../../tests/helpers/canvas-assembly-editing-ui.cjs)
 finishes a durable agent run through real Worker handlers, private test storage
 and FFmpeg, then performs the complete manual revision without agent calls. It

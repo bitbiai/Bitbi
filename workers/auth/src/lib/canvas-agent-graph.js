@@ -1,3 +1,8 @@
+import { CANVAS_AGENT_LIMITS } from '../../../../js/shared/canvas-agent-contract.mjs';
+import { assertOmniReady } from './gemini-omni-readiness.js';
+import { H3_MODEL } from '../../../../js/shared/minimax-h3.mjs';
+import { readCanvasAgentBudget } from './canvas-agent-budget.js';
+import { canvasAgentValidationIssue, canvasAgentFeedbackError } from './canvas-agent-plan-feedback.js';
 import { validateCanvasAgentPlan } from '../../../shared/canvas-agent-plan.mjs';
 import { getCanvasModelForRole } from '../../../../js/shared/canvas-model-contract.mjs';
 import { transitionTimeline } from '../../../../js/shared/canvas-transitions.mjs';
@@ -22,6 +27,9 @@ function validateConfig(model,config,prompt) {
     for(const key of ['maxTokens','temperature','reasoningEffort','textPurpose']){
         if(config[key]!==undefined&&(model.capability!=='text'||key!=='textPurpose'&&!c[key]))agentFail('canvas_agent_parameter_unsupported');
     }
+    for(const key of ['maxTokens','temperature'])if(config[key]!==undefined&&(config[key]<c[key]?.min||config[key]>c[key]?.max||key==='maxTokens'&&!Number.isInteger(config[key])))agentFail('canvas_agent_parameter_unsupported');
+    if(config.steps!==undefined&&(!Number.isInteger(config.steps)||config.steps<1||config.steps>c.maxSteps))agentFail('canvas_agent_parameter_unsupported');
+    if(config.safetyTolerance!==undefined&&(config.safetyTolerance<c.minSafetyTolerance||config.safetyTolerance>c.maxSafetyTolerance))agentFail('canvas_agent_parameter_unsupported');
     if(config.reasoningEffort!==undefined&&!c.reasoningEffort.options.includes(config.reasoningEffort))agentFail('canvas_agent_parameter_unsupported');
     if(config.duration!==undefined&&(!c.duration||c.supportsDuration===false||!Number.isInteger(config.duration)||config.duration<c.duration.min||config.duration>c.duration.max))agentFail('canvas_agent_duration_unsupported');
     for(const key of ['width','height'])if(config[key]!==undefined&&(!Number.isInteger(config[key])||config[key]<c.minDimension||config[key]>c.maxDimension))agentFail('canvas_agent_parameter_unsupported');
@@ -30,8 +38,10 @@ function validateConfig(model,config,prompt) {
     if(['inputMode','musicLengthMs','compositionPlan','forceInstrumental','storeForInpainting','signWithC2pa'].some(key=>config[key]!==undefined)&&model.id!=='elevenlabs/music-v2')agentFail('canvas_agent_parameter_unsupported');
     if(['instrumental','generateLyrics','lyrics'].some(key=>config[key]!==undefined)&&model.capability!=='music')agentFail('canvas_agent_parameter_unsupported');
 }
-export async function prepareCanvasAgentGraph(env,run,view,inventory,rawPlan,repairNodes=null) {
-    const plan=validateCanvasAgentPlan(rawPlan,{targetDurationSeconds:run.target_seconds,toleranceSeconds:run.tolerance_seconds,existingNodeIds:view.nodes.map(n=>n.id)});
+async function calculateCanvasAgentGraph(env,run,view,inventory,rawPlan,repairNodes=null) {
+    const plan=validateCanvasAgentPlan(rawPlan,{durationMode:'creative',targetDurationSeconds:run.target_seconds,toleranceSeconds:run.tolerance_seconds,existingNodeIds:view.nodes.map(n=>n.id)});
+    if(plan.assembly.targetDurationSeconds<CANVAS_AGENT_LIMITS.minDuration||plan.assembly.targetDurationSeconds>CANVAS_AGENT_LIMITS.maxDuration)agentFail('canvas_agent_target_duration_invalid');
+    const repairs=[],issues=[];
     if(view.nodes.length+plan.nodes.length+1>120||view.edges.length+plan.nodes.reduce((s,n)=>s+n.dependencies.length,0)+1>300)agentFail('canvas_agent_project_limit');
     const ids=new Map(view.nodes.map(n=>[`existing:${n.id}`,n.id]));
     for(const n of plan.nodes)ids.set(n.key,(await sha256Hex(`canvas-agent-node:${run.id}:${run.rounds}:${n.key}`)).slice(0,32));
@@ -71,39 +81,101 @@ export async function prepareCanvasAgentGraph(env,run,view,inventory,rawPlan,rep
         if(node.type==='note')continue;
         const model=getCanvasModelForRole(node.modelId,'member');
         const available=inventory.models.find(m=>m.id===node.modelId);
+        try {
         if(!model||!available||!model.runnable||model.capability!==TYPE_KIND[node.type])agentFail('canvas_agent_model_ineligible');
         validateConfig(model,node.config,node.prompt);
         const references=node.dependencies.map(dep=>({dep,source:specs.get(dep.key)}));
+        if(model.id===H3_MODEL&&node.config.aspectRatio===undefined){
+            const roles=references.filter(({dep})=>dep.role!=='prompt').map(({dep,source})=>
+                canvasAgentDependencyKind(source,view.nodes)==='video'&&dep.method==='last_frame'?'first_frame':dep.role);
+            if(roles.some(role=>['first_frame','last_frame'].includes(role))&&!roles.some(role=>role.startsWith('reference_'))){
+                node.config.aspectRatio='adaptive';
+                repairs.push({code:'canvas_agent_h3_frame_default',nodeKey:node.key,field:'config.aspectRatio',from:null,to:'adaptive'});
+                // Updates are merged ordinary node settings; preserve the effective
+                // repair in the proposal that is eventually persisted.
+                if(node.update)plan.updates.find(update=>update.nodeId===node.id).config.aspectRatio='adaptive';
+            }
+        }
         for(const {dep,source} of references){
             const kind=canvasAgentDependencyKind(source,view.nodes);
             if(dep.role==='prompt'&&!['text','note'].includes(kind||source.type))agentFail('canvas_agent_reference_unsupported');
             if(kind==='image'&&!available.inputs.image||['audio','music'].includes(kind)&&!available.inputs.audio)agentFail('canvas_agent_reference_unsupported');
-            if(kind==='video'&&!available.inputs.videoMethods.includes(dep.method||'reference_video')&&!model.controls.referenceRoles.includes(dep.role))agentFail('canvas_agent_reference_unsupported');
+            if(kind==='video'&&!available.inputs.videoMethods.includes(dep.method||'reference_video')&&!model.controls.referenceRoles?.includes(dep.role))agentFail('canvas_agent_reference_unsupported');
         }
         // Feasibility uses the same body builder as normal Canvas. References
         // are priced conservatively here and checked again at real admission.
         const input=prepareCanvasAgentPriceInput({node,model,dependencies:references,existingNodes:view.nodes});
+        if(model.id==='google/gemini-omni-flash')await assertOmniReady(env,input);
         const quote=await quoteModelTariff(env,{modelId:node.modelId,input});
         if(!Number.isSafeInteger(quote.credits)||quote.credits<1)agentFail('model_pricing_unavailable');
         const id=(await sha256Hex(`canvas-agent-step:${run.id}:${run.rounds}:${node.key}`)).slice(0,32);
         steps.push({id,key:`${run.rounds}:${node.key}`,nodeId:ids.get(node.key),credits:quote.credits,input:{modelId:node.modelId,nodeId:ids.get(node.key),dependencies:node.dependencies.map(dep=>({...dep,nodeId:ids.get(dep.key)})),config:node.config,prompt:node.prompt}});
+        } catch(error) {
+            if(!error?.code||!Number.isInteger(error.status)||error.status>=500&&error.code!=='gpt_image_25_reference_pricing_unavailable')throw error;
+            if(issues.length<16)issues.push(canvasAgentValidationIssue(error,node,model));
+        }
     }
+    const budget=await readCanvasAgentBudget(env,run);
+    const generationCredits=steps.reduce((sum,step)=>sum+step.credits,0);
+    if(issues.length)return {ok:false,plan,repairs,issues,costs:{complete:false,generationCredits,evaluation:null,totalCredits:generationCredits},budget};
     const plannedDurations=plan.assembly.clips.map(clip=>{
         const spec=specs.get(clip.key),available=inventory.models.find(m=>m.id===spec.modelId);
-        return clip.trim.duration??spec.config.duration??spec.config.seedance25?.duration??available?.controls.duration?.default;
+        const old=view.nodes.find(node=>node.id===spec.id),output=old&&JSON.parse(old.output_json||'{}');
+        const requested=spec.config.duration??spec.config.seedance25?.duration;
+        const known=(!spec.update?(output?.duration??output?.durationSeconds):null)??(requested>0?requested:null)
+            ??(available?.controls.supportsDuration===false?null:available?.controls.duration?.default);
+        if(Number.isFinite(known)&&known>0&&(clip.trim.start>=known||clip.trim.duration!==undefined&&clip.trim.start+clip.trim.duration>known+0.0001)){
+            const error=canvasAgentFeedbackError('canvas_agent_trim_outside_planned_source');
+            error.validationIssue={...canvasAgentValidationIssue(error,spec),field:'assembly.clips'};throw error;
+        }
+        return clip.trim.duration??(known?known-clip.trim.start:null);
     });
-    if(plannedDurations.every(d=>Number.isFinite(d)&&d>0)){
-        const timeline=transitionTimeline(plannedDurations,plan.assembly.clips.slice(0,-1).map(c=>c.transition),24);
-        if(Math.abs(timeline.duration-run.target_seconds)>run.tolerance_seconds)agentFail('canvas_agent_plan_duration_mismatch');
+    const plannedDurationSeconds=plannedDurations.every(d=>Number.isFinite(d)&&d>0)
+        ?transitionTimeline(plannedDurations,plan.assembly.clips.slice(0,-1).map(c=>c.transition),24).duration:null;
+    let evaluation=await canvasAgentEvaluationStep(env,run,plan.assembly,specs,ids);
+    const quotedEvaluationCredits=evaluation.credits;
+    if(generationCredits+evaluation.credits>budget.remainingCredits){
+        evaluation={...evaluation,credits:0,input:{...evaluation.input,technicalOnly:true,reason:'budget_headroom'}};
     }
-    const allocation=await env.DB.prepare('SELECT COALESCE(SUM(allocation_credits),0) AS credits FROM canvas_agent_steps WHERE run_id=?').bind(run.id).first();
-    const evaluation=await canvasAgentEvaluationStep(env,run,plan.assembly,specs,ids);
-    if(allocation.credits+evaluation.credits+steps.reduce((sum,s)=>sum+s.credits,0)>run.budget_credits)agentFail('canvas_agent_budget_exceeded');
-    let assembly={version:1,clips:plan.assembly.clips.map(clip=>({nodeId:ids.get(clip.key),trim:clip.trim,transition:clip.transition})),target:{seconds:run.target_seconds,toleranceSeconds:run.tolerance_seconds}};
+    const costs={complete:true,generationCredits,nodes:steps.map(step=>({nodeId:step.nodeId,stepKey:step.key,modelId:step.input.modelId,credits:step.credits})),
+        evaluation:{mode:evaluation.input.technicalOnly?'technical_only':'sampled_frames',credits:evaluation.credits,quotedCredits:quotedEvaluationCredits,
+            ...(evaluation.input.technicalOnly?{reason:'budget_headroom'}:{})},totalCredits:generationCredits+evaluation.credits};
+    let assembly={version:1,clips:plan.assembly.clips.map(clip=>({nodeId:ids.get(clip.key),trim:clip.trim,transition:clip.transition})),target:{seconds:plan.assembly.targetDurationSeconds,mode:'creative'}};
     const anchor=JSON.parse(view.project.assembly_json||'null')?.anchorNodeId||assembly.clips.at(-1).nodeId,music=plan.assembly.musicKey?ids.get(plan.assembly.musicKey):null;
     assembly.anchorNodeId=anchor;
     const previousAssembly=JSON.parse(view.project.assembly_json||'null');
     assembly=canvasAssembly({...assembly,musicNodeId:music,backgroundMusic:exportMusicSettings(plan.assembly.backgroundMusic??previousAssembly?.backgroundMusic??{enabled:Boolean(music),gain:0.25}),smoothJoins:(plan.assembly.smoothJoins??previousAssembly?.smoothJoins)===true});
+    return {ok:true,plan,repairs,issues,costs,budget,estimatedCredits:costs.totalCredits,assembly,plannedDurationSeconds,
+        prepared:{ids,changes,steps,evaluation,anchor,music,now}};
+}
+
+// Read-only full executable preflight. Raw model proposals are separately owned
+// by the run store. Feedback contains application-authored constraints only.
+export async function preflightCanvasAgentGraph(env,run,view,inventory,rawPlan,repairNodes=null) {
+    try {
+        const {prepared,...result}=await calculateCanvasAgentGraph(env,run,view,inventory,rawPlan,repairNodes);
+        return result;
+    } catch(error) {
+        if(!error?.code||!Number.isInteger(error.status)||error.status>=500)throw error;
+        return {ok:false,plan:null,repairs:[],issues:[error.validationIssue||canvasAgentValidationIssue(error)],costs:null};
+    }
+}
+export async function prepareCanvasAgentGraph(env,run,view,inventory,rawPlan,repairNodes=null) {
+    let checked;
+    try {checked=await calculateCanvasAgentGraph(env,run,view,inventory,rawPlan,repairNodes);}
+    catch(error){
+        if(error?.code&&error.status<500)error.validation={issues:[error.validationIssue||canvasAgentValidationIssue(error)]};
+        throw error;
+    }
+    const {prepared,...preflight}=checked;
+    if(!checked.ok)throw Object.assign(canvasAgentFeedbackError(checked.issues[0].code),{validation:preflight,preflight});
+    if(checked.costs.totalCredits>checked.budget.remainingCredits){
+        const additionalCredits=checked.costs.totalCredits-checked.budget.remainingCredits;
+        throw Object.assign(canvasAgentFeedbackError('canvas_agent_budget_exceeded'),{validation:preflight,preflight,
+            budget:{additionalCredits,newCapCredits:checked.budget.capCredits+additionalCredits}});
+    }
+    const {plan,assembly}=checked;
+    const {ids,changes,steps,evaluation,anchor,music}=prepared,now=nowIso();
     const statements=[env.DB.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM canvas_agent_runs r JOIN canvas_projects p ON p.id=r.project_id
         WHERE r.id=? AND r.lease_token=? AND r.status='planning' AND r.lease_until>? AND r.expires_at>?
         AND EXISTS(SELECT 1 FROM users WHERE id=r.user_id AND status='active')
@@ -122,6 +194,10 @@ export async function prepareCanvasAgentGraph(env,run,view,inventory,rawPlan,rep
                 config[rolesKey]={...config[rolesKey],[edgeId]:dep.role};
             }
         }
+        if(!node.update&&['google/gemini-omni-flash','bytedance/seedance-2.5'].includes(node.modelId)){
+            const orderKey=node.modelId==='google/gemini-omni-flash'?'omniOrder':'seedance25Order';
+            config[orderKey]=await Promise.all(node.dependencies.flatMap((dep,index)=>dep.role==='prompt'?[]:[sha256Hex(`canvas-agent-edge:${run.id}:${node.key}:${index}`).then(hash=>hash.slice(0,32))]));
+        }
         if(ids.get(node.key)===anchor){config.backgroundMusic=exportMusicSettings(plan.assembly.backgroundMusic||{enabled:Boolean(music),gain:0.25});config.smoothJoins=plan.assembly.smoothJoins===true;}
         if(node.update)statements.push(env.DB.prepare('UPDATE canvas_nodes SET config_json=?,content_json=json_remove(content_json,\'$.prompt\'),updated_at=? WHERE id=? AND project_id=? AND user_id=? AND deleted_at IS NULL').bind(JSON.stringify(config),now,ids.get(node.key),run.project_id,run.user_id));
         else statements.push(env.DB.prepare(`INSERT INTO canvas_nodes(id,project_id,user_id,type,title,x,y,model_id,config_json,content_json,created_at,updated_at)
@@ -135,7 +211,7 @@ export async function prepareCanvasAgentGraph(env,run,view,inventory,rawPlan,rep
     for(const s of steps)statements.push(env.DB.prepare(`INSERT INTO canvas_agent_steps(id,run_id,step_key,kind,node_id,input_json,allocation_credits,created_at,updated_at) VALUES(?,?,?,'node',?,?,?,?,?)`).bind(s.id,run.id,s.key,s.nodeId,JSON.stringify(s.input),s.credits,now,now));
     statements.push(env.DB.prepare(`INSERT INTO canvas_agent_steps(id,run_id,step_key,kind,input_json,allocation_credits,created_at,updated_at) VALUES(?,?,?,'evaluate',?,?,?,?)`).bind(evaluation.id,run.id,evaluation.key,JSON.stringify(evaluation.input),evaluation.credits,now,now));
     statements.push(env.DB.prepare('UPDATE canvas_projects SET assembly_json=?,workspace_width=MAX(workspace_width,2400),workspace_height=MAX(workspace_height,?),updated_at=? WHERE id=? AND user_id=?').bind(JSON.stringify(assembly),Math.max(1600,Math.ceil(changes.length/5)*380+600),now,run.project_id,run.user_id),
-        env.DB.prepare(`UPDATE canvas_agent_runs SET status='running',rounds=rounds+1,phase='generating',plan_json=?,expected_revision=(SELECT revision FROM canvas_projects WHERE id=?),updated_at=? WHERE id=? AND lease_token=?`).bind(JSON.stringify(plan),run.project_id,now,run.id,run.lease_token));
+        env.DB.prepare(`UPDATE canvas_agent_runs SET status='running',rounds=rounds+1,phase='generating',plan_json=?,target_seconds=?,expected_revision=(SELECT revision FROM canvas_projects WHERE id=?),updated_at=? WHERE id=? AND lease_token=?`).bind(JSON.stringify(plan),plan.assembly.targetDurationSeconds,run.project_id,now,run.id,run.lease_token));
     await env.DB.batch(statements);
-    return {plan,steps,assembly};
+    return {plan,steps,assembly,repairs:checked.repairs,costs:checked.costs,plannedDurationSeconds:checked.plannedDurationSeconds};
 }

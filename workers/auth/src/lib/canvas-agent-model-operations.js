@@ -7,6 +7,7 @@ import { nowIso,randomTokenHex } from './tokens.js';
 import { wakeCanvasAgent } from './canvas-agent-store.js';
 import { markMemberAiUsageAttemptProviderFailed } from './member-ai-usage-attempts.js';
 import { h3Diagnostic } from './h3-provider-result.js';
+import { canvasAgentReasoningSummary } from '../../../shared/canvas-agent-plan.mjs';
 
 export const CANVAS_MODEL_PROTOCOL=1;
 export const CANVAS_MODEL_RECEIPT_WAIT_MS=30*60_000;
@@ -70,7 +71,7 @@ async function markUnknown(env,op,code,detail) {
 // is conservatively unknown; an intent can never be replayed as new inference.
 export async function dispatchCanvasModelOperation(env,run,step,prepared,callerPolicy,dispatchToken,snapshot) {
     const now=nowIso(),op={id:randomTokenHex(16),step_id:step.id,run_id:run.id,user_id:run.user_id,usage_attempt_id:step.usage_attempt_id,
-        dispatch_token:dispatchToken,input_digest:snapshot.inputDigest,kind:step.kind,provider_run_id:null};
+        dispatch_token:dispatchToken,input_digest:snapshot.inputDigest,kind:step.kind,provider_run_id:null,receipt_protocol:2};
     const url=await callbackUrl(env,op); // Validate signing configuration before durable intent.
     await env.DB.batch([
         env.DB.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM canvas_agent_runs r JOIN canvas_projects p ON p.id=r.project_id
@@ -81,8 +82,8 @@ export async function dispatchCanvasModelOperation(env,run,step,prepared,callerP
             AND a.reservation_released_at IS NULL) THEN 1 ELSE json_extract('[]','$[') END`)
             .bind(step.usage_attempt_id,run.id,run.lease_token,now,now,dispatchToken),
         env.DB.prepare(`INSERT INTO canvas_agent_model_operations(id,step_id,run_id,user_id,usage_attempt_id,dispatch_token,kind,model,request_id,
-            input_digest,context_json,caller_policy_json,state,dispatched_at,next_attempt_at,receipt_deadline,created_at,updated_at)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'dispatching',?,?,?,?,?)`).bind(op.id,step.id,run.id,run.user_id,step.usage_attempt_id,dispatchToken,step.kind,MODEL,
+            input_digest,context_json,caller_policy_json,state,receipt_protocol,dispatched_at,next_attempt_at,receipt_deadline,created_at,updated_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'dispatching',2,?,?,?,?,?)`).bind(op.id,step.id,run.id,run.user_id,step.usage_attempt_id,dispatchToken,step.kind,MODEL,
             prepared.requestId,snapshot.inputDigest,JSON.stringify(prepared.context),JSON.stringify(callerPolicy),now,now,new Date(Date.now()+CANVAS_MODEL_RECEIPT_WAIT_MS).toISOString(),now,now),
         env.DB.prepare("UPDATE canvas_agent_steps SET status='accepted',receipt_json=?,updated_at=? WHERE id=? AND status='ready'")
             .bind(JSON.stringify({request:snapshot,operationId:op.id}),now,step.id),
@@ -120,21 +121,25 @@ async function storeRejection(env,op,code,detail) {
         WHERE id=? AND state IN ('dispatching','pending','unknown') AND response_json IS NULL AND receipt_json IS NULL`)
         .bind(receipt,code,JSON.stringify(detail),nowIso(),nowIso(),op.id).run();
 }
-function normalizedCallback(body) {
+function normalizedCallback(body,op) {
     if(!body||typeof body!=='object'||!safeId(body.id)||!safeId(body.state)
         ||(body.model!==undefined&&body.model!==MODEL)||(body.provider!==undefined&&!['xai','x-ai'].includes(body.provider)))fail('canvas_agent_callback_invalid',400);
     if(body.state==='Failed')return {id:body.id,state:'Failed',model:MODEL,error:{code:safeId(String(body.error?.code||''))}};
     const response=body.result;
     if(!response||typeof response!=='object'||Array.isArray(response)||response.object!=='chat.completion'
         ||!safeId(response.id)||!['grok-4.7',MODEL].includes(response.model))fail('canvas_agent_callback_invalid',400);
-    // Hidden reasoning, untrusted extra fields and prose diagnostics are never
-    // retained. The signed AI adapter still validates every consumed field.
+    // Only the provider's documented readable summary survives. Hidden or
+    // encrypted reasoning and arbitrary provider fields never enter storage.
+    // Previously accepted operations keep their original canonical receipt.
+    // Adding summaries must not turn an old duplicate into a terminal conflict.
+    const summary=op.receipt_protocol===2?canvasAgentReasoningSummary(response):null;
     return {id:body.id,state:'Completed',model:MODEL,result:{id:response.id,object:response.object,model:response.model,usage:response.usage,
         choices:Array.isArray(response.choices)?response.choices.map(choice=>({finish_reason:choice?.finish_reason,message:{role:choice?.message?.role,
-            content:choice?.message?.content,refusal:choice?.message?.refusal,tool_calls:choice?.message?.tool_calls}})):response.choices}};
+            content:choice?.message?.content,refusal:choice?.message?.refusal,tool_calls:choice?.message?.tool_calls,
+            ...(summary?{reasoning_content:summary.text}:{})}})):response.choices}};
 }
 async function storeCallback(env,op,body) {
-    const checked=normalizedCallback(body),text=JSON.stringify(checked);
+    const checked=normalizedCallback(body,op),text=JSON.stringify(checked);
     if(new TextEncoder().encode(text).byteLength>MAX_RECEIPT_BYTES)fail('canvas_agent_callback_too_large',413);
     const current=await readOperation(env,op.id);
     if(current.provider_run_id&&current.provider_run_id!==checked.id)fail('canvas_agent_model_identity_mismatch');

@@ -1,11 +1,13 @@
 import { CANVAS_AGENT_MODEL,CANVAS_AGENT_LIMITS } from '../../../../js/shared/canvas-agent-contract.mjs';
-import { quoteCanvasAgentEvaluation,evaluationPriceInput,executeCanvasAgentModel,quoteCanvasAgentPlan } from './canvas-agent-planning.js';
+import { quoteCanvasAgentEvaluation,evaluationPriceInput,executeCanvasAgentModel,budgetCanvasAgentPlan } from './canvas-agent-planning.js';
 import { prepareCanvasMediaInspection,readCanvasMediaInspection } from './canvas-media-inspections.js';
 import { ownedCanvasVideo } from './canvas-video-input.js';
 import { agentFail,agentTransition } from './canvas-agent-store.js';
 import { plannerProject } from '../routes/canvas-agent.js';
 import { canvasAgentCapabilities } from './canvas-agent-capabilities.js';
 import { nowIso,sha256Hex } from './tokens.js';
+import { appendCanvasAgentEvent } from './canvas-agent-progress.js';
+import { requestCanvasAgentBudget } from './canvas-agent-budget.js';
 
 // A small, explicitly limited sample of the first, middle and final shots. The
 // normal private processor owns frame decoding; no browser remains involved.
@@ -23,6 +25,13 @@ export async function evaluateCanvasAgent(env,run,view,user) {
     const step=await env.DB.prepare("SELECT * FROM canvas_agent_steps WHERE run_id=? AND kind='evaluate' ORDER BY rowid DESC LIMIT 1").bind(run.id).first();
     if(!step)agentFail('canvas_agent_evaluation_missing');
     const input=JSON.parse(step.input_json),frames=[],sources=[];
+    if(input.technicalOnly===true){
+        await env.DB.prepare("UPDATE canvas_agent_steps SET status='completed',receipt_json=?,updated_at=? WHERE id=? AND status='ready' AND usage_attempt_id IS NULL")
+            .bind(JSON.stringify({technicalOnly:true,reason:input.reason||'budget_headroom'}),nowIso(),step.id).run();
+        await agentTransition(env,run,{result_json:JSON.stringify({visualReview:'not_performed',visualReviewReason:'budget_headroom',technicalValidation:'pending_export'})});
+        await appendCanvasAgentEvent(env,run,`technical-only:${step.id}`,'decision_summary',{code:'technical_only',phase:'evaluating',tool:'media.inspect'});
+        return {accepted:true,technicalOnly:true};
+    }
     for(const sample of input.samples){
         const node=view.nodes.find(n=>n.id===sample.nodeId);
         if(!node?.asset_id)agentFail('canvas_agent_evaluation_source_missing');
@@ -67,11 +76,16 @@ export async function prepareCanvasAgentImprovement(env,run,view,evaluation) {
     const payload={version:1,model:CANVAS_AGENT_MODEL,requestId:id,brief,targetDurationSeconds:run.target_seconds,toleranceSeconds:run.tolerance_seconds,
         capabilityRevision:inventory.revision,capabilities:inventory,projectRevision:view.project.revision,currentProject:plannerProject(view),
         privacyUser:`cau_${await sha256Hex(`canvas-agent-user:${run.user_id}`)}`,promptCacheKey:`cap_${await sha256Hex(`canvas-agent-project:${run.user_id}:${run.project_id}`)}`};
-    const quote=await quoteCanvasAgentPlan(env,payload),now=nowIso();
+    const quote=await budgetCanvasAgentPlan(env,run,payload),now=nowIso();
+    if(quote.credits>quote.budget.remainingCredits){
+        const request=await requestCanvasAgentBudget(env,run,{requiredCredits:quote.credits,reasonKey:'quality_revision',reasonCode:'canvas_agent_quality_budget_required',model:CANVAS_AGENT_MODEL,action:'plan.improve'});
+        await appendCanvasAgentEvent(env,run,`budget:${request.id}`,'decision_summary',{code:'budget',phase:'budget',tool:'budget.request'});
+        return;
+    }
     await env.DB.batch([
         env.DB.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM canvas_agent_runs WHERE id=? AND lease_token=? AND status='running' AND expected_revision=?) THEN 1 ELSE json_extract('[]','$[') END`).bind(run.id,run.lease_token,view.project.revision),
         env.DB.prepare(`INSERT INTO canvas_agent_steps(id,run_id,step_key,kind,input_json,allocation_credits,created_at,updated_at) VALUES(?,?,?,'plan',?,?,?,?)`)
-            .bind(id,run.id,`repair_${run.rounds}`,JSON.stringify({modelId:CANVAS_AGENT_MODEL,payload,repairNodes:[...affected]}),quote.credits,now,now),
+            .bind(id,run.id,`repair_${run.rounds}`,JSON.stringify({modelId:CANVAS_AGENT_MODEL,payload:quote.payload,repairNodes:[...affected]}),quote.credits,now,now),
         env.DB.prepare("UPDATE canvas_agent_runs SET status='planning',phase='improving',updated_at=? WHERE id=? AND lease_token=?").bind(now,run.id,run.lease_token),
     ]);
 }

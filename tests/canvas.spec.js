@@ -3,11 +3,14 @@ const fs = require('fs');
 const path = require('path');
 const {openCanvasSettings} = require('./helpers/canvas-inspector-actions.cjs');
 
-for (const locale of ['en','de']) for (const scenario of ['admission','duration','recovery','unavailable','outcome']) test(`Canvas agent ${locale}: ${scenario}`,async({page},info)=>{
+for (const locale of ['en','de']) for (const scenario of ['admission','duration','recovery','unavailable','outcome','activity','budget']) test(`Canvas agent ${locale}: ${scenario}`,async({page},info)=>{
     await require('./helpers/canvas-agent-ui.cjs')[scenario]({page,expect,locale,info,mockSharedAuth,createCanvasApiMock});
 });
 for (const locale of ['en','de']) test(`Canvas agent ${locale}: model recovery`,async({page},info)=>{
     await require('./helpers/canvas-agent-model-recovery-ui.cjs')({page,expect,locale,info,mockSharedAuth,createCanvasApiMock});
+});
+for (const locale of ['en','de']) for(const scenario of ['proposal','budget','budget_edits']) test(`Canvas autonomy ${locale}: persisted ${scenario}`,async({page},info)=>{
+    await require('./helpers/canvas-agent-autonomy-ui.cjs')[scenario]({page,expect,locale,info,mockSharedAuth,createCanvasApiMock});
 });
 for (const locale of ['en','de']) test(`Canvas editable film ${locale}: rerun remove reorder sound export reopen`,async({page},info)=>{
     await require('./helpers/canvas-assembly-editing-ui.cjs')({page,expect,locale,info,mockSharedAuth,createCanvasApiMock});

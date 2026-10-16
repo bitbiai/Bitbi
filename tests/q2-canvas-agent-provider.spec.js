@@ -21,7 +21,9 @@ const input = kind => {
       imageData: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jzS8AAAAASUVORK5CYII=' }] };
 };
 const completion = value => ({ id: 'chatcmpl_canvas_background', object: 'chat.completion', model: 'grok-4.7',
-  choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: JSON.stringify(value), reasoning_content: 'Private reasoning must not leave the adapter.' } }],
+  choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: JSON.stringify(value),
+    reasoning_content: 'Keep the house and duck pool consistent across the celebration shots.',
+    reasoning: 'Private reasoning must not leave the adapter.', encrypted_content: 'encrypted-private-provider-bytes' } }],
   usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 200, prompt_tokens_details: { cached_tokens: 20 }, completion_tokens_details: { reasoning_tokens: 50 } } });
 
 async function fixture() {
@@ -113,8 +115,103 @@ test('Canvas late background results normalize after disablement, with exact usa
     // Ordinary Canvas plans normalize an omitted update list to an empty one.
     // Keep the full independent content comparison, including that default.
     expect(result.body[kind === 'plan' ? 'plan' : 'evaluation']).toEqual(kind === 'plan' ? { ...plan(), updates: [] } : evaluation());
-    expect(JSON.stringify(result.body)).not.toMatch(/Private reasoning|imageData|base64/);
+    expect(result.body.reasoningSummary).toEqual({ text: 'Keep the house and duck pool consistent across the celebration shots.', source: 'provider', delivery: 'completed' });
+    expect(JSON.stringify(result.body)).not.toMatch(/Private reasoning|encrypted-private|imageData|base64/);
     expect((await f.call('normalize', body)).body).toEqual(result.body);
+  }
+  expect(f.calls).toEqual([]);
+});
+
+const creativeInput = () => ({ ...input('plan'), durationMode: 'creative', targetDurationSeconds: null,
+  budget: { capCredits: 1000, chargedCredits: 78, reservedCredits: 127, pendingOutcomeCredits: 0,
+    committedCredits: 127, remainingCredits: 873, allocatedCredits: 127, revision: 2, planningCeilingCredits: 100 } });
+
+test('Canvas creative planning receives authoritative budget, conditional constraints and bounded repair without mandatory duration', async () => {
+  const f = await fixture(), source = creativeInput(); delete source.toleranceSeconds;
+  source.capabilities = { version: 2, models: [{ id: 'minimax/hailuo-3', available: true,
+    constraints: [{ code: 'frame_reference_exclusive', modes: ['frame', 'reference'], frameAspectRatio: 'adaptive' }] }] };
+  source.repair = { attempt: 1, issues: [{ code: 'canvas_agent_reference_unsupported', nodeKey: 'shot1', modelId: 'minimax/hailuo-3',
+    field: 'dependencies', message: 'Frame and reference input modes cannot be combined.', allowed: ['frame inputs with adaptive aspect ratio', 'reference inputs'] }], previousPlan: plan() };
+  const result = await f.call('prepare', { kind: 'plan', input: source });
+  expect(result.status).toBe(200);
+  expect(result.body.context).toEqual({ durationMode: 'creative', targetDurationSeconds: null, existingNodeIds: [nodeId] });
+  const user = JSON.parse(result.body.input.messages[1].content);
+  expect(user.budget).toEqual(source.budget);
+  expect(user.repair).toEqual(source.repair);
+  expect(user.capabilities).toEqual(source.capabilities);
+  expect(user).toMatchObject({ durationMode: 'creative', targetDurationSeconds: null });
+  expect(result.body.input.messages[0].content).toContain('never add those fields together again');
+  expect(result.body.input.messages[0].content).toContain('never a deadline');
+  expect(result.body.input.messages[0].content).toContain('never silently remove a required reference'.replace('never', 'Never'));
+  const withoutDuration = structuredClone(source); delete withoutDuration.targetDurationSeconds;
+  expect((await f.call('prepare', { kind: 'plan', input: withoutDuration })).body.context.targetDurationSeconds).toBeNull();
+  const pending = structuredClone(source); pending.budget.pendingOutcomeCredits = 127;
+  expect((await f.call('prepare', { kind: 'plan', input: pending })).status).toBe(200);
+  for (const mutate of [
+    v => { delete v.budget; }, v => { v.budget.remainingCredits = 1000; },
+    v => { v.budget.pendingOutcomeCredits = 128; }, v => { v.budget.reservedCredits = 128; },
+    v => { v.budget.chargedCredits = -1; }, v => { v.budget.revision = 2.5; }, v => { v.budget.capCredits = '1000'; },
+  ]) {
+    const bad = structuredClone(source); mutate(bad);
+    expect((await f.call('prepare', { kind: 'plan', input: bad })).body).toMatchObject({ code: 'canvas_agent_budget_context_invalid', outcome: 'not_submitted' });
+  }
+  for (const mutate of [v => { v.repair.attempt = 3; }, v => { v.repair.issues[0].shell = 'launch outside service'; },
+    v => { v.repair.issues[0].message = 'x'.repeat(801); }, v => { v.repair.issues = Array(17).fill(v.repair.issues[0]); }]) {
+    const bad = structuredClone(source); mutate(bad);
+    expect((await f.call('prepare', { kind: 'plan', input: bad })).body).toMatchObject({ code: 'canvas_agent_repair_context_invalid', outcome: 'not_submitted' });
+  }
+  expect(f.calls).toEqual([]);
+});
+
+test('Canvas creative duration accepts nearby and automatic targets while retaining graph and media integrity gates', async () => {
+  const f = await fixture(), source = { ...creativeInput(), targetDurationSeconds: 40 };
+  const prepared = (await f.call('prepare', { kind: 'plan', input: source })).body;
+  const normalize = value => f.call('normalize', { kind: 'plan', requestId: prepared.requestId, context: prepared.context, response: completion(value) });
+  for (const seconds of [38, 39, 41, 42]) {
+    const value = plan(); value.assembly.targetDurationSeconds = seconds; delete value.assembly.toleranceSeconds;
+    expect((await normalize(value)).body.plan).toEqual({ ...value, updates: [] });
+  }
+  const automatic = (await f.call('prepare', { kind: 'plan', input: creativeInput() })).body;
+  expect((await f.call('normalize', { kind: 'plan', requestId: automatic.requestId, context: automatic.context, response: completion(plan()) })).status).toBe(200);
+  for (const mutate of [v => { v.assembly.targetDurationSeconds = 181; }, v => { v.assembly.clips[0].trim.duration = 0; },
+    v => { v.assembly.clips.push(structuredClone(v.assembly.clips[0])); }, v => { v.assembly.clips[0].key = 'missing'; },
+    v => { v.assembly.clips[0].transition = { preset: 'fade', duration: .5 }; }]) {
+    const bad = plan(); mutate(bad);
+    expect((await normalize(bad)).body).toMatchObject({ code: 'canvas_agent_plan_invalid', outcome: 'completed' });
+  }
+  const reference = plan(); reference.nodes[0].dependencies = [{ key: `existing:${nodeId}`, role: 'reference_video', method: 'reference_video' }];
+  expect((await normalize(reference)).status).toBe(200);
+  expect(f.calls).toEqual([]);
+});
+
+test('Canvas readable provider summaries are bounded terminal snapshots with an honest background-route fallback', async () => {
+  const f = await fixture(), { buildServiceAuthHeaders } = await import('../js/shared/service-auth.mjs');
+  const path = '/internal/ai/canvas-agent/readiness';
+  const readiness = await f.send(new Request(`https://bitbi-ai.internal${path}`, { headers: await buildServiceAuthHeaders({
+    secret: f.env.AI_SERVICE_AUTH_SECRET, method: 'GET', path, body: '',
+  }) }));
+  expect(await readiness.json()).toMatchObject({ available: true, transport: 'cloudflare-background', reasoningSummaryDelivery: 'completion_only', accountAccess: 'unverified' });
+  const prepared = (await f.call('prepare', { kind: 'plan', input: creativeInput() })).body;
+  expect(prepared).not.toHaveProperty('reasoningSummary');
+  expect(prepared.input.stream).toBe(false);
+  expect(prepared.input).not.toHaveProperty('reasoning');
+  expect(prepared.input).not.toHaveProperty('stream_options');
+  const normalize = response => f.call('normalize', { kind: 'plan', requestId: prepared.requestId, context: prepared.context, response });
+  const good = completion(plan());
+  expect((await normalize(good)).body.reasoningSummary).toEqual({ text: 'Keep the house and duck pool consistent across the celebration shots.', source: 'provider', delivery: 'completed' });
+  for (const summary of [undefined, '', { encrypted: 'private' }, 'x'.repeat(4097), '🙂'.repeat(1025), 'bad\u0000control']) {
+    const response = completion(plan()); response.choices[0].message.reasoning_content = summary;
+    const result = await normalize(response);
+    expect(result.status).toBe(200);
+    expect(result.body).not.toHaveProperty('reasoningSummary');
+    expect(JSON.stringify(result.body)).not.toMatch(/Private reasoning|encrypted-private|encrypted_content/);
+  }
+  const edge = completion(plan()); edge.choices[0].message.reasoning_content = '🙂'.repeat(1024);
+  expect((await normalize(edge)).body.reasoningSummary.text).toBe('🙂'.repeat(1024));
+  const { canvasAgentReasoningSummary } = await import('../workers/shared/canvas-agent-plan.mjs');
+  for (const mutate of [r => { r.model = 'grok-4.6'; }, r => { r.object = 'chat.completion.chunk'; }, r => { r.choices[0].finish_reason = null; },
+    r => { r.choices[0].message.refusal = 'Refused'; }, r => { r.choices[0].message.role = 'user'; }]) {
+    const response = completion(plan()); mutate(response); expect(canvasAgentReasoningSummary(response)).toBeNull();
   }
   expect(f.calls).toEqual([]);
 });

@@ -12,6 +12,8 @@ import { modelAreaEnvironment } from './model-availability.js';
 import { consumeMemberCredits } from './billing.js';
 import { markMemberAiUsageAttemptFinalizing, markMemberAiUsageAttemptSucceeded } from './member-ai-usage-attempts.js';
 import { canvasModelTransportReady,canvasModelService,readCanvasModelOperation,dispatchCanvasModelOperation,reconcileCanvasAgentModelOperations } from './canvas-agent-model-operations.js';
+import { persistCanvasAgentProposal,appendCanvasAgentEvent } from './canvas-agent-progress.js';
+import { readCanvasAgentBudget } from './canvas-agent-budget.js';
 
 export const PLAN_PATH='/internal/ai/canvas-agent/plan';
 export const EVALUATE_PATH='/internal/ai/canvas-agent/evaluate';
@@ -47,6 +49,19 @@ export function evaluationPriceInput() {
         previewInputTokens:500000-CANVAS_AGENT_EVALUATION_MAX_OUTPUT_TOKENS,maxTokens:CANVAS_AGENT_EVALUATION_MAX_OUTPUT_TOKENS};
 }
 export const quoteCanvasAgentPlan=(env,payload)=>quoteModelTariff(env,{modelId:CANVAS_AGENT_MODEL,input:plannerPriceInput(payload)});
+export async function budgetCanvasAgentPlan(env,run,payload) {
+    const budget=await readCanvasAgentBudget(env,run);
+    let credits=0,quote;
+    // Quote the actual immutable prompt, including its own prospective ceiling.
+    // No provider is called here; a bounded fixed point avoids an omitted cost.
+    for(let i=0;i<4;i++){
+        payload={...payload,durationMode:'creative',budget:{...budget,planningCeilingCredits:credits}};
+        quote=await quoteCanvasAgentPlan(env,payload);
+        if(quote.credits<=credits)return {payload,credits,budget};
+        credits=quote.credits;
+    }
+    throw Object.assign(new Error('canvas_agent_price_quote_unstable'),{code:'canvas_agent_price_quote_unstable',status:409});
+}
 export const quoteCanvasAgentEvaluation=env=>quoteModelTariff(env,{modelId:CANVAS_AGENT_MODEL,input:evaluationPriceInput()});
 const fail=code=>{throw Object.assign(new Error(code),{code,status:409});};
 
@@ -93,6 +108,10 @@ export async function settleStoredReceipt(env,run,step,result,operation=null) {
     } else if(row.provider_outcome!=='succeeded')fail('canvas_agent_billing_review_required');
     await env.DB.prepare('UPDATE canvas_agent_steps SET status=?,receipt_json=?,updated_at=? WHERE id=? AND usage_attempt_id=?')
         .bind(result.ok?'completed':'rejected',JSON.stringify(result),nowIso(),step.id,row.id).run();
+    if(result.ok&&step.kind==='plan')await persistCanvasAgentProposal(env,run,step,result.plan||result.data?.plan);
+    if(result.reasoningSummary?.source==='provider'&&result.reasoningSummary.delivery==='completed')
+        await appendCanvasAgentEvent(env,run,`provider-summary:${step.id}`,'provider_summary',{
+            phase:step.kind,model:CANVAS_AGENT_MODEL,text:result.reasoningSummary.text,source:'provider',delivery:'completed'});
     if(!result.ok)fail(result.code||'canvas_agent_model_output_invalid');
     return result;
 }
@@ -149,6 +168,7 @@ export async function executeCanvasAgentModel(env,run,step,user,suppliedPayload)
         await policy.markProviderFailed({definitelyNotDispatched:true,code:error.code||'canvas_agent_prepare_failed'});throw error;
     }
     const token=await policy.markProviderRunning();
+    await appendCanvasAgentEvent(env,run,`model-dispatch:${step.id}`,'action',{code:'planning',phase:step.kind,model:CANVAS_AGENT_MODEL,tool:'model.background',stepId:step.id});
     operation=await dispatchCanvasModelOperation(env,run,step,prepared,callerPolicy,token,snapshot);
     return observe();
 }

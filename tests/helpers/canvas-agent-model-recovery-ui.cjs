@@ -21,7 +21,7 @@ module.exports=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock
                 const req=route.request(),url=new URL(req.url());requests.push({path:url.pathname,method:req.method()});
                 const response=await f.request(url.pathname+url.search,req.method(),req.postData()??undefined,
                     req.headers()['idempotency-key']?{'Idempotency-Key':req.headers()['idempotency-key']}:{});
-                const body=Buffer.from(await response.arrayBuffer());
+                const body=await require('./canvas-agent-ui.cjs').responseBytes(response);
                 if(!target.isClosed())await route.fulfill({status:response.status,headers:Object.fromEntries(response.headers),body});
             });
             await target.goto(de?'/de/canvas/':'/canvas/');await target.locator('#canvasAgentToggle').click();

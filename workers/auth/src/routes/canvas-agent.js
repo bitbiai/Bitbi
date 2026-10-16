@@ -5,8 +5,9 @@ import { readJsonBodyOrResponse,BODY_LIMITS } from '../lib/request.js';
 import { enforceSensitiveUserRateLimit } from '../lib/sensitive-write-limit.js';
 import { nowIso,randomTokenHex,sha256Hex } from '../lib/tokens.js';
 import { canvasAgentAvailability,canvasAgentCapabilities } from '../lib/canvas-agent-capabilities.js';
-import { quoteCanvasAgentPlan } from '../lib/canvas-agent-planning.js';
+import { budgetCanvasAgentPlan } from '../lib/canvas-agent-planning.js';
 import { publicAgentRun,wakeCanvasAgent,agentFail,releaseCanvasAgentUndispatched,publicCanvasAgentModelOperation,canvasAgentAllowedActions } from '../lib/canvas-agent-store.js';
+import { readCanvasAgentEvents,appendCanvasAgentEvent,canvasAgentEventStream } from '../lib/canvas-agent-progress.js';
 
 const respond=(data,status=200)=>json({ok:true,data},{status,headers:{'Cache-Control':'no-store'}});
 const keyFor=request=>{const key=request.headers.get('Idempotency-Key');if(!/^[A-Za-z0-9._:-]{8,100}$/.test(key||''))agentFail('idempotency_key_required',428);return key;};
@@ -32,8 +33,7 @@ async function start(ctx,session,projectId) {
         return respond({run:await publicAgentRun(env,previous),idempotentReplay:true});
     }
     const view=await canvasAgentProject(env,userId,projectId);
-    const asked=await env.DB.prepare("SELECT input_json FROM canvas_agent_runs WHERE user_id=? AND project_id=? AND status='clarification_required' ORDER BY created_at DESC LIMIT 1").bind(userId,projectId).first();
-    const input=normalizeCanvasAgentStart(parsed.body,{durationAsked:Boolean(asked&&JSON.parse(asked.input_json).brief===parsed.body.brief)});
+    const input=normalizeCanvasAgentStart(parsed.body);
     if(input.expectedRevision!==view.project.revision)agentFail('canvas_agent_project_changed');
     const availability=await canvasAgentAvailability(env);
     const id=randomTokenHex(16),now=nowIso(),expires=new Date(Date.now()+48*60*60000).toISOString();
@@ -49,9 +49,9 @@ async function start(ctx,session,projectId) {
             projectRevision:view.project.revision,currentProject:plannerProject(view),
             privacyUser:`cau_${await sha256Hex(`canvas-agent-user:${userId}`)}`,promptCacheKey:`cap_${await sha256Hex(`canvas-agent-project:${userId}:${projectId}`)}`};
         delete payload.durationChoice;
-        const quote=await quoteCanvasAgentPlan(env,payload);
-        if(quote.credits>input.budgetCredits)agentFail('canvas_agent_budget_exceeded');
-        planStep={id:randomTokenHex(16),input:{modelId:CANVAS_AGENT_MODEL,payload},credits:quote.credits};
+        const quote=await budgetCanvasAgentPlan(env,{project_id:projectId,budget_credits:input.budgetCredits,budget_revision:0},payload);
+        if(quote.credits>quote.budget.remainingCredits)agentFail('canvas_agent_budget_exceeded');
+        planStep={id:randomTokenHex(16),input:{modelId:CANVAS_AGENT_MODEL,payload:quote.payload},credits:quote.credits};
     }
     statements.push(env.DB.prepare(`INSERT INTO canvas_agent_runs(id,project_id,user_id,request_key,input_json,status,expected_revision,target_seconds,budget_credits,tariff_revision,capability_revision,next_attempt_at,created_at,updated_at,expires_at)
         SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM canvas_projects WHERE id=? AND user_id=? AND revision=? AND deleted_at IS NULL)`)
@@ -60,6 +60,7 @@ async function start(ctx,session,projectId) {
     try {const result=await env.DB.batch(statements);if(result[0].meta?.changes!==1)agentFail('canvas_agent_project_changed');}
     catch(error){if(String(error).includes('UNIQUE'))agentFail('canvas_agent_already_active');throw error;}
     const row=await env.DB.prepare('SELECT * FROM canvas_agent_runs WHERE id=?').bind(id).first();
+    await appendCanvasAgentEvent(env,row,'start','action',{code:'started',phase:'planning',model:CANVAS_AGENT_MODEL,tool:'plan.create'});
     if(input.duration)await wakeCanvasAgent(env,id);
     return respond({availability,run:await publicAgentRun(env,row)},202);
 }
@@ -86,31 +87,88 @@ async function control(ctx,session,projectId,id) {
     const now=nowIso();
     await env.DB.batch([
         env.DB.prepare('INSERT INTO canvas_agent_controls(run_id,request_key,action,created_at) VALUES(?,?,?,?)').bind(id,key,action,now),
-        env.DB.prepare('UPDATE canvas_agent_runs SET status=?,error_code=NULL,lease_token=NULL,lease_until=NULL,next_attempt_at=?,updated_at=? WHERE id=? AND user_id=? AND status=?')
+        env.DB.prepare('UPDATE canvas_agent_runs SET status=?,lease_token=NULL,lease_until=NULL,next_attempt_at=?,updated_at=? WHERE id=? AND user_id=? AND status=?')
             .bind(status,now,now,id,session.user.id,run.status),
         env.DB.prepare("SELECT CASE WHEN changes()=1 THEN 1 ELSE json_extract('[]','$[') END"),
+        ...(['cancel','takeover'].includes(action)?[env.DB.prepare("UPDATE canvas_agent_budget_requests SET status='stale' WHERE run_id=? AND status='pending'").bind(id)]:[]),
     ]);
+    await appendCanvasAgentEvent(env,run,`control:${key}`,'action',{code:status,phase:run.phase,tool:`production.${action}`});
     if(action==='resume')await wakeCanvasAgent(env,id);
     else await releaseCanvasAgentUndispatched(env,id);
+    return respond({run:await publicAgentRun(env,await env.DB.prepare('SELECT * FROM canvas_agent_runs WHERE id=?').bind(id).first())});
+}
+async function budgetDecision(ctx,session,projectId,id) {
+    const {env,request}=ctx,key=keyFor(request),parsed=await readJsonBodyOrResponse(request,{maxBytes:BODY_LIMITS.smallJson});
+    if(parsed.response)return parsed.response;
+    const body=parsed.body,fields=['requestId','requestRevision','decision','proposedCapCredits','expectedRevision'];
+    if(!body||Object.keys(body).length!==fields.length||Object.keys(body).some(k=>!fields.includes(k))
+        ||!/^[a-f0-9]{32}$/.test(body.requestId||'')||!['accept','decline'].includes(body.decision)
+        ||![body.requestRevision,body.proposedCapCredits,body.expectedRevision].every(Number.isSafeInteger))agentFail('canvas_agent_budget_request_invalid',400);
+    const run=await env.DB.prepare('SELECT * FROM canvas_agent_runs WHERE id=? AND user_id=? AND project_id=?').bind(id,session.user.id,projectId).first();
+    if(!run)agentFail('canvas_agent_not_found',404);
+    const amendment=await env.DB.prepare('SELECT * FROM canvas_agent_budget_requests WHERE id=? AND run_id=?').bind(body.requestId,id).first();
+    if(!amendment)agentFail('canvas_agent_budget_request_invalid');
+    if(body.requestRevision!==amendment.revision||body.proposedCapCredits!==amendment.proposed_cap||body.expectedRevision!==amendment.project_revision)agentFail('canvas_agent_budget_request_changed');
+    const status=body.decision==='accept'?'accepted':'declined';
+    if(amendment.status!=='pending'){
+        if(amendment.status!==status||amendment.decision_key!==key)agentFail('canvas_agent_budget_decision_conflict');
+        return respond({run:await publicAgentRun(env,run),idempotentReplay:true});
+    }
+    const {project}=await canvasAgentProject(env,session.user.id,projectId);
+    if(run.status!=='paused'||run.phase!=='budget'||project.revision!==amendment.project_revision||run.expected_revision!==amendment.project_revision
+        ||run.budget_revision!==amendment.revision||run.budget_credits!==amendment.current_cap)agentFail('canvas_agent_budget_request_changed');
+    const inventory=await canvasAgentCapabilities(env);
+    if(inventory.tariffRevision!==amendment.tariff_revision||String(amendment.tariff_revision)!==request.headers.get(TARIFF_HEADER))agentFail('model_pricing_stale');
+    const available=await canvasAgentAvailability(env);if(!available.available)agentFail(available.code);
+    const now=nowIso();
+    await env.DB.batch([
+        env.DB.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM canvas_agent_runs r JOIN canvas_projects p ON p.id=r.project_id
+            JOIN users u ON u.id=r.user_id WHERE r.id=? AND r.user_id=? AND r.status='paused' AND r.phase='budget'
+            AND r.budget_revision=? AND r.budget_credits=? AND r.expected_revision=? AND p.revision=? AND p.deleted_at IS NULL
+            AND r.expires_at>? AND u.status='active' AND NOT EXISTS(SELECT 1 FROM canvas_agent_runs other
+                WHERE other.project_id=r.project_id AND other.id!=r.id AND other.status IN ('queued','planning','applying','running','exporting')))
+            THEN 1 ELSE json_extract('[]','$[') END`).bind(id,session.user.id,amendment.revision,amendment.current_cap,amendment.project_revision,amendment.project_revision,now),
+        env.DB.prepare("UPDATE canvas_agent_budget_requests SET status=?,decision_key=?,decided_at=? WHERE id=? AND status='pending'").bind(status,key,now,amendment.id),
+        env.DB.prepare("SELECT CASE WHEN changes()=1 THEN 1 ELSE json_extract('[]','$[') END"),
+        env.DB.prepare(`UPDATE canvas_agent_runs SET budget_credits=?,budget_revision=?,status=?,phase=?,error_code=NULL,
+            cause_json=?,next_attempt_at=?,updated_at=? WHERE id=?`)
+            .bind(body.decision==='accept'?amendment.proposed_cap:amendment.current_cap,amendment.revision+(body.decision==='accept'?1:0),
+                amendment.resume_status,body.decision==='accept'?'validating':'adapting',
+                JSON.stringify({code:body.decision==='accept'?'canvas_agent_budget_accepted':'canvas_agent_budget_declined',step:JSON.parse(amendment.action_json).action,recovery:'automatic'}),now,now,id),
+    ]);
+    await appendCanvasAgentEvent(env,run,`budget-decision:${amendment.id}`,'decision_summary',{code:status,phase:'budget',newCapCredits:body.decision==='accept'?amendment.proposed_cap:amendment.current_cap});
+    await wakeCanvasAgent(env,id);
     return respond({run:await publicAgentRun(env,await env.DB.prepare('SELECT * FROM canvas_agent_runs WHERE id=?').bind(id).first())});
 }
 export async function handleCanvasAgent(ctx,session) {
     if(ctx.pathname==='/api/account/canvas/agent/capabilities'&&ctx.method==='GET') {
         return respond({availability:await canvasAgentAvailability(ctx.env),capabilities:await canvasAgentCapabilities(ctx.env)});
     }
-    const match=ctx.pathname.match(/^\/api\/account\/canvas\/projects\/([a-f0-9]{32})\/agent(?:\/([a-f0-9]{32})\/control)?$/);
+    const match=ctx.pathname.match(/^\/api\/account\/canvas\/projects\/([a-f0-9]{32})\/agent(?:\/([a-f0-9]{32})\/(control|budget|events))?$/);
     if(!match)return null;
     await canvasAgentProject(ctx.env,session.user.id,match[1]);
     if(ctx.method==='GET'&&!match[2]) {
         let row=await ctx.env.DB.prepare('SELECT * FROM canvas_agent_runs WHERE project_id=? AND user_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1').bind(match[1],session.user.id).first();
         if(row){const {reconcileCanvasAgentModelOperations}=await import('../lib/canvas-agent-model-operations.js');await reconcileCanvasAgentModelOperations(ctx.env,{runId:row.id});
             row=await ctx.env.DB.prepare('SELECT * FROM canvas_agent_runs WHERE id=?').bind(row.id).first();}
-        return respond({availability:await canvasAgentAvailability(ctx.env),run:await publicAgentRun(ctx.env,row)});
+        const cursor=Number(new URL(ctx.request.url).searchParams.get('afterEvent')||0);
+        const events=row?await readCanvasAgentEvents(ctx.env,row.id,cursor):{events:[],eventCursor:0,hasMore:false};
+        return respond({availability:await canvasAgentAvailability(ctx.env),run:await publicAgentRun(ctx.env,row),...events});
+    }
+    if(ctx.method==='GET'&&match[3]==='events'){
+        const row=await ctx.env.DB.prepare('SELECT * FROM canvas_agent_runs WHERE id=? AND user_id=? AND project_id=?').bind(match[2],session.user.id,match[1]).first();
+        if(!row)agentFail('canvas_agent_not_found',404);
+        const cursor=Number(new URL(ctx.request.url).searchParams.get('afterEvent')||0);
+        if(!Number.isSafeInteger(cursor)||cursor<0)agentFail('canvas_agent_event_cursor_invalid',400);
+        return canvasAgentEventStream(ctx.env,row,session.user.id,cursor,ctx.request.signal);
     }
     if(ctx.method!=='POST')return null;
     const limited=await enforceSensitiveUserRateLimit(ctx,{userId:session.user.id,scope:'canvas-agent-write-user',maxRequests:30,windowMs:3600000,component:'canvas-agent'});if(limited)return limited;
     // route-policy: account.canvas.agent.control
-    if(match[2]&&ctx.method==='POST')return control(ctx,session,match[1],match[2]);
+    if(match[3]==='control'&&ctx.method==='POST')return control(ctx,session,match[1],match[2]);
+    // route-policy: account.canvas.agent.budget
+    if(match[3]==='budget'&&ctx.method==='POST')return budgetDecision(ctx,session,match[1],match[2]);
+    if(match[2])return null;
     // route-policy: account.canvas.agent.start
     if(ctx.method==='POST')return start(ctx,session,match[1]);
     return null;

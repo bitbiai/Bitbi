@@ -93,7 +93,11 @@ export async function testCanvasAssemblyProcessing() {
         }
         const short=await concatenateClips(files.slice(0,12),dir,{...options,videoClock:true,fitAudio:true,transitions:assembly.clips.slice(0,11).map(c=>c.transition)});
         const shortFilm=await applyVideoTransitions(short,assembly.clips.slice(0,11).map(c=>c.transition),dir,{...options,inspect:inspectClip});
-        assert.equal((await inspectClip(shortFilm.output)).videoDuration,114.5);
+        const shortMeasured=(await inspectClip(shortFilm.output)).videoDuration;
+        assert.equal(shortMeasured,114.5);
+        const creative=verifyCanvasDuration(shortMeasured,{seconds:120,mode:'creative'});
+        assert.deepEqual(creative,{measuredSeconds:114.5,targetSeconds:120,toleranceSeconds:null,mode:'creative',deviationSeconds:-5.5});
+        assert.throws(()=>verifyCanvasDuration(0,{seconds:120,mode:'creative'}),{code:'canvas_duration_invalid'});
         assert.throws(()=>verifyCanvasDuration((shortFilm.duration),assembly.target),{code:'canvas_duration_target_missed'});
         await assert.rejects(trimCanvasSources([files[0]],{version:1,clips:[{nodeId:'1'.repeat(32),trim:{start:9,duration:2}}]},dir,options),{code:'canvas_trim_outside_source'});
         const single=await trimCanvasSources([files[0]],{version:1,clips:[{nodeId:'1'.repeat(32),trim:{start:2,duration:3}}]},dir,options);

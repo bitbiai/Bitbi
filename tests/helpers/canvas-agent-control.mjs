@@ -117,17 +117,20 @@ export async function canvasAgentApiCase(base) {
   }), env, { waitUntil(promise) { waits.push(promise); } });
   const bodyOf = async (response, status) => { const body = await response.json(); check(response.status === status, `Agent API expected ${status}, got ${response.status}/${body.code}`); return body; };
   const brief = 'A comic film about building a house next to a pool with ducks.';
-  const missing = await bodyOf(await request(route, { brief, expectedRevision: 0, locale: 'de' }, 'agent-api-clarify'), 202);
-  check(missing.data.run.status === 'clarification_required' && missing.data.run.targetDurationSeconds === null, 'Missing duration must be persisted clarification');
-  check(messages.length === 0 && providerCalls.length === 0, 'Clarification cannot queue or run inference');
-  check((await db.prepare('SELECT COUNT(*) AS n FROM member_ai_usage_attempts_v2 WHERE user_id=?').bind(owner).first()).n === 0, 'Clarification cannot reserve credits');
+  await bodyOf(await request(route, { brief, expectedRevision: 0, locale: 'de' }, 'agent-api-no-consent'), 400);
+  check(messages.length === 0 && providerCalls.length === 0, 'Missing credit consent cannot queue or run inference');
+  const automatic = await bodyOf(await request(route, { brief, expectedRevision: 0, budgetCredits:10000,locale: 'de' }, 'agent-api-auto-duration'), 202);
+  check(automatic.data.run.status==='queued'&&automatic.data.run.targetDurationSeconds===null,'Omitted duration starts once; the planner chooses a creative target');
+  check(messages.length===1&&providerCalls.length===0,'Start only wakes durable work, without browser-bound inference');
+  check((await db.prepare('SELECT COUNT(*) AS n FROM member_ai_usage_attempts_v2 WHERE user_id=?').bind(owner).first()).n === 0, 'Start allocation is not a wallet reservation or charge');
+  await bodyOf(await request(`${route}/${automatic.data.run.id}/control`,{action:'takeover'},'agent-api-auto-takeover'),200);
   await bodyOf(await request(route, undefined, undefined, foreign), 404);
   const input = { brief, targetDurationSeconds: 12, expectedRevision: 0, budgetCredits: 10000, locale: 'de' };
   const started = await bodyOf(await request(route, input, 'agent-api-start'), 202), run = started.data.run;
   check(run.status === 'queued' && run.targetDurationSeconds === 12, 'Supplied duration starts without another clarification');
-  check(messages.length === 1 && messages[0].type === 'canvas_agent.process' && messages[0].run_id === run.id, 'One existing-queue wake identity');
+  check(messages.length === 2 && messages[1].type === 'canvas_agent.process' && messages[1].run_id === run.id, 'One existing-queue wake identity per new run');
   const duplicate = await bodyOf(await request(route, input, 'agent-api-start'), 200);
-  check(duplicate.data.run.id === run.id && messages.length === 1, 'Duplicate start preserves run and wake identity');
+  check(duplicate.data.run.id === run.id && messages.length === 2, 'Duplicate start preserves run and wake identity');
   await bodyOf(await request(route, { ...input, brief: 'Changed input' }, 'agent-api-start'), 409);
   await bodyOf(await request(route, input, 'agent-api-other-start'), 409);
   const control = `${route}/${run.id}/control`;
@@ -141,7 +144,7 @@ export async function canvasAgentApiCase(base) {
   check((await bodyOf(await request(control, { action: 'takeover' }, 'agent-api-takeover'), 200)).data.run.status === 'taken_over', 'Manual takeover revokes execution');
   check(providerCalls.length === 0, 'Editing, reopening and controls cannot submit generation');
   await Promise.all(waits);
-  return { clarification: true, starts: 1, duplicateStarts: 1, providerCalls: 0, foreignDenied: true, manualTakeover: true };
+  return { autonomousDuration: true, starts: 2, duplicateStarts: 1, providerCalls: 0, foreignDenied: true, manualTakeover: true };
 }
 
 // Reuses an owned media fixture while exercising the real signed AI Worker,
@@ -371,7 +374,7 @@ export async function canvasAgentCapabilityCase(env) {
       [{ ...plan, nodes: plan.nodes.map(node => ({ ...node, modelId: 'outside/arbitrary-generator' })) }, 'canvas_agent_model_ineligible'],
       [{ ...plan, nodes: plan.nodes.map(node => ({ ...node, modelId: 'google/gemini-omni-flash' })) }, 'canvas_agent_model_ineligible'],
       [{ ...plan, nodes: plan.nodes.map(node => ({ ...node, config: { ...node.config, duration: 16 } })) }, 'canvas_agent_duration_unsupported'],
-      [{ ...plan, assembly: { ...plan.assembly, targetDurationSeconds: 11 } }, 'canvas_agent_plan_invalid'],
+      [{ ...plan, assembly: { ...plan.assembly, targetDurationSeconds: 181 } }, 'canvas_agent_plan_invalid'],
       ...['maxTokens','temperature','reasoningEffort','textPurpose'].map(field=>[{...plan,nodes:plan.nodes.map((node,index)=>index?node:{...node,config:{...node.config,[field]:({maxTokens:128,temperature:.7,reasoningEffort:'medium',textPurpose:'video_prompt'})[field]}})},'canvas_agent_parameter_unsupported']),
       [{...plan,nodes:plan.nodes.map(node=>node===textNode?{...node,config:{...node.config,originalAudio:ordinaryAudio}}:node)},'canvas_agent_parameter_unsupported'],
       [{...plan,nodes:plan.nodes.map(node=>node===textNode?{...node,config:{...node.config,reasoningEffort:'high'}}:node)},'canvas_agent_parameter_unsupported'],

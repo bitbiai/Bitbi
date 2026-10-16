@@ -305,7 +305,7 @@ export async function processCanvasExports({requestJson,authHeaders,baseUrl,limi
   if(protocol?.data?.protocol!==1) throw failure('canvas_processor_protocol');
   if(dryRun) return; // A dry run must not acquire a processing lease.
   if(protocol.data.inspections===1)await processCanvasInspections({requestJson:json,authHeaders,baseUrl,ffmpeg,ffprobe,fetchImpl});
-  const capability=Number.isInteger(protocol.data.recipeProtocol)?Math.min(8,protocol.data.recipeProtocol):4;
+  const capability=Number.isInteger(protocol.data.recipeProtocol)?Math.min(9,protocol.data.recipeProtocol):4;
   const jobs=(await json(base+'/claim',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({protocol:1,recipeProtocol:capability,limit:Math.min(1,limit)})})).data.jobs;
   for(const job of jobs) {
     const started=Date.now(),deadline=started+12*60_000,stages={};let stage='sources',stageStart=started;
@@ -334,8 +334,8 @@ export async function processCanvasExports({requestJson,authHeaders,baseUrl,limi
       if(job.recipeVersion>=6&&(job.transitionPolicy!==TRANSITION_POLICY||!Array.isArray(job.transitions)||job.transitions.length!==files.length-1))throw failure('canvas_transition_invalid');
       const options={ffmpeg,ffprobe,limits:job.limits,run:boundedRun};
       enter('normalize');
-      const prepared=job.recipeVersion===7?await trimCanvasSources(files,job.assembly,dir,options):files;
-      let result=await concatenateClips(prepared,dir,{...options,allowSingle:job.recipeVersion===7,spatialPolicy:job.spatialPolicy||'legacy-pad-v1',videoClock:job.recipeVersion>=4,fitAudio:job.recipeVersion>=5,
+      const prepared=[7,8].includes(job.recipeVersion)?await trimCanvasSources(files,job.assembly,dir,options):files;
+      let result=await concatenateClips(prepared,dir,{...options,allowSingle:[7,8].includes(job.recipeVersion),spatialPolicy:job.spatialPolicy||'legacy-pad-v1',videoClock:job.recipeVersion>=4,fitAudio:job.recipeVersion>=5,
         transitions:job.recipeVersion>=6?job.transitions:null,smooth:job.smoothJoins?.enabled===true,previewSeam:job.preview?.seamIndex??null});
       const withAudio=async input=>{
         let output=job.recipeVersion>=6?input:await applyOriginalAudio(input,job.originalAudio,dir,options);
@@ -358,12 +358,12 @@ export async function processCanvasExports({requestJson,authHeaders,baseUrl,limi
       if(job.preview&&job.recipeVersion<6)await uploadBase(await withAudio(result));
       enter('smooth');if(job.smoothJoins?.enabled)result=await smoothVideoSeams(result,dir,{...options,skipSeams:new Set((job.preview?[job.transitions?.[job.preview.seamIndex]]:job.transitions||[]).flatMap((t,i)=>t&&t.preset!=='none'?[i]:[])),...(job.preview?{originalSeamIndex:job.preview.seamIndex}:{})});
       enter('transitions');if(job.recipeVersion>=6)result=await applyVideoTransitions(result,job.preview?[job.transitions[job.preview.seamIndex]]:job.transitions,dir,{...options,inspect:inspectClip});
-      if(job.recipeVersion===7)result.timeline=result.timeline.map(clip=>({...clip,overlap:clip.overlap||0}));
+      if([7,8].includes(job.recipeVersion))result.timeline=result.timeline.map(clip=>({...clip,overlap:clip.overlap||0}));
       // Reuse this job's already-created clean base. Never another render/job.
       // Separate bounded upload keeps the existing completion body limit intact.
       if(!job.preview && protocol.data.previewBase===1 && (job.backgroundMusic?.enabled && job.backgroundMusic.gain>0 || job.originalAudio?.some(modifiedAudio)||result.timeline.some(c=>c.originalAudioFit&&(c.originalAudioFit.trimStart>1/48000||c.originalAudioFit.trimEnd>1/48000))))await uploadBase(result);
       result=await withAudio(result);
-      if(job.recipeVersion===7&&!job.preview){const measured=await inspectClip(result.output,options);verifyCanvasDuration(measured.videoDuration,job.assembly.target);result.duration=measured.videoDuration;}
+      if([7,8].includes(job.recipeVersion)&&!job.preview){const measured=await inspectClip(result.output,options);verifyCanvasDuration(measured.videoDuration,job.assembly.target);result.duration=measured.videoDuration;}
       enter('complete');
       const form=new FormData();form.set('video',new Blob([await readFile(result.output)],{type:'video/mp4'}),'full-video.mp4');
       for(const key of ['duration','width','height'])form.set(key,String(result[key]));

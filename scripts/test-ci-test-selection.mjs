@@ -103,6 +103,19 @@ assert.equal(selection(['playwright.config.js'], {forceFull: true}).full, true);
   assert(workerConfig.includes("'**/q2-*.spec.js'"),'New provider case must be discovered by the actual Worker entrypoint');
 }
 
+// New autonomy cases execute the real Worker/native callers; unknown fixtures
+// still select the full retained suite instead of inheriting this registration.
+{
+ const files=['tests/q2-canvas-agent.spec.js','tests/q2-processor-capability.spec.js','tests/canvas-assembly.test.mjs','tests/q2-canvas-agent-preflight.spec.js','tests/helpers/canvas-agent-preflight-control.mjs',
+   'tests/q2-canvas-agent-autonomy.spec.js','tests/helpers/canvas-agent-autonomy-control.mjs'];
+ for(const file of files){const chosen=selection([file]);assert(chosen.workers&&!chosen.full&&!chosen.canvasText,file);}
+ assert(selection([...files,'tests/helpers/unreviewed-autonomy-control.mjs']).full);
+ for(const file of ['tests/helpers/canvas-agent-autonomy-ui.cjs','tests/helpers/canvas-assembly-editing-ui.cjs']){const rendered=selection([file]);assert(rendered.homepage&&!rendered.full);}
+ const selected=selection([...files,'services/homepage-ffmpeg-processor/canvas-assembly-contract.mjs','workers/auth/migrations/0107_canvas_agent_autonomy.sql']);
+ assert(selected.workers&&!selected.full&&!selected.canvasText);
+ assert(requiresPrivateMediaImage(['services/homepage-ffmpeg-processor/canvas-assembly-contract.mjs']));
+}
+
 // Exercise the actual GitHub output writer: no retired flag survives either
 // a narrow functional selection or the full retained acceptance matrix.
 const outputDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'bitbi-ci-selection-output-'));

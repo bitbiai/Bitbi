@@ -71,7 +71,7 @@ export async function canvasExportRecipe(env,userId,projectId,runId,videos,setti
   if(assembly)assembly=canvasAssembly(assembly);
   const effects=transitions.some(t=>t.preset!=='none');
   if(comparison&&!smoothJoins.enabled&&!effects)fail('canvas_smooth_settings');
-  return {version:assembly?7:effects?6:5,...(effects||assembly?{transitionPolicy:TRANSITION_POLICY,transitions}:{}),...(assembly?{assembly}:{}),spatialPolicy:'center-crop-v1',timingPolicy:'video-clock-v2',originalAudioPolicy:CANVAS_AUDIO_FIT_POLICY,smoothJoins,...(comparison?{preview:comparison}:{}),...(explicit?{sequence:'explicit'}:{}),videos,music,backgroundMusic};
+  return {version:assembly?(assembly.target?.mode==='creative'?8:7):effects?6:5,...(effects||assembly?{transitionPolicy:TRANSITION_POLICY,transitions}:{}),...(assembly?{assembly}:{}),spatialPolicy:'center-crop-v1',timingPolicy:'video-clock-v2',originalAudioPolicy:CANVAS_AUDIO_FIT_POLICY,smoothJoins,...(comparison?{preview:comparison}:{}),...(explicit?{sequence:'explicit'}:{}),videos,music,backgroundMusic};
 }
 export async function exportHead(env,userId,runId) {
   const subject=canvasExportSubject(runId);

@@ -1,5 +1,5 @@
 // Application admission, shared by the member UI and the server. No model
-// prompt is responsible for obtaining duration or spending authorization.
+// prompt grants spending authority. Duration is an editable creative target.
 export const CANVAS_AGENT_VERSION = 1;
 export const CANVAS_AGENT_MODEL = 'xai/grok-4.7';
 export const CANVAS_AGENT_LIMITS = Object.freeze({maxNodes:60,maxShots:48,maxActions:180,maxRounds:3,maxVariants:2,maxEvaluations:2,maxDuration:180,minDuration:3,toleranceSeconds:0.5,maxBudgetCredits:100000,concurrency:1});
@@ -43,11 +43,10 @@ export function resolveCanvasAgentDuration({brief='',targetDurationSeconds,durat
     const text=String(brief).toLowerCase().replace(/,/g,'.');
     const seconds=briefDuration(text);
     if(seconds!==null)return resolveCanvasAgentDuration({targetDurationSeconds:seconds});
-    if(durationChoice==='delegated'){
-        if(!durationAsked)fail('canvas_agent_duration_clarification_required');
-        return {targetDurationSeconds:60,durationChoice:'delegated'};
-    }
-    return null;
+    if(durationChoice!==undefined&&!['explicit','delegated','automatic'].includes(durationChoice))fail('canvas_agent_duration_invalid');
+    // The planner chooses an appropriate length within the authorized budget.
+    // Null is deliberate creative delegation, never a runtime deadline/default.
+    return {targetDurationSeconds:null,durationChoice:durationChoice==='delegated'?'delegated':'automatic'};
 }
 export function normalizeCanvasAgentStart(input,{durationAsked=false}={}) {
     if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(k=>!['brief','targetDurationSeconds','durationChoice','budgetCredits','expectedRevision','locale'].includes(k)))fail('canvas_agent_input_invalid');
@@ -55,7 +54,6 @@ export function normalizeCanvasAgentStart(input,{durationAsked=false}={}) {
     if(!brief||brief.length>12000||/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(brief))fail('canvas_agent_brief_invalid');
     const duration=resolveCanvasAgentDuration({...input,brief,durationAsked});
     if(!Number.isSafeInteger(input.expectedRevision)||input.expectedRevision<0)fail('canvas_agent_revision_required');
-    if(!duration)return {brief,locale:input.locale==='de'?'de':'en',expectedRevision:input.expectedRevision,duration:null,budgetCredits:null};
     if(!Number.isSafeInteger(input.budgetCredits)||input.budgetCredits<1||input.budgetCredits>CANVAS_AGENT_LIMITS.maxBudgetCredits)fail('canvas_agent_budget_required');
     return {brief,locale:input.locale==='de'?'de':'en',expectedRevision:input.expectedRevision,duration,budgetCredits:input.budgetCredits};
 }

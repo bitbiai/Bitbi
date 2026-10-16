@@ -70,6 +70,25 @@
   .canvas-agent__summary dd { margin: 0; overflow-wrap: anywhere; }
   .canvas-agent__actions { display: flex; flex-wrap: wrap; gap: 8px; }
   .canvas-agent__media video { width: 100%; aspect-ratio: 16/9; object-fit: contain; border-radius: 8px; }
+  .canvas-agent__live { display: grid; gap: 14px; min-width: 0; }
+  .canvas-agent__live h4 { margin: 0 0 8px; font-size: .82rem; line-height: 1.5; overflow-wrap: anywhere; }
+  .canvas-agent__live p { margin: 6px 0; }
+  .canvas-agent__live :is(ol,ul) { margin: 8px 0 0; padding-left: 20px; font-size: .75rem; line-height: 1.5; }
+  .canvas-agent__live li { padding-block: 5px; overflow-wrap: anywhere; }
+  .canvas-agent__cause, .canvas-agent__budget, .canvas-agent__plan { padding: 12px; border: 1px solid var(--canvas-line); border-radius: 8px; background: var(--canvas-inset); min-width: 0; }
+  .canvas-agent__budget { border-color: var(--canvas-accent); }
+  .canvas-agent__budget .canvas-agent__actions { margin-top: 12px; }
+  .canvas-agent__budget button { min-height: 44px; }
+  .canvas-agent__connection { color: var(--canvas-muted); font-size: .7rem; }
+  .canvas-agent__events { max-height: 320px; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+  .canvas-agent__events:focus-visible { outline: 2px solid var(--canvas-accent); outline-offset: 3px; }
+  .canvas-agent__events li + li { border-top: 1px solid var(--canvas-line); }
+  .canvas-agent__events :is(strong,span,time) { display: block; }
+  .canvas-agent__partial-cards { display: grid; gap: 12px; }
+  .canvas-agent__partial-card { margin: 0; min-width: 0; }
+  .canvas-agent__partial-card figcaption { font-size: .75rem; margin-bottom: 6px; overflow-wrap: anywhere; }
+  .canvas-agent__partial-card :is(img,video) { display: block; width: 100%; aspect-ratio: 16/9; object-fit: contain; border-radius: 8px; }
+  .canvas-agent__partial-card audio { width: 100%; max-width: 100%; }
   .canvas-panel__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 18px; }
   .canvas-panel__head h2 { margin: 0; color: #e8eef4; font-size: .88rem; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
   .canvas-project-list { display: grid; align-content: start; gap: 4px; margin: 0 -6px 20px; }

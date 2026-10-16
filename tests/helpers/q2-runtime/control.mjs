@@ -1,3 +1,5 @@
+import {canvasAgentPreflightCase} from '../canvas-agent-preflight-control.mjs';
+import {CANVAS_AGENT_AUTONOMY_CASES,canvasAgentAutonomyCase} from '../canvas-agent-autonomy-control.mjs';
 import {canvasWorkspaceTransitionCase} from '../canvas-workspace-transition-control.mjs';
 import {CANVAS_MODEL_CASES,canvasModelOperationCase} from '../canvas-agent-model-operation-cases.mjs';
 import { canvasAgentAuthorityCase, canvasAgentApiCase, canvasAgentDispatchCase, canvasAgentCapabilityCase, canvasAgentLateCompletionCase,canvasAgentUnknownProviderCase, canvasAgentManualTakeoverCase } from '../canvas-agent-control.mjs';
@@ -31,6 +33,8 @@ export default {
     if (request.method !== 'POST' || request.headers.get('x-q2-control') !== env.Q2_CONTROL_TOKEN) return new Response(null,{status:403});
     const path=new URL(request.url).pathname;
     const body=await request.json();
+    if(path==='/canvas-agent-preflight')return Response.json(await canvasAgentPreflightCase(env,body));
+    if(path==='/canvas-agent-autonomy'&&CANVAS_AGENT_AUTONOMY_CASES.includes(body.name))return Response.json(await canvasAgentAutonomyCase(env,body.name));
     if(path==='/canvas-agent-model-operation'&&CANVAS_MODEL_CASES.includes(body.name))return Response.json(await canvasModelOperationCase(env,body.name));
     if (path === '/canvas-agent-authority') return Response.json(await canvasAgentAuthorityCase(env));
     if (path === '/canvas-agent-api') return Response.json(await canvasAgentApiCase(env));

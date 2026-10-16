@@ -517,7 +517,13 @@ export async function runCanvasTests(f) {
     const result=await response.json();assert.equal(result.case,name);assert.equal(result.providerCalls,name==='evaluate'?2:1);
     f.metrics.push(result);assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
   });
-  for (const path of ['/canvas-assembly', '/canvas-inspection', '/canvas-agent-dispatch', '/canvas-agent-capabilities', '/canvas-agent-late-completion','/canvas-agent-unknown-provider']) await f.test('canvas_native' + path.replaceAll('-', '_').replace('/', '_'), async () => {
+  for(const name of ['ledger','accept','decline','stale','proposal','stopped','missing-plan','summary','budget-stop','lost-lease','late-proposal']) await f.test(`canvas_agent_autonomy_${name.replaceAll('-','_')}`,async()=>{
+    const response=await f.control('/canvas-agent-autonomy',{name});
+    assert.equal(response.status,200,await response.clone().text());
+    const result=await response.json();assert.equal(result.case,name);f.metrics.push(result);
+    assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
+  });
+  for (const path of ['/canvas-agent-preflight', '/canvas-assembly', '/canvas-inspection', '/canvas-agent-dispatch', '/canvas-agent-capabilities', '/canvas-agent-late-completion','/canvas-agent-unknown-provider']) await f.test('canvas_native' + path.replaceAll('-', '_').replace('/', '_'), async () => {
     const response = await f.control(path, {
       videoBase64: fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4', import.meta.url)).toString('base64'),
       imageBase64: fs.readFileSync(new URL('../../fixtures/media/h3-frame.png', import.meta.url)).toString('base64'),
@@ -540,9 +546,9 @@ export async function runCanvasTests(f) {
     assert.deepEqual(await response.json(), { invalidRequestsReadOnly: true, newRunPaused: true, pendingRecoveryReadOnly: true, completedReplayReadOnly: true, providerCalls: 1 });
     assert.deepEqual(await f.rows('PRAGMA foreign_key_check'), []);
   });
-  await f.test('canvas_agent_native_duration_clarification_duplicate_starts_controls_and_manual_takeover', async () => {
+  await f.test('canvas_agent_native_autonomous_duration_duplicate_starts_controls_and_manual_takeover', async () => {
     const response = await f.control('/canvas-agent-api', {});
     assert.equal(response.status, 200, await response.clone().text());
-    assert.deepEqual(await response.json(), { clarification: true, starts: 1, duplicateStarts: 1, providerCalls: 0, foreignDenied: true, manualTakeover: true });
+    assert.deepEqual(await response.json(), { autonomousDuration: true, starts: 2, duplicateStarts: 1, providerCalls: 0, foreignDenied: true, manualTakeover: true });
   });
 }

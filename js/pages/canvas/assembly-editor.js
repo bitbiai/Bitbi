@@ -11,14 +11,17 @@ export function assemblySequence({ legacy, parent, projectId, german, signal, ge
     const list = document.createElement('ol'), options = document.createElement('div'), target = document.createElement('input');
     target.type = 'number'; target.className = 'canvas-input'; target.min = '1'; target.max = '600'; target.step = '.1';
     const targetLabel = document.createElement('label'); targetLabel.className = 'canvas-field'; targetLabel.append(document.createTextNode(german ? 'Zieldauer (Sekunden, optional)' : 'Target duration (seconds, optional)'), target);
+    const targetMode=document.createElement('select');targetMode.className='canvas-select';
+    for(const [value,text]of [['creative',german?'Kreative Zieldauer':'Creative target'],['exact',german?'Exakte Zieldauer':'Exact target']]){const option=document.createElement('option');option.value=value;option.textContent=text;targetMode.append(option);}
+    const modeLabel=document.createElement('label');modeLabel.className='canvas-field';modeLabel.append(document.createTextNode(german?'Umgang mit der Zieldauer':'Target duration mode'),targetMode);
     const help = document.createElement('p'); help.className = 'canvas-muted';
-    help.textContent = german ? 'Reihenfolge und Übergänge sind unabhängig von Referenzverbindungen. Zieldauer: ±0,5 Sekunden nach Messung. Ein geänderter Prompt benötigt eine neue Generierung; der letzte Export bleibt unverändert.' : 'Order and transitions are independent of reference connections. Target tolerance: ±0.5 seconds after measurement. Changed prompts need a new generation; the last export stays unchanged.';
+    help.textContent = german ? 'Kreative Zieldauer erlaubt natürliche Abweichungen; die tatsächliche Dauer wird gemessen. Exakt prüft die gespeicherte Toleranz (standardmäßig ±0,5 Sekunden). Reihenfolge und Übergänge sind unabhängig von Referenzen. Geänderte Prompts benötigen eine neue Generierung; der letzte Export bleibt unverändert.' : 'Creative targets allow natural duration differences; actual duration is measured. Exact mode checks the saved tolerance (±0.5 seconds by default). Order and transitions are independent of references. Changed prompts need a new generation; the last export stays unchanged.';
     const use = document.createElement('button'), add = document.createElement('button'), legacyButton = document.createElement('button');
     for (const button of [use, add, legacyButton]) { button.type = 'button'; button.className = 'canvas-button'; }
     use.textContent = german ? 'Auswahl als Filmschnitt speichern' : 'Save selection as film assembly';
     add.textContent = german ? 'Clip zum Filmschnitt hinzufügen' : 'Add clip to film assembly';
     legacyButton.textContent = german ? 'Andere Auswahl exportieren' : 'Export another selection';
-    options.append(targetLabel, help, list, add, legacyButton); box.append(use, options, status); parent.append(box);
+    options.append(targetLabel, modeLabel, help, list, add, legacyButton); box.append(use, options, status); parent.append(box);
     let assembly = null, persisted = null, active = false, initialized = false, available = [], revision = null, saving = Promise.resolve(true), settingsTimer=null, settingsPending=false, failed = false, writes = 0;
     const label = (text, input, row) => { const wrap = document.createElement('label'); wrap.className = 'canvas-field'; wrap.append(document.createTextNode(text), input); row.append(wrap); };
     const candidates = () => available.filter(clip => {
@@ -45,6 +48,7 @@ export function assemblySequence({ legacy, parent, projectId, german, signal, ge
         legacy.element.hidden = active; options.hidden = !active; use.hidden = active; list.replaceChildren();
         if (!active || !assembly) return;
         target.value = assembly.target ? String(assembly.target.seconds) : '';
+        targetMode.value=assembly.target?.mode==='creative'?'creative':'exact';targetMode.disabled=!assembly.target;
         assembly.clips.forEach((clip, index) => {
             const row = document.createElement('li'), select = document.createElement('select'); select.className = 'canvas-select';
             const choices = candidates();
@@ -85,7 +89,8 @@ export function assemblySequence({ legacy, parent, projectId, german, signal, ge
     }, { signal });
     legacyButton.addEventListener('click', () => { active = false; use.textContent = german ? 'Gespeicherten Filmschnitt verwenden' : 'Use saved film assembly'; render(); onChange(); }, { signal });
     add.addEventListener('click', () => { const next = candidates().find(c => !assembly.clips.some(s => s.nodeId === c.nodeId)); if (next) { assembly.clips.push({ nodeId: next.nodeId, trim: { start: 0 }, transition: { preset: 'none' } }); changed(); render(); } }, { signal });
-    target.addEventListener('change', () => { assembly.target = target.value === '' ? null : { seconds: Number(target.value) }; changed(); }, { signal });
+    target.addEventListener('change', () => { assembly.target = target.value === '' ? null : targetMode.value==='creative'?{seconds:Number(target.value),mode:'creative'}:{seconds:Number(target.value),...(assembly.target?.toleranceSeconds?{toleranceSeconds:assembly.target.toleranceSeconds}:{})}; changed();render(); }, { signal });
+    targetMode.addEventListener('change',()=>{if(!assembly.target)return;assembly.target=targetMode.value==='creative'?{seconds:assembly.target.seconds,mode:'creative'}:{seconds:assembly.target.seconds,toleranceSeconds:.5};changed();},{signal});
     document.addEventListener('canvas:merge-state', () => { if (active) { render(); onChange(); } }, { signal }); render();
     return {
         update(data) { legacy.update(data); available = data.availableClips || available; if (Object.hasOwn(data, 'assembly') && !writes && !settingsPending) { persisted = data.assembly; revision = data.revision; assembly = persisted && structuredClone(persisted); if (!initialized) active = Boolean(assembly); else if (!assembly) active = false; initialized = true; failed = false; onSaved(persisted,revision); render(); } },

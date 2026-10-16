@@ -935,6 +935,19 @@ Chromium/WebKit editability regression and real measured-duration/FFmpeg control
 in their ordinary callers. Config readiness, synthetic acceptance and live account
 access are separate; no paid inference is implied by publication.
 
+Canvas autonomy uses a short brief plus a hard project credit ceiling. Omitted
+length is chosen creatively; ordinary assembly controls expose Creative/Exact
+mode. Preserve the immutable paid proposal before preflight, conditional model
+constraints and bounded, accounted corrections. Budget amendments bind the
+shown ceiling, tariff and project/run revisions; silence or stale tabs cannot
+approve spend. Actual ledger charges replace settled allocation ceilings, while
+unknown accepted work retains headroom. The authenticated activity observer
+replays persisted events and does not own execution. The background provider
+route supplies completion summaries only; never describe those as live tokens.
+Creative export recipe v8 requires processor protocol v9; old recipes remain
+compatible. Required schema stays in the release contract. Use the existing
+processor/native/EN-DE browser callers and retain exact-source passing evidence.
+
 For local read-only Cloudflare diagnosis, capture `wrangler auth token --json`
 inside the calling process and parse its token field without printing it. The
 plain command includes CLI decoration. Check the actual operation with that

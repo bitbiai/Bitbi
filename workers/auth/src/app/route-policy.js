@@ -93,6 +93,8 @@ export const ROUTE_POLICIES = Object.freeze([
   safeRead('account.canvas.agent.read','GET','/api/account/canvas/projects/:projectId/agent','canvas'),
   userJsonWrite('account.canvas.agent.start','POST','/api/account/canvas/projects/:projectId/agent','canvas','smallJson','canvas-agent-write-user'),
   userJsonWrite('account.canvas.agent.control','POST','/api/account/canvas/projects/:projectId/agent/:runId/control','canvas','smallJson','canvas-agent-write-user'),
+  userJsonWrite('account.canvas.agent.budget','POST','/api/account/canvas/projects/:projectId/agent/:runId/budget','canvas','smallJson','canvas-agent-write-user'),
+  safeRead('account.canvas.agent.events','GET','/api/account/canvas/projects/:projectId/agent/:runId/events','canvas'),
   safeRead('account.canvas.assembly.read','GET','/api/account/canvas/projects/:projectId/assembly','canvas'),
   userJsonWrite('account.canvas.assembly.update','PATCH','/api/account/canvas/projects/:projectId/assembly','canvas','smallJson','canvas-write-user'),
   safeRead('account.canvas.inspection.read','GET','/api/account/canvas/projects/:projectId/media-inspections/:inspectionId','canvas'),

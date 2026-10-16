@@ -2023,6 +2023,39 @@ The complete-film/editability fixture uses this transport too. These controlled
 checks do not establish live model access; release and paid acceptance remain
 separate. Keep exact candidate reports in the existing local release checkpoint.
 
+### Completed Canvas plan admission and autonomy — 2026-10-16
+
+Source `13f87022`, production run `5de00c4abb84ea72b42168eed00c7438`, retained a
+successful Grok response but no applied graph. The normal H3 adapter rejects its
+mixed frame/reference roles and fixed aspect ratio with frame mode. Those are
+reproducible admission defects, not proof of the first erased historical error.
+Takeover cleared that error; do not reconstruct it from guesswork. Fresh scoped
+D1 readback at 15:57 UTC found no active nodes or media runs, one retained deleted
+node, and a ledger debit of **78** credits. The attempt's 127-credit field is the
+ceiling, not the actual debit. Keep the older unknown run and its held 127-credit
+reservation separate. Neither stopped/unknown request authorizes paid replay.
+
+Persist proposals before executable preflight. Conditional model constraints,
+ordinary-adapter validation and bounded within-cap corrections precede media
+submission. Store cause/history across controls. A completed operation without
+its plan is an explicit invariant error. Exact budget decisions and project-wide
+commitments use the existing ledger; do not add allocation, reservation and
+settlement as separate expenses. The clarified owner contract makes duration
+creative/optional while the credit ceiling remains hard. Version creative export
+recipes without weakening source/stream/trim integrity or legacy Exact mode.
+
+Actual callers: `tests/q2-canvas-agent-autonomy.spec.js`,
+`tests/q2-canvas-agent-preflight.spec.js`, shared native D1 controls, the existing
+processor fixtures and EN/DE Chromium/WebKit Canvas acceptance. Controls cover
+mixed H3 modes, real guarded node execution, ledger settlement 127→78, concurrent
+allocation, stale/duplicate/foreign consent, visible rejected proposals,
+reconnection and immutable stopped results. Signed provider normalization retains
+only a bounded documented readable summary. Protocol-1 receipt canonicalization
+must survive an upgrade; protocol-2 may retain the summary. Current background
+callbacks expose completion only; actual activity events are separate. Evidence
+and publication receipts belong in the private local-release checkpoint. New paid
+provider acceptance is separately authorized; controlled results do not prove it.
+
 ### Canvas agent editability and inspector fixtures — 2026-10-15
 
 The production assistant must persist creative settings in the same ordinary

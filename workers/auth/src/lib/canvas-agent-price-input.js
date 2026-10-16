@@ -1,9 +1,9 @@
 import { canvasGenerationSettings } from '../../../../js/shared/canvas-generation-settings.mjs';
 import { canvasNodeMediaKind } from '../../../../js/shared/canvas-export.mjs';
 import { canvasVideoMethods } from '../../../../js/shared/canvas-video-input.mjs';
-import { H3_MODEL, h3References, h3MediaType } from '../../../../js/shared/minimax-h3.mjs';
-import { OMNI_MODEL, omniReferences, omniOperation } from '../../../../js/shared/gemini-omni-contract.mjs';
-import { SEEDANCE_25_MODEL, seedance25References, seedance25Settings } from '../../../../js/shared/seedance-25-contract.mjs';
+import { H3_MODEL, h3References, h3MediaType, normalizeH3Request } from '../../../../js/shared/minimax-h3.mjs';
+import { OMNI_MODEL, omniReferences, omniOperation, normalizeOmniRequest } from '../../../../js/shared/gemini-omni-contract.mjs';
+import { SEEDANCE_25_MODEL, seedance25References, seedance25Settings, normalizeSeedance25Request } from '../../../../js/shared/seedance-25-contract.mjs';
 import { isGptImage25Model } from '../../../../js/shared/gpt-image-25-contract.mjs';
 
 const fail = code => { throw Object.assign(new Error(code), {code, status:400}); };
@@ -26,6 +26,7 @@ export function canvasAgentDependencyKind(source, existingNodes = []) {
 // than the normal Canvas request will use after its sources finish.
 export function prepareCanvasAgentPriceInput({node, model, dependencies = [], existingNodes = []}) {
     const body = canvasGenerationSettings(node.config || {}, model, node.prompt);
+    if(!body.prompt?.trim()&&dependencies.some(({dep})=>dep.role==='prompt'))body.prompt='Connected prompt resolved at execution.';
     const identities = new Map();
     const placeholder = identity => {
         if (!identities.has(identity)) identities.set(identity, `canvas_agent_quote_${identities.size + 1}`);
@@ -63,13 +64,25 @@ export function prepareCanvasAgentPriceInput({node, model, dependencies = [], ex
             if (h3MediaType(dep.role) !== kind) fail('canvas_agent_reference_unsupported');
             return {role:dep.role, source};
         });
+        const roles = new Set(references.map(ref => ref.role));
+        const frames = roles.has('first_frame') || roles.has('last_frame');
+        if (model.id === H3_MODEL && frames && ['reference_image','reference_video','reference_audio'].some(role => roles.has(role))) fail('canvas_agent_h3_reference_modes_mixed');
+        if (model.id === H3_MODEL && frames && body.aspect_ratio !== 'adaptive') fail('canvas_agent_h3_frame_ratio_required');
+        if (model.id === SEEDANCE_25_MODEL) {
+            if (roles.has('last_frame') && !roles.has('first_frame')) fail('canvas_agent_seedance_last_frame_requires_first');
+            if (body.workflow !== 'generate' && !roles.has('reference_video')) fail('canvas_agent_seedance_video_required');
+            if (body.workflow === 'edit' && body.duration !== -1) fail('canvas_agent_seedance_edit_duration');
+            if (frames && node.config?.seedance25?.aspect_ratio !== undefined && node.config.seedance25.aspect_ratio !== 'adaptive') fail('canvas_agent_seedance_frame_ratio_required');
+        }
         const validate = model.id === H3_MODEL ? h3References : model.id === OMNI_MODEL ? omniReferences : seedance25References;
         body.references = validate(references);
         if (model.id === OMNI_MODEL) body.operation = omniOperation(body.references);
         if (model.id === SEEDANCE_25_MODEL) Object.assign(body, seedance25Settings(body, body.references));
-        if (model.id === H3_MODEL && body.references.some(ref => ['first_frame','last_frame'].includes(ref.role)) && body.aspect_ratio !== 'adaptive') fail('canvas_agent_reference_unsupported');
         delete body.referenceOrder;
-        return body;
+        // The normal routed request validators catch conditional controls before
+        // an executable graph or paid media action is admitted.
+        return model.id === H3_MODEL ? normalizeH3Request(body)
+            : model.id === OMNI_MODEL ? normalizeOmniRequest(body) : normalizeSeedance25Request(body);
     }
 
     const videos = media.filter(ref => ref.kind === 'video');

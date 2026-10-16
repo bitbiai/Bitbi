@@ -80,7 +80,7 @@ test('Canvas processor advertises only backend-authorized inspections and preser
     expect(await job()).toEqual(before); // Rejection preceded export admission.
 
     const github = transport(env.MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET);
-    expect((await github.requestJson(base + '/claim')).data).toEqual({ protocol: 1, recipeProtocol: 8, previewBase: 1, inspections: 0 });
+    expect((await github.requestJson(base + '/claim')).data).toEqual({ protocol: 1, recipeProtocol: 9, previewBase: 1, inspections: 0 });
     requests.length = 0;
     await processCanvasExports(github);
     expect(requests.some(row => row.path.includes('/inspections/'))).toBe(false);
@@ -102,7 +102,7 @@ test('Canvas processor advertises only backend-authorized inspections and preser
     expect(Number(measured.video.nb_frames)).toBeGreaterThan(1);
 
     const cloudflare = transport(env.PRIVATE_MEDIA_PROCESSOR_SECRET);
-    expect((await cloudflare.requestJson(base + '/claim')).data).toEqual({ protocol: 1, recipeProtocol: 8, previewBase: 1, inspections: 1 });
+    expect((await cloudflare.requestJson(base + '/claim')).data).toEqual({ protocol: 1, recipeProtocol: 9, previewBase: 1, inspections: 1 });
     requests.length = 0;
     await processCanvasExports(cloudflare);
     expect(requests).toEqual([

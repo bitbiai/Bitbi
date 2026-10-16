@@ -61,6 +61,14 @@ module.exports=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock
         await expect(editor.locator('ol > li')).toHaveCount(4);
         const oldIdentity=inspector.getByLabel(de?'Angezeigter Export':'Displayed export',{exact:true});
         await expect(oldIdentity).toHaveAttribute('data-export-id',original.id);
+        const targetMode=editor.getByRole('combobox',{name:de?'Umgang mit der Zieldauer':'Target duration mode',exact:true});
+        await targetMode.selectOption('exact');
+        await expect.poll(async()=>(await f.readProject()).project.assembly.target).toEqual({seconds:16,toleranceSeconds:.5});
+        await targetMode.selectOption('creative');
+        await expect.poll(async()=>(await f.readProject()).project.assembly.target).toEqual({seconds:16,mode:'creative'});
+        await page.reload();await open();await expect(targetMode).toHaveValue('creative');
+        await expect(oldIdentity).toHaveAttribute('data-export-id',original.id);
+        expect(f.calls).toHaveLength(providerBaseline);
         await select(f.nodes[0]);await openCanvasSettings(page,'generation');
         const freshness=inspector.getByRole('status',{name:de?'Stand der Generierung':'Generation freshness',exact:true,includeHidden:true});
         await expect(freshness).toHaveAttribute('data-state','unchanged');

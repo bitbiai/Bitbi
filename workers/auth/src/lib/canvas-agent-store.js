@@ -1,5 +1,7 @@
 import { nowIso,randomTokenHex } from './tokens.js';
 import { markMemberAiUsageAttemptProviderFailed } from './member-ai-usage-attempts.js';
+import { readCanvasAgentBudget,publicCanvasBudgetRequest } from './canvas-agent-budget.js';
+import { publicCanvasAgentProposal,publicCanvasAgentOutputs } from './canvas-agent-progress.js';
 export const CANVAS_AGENT_MESSAGE='canvas_agent.process';
 export const ACTIVE_AGENT_STATES=['queued','planning','running','exporting'];
 export const agentFail=(code,status=409)=>{throw Object.assign(new Error(code),{code,status});};
@@ -9,17 +11,28 @@ export async function publicAgentRun(env,row) {
     const steps=(await env.DB.prepare('SELECT id,kind,status,allocation_credits,usage_attempt_id FROM canvas_agent_steps WHERE run_id=? ORDER BY rowid').bind(row.id).all()).results;
     const modelOperation=await publicCanvasAgentModelOperation(env,row.id);
     const project=await env.DB.prepare('SELECT revision FROM canvas_projects WHERE id=?').bind(row.project_id).first();
-    const costs=await env.DB.prepare(`SELECT COALESCE(SUM(CASE WHEN l.amount<0 THEN -l.amount ELSE 0 END),0) AS charged,
-        COALESCE(SUM(CASE WHEN a.billing_status='reserved' AND a.reservation_released_at IS NULL THEN a.credit_cost ELSE 0 END),0) AS reserved,
-        COALESCE(SUM(CASE WHEN a.provider_outcome IN ('dispatched','unknown') THEN a.credit_cost ELSE 0 END),0) AS pending
-        FROM canvas_agent_steps s LEFT JOIN member_ai_usage_attempts_v2 a ON a.id=s.usage_attempt_id
-        LEFT JOIN member_credit_ledger l ON l.user_id=a.user_id AND l.idempotency_key=a.idempotency_key WHERE s.run_id=?`).bind(row.id).first();
+    const budget=row.budget_credits===null?null:await readCanvasAgentBudget(env,row);
+    const budgetRequest=await env.DB.prepare("SELECT * FROM canvas_agent_budget_requests WHERE run_id=? AND status='pending' ORDER BY created_at DESC LIMIT 1").bind(row.id).first();
+    const actionableBudget=budgetRequest&&row.status==='paused'&&row.phase==='budget'&&row.expires_at>nowIso()
+        &&budgetRequest?.project_revision===project?.revision&&budgetRequest.project_revision===row.expected_revision
+        &&budgetRequest.revision===(row.budget_revision||0)&&budgetRequest.current_cap===row.budget_credits;
+    let cause=row.cause_json?JSON.parse(row.cause_json):row.error_code?{code:row.error_code,step:row.phase,recovery:'manual'}:null;
+    if(row.status==='paused'&&row.phase==='budget'&&!actionableBudget)cause={code:row.expires_at<=nowIso()?'canvas_agent_authorization_expired':project?.revision!==row.expected_revision?'canvas_agent_project_changed':'canvas_agent_budget_request_changed',step:'budget',recovery:'manual'};
+    const proposedPlan=await publicCanvasAgentProposal(env,row),partialOutputs=await publicCanvasAgentOutputs(env,row);
+    const held=['cancelled','taken_over'].includes(row.status)||row.status==='paused'&&row.phase!=='budget';
+    const event=await env.DB.prepare(`SELECT type,payload_json FROM canvas_agent_events WHERE run_id=? AND type IN ('action','decision_summary','error')
+        AND (?=0 OR json_extract(payload_json,'$.code')=?) ORDER BY id DESC LIMIT 1`).bind(row.id,held?1:0,row.status).first();
     const input=JSON.parse(row.input_json);
     return {id:row.id,projectId:row.project_id,requestKey:row.request_key,brief:input.brief,status:row.status,phase:row.phase,
         completed:steps.filter(s=>s.kind==='node'&&s.status==='completed').length,total:steps.filter(s=>s.kind==='node').length,
         targetDurationSeconds:row.target_seconds,toleranceSeconds:row.tolerance_seconds,budgetCredits:row.budget_credits,
         allocatedCredits:steps.reduce((sum,s)=>sum+s.allocation_credits,0),projectRevision:row.expected_revision,
-        chargedCredits:costs.charged,reservedCredits:costs.reserved,pendingOutcomeCredits:costs.pending,
+        chargedCredits:budget?.chargedCredits||0,reservedCredits:budget?.reservedCredits||0,pendingOutcomeCredits:budget?.pendingOutcomeCredits||0,
+        committedCredits:budget?.committedCredits||0,remainingCredits:budget?.remainingCredits||0,budgetRevision:row.budget_revision||0,
+        budgetRequest:actionableBudget?publicCanvasBudgetRequest(budgetRequest):null,proposedPlan,partialOutputs,
+        currentAction:event?JSON.parse(event.payload_json):{phase:held?row.status==='taken_over'?'manual_takeover':row.status:row.phase,model:!held&&modelOperation?'xai/grok-4.7':null},
+        cause,
+        summarySupport:{status:'unavailable',mode:'completed'},
         modelOperation,allowedActions:canvasAgentAllowedActions({...row,current_revision:project?.revision},modelOperation),
         errorCode:row.error_code,result:row.result_json?JSON.parse(row.result_json):null,
         ...(row.status==='clarification_required'?{clarification:{field:'duration',code:'duration_required'}}:{}),
@@ -42,7 +55,7 @@ export function canvasAgentAllowedActions(run,operation) {
     if(['completed','cancelled','taken_over','clarification_required'].includes(run.status))return [];
     const actions=['cancel','takeover'];
     if(ACTIVE_AGENT_STATES.includes(run.status))actions.unshift('pause');
-    if(run.status==='paused'&&(run.current_revision===undefined||run.current_revision===run.expected_revision)
+    if(run.status==='paused'&&run.phase!=='budget'&&(run.current_revision===undefined||run.current_revision===run.expected_revision)
         &&!['pending','unknown','failed'].includes(operation?.outcome)&&!['review_required','billing_review'].includes(operation?.recovery))actions.unshift('resume');
     return actions;
 }
@@ -80,7 +93,7 @@ export async function claimCanvasAgent(env,id) {
     return result.meta?.changes===1?readAgentRun(env,id):null;
 }
 export async function agentTransition(env,run,changes) {
-    const allowed=['status','phase','error_code','plan_json','result_json','expected_revision','next_attempt_at'];
+    const allowed=['status','phase','error_code','plan_json','result_json','expected_revision','next_attempt_at','cause_json','target_seconds'];
     if(Object.keys(changes).some(k=>!allowed.includes(k)))throw new TypeError('Invalid state transition');
     const entries=Object.entries(changes);
     const result=await env.DB.prepare(`UPDATE canvas_agent_runs SET ${entries.map(([key])=>`${key}=?`).join(',')},updated_at=? WHERE id=? AND lease_token=?`)

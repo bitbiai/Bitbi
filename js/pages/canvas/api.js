@@ -1,8 +1,13 @@
 import { modelPricingRequestHeaders, refreshModelPricing } from '../../shared/model-pricing-client.js';
+import { TARIFF_HEADER } from '../../shared/model-tariff.mjs';
 const BASE = '/api/account/canvas';
 
-async function requestUrl(url, { method = 'GET', body, idempotencyKey, signal, responseKey = 'data', timeoutMs = 0 } = {}) {
+async function requestUrl(url, { method = 'GET', body, idempotencyKey, signal, responseKey = 'data', timeoutMs = 0, tariffRevision } = {}) {
     const headers = { Accept: 'application/json', ...modelPricingRequestHeaders() };
+    if(tariffRevision!==undefined){
+        if(!Number.isSafeInteger(tariffRevision)||tariffRevision<0)return {ok:false,status:400,code:'model_pricing_stale',data:null};
+        headers[TARIFF_HEADER]=String(tariffRevision);
+    }
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
     const controller=new AbortController(),abort=()=>controller.abort();let timedOut=false;

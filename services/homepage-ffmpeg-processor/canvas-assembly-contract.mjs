@@ -16,9 +16,14 @@ export function canvasTrim(value = { start: 0 }) {
 
 export function canvasDurationTarget(value = null) {
     if (value === null) return null;
-    if (!keys(value, ['seconds', 'toleranceSeconds']) || !Number.isFinite(value.seconds) || value.seconds < 1 || value.seconds > 600
+    if (!keys(value, ['seconds', 'toleranceSeconds', 'mode']) || !Number.isFinite(value.seconds) || value.seconds < 1 || value.seconds > 600
+        || value.mode !== undefined && !['creative', 'exact'].includes(value.mode)
         || value.toleranceSeconds !== undefined && value.toleranceSeconds !== CANVAS_DURATION_TOLERANCE_SECONDS) fail('canvas_duration_target_invalid');
-    return { seconds: Math.round(value.seconds * 1000) / 1000, toleranceSeconds: CANVAS_DURATION_TOLERANCE_SECONDS };
+    const seconds = Math.round(value.seconds * 1000) / 1000;
+    // Creative targets guide production; actual duration is always measured.
+    // Older recipes retain their exact-duration contract and existing tolerance.
+    return value.mode === 'creative' ? { seconds, mode: 'creative' }
+        : { seconds, toleranceSeconds: CANVAS_DURATION_TOLERANCE_SECONDS };
 }
 
 // Playback order is node-based. Resolving a node's current selected output is an
@@ -56,6 +61,7 @@ export function canvasAssemblyTiming(assembly, measuredDurations, fps) {
 export function verifyCanvasDuration(measuredSeconds, target) {
     const expected = canvasDurationTarget(target);
     if (!Number.isFinite(measuredSeconds) || measuredSeconds <= 0 || measuredSeconds > 600) fail('canvas_duration_invalid');
-    if (expected && Math.abs(measuredSeconds - expected.seconds) > expected.toleranceSeconds + 0.000001) fail('canvas_duration_target_missed');
-    return { measuredSeconds, targetSeconds: expected?.seconds ?? null, toleranceSeconds: expected?.toleranceSeconds ?? null };
+    if (expected && expected.mode !== 'creative' && Math.abs(measuredSeconds - expected.seconds) > expected.toleranceSeconds + 0.000001) fail('canvas_duration_target_missed');
+    return { measuredSeconds, targetSeconds: expected?.seconds ?? null, toleranceSeconds: expected?.toleranceSeconds ?? null,
+        ...(expected?.mode === 'creative' ? {mode:'creative', deviationSeconds:measuredSeconds - expected.seconds} : {}) };
 }

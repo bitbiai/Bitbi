@@ -10,7 +10,7 @@ import {activateAuthVersion,verifyAiActivation,assertSupportedBackendMigrations}
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const load=worker=>JSON.parse(fs.readFileSync(path.join(root,`workers/${worker}/wrangler.jsonc`)));
 {
- const migration='0106_canvas_agent_model_operations.sql';
+ const migration='0107_canvas_agent_autonomy.sql';
  const changedFiles=[`workers/auth/migrations/${migration}`,'config/release-compat.json',
   'workers/ai/src/index.js','workers/ai/src/routes/canvas-agent-plan.js','workers/ai/src/lib/canvas-agent-plan.js','workers/ai/src/lib/caller-policy.js',
   'workers/auth/src/lib/canvas-agent-model-operations.js','workers/auth/src/lib/canvas-agent-planning.js',
@@ -24,7 +24,12 @@ const load=worker=>JSON.parse(fs.readFileSync(path.join(root,`workers/${worker}/
  assert(plan.manualPrerequisites.required.some(item=>item.name==='H3_CLOUDFLARE_API_TOKEN'&&item.worker==='auth'));
  for(const file of ['workers/ai/src/lib/generation-timeout.js','workers/ai/src/routes/unreviewed-background.js','workers/ai/wrangler.jsonc'])
   assert(!backendContinuationSupported(createReleasePlan(context,{changedFiles:[...changedFiles,file]})),'No broad AI transport/config exception');
- assert.throws(()=>assertSupportedBackendMigrations([migration,'0107_unreviewed.sql']));
+ assert.throws(()=>assertSupportedBackendMigrations([migration,'0108_unreviewed.sql']));
+ const creative=createReleasePlan(context,{changedFiles:[...changedFiles,'services/homepage-ffmpeg-processor/canvas-assembly-contract.mjs','workers/auth/src/lib/canvas-export-recipes.js']});
+ assert(backendContinuationSupported(creative));
+ assert.deepEqual(creative.workerDeploys.map(step=>step.worker),['ai','media','auth']);
+ assert(creative.deploySteps.some(step=>step.type==='service'&&step.service==='homepage-ffmpeg-processor'));
+ assert.equal(creative.schemaApplies[0].latestMigration,migration);
 }
 for(const worker of ['auth','ai']) {
  const after=load(worker),before=structuredClone(after);for(const key of worker==='auth'?['CANVAS_AGENT_ENABLED','ENABLE_GROK_4_7']:['ENABLE_GROK_4_7'])delete before.vars[key];

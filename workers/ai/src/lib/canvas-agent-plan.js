@@ -4,6 +4,7 @@ import {
   CANVAS_AGENT_PLAN_MAX_OUTPUT_TOKENS, validateCanvasAgentPlan,
   CANVAS_AGENT_EVALUATION_SCHEMA, CANVAS_AGENT_EVALUATION_SYSTEM, CANVAS_AGENT_EVALUATION_MAX_OUTPUT_TOKENS,
   CANVAS_AGENT_EVALUATION_INPUT_MAX_BYTES, CANVAS_AGENT_EVALUATION_FRAME_TOTAL_BYTES, validateCanvasAgentEvaluation,
+  CANVAS_AGENT_REASONING_SUMMARY_DELIVERY, canvasAgentReasoningSummary,
 } from '../../../shared/canvas-agent-plan.mjs';
 import { normalizeGrokUsage } from './openai-chat-stream.js';
 import { runWithGenerationTimeout } from './generation-timeout.js';
@@ -20,14 +21,41 @@ const object = value => value && typeof value === 'object' && !Array.isArray(val
 const revision = value => Number.isSafeInteger(value) && value >= 0 || typeof value === 'string' && /^[A-Za-z0-9_.:-]{1,96}$/.test(value);
 export const CANVAS_AGENT_MODEL_PROTOCOL_VERSION = 1;
 export const CANVAS_AGENT_NORMALIZE_MAX_BYTES = 512 * 1024;
+function validateBudget(budget) {
+  const fields = ['capCredits', 'chargedCredits', 'reservedCredits', 'pendingOutcomeCredits', 'committedCredits', 'remainingCredits', 'allocatedCredits', 'revision'];
+  if (!object(budget) || Object.keys(budget).some(key => ![...fields, 'planningCeilingCredits'].includes(key))
+    || fields.some(key => !Number.isSafeInteger(budget[key]) || budget[key] < 0) || budget.capCredits < 1
+    || budget.planningCeilingCredits !== undefined && (!Number.isSafeInteger(budget.planningCeilingCredits) || budget.planningCeilingCredits < 0)
+    || budget.chargedCredits > budget.committedCredits || budget.reservedCredits > budget.committedCredits
+    || budget.pendingOutcomeCredits > budget.reservedCredits || budget.remainingCredits !== Math.max(0, budget.capCredits - budget.committedCredits)) invalid('canvas_agent_budget_context_invalid');
+}
+function validateRepair(repair) {
+  if (!object(repair) || Object.keys(repair).some(key => !['attempt', 'issues', 'previousPlan'].includes(key))
+    || !Number.isSafeInteger(repair.attempt) || repair.attempt < 1 || repair.attempt > 2
+    || !Array.isArray(repair.issues) || !repair.issues.length || repair.issues.length > 16
+    || !object(repair.previousPlan) || new TextEncoder().encode(JSON.stringify(repair.previousPlan)).byteLength > CANVAS_AGENT_PLAN_MAX_BYTES) invalid('canvas_agent_repair_context_invalid');
+  for (const issue of repair.issues) {
+    if (!object(issue) || Object.keys(issue).some(key => !['code', 'nodeKey', 'modelId', 'field', 'message', 'allowed'].includes(key))
+      || typeof issue.code !== 'string' || !/^[a-z0-9_]{1,100}$/.test(issue.code)
+      || ['nodeKey', 'modelId', 'field'].some(key => issue[key] !== undefined && (typeof issue[key] !== 'string' || !issue[key].length || issue[key].length > 180 || /[\u0000-\u001f\u007f]/.test(issue[key])))
+      || issue.message !== undefined && (typeof issue.message !== 'string' || !issue.message.length || issue.message.length > 800 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(issue.message))
+      || issue.allowed !== undefined && (!Array.isArray(issue.allowed) || issue.allowed.length > 16 || issue.allowed.some(value => typeof value !== 'string' || value.length > 500 || /[\u0000-\u001f\u007f]/.test(value)))) invalid('canvas_agent_repair_context_invalid');
+  }
+}
 export function validateCanvasAgentPlanInput(input) {
   if (!object(input) || Object.keys(input).some(key => !['version', 'model', 'requestId', 'brief', 'targetDurationSeconds',
-    'toleranceSeconds', 'capabilityRevision', 'capabilities', 'projectRevision', 'currentProject', 'privacyUser', 'promptCacheKey'].includes(key))) invalid('canvas_agent_input_invalid');
+    'toleranceSeconds', 'durationMode', 'budget', 'repair', 'capabilityRevision', 'capabilities', 'projectRevision', 'currentProject', 'privacyUser', 'promptCacheKey'].includes(key))) invalid('canvas_agent_input_invalid');
   if (input.version !== CANVAS_AGENT_PLAN_VERSION || input.model !== GROK_4_7_MODEL_ID) invalid('canvas_agent_model_invalid');
-  // A model prompt cannot supply or default a missing duration. The auth caller
-  // must have recorded the user's duration or explicit delegation before here.
-  if (!Number.isFinite(input.targetDurationSeconds) || input.targetDurationSeconds < 1 || input.targetDurationSeconds > 600) invalid('canvas_agent_duration_required');
-  if (!Number.isFinite(input.toleranceSeconds) || input.toleranceSeconds < .04 || input.toleranceSeconds > 2) invalid('canvas_agent_tolerance_invalid');
+  // Creative duration belongs to the new authorized production contract. Keep
+  // old accepted contexts valid for late reconciliation and legacy callers.
+  if (input.durationMode !== undefined && !['creative', 'exact'].includes(input.durationMode)) invalid('canvas_agent_duration_mode_invalid');
+  const creative = input.durationMode === 'creative';
+  if (!(creative && input.targetDurationSeconds == null)
+    && (!Number.isFinite(input.targetDurationSeconds) || input.targetDurationSeconds < 1 || input.targetDurationSeconds > (creative ? 180 : 600))) invalid('canvas_agent_duration_required');
+  if (!(creative && input.toleranceSeconds === undefined)
+    && (!Number.isFinite(input.toleranceSeconds) || input.toleranceSeconds < .04 || input.toleranceSeconds > 2)) invalid('canvas_agent_tolerance_invalid');
+  if (creative || input.budget !== undefined) validateBudget(input.budget);
+  if (input.repair !== undefined) validateRepair(input.repair);
   if (typeof input.brief !== 'string' || !input.brief.trim() || input.brief.length > 12000
     || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(input.brief)) invalid('canvas_agent_brief_invalid');
   if (typeof input.requestId !== 'string' || !/^[A-Za-z0-9_-]{8,96}$/.test(input.requestId) || !revision(input.projectRevision) || !revision(input.capabilityRevision)) invalid('canvas_agent_identity_invalid');
@@ -39,17 +67,18 @@ export function validateCanvasAgentPlanInput(input) {
 }
 
 export function canvasAgentProviderReadiness(env) {
-  const contract = { model: GROK_4_7_MODEL_ID, accountAccess: 'unverified', protocolVersion: CANVAS_AGENT_MODEL_PROTOCOL_VERSION, transport: 'cloudflare-background' };
+  const contract = { model: GROK_4_7_MODEL_ID, accountAccess: 'unverified', protocolVersion: CANVAS_AGENT_MODEL_PROTOCOL_VERSION,
+    transport: 'cloudflare-background', reasoningSummaryDelivery: CANVAS_AGENT_REASONING_SUMMARY_DELIVERY };
   if (env?.ENABLE_GROK_4_7 !== 'true') return { available: false, reason: 'canvas_agent_model_disabled', ...contract };
   if (typeof env?.AI?.run !== 'function') return { available: false, reason: 'ai_binding_missing', ...contract };
   return { available: true, reason: null, ...contract };
 }
 
 export function buildCanvasAgentPlanPayload(input) {
-  const { brief, targetDurationSeconds, toleranceSeconds, capabilityRevision, capabilities, projectRevision, currentProject } = input;
+  const { brief, targetDurationSeconds, toleranceSeconds, durationMode, budget, repair, capabilityRevision, capabilities, projectRevision, currentProject } = input;
   return {
     messages: [{ role: 'system', content: CANVAS_AGENT_PLAN_SYSTEM }, { role: 'user', content: JSON.stringify({
-      brief, targetDurationSeconds, toleranceSeconds, capabilityRevision, capabilities, projectRevision, currentProject,
+      brief, targetDurationSeconds, toleranceSeconds, durationMode, budget, repair, capabilityRevision, capabilities, projectRevision, currentProject,
     }) }],
     reasoning_effort: 'medium', max_completion_tokens: CANVAS_AGENT_PLAN_MAX_OUTPUT_TOKENS,
     response_format: { type: 'json_schema', json_schema: { name: 'bitbi_canvas_production_v1', strict: true, schema: CANVAS_AGENT_PLAN_SCHEMA } },
@@ -85,12 +114,15 @@ function normalizeCanvasStructuredResponse(raw, validate, invalidCode) {
   try {
     value = validate(JSON.parse(message.content));
   } catch { rejected(invalidCode); }
-  // Hidden reasoning and arbitrary provider fields never enter Canvas history.
-  return { value, usage, responseId, model: GROK_4_7_MODEL_ID, outcome: 'completed' };
+  // Only the documented readable Grok 4.7 summary is projected, as a completed
+  // snapshot. Hidden/encrypted fields and arbitrary provider payloads stay out.
+  const reasoningSummary = canvasAgentReasoningSummary(response);
+  return { value, usage, responseId, model: GROK_4_7_MODEL_ID, outcome: 'completed', ...(reasoningSummary ? { reasoningSummary } : {}) };
 }
 export function normalizeCanvasAgentPlanResponse(raw, input) {
   const { value, ...receipt } = normalizeCanvasStructuredResponse(raw, plan => validateCanvasAgentPlan(plan, {
     targetDurationSeconds: input.targetDurationSeconds, toleranceSeconds: input.toleranceSeconds,
+    durationMode: input.durationMode,
     existingNodeIds: input.currentProject.nodes.map(node => node.id),
   }), 'canvas_agent_plan_invalid');
   return { plan: value, ...receipt };
@@ -164,9 +196,11 @@ function validateNormalizationContext(kind, context) {
   const reject = () => { throw new CanvasAgentProviderError('canvas_agent_normalization_context_invalid', { status: 400 }); };
   if (!object(context)) reject();
   if (kind === 'plan') {
-    if (Object.keys(context).some(key => !['targetDurationSeconds', 'toleranceSeconds', 'existingNodeIds'].includes(key))
-      || !Number.isFinite(context.targetDurationSeconds) || context.targetDurationSeconds < 1 || context.targetDurationSeconds > 600
-      || !Number.isFinite(context.toleranceSeconds) || context.toleranceSeconds < .04 || context.toleranceSeconds > 2
+    const creative = context.durationMode === 'creative';
+    if (Object.keys(context).some(key => !['targetDurationSeconds', 'toleranceSeconds', 'durationMode', 'existingNodeIds'].includes(key))
+      || context.durationMode !== undefined && !['creative', 'exact'].includes(context.durationMode)
+      || !(creative && context.targetDurationSeconds === null) && (!Number.isFinite(context.targetDurationSeconds) || context.targetDurationSeconds < 1 || context.targetDurationSeconds > (creative ? 180 : 600))
+      || !(creative && context.toleranceSeconds === undefined) && (!Number.isFinite(context.toleranceSeconds) || context.toleranceSeconds < .04 || context.toleranceSeconds > 2)
       || !Array.isArray(context.existingNodeIds) || context.existingNodeIds.length > 120
       || context.existingNodeIds.some(id => typeof id !== 'string' || !/^[a-f0-9]{32}$/.test(id))
       || new Set(context.existingNodeIds).size !== context.existingNodeIds.length) reject();
@@ -196,7 +230,8 @@ export async function prepareCanvasAgentModel(env, envelope) {
   const ready = canvasAgentProviderReadiness(env);
   if (!ready.available) throw new CanvasAgentProviderError(ready.reason, { status: 503, outcome: 'not_submitted' });
   const context = kind === 'plan'
-    ? { targetDurationSeconds: input.targetDurationSeconds, toleranceSeconds: input.toleranceSeconds, existingNodeIds: input.currentProject.nodes.map(node => node?.id) }
+    ? { targetDurationSeconds: input.targetDurationSeconds ?? null, ...(input.toleranceSeconds !== undefined ? { toleranceSeconds: input.toleranceSeconds } : {}),
+      ...(input.durationMode !== undefined ? { durationMode: input.durationMode } : {}), existingNodeIds: input.currentProject.nodes.map(node => node?.id) }
     : { frames: input.frames.map(({ nodeId, timeSeconds }) => ({ nodeId, timeSeconds })) };
   try { validateNormalizationContext(kind, context); }
   catch { invalid('canvas_agent_context_invalid'); }

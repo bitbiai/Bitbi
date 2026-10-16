@@ -25,7 +25,8 @@ function canvasAgentInputFixture() {
 }
 function canvasAgentResponseFixture(plan = canvasAgentPlanFixture()) {
   return { id: 'chatcmpl_canvas_plan', object: 'chat.completion', model: 'grok-4.7',
-    choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: JSON.stringify(plan), reasoning_content: 'Private model reasoning.' } }],
+    choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: JSON.stringify(plan),
+      reasoning_content: 'Keep the house and neighboring pool consistent.', reasoning: 'Private model reasoning.' } }],
     usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 200, prompt_tokens_details: { cached_tokens: 20 }, completion_tokens_details: { reasoning_tokens: 50 } } };
 }
 
@@ -80,6 +81,7 @@ test.describe('Canvas agent Grok 4.7 provider boundary', () => {
     expect(response.status).toBe(200);
     const result = await response.json();
     expect(result).toMatchObject({ ok: true, model: 'xai/grok-4.7', outcome: 'completed', plan: { title: 'Construction and celebration' } });
+    expect(result.reasoningSummary).toEqual({ text: 'Keep the house and neighboring pool consistent.', source: 'provider', delivery: 'completed' });
     expect(JSON.stringify(result)).not.toContain('Private model reasoning');
     expect(calls).toHaveLength(1);
     expect(calls[0].model).toBe('xai/grok-4.7');

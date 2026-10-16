@@ -494,7 +494,7 @@ const AUTH_SHARED_PATTERNS = [
 ];
 
 const HOMEPAGE_CORE_TEST_FILES = new Set([
-  "tests/helpers/canvas-agent-ui.cjs", "tests/helpers/canvas-agent-model-recovery-ui.cjs",
+  "tests/helpers/canvas-agent-ui.cjs", "tests/helpers/canvas-agent-model-recovery-ui.cjs", "tests/helpers/canvas-agent-autonomy-ui.cjs", "tests/helpers/canvas-assembly-editing-ui.cjs",
   "tests/audio-player.spec.js",
   "tests/canvas.spec.js",
   "tests/oma2-q1-canvas.spec.js",
@@ -565,7 +565,9 @@ const AUTH_TEST_FILES = new Set([
 
 const WORKER_TEST_PREFIXES = [
   "tests/grok-chat-workers.spec.js",
-  "tests/q2-canvas-agent-provider.spec.js",
+  "tests/q2-canvas-agent-provider.spec.js", "tests/q2-canvas-agent.spec.js", "tests/q2-processor-capability.spec.js", "tests/canvas-assembly.test.mjs",
+  "tests/q2-canvas-agent-preflight.spec.js", "tests/helpers/canvas-agent-preflight-control.mjs",
+  "tests/q2-canvas-agent-autonomy.spec.js", "tests/helpers/canvas-agent-autonomy-control.mjs",
   "tests/q2-canvas-agent-model-operation.spec.js", "tests/helpers/canvas-agent-model-operation-cases.mjs",
   "tests/appearance.spec.js", "tests/appearance-runtime.mjs",
   "tests/model-pricing.spec.js", "tests/model-pricing-runtime.mjs", "tests/helpers/model-pricing-control.mjs",
@@ -1247,7 +1249,7 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
       addReason(selection,'workers',file,'requires Worker integration and installed dependency validation');
       continue;
     }
-    if (['scripts/private-media-image.mjs','services/homepage-ffmpeg-processor/Dockerfile','services/homepage-ffmpeg-processor/container-server.mjs','services/homepage-ffmpeg-processor/private-media-runner.mjs','services/homepage-ffmpeg-processor/private-media-runner.test.mjs','tests/helpers/private-media-control.mjs','scripts/check-route-policies.mjs','services/homepage-ffmpeg-processor/canvas-full-video.mjs','services/homepage-ffmpeg-processor/canvas-full-video.test.mjs','.github/workflows/memvid-stream-preview-processor.yml','services/homepage-ffmpeg-processor/processor.mjs','scripts/test-homepage-ffmpeg-processor.mjs','config/release-compat.json'].includes(file)) {
+    if (['scripts/private-media-image.mjs','services/homepage-ffmpeg-processor/Dockerfile','services/homepage-ffmpeg-processor/container-server.mjs','services/homepage-ffmpeg-processor/private-media-runner.mjs','services/homepage-ffmpeg-processor/private-media-runner.test.mjs','tests/helpers/private-media-control.mjs','scripts/check-route-policies.mjs','services/homepage-ffmpeg-processor/canvas-full-video.mjs','services/homepage-ffmpeg-processor/canvas-full-video.test.mjs','services/homepage-ffmpeg-processor/canvas-assembly-contract.mjs','services/homepage-ffmpeg-processor/canvas-assembly.test.mjs','.github/workflows/memvid-stream-preview-processor.yml','services/homepage-ffmpeg-processor/processor.mjs','scripts/test-homepage-ffmpeg-processor.mjs','config/release-compat.json'].includes(file)) {
       addReason(selection,'workers',file,'changes Auth/processor runtime or its required deployment contract');
       addReason(selection,'auth',file,'requires affected media/auth integration; release and processor checks are mandatory');
       continue;

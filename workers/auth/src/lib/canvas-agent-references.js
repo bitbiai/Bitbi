@@ -3,6 +3,7 @@ import { ownedCanvasVideo } from './canvas-video-input.js';
 import { canvasVideoContext } from '../../../../js/shared/canvas-video-input.mjs';
 import { getCanvasModelForRole } from '../../../../js/shared/canvas-model-contract.mjs';
 import { agentFail } from './canvas-agent-store.js';
+import { canvasAgentDependencyKind } from './canvas-agent-price-input.js';
 import { nowIso } from './tokens.js';
 
 export async function prepareCanvasAgentReferences(env,run,step) {
@@ -10,12 +11,13 @@ export async function prepareCanvasAgentReferences(env,run,step) {
     for(const dependency of input.dependencies){
         const source=await env.DB.prepare('SELECT * FROM canvas_nodes WHERE id=? AND user_id=? AND project_id=? AND deleted_at IS NULL').bind(dependency.nodeId,run.user_id,run.project_id).first();
         const output=JSON.parse(source?.output_json||'{}');
-        if(output.kind!=='video')continue;
+        if(canvasAgentDependencyKind(source)!=='video')continue;
+        const sourceVersion=source.type==='asset_reference'?JSON.parse(source.content_json||'{}').asset?.sourceVersion:output.sourceVersion;
         const edge=await env.DB.prepare('SELECT * FROM canvas_edges WHERE project_id=? AND user_id=? AND source_node_id=? AND target_node_id=? AND deleted_at IS NULL').bind(run.project_id,run.user_id,dependency.nodeId,step.node_id).first();
         if(!edge)agentFail('canvas_agent_reference_removed');
         const method=dependency.method==='reference'?'reference_video':dependency.method||'reference_video';
         if(method==='reference_video'&&['minimax/h3','google/gemini-omni-flash','bytedance/seedance-2.5'].includes(model.id))continue;
-        const original=await ownedCanvasVideo(env,run.user_id,source.asset_id,output.sourceVersion);
+        const original=await ownedCanvasVideo(env,run.user_id,source.asset_id,sourceVersion);
         const config=JSON.parse(edge.config_json);
         if(config.videoInput?.method===method&&config.videoInput.sourceVersion===original.version&&(method!=='last_frame'||config.videoInput.frame?.version===original.version))continue;
         if(method==='last_frame'){

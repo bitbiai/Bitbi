@@ -4,7 +4,7 @@ const { createAuthTestEnv } = require('./helpers/auth-worker-harness.js');
 
 for (const [name, method, expected] of [
   ['atomic budget and revocable project execution authority', 'canvasAgentAuthorityCase', { atomicAllocations: 1, existingUsageAttempts: 2, providerSubmissions: 0, walletDebits: 0, manualEditPaused: true }],
-  ['real duration clarification, replay, controls and manual takeover', 'canvasAgentApiCase', { clarification: true, starts: 1, duplicateStarts: 1, providerCalls: 0, foreignDenied: true, manualTakeover: true }],
+  ['automatic duration, explicit credit consent, replay, controls and manual takeover', 'canvasAgentApiCase', { autonomousDuration: true, starts: 2, duplicateStarts: 1, providerCalls: 0, foreignDenied: true, manualTakeover: true }],
   ['comic and realism profiles obey hard capability and pricing gates', 'canvasAgentCapabilityCase', { profiles: 2, unavailableRejected: true, unsupportedRejected: true, paidCalls: 0 }],
 ]) test(`Canvas agent ${name}`, async () => {
   const DB = new SqliteD1Database(); applyAuthMigrations(DB);

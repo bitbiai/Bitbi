@@ -11,6 +11,14 @@ export async function verifyCanvasExportSchema(query) {
   await query('SELECT id,project_id,expected_revision,budget_credits,lease_token,next_attempt_at FROM canvas_agent_runs LIMIT 0');
   await query('SELECT id,run_id,step_key,allocation_credits,usage_attempt_id FROM canvas_agent_steps LIMIT 0');
   await query('SELECT run_id,request_key,action FROM canvas_agent_controls LIMIT 0');
+  await query('SELECT budget_revision,repair_attempts,cause_json FROM canvas_agent_runs LIMIT 0');
+  await query('SELECT step_id,run_id,plan_json,status,validation_json FROM canvas_agent_proposals LIMIT 0');
+  await query('SELECT id,run_id,event_key,type,payload_json FROM canvas_agent_events LIMIT 0');
+  await query('SELECT id,run_id,revision,project_revision,tariff_revision,current_cap,proposed_cap,status,decision_key FROM canvas_agent_budget_requests LIMIT 0');
+  await query('SELECT step_id,project_id,charged,reserved,pending,committed FROM canvas_agent_step_costs LIMIT 0');
+  await query('SELECT receipt_protocol,input_digest,provider_run_id,receipt_json FROM canvas_agent_model_operations LIMIT 0');
+  const autonomyGuards=await query("SELECT name FROM sqlite_schema WHERE type='trigger' AND name IN ('canvas_agent_proposal_immutable','canvas_agent_budget_request_immutable','canvas_agent_budget_decision_immutable','canvas_agent_cap_amendment','canvas_agent_event_immutable','canvas_agent_model_receipt_protocol_immutable','canvas_agent_model_identity_immutable','canvas_agent_model_receipt_immutable')");
+  assert.equal(autonomyGuards.length,8,'Required Canvas proposal/budget consent guards missing');
   await query('SELECT id,source_asset_id,source_version,processing_token,result_json FROM canvas_media_inspections LIMIT 0');
   const agentGuards=await query("SELECT name FROM sqlite_schema WHERE type='trigger' AND name IN ('canvas_agent_allocation','canvas_agent_allocation_immutable','canvas_agent_usage_insert','canvas_agent_usage_dispatch','canvas_agent_manual_edit','canvas_project_assembly_revision','canvas_assembly_export_preserve')");
   assert.equal(agentGuards.length,7,'Required Canvas production/assembly guards missing');

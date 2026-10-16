@@ -75,7 +75,7 @@ export async function canvasExport(ctx,userId,projectId,runId) {
     if(existing) {
       const recipe=JSON.parse(existing.recipe_json||'null');
       const ordered=recipe?.videos.map(canvasClipIdentity);
-      if(![1,2,3,4,5,6,7].includes(recipe?.version)||usesAssembly!==Boolean(recipe.assembly)||usesAssembly&&recipe.projectRevision!==parsed.body.assemblyRevision||JSON.stringify(recipe.backgroundMusic)!==JSON.stringify(exportMusicSettings(parsed.body.backgroundMusic))
+      if(![1,2,3,4,5,6,7,8].includes(recipe?.version)||usesAssembly!==Boolean(recipe.assembly)||usesAssembly&&recipe.projectRevision!==parsed.body.assemblyRevision||JSON.stringify(recipe.backgroundMusic)!==JSON.stringify(exportMusicSettings(parsed.body.backgroundMusic))
         ||(recipe.smoothJoins?.enabled??false)!==smooth.enabled||JSON.stringify(recipe.preview||null)!==JSON.stringify(seamPreviewSettings(parsed.body.preview,recipe.videos.length))
         ||recipe.mergeMode!==parsed.body.mergeMode||!usesAssembly&&explicit!==(recipe.sequence==='explicit')||explicit&&JSON.stringify(parsed.body.orderedClips)!==JSON.stringify(ordered))
         throw canvasProcessingError('canvas_export_idempotency_conflict');
@@ -172,7 +172,7 @@ export async function handleCanvasExportProcessor(ctx) {
   if(!backend) return json({ok:false,code:'processor_auth_failed'},{status:403});
   try {
     if(ctx.pathname===base+'/claim') {
-      if(ctx.method==='GET') return reply({protocol:1,recipeProtocol:8,previewBase:1,inspections:backend==='cloudflare'?1:0});
+      if(ctx.method==='GET') return reply({protocol:1,recipeProtocol:9,previewBase:1,inspections:backend==='cloudflare'?1:0});
       // route-policy: internal.canvas-export.claim
       if (!(method === 'POST')) return null;
       const parsed=await readJsonBodyOrResponse(ctx.request,{maxBytes:BODY_LIMITS.homepageHeroProcessorJson});
@@ -224,7 +224,7 @@ export async function handleCanvasExportProcessor(ctx) {
       const bytes=new Uint8Array(await file.arrayBuffer());
       if(String.fromCharCode(...bytes.slice(4,8))!=='ftyp') throw canvasProcessingError('canvas_export_file_invalid');
       const recipe=JSON.parse(job.recipe_json||'null');
-      if(recipe?.version===7&&!recipe.preview&&new URL(ctx.request.url).searchParams.get('part')!=='preview-base')verifyCanvasDuration(duration,recipe.assembly?.target);
+      if([7,8].includes(recipe?.version)&&!recipe.preview&&new URL(ctx.request.url).searchParams.get('part')!=='preview-base')verifyCanvasDuration(duration,recipe.assembly?.target);
       if(recipe?.version>=3) {
         let timeline;try{timeline=JSON.parse(form.get('audioTimeline'));}catch{throw canvasProcessingError('canvas_audio_timeline_invalid');}
         const count=recipe.preview?2:recipe.videos.length;
