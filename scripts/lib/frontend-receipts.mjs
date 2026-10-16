@@ -1,4 +1,5 @@
 import { repairDelta, repairKind, assertRepairAcceptance } from './media-repair-source.mjs';
+import {CANVAS_AGENT_DEPLOY_SOURCE,resolveCanvasAgentDeploySource,assertCanvasAgentDeployDelta,assertCanvasAgentDeployAcceptance,canvasAgentDeployIdentity} from './canvas-agent-deploy-continuation.mjs';
 // GitHub deployment payloads survive Actions artifact expiry. They are only
 // evidence together with their protected Actions job and Cloudflare identity.
 import assert from 'node:assert/strict';
@@ -7,7 +8,7 @@ import {gitSelection,validateSource,isRequiredValidationRun,proofJobs,verifyProo
 import {hash,hostingPolicy,cloudflareRead,validateActivation,verifyDomains} from './frontend-hosting.mjs';
 export const RECEIPT_TASK='bitbi-static-receipt';
 const repo='bitbiai/Bitbi';
-const baselineIdentity=(id,receipt)=>({sha:receipt.kind==='publication'&&(receipt.mediaRepair||receipt.releaseRepair)?receipt.publicationSha:receipt.sha,deployment:receipt.deploymentId,run:receipt.publicationRun,receipt:id});
+const baselineIdentity=(id,receipt)=>({sha:receipt.kind==='publication'&&(receipt.mediaRepair||receipt.releaseRepair||receipt.deploymentContinuation)?receipt.publicationSha:receipt.sha,deployment:receipt.deploymentId,run:receipt.publicationRun,receipt:id});
 async function artifactFile(artifact,filename,{download,env,limit=65536}) {
   assert.equal(artifact.expired,false);assert(Date.parse(artifact.expires_at)>Date.now(),'Expired activation evidence');
   assert(/^sha256:[a-f0-9]{64}$/.test(artifact.digest||''),'Missing activation archive digest');
@@ -31,6 +32,7 @@ with zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read())) as z:
 // read-only path recognizes only its exact protected upload, retaining the LAST
 // accepted baseline until a new protected job verifies it and records success.
 export async function findPendingFrontendActivation({api=githubRequest,read=cloudflareRead,download=fetch,env=process.env,baseline,manifest}={}) {
+  const continuation=resolveCanvasAgentDeploySource(env);
   const p=hostingPolicy();
   if(!baseline){const records=await api(`deployments?environment=${p.productionEnvironment}&task=${RECEIPT_TASK}&per_page=1`);assert.equal(records.length,1,'Missing previous durable baseline');baseline={id:records[0].id,receipt:await loadDurableReceipt(records[0].id,api)};}
   const previous=baselineIdentity(baseline.id,baseline.receipt),active=(await read(`workers/scripts/${p.worker}/deployments`)).deployments?.[0];assert(active,'Missing active frontend');
@@ -51,13 +53,13 @@ export async function findPendingFrontendActivation({api=githubRequest,read=clou
   const selection=gitSelection(previous.sha,sha),expected={repository:repo,sha,publicationSha:env.GITHUB_SHA,base:previous.sha,run,attempt,currentRun:env.GITHUB_RUN_ID,selection};
   const later=(await api(`actions/runs?head_sha=${sha}&per_page=100`)).workflow_runs.filter(r=>isRequiredValidationRun(r,selection));
   for(const r of later.filter(r=>Date.parse(r.created_at)>Date.parse(source.created_at)&&r.conclusion!=='success'))r.jobs=(await api(`actions/runs/${r.id}/attempts/${r.run_attempt}/jobs?per_page=100`)).jobs;
-  const selected=validateSource({run:source,jobs,artifacts,laterRuns:later,mainSha:env.GITHUB_SHA},expected,{historicalActivation:true});
+  const selected=validateSource({run:source,jobs,artifacts,laterRuns:later,mainSha:env.GITHUB_SHA},expected,continuation?{canvasAgentDeploy:true}:{historicalActivation:true});
   assert(selected.every(a=>Date.parse(a.expires_at)>Date.now()),'Expired original candidate evidence');
   const candidate=JSON.parse(await artifactFile(selected[0],'manifest.json',{download,env,limit:4*1024*1024}));
   for(const key of ['sha','run','attempt','base'])assert.equal(candidate[key],expected[key],`Activated candidate ${key} mismatch`);
   assert.deepEqual(candidate.selection,selection);assert.equal(hash(JSON.stringify(candidate)),packageDigest,'Active version differs from accepted candidate');
   const proofs=[];
-  for(const [index,job] of proofJobs(selection).entries())proofs.push(JSON.parse(await artifactFile(selected[index+1],`proof-${job}.json`,{download,env})));
+  for(const [index,job] of proofJobs(selection).entries())proofs.push(JSON.parse(await artifactFile(selected[continuation?0:index+1],`proof-${job}.json`,{download,env})));
   if(candidate.hosting)proofs.push(JSON.parse(await artifactFile(selected[0],'proof-frontend-runtime.json',{download,env})));
   verifyProofs(candidate,proofs);
   if(manifest)assert.deepEqual(candidate,manifest,'Reconciliation candidate differs from current verified archive');
@@ -67,7 +69,7 @@ export async function findPendingFrontendActivation({api=githubRequest,read=clou
   for(const d of deployments.filter(d=>d.task==='deploy')) {
     let delta;try{
       execFileSync('git',['merge-base','--is-ancestor',d.sha,env.GITHUB_SHA],{stdio:'pipe'});
-      if(d.sha!==sha){delta=repairDelta(sha,d.sha,previous.sha);if(repairKind(delta)!=='tooling')continue;}
+      if(d.sha!==sha){if(continuation){assert.equal(d.sha,env.GITHUB_SHA);delta=assertCanvasAgentDeployDelta(d.sha);}else{delta=repairDelta(sha,d.sha,previous.sha);if(repairKind(delta)!=='tooling')continue;}}
     }catch{continue;}
     const statuses=await api(`deployments/${d.id}/statuses`),status=statuses[0],log=status?.log_url?.match(/^https:\/\/github\.com\/bitbiai\/Bitbi\/actions\/runs\/(\d+)\/job\/(\d+)$/);
     if(status?.state!=='failure'||!log)continue;
@@ -88,7 +90,11 @@ export async function findPendingFrontendActivation({api=githubRequest,read=clou
       assert.equal(log[1],run,'Ordinary activation used another source run');
       assert.equal(String(job.run_attempt),attempt,'Ordinary activation used another source attempt');
       assert(jobs.some(j=>j.id===job.id&&j.name==='deploy'&&j.conclusion==='failure'),'Source lacks this failed publication');
-    } else assertRepairAcceptance((await api(`actions/runs/${log[1]}/attempts/${job.run_attempt}/jobs?per_page=100`)).jobs,d.sha,delta);
+    } else {
+      const accepted=(await api(`actions/runs/${log[1]}/attempts/${job.run_attempt}/jobs?per_page=100`)).jobs;
+      if(continuation)assertCanvasAgentDeployAcceptance(accepted,d.sha,log[1],job.run_attempt);
+      else assertRepairAcceptance(accepted,d.sha,delta);
+    }
     const uploads=(await api(`actions/runs/${log[1]}/artifacts?per_page=100`)).artifacts.filter(a=>a.name===`frontend-failed-upload-${d.sha}-${log[1]}-${job.run_attempt}`);assert.equal(uploads.length,1,'Missing exact failed upload evidence');const artifact=uploads[0];assert.equal(String(artifact.workflow_run?.id),log[1]);assert.equal(artifact.workflow_run?.head_sha,d.sha);
     const records=(await artifactFile(artifact,'frontend-upload.ndjson',{download,env})).toString().trim().split('\n').map(JSON.parse),uploadsFound=records.filter(r=>r.type==='deploy'),sessions=records.filter(r=>r.type==='wrangler-session');assert.equal(uploadsFound.length,1);assert.equal(sessions.length,1);
     const upload=uploadsFound[0],args=sessions[0].command_line_args;assert.equal(sessions[0].wrangler_version,p.wranglerVersion);assert.equal(args[0],'deploy');assert.equal(args[args.indexOf('--message')+1],message);assert.equal(upload.worker_name,p.worker);assert.equal(upload.version_id,version.id);assert.equal(upload.worker_name_overridden,false);
@@ -134,7 +140,14 @@ export async function loadDurableReceipt(id,api=githubRequest,{parent=false}={})
   } else {
     assert.equal(receipt.kind,'publication');
     const repair=receipt.releaseRepair||receipt.mediaRepair;
-    if(repair){
+    if(receipt.deploymentContinuation) {
+      assert(!repair,'Ambiguous deployment receipt authority');assert.equal(run.event,'workflow_dispatch');
+      assert.deepEqual(receipt.deploymentContinuation,canvasAgentDeployIdentity(receipt.publicationSha));
+      for(const [key,value]of [['sha',CANVAS_AGENT_DEPLOY_SOURCE.sha],['run',CANVAS_AGENT_DEPLOY_SOURCE.run],['attempt',CANVAS_AGENT_DEPLOY_SOURCE.attempt]])assert.equal(String(receipt[key]),value);
+      assertCanvasAgentDeployDelta(receipt.publicationSha);
+      assertCanvasAgentDeployAcceptance((await api(`actions/runs/${receipt.publicationRun}/attempts/${receipt.publicationAttempt}/jobs?per_page=100`)).jobs,receipt.publicationSha,receipt.publicationRun,receipt.publicationAttempt);
+      for(const name of ['Validate candidate references before backend publication','Apply verified candidate backend prerequisites'])assert(job.steps.some(step=>step.name===name&&step.status==='completed'&&step.conclusion==='success'),`Missing protected continuation operation: ${name}`);
+    }else if(repair){
       assert(!(receipt.releaseRepair&&receipt.mediaRepair),'Ambiguous repair receipt');
       assert.equal(repair.sourceSha,receipt.sha);assert.equal(repair.publicationSha,receipt.publicationSha);
       const files=repairDelta(receipt.sha,receipt.publicationSha,receipt.sha),kind=repairKind(files);
@@ -144,7 +157,7 @@ export async function loadDurableReceipt(id,api=githubRequest,{parent=false}={})
       assert(job.steps.some(s=>s.name==='Apply verified candidate backend prerequisites'&&s.conclusion==='success'),'Missing repaired backend publication');
     }else assert.equal(receipt.sha,receipt.publicationSha);
     if(receipt.activationReconciliation) {
-      const prior=receipt.activationReconciliation;assert.equal(receipt.releaseRepair?.kind,'tooling');
+      const prior=receipt.activationReconciliation;assert(receipt.deploymentContinuation||receipt.releaseRepair?.kind==='tooling','Unreviewed activation reconciliation');
       assert.notEqual(String(prior.run),String(receipt.publicationRun),'Failed activation cannot authorize itself');
       assert.equal(prior.versionId,receipt.versionId);assert.equal(prior.deploymentId,receipt.deploymentId);
       assert(prior.previousReceipt&&prior.previousSha&&prior.artifact?.digest&&prior.candidateArtifact?.digest&&receipt.appearanceAcceptance,'Incomplete reconciliation receipt');
@@ -175,6 +188,13 @@ export async function persistDurableReceipt(receipt,{api=githubRequest,read=clou
   assert(['deploy','recover-frontend'].includes(env.GITHUB_JOB));
   assert.equal((await api('git/ref/heads/main')).object.sha,env.GITHUB_SHA,'Superseded authorizing revision');
   const jobs=await api(`actions/runs/${env.GITHUB_RUN_ID}/attempts/${env.GITHUB_RUN_ATTEMPT}/jobs?per_page=100`);
+  if(receipt.deploymentContinuation&&receipt.kind!=='rollback') {
+    const source=resolveCanvasAgentDeploySource(env);assert(source,'Missing pinned continuation authority');
+    assert(!receipt.releaseRepair&&!receipt.mediaRepair);
+    assert.deepEqual(receipt.deploymentContinuation,canvasAgentDeployIdentity(env.GITHUB_SHA));
+    for(const key of ['sha','run','attempt'])assert.equal(String(receipt[key]),source[key]);
+    assertCanvasAgentDeployAcceptance(jobs.jobs,env.GITHUB_SHA,env.GITHUB_RUN_ID,env.GITHUB_RUN_ATTEMPT);
+  }
   const matches=jobs.jobs.filter(j=>j.name===env.GITHUB_JOB&&j.status==='in_progress');assert.equal(matches.length,1);
   const job=matches[0],log=`https://github.com/${repo}/actions/runs/${env.GITHUB_RUN_ID}/job/${job.id}`;
   const deployments=await api(`deployments?environment=${p.productionEnvironment}&sha=${env.GITHUB_SHA}&per_page=100`);

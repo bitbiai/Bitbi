@@ -1,5 +1,6 @@
 import { repairDelta, repairKind, verifyRepairSource } from './media-repair-source.mjs';
 import { BROWSER_REPAIR_ACCEPTANCE, verifyBrowserRepairProof } from './browser-fixture-repair.mjs';
+import {resolveCanvasAgentDeploySource,assertCanvasAgentDeployAcceptance} from './canvas-agent-deploy-continuation.mjs';
 // Read-only GitHub provenance and archive verification shared by preparation
 // and the immediately-before-upload boundary. No local JSON grants CI trust.
 import assert from 'node:assert/strict';
@@ -11,6 +12,7 @@ import {api,collection,sourceAttempt,gitSelection,isRequiredValidationRun,valida
 import {hash,readJson,verifyFrontend} from './frontend-hosting.mjs';
 
 export function sourceExpectation(preview, env=process.env) {
+  const continuation=resolveCanvasAgentDeploySource(env);if(continuation)assert(!preview,'Deployment continuation cannot authorize preview');
   assert.equal(env.GITHUB_REPOSITORY,REPOSITORY,'Explicit own repository required');
   for(const key of ['GITHUB_SHA','CANDIDATE_BASE'])assert(/^[a-f0-9]{40}$/.test(env[key]||''),`Missing exact ${key}`);
   for(const key of ['CANDIDATE_RUN','CANDIDATE_ATTEMPT'])assert(/^[1-9][0-9]*$/.test(env[key]||''),`Missing exact ${key}`);
@@ -19,10 +21,12 @@ export function sourceExpectation(preview, env=process.env) {
   assert.equal(execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),env.GITHUB_SHA,'Checkout is not source SHA');
   execFileSync('git',['diff','--quiet','HEAD','--'],{stdio:'pipe'});
   if(env.REPAIR_SOURCE_SHA){assert(!preview);repairDelta(env.REPAIR_SOURCE_SHA,env.GITHUB_SHA,env.CANDIDATE_BASE);}
-  return {repository:REPOSITORY,sha:env.REPAIR_SOURCE_SHA||env.GITHUB_SHA,...(env.REPAIR_SOURCE_SHA?{publicationSha:env.GITHUB_SHA}:{}),base:env.CANDIDATE_BASE,run:env.CANDIDATE_RUN,attempt:env.CANDIDATE_ATTEMPT,currentRun:env.GITHUB_RUN_ID,branch,selection:gitSelection(env.CANDIDATE_BASE,env.REPAIR_SOURCE_SHA||env.GITHUB_SHA)};
+  const sha=env.REPAIR_SOURCE_SHA||continuation?.sha||env.GITHUB_SHA;
+  return {repository:REPOSITORY,sha,...(env.REPAIR_SOURCE_SHA||continuation?{publicationSha:env.GITHUB_SHA}:{}),base:env.CANDIDATE_BASE,run:env.CANDIDATE_RUN,attempt:env.CANDIDATE_ATTEMPT,currentRun:env.GITHUB_RUN_ID,branch,selection:gitSelection(env.CANDIDATE_BASE,sha)};
 }
 export async function sourceArchives(preview, env=process.env) {
   const e=sourceExpectation(preview,env);
+  const continuation=resolveCanvasAgentDeploySource(env);
   const kind=env.REPAIR_SOURCE_SHA&&repairKind(repairDelta(env.REPAIR_SOURCE_SHA,env.GITHUB_SHA,env.CANDIDATE_BASE));
   const browserRepair=['browser-fixture','browser-publication'].includes(kind),completedBrowser=kind==='browser-publication';
   const preparation=browserRepair&&!completedBrowser&&['release-compatibility','browser-validation'].includes(env.GITHUB_JOB);
@@ -35,7 +39,11 @@ export async function sourceArchives(preview, env=process.env) {
   const relevant=laterRuns.filter(r=>isRequiredValidationRun(r,e.selection));
   for(const later of relevant.filter(r=>String(r.id)!==String(e.currentRun)&&Date.parse(r.created_at)>Date.parse(run.created_at)&&r.conclusion!=='success'))later.jobs=await collection(`actions/runs/${later.id}/attempts/${later.run_attempt}/jobs`,'jobs');
   const currentPublication=!preview && env.GITHUB_ACTIONS==='true' && env.GITHUB_JOB==='deploy' && env.GITHUB_REF==='refs/heads/main' && e.run===env.GITHUB_RUN_ID;
-  const selected=validateSource({run,jobs,artifacts,laterRuns:relevant,mainSha:ref.object.sha},e,{previewBranch:preview?e.branch:undefined,currentPublication,mediaRepair:Boolean(env.REPAIR_SOURCE_SHA),browserRepair});
+  const selected=validateSource({run,jobs,artifacts,laterRuns:relevant,mainSha:ref.object.sha},e,{previewBranch:preview?e.branch:undefined,currentPublication,mediaRepair:Boolean(env.REPAIR_SOURCE_SHA),browserRepair,canvasAgentDeploy:Boolean(continuation)});
+  if(continuation) {
+    assert.equal(env.GITHUB_JOB,'deploy','Canvas continuation is protected-publication only');
+    assertCanvasAgentDeployAcceptance(await collection(`actions/runs/${env.GITHUB_RUN_ID}/attempts/${env.GITHUB_RUN_ATTEMPT}/jobs`,'jobs'),env.GITHUB_SHA,env.GITHUB_RUN_ID,env.GITHUB_RUN_ATTEMPT);
+  }
   if(completedBrowser) {
     assert(repairSource.completedBrowserArtifact,'Missing authenticated completed browser acceptance');
     selected.push(repairSource.completedBrowserArtifact);

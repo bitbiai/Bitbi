@@ -11,6 +11,10 @@ import {validateSharpLock} from './worker-sharp.mjs';
 const git = (root, args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 const read = (root, ref, file) => JSON.parse(git(root, ['show', `${ref}:${file}`]));
 const without = (value, key) => Object.fromEntries(Object.entries(value).filter(([name]) => name !== key));
+// Auth intentionally shares this import-free, platform-neutral diagnostic
+// contract with the private processor. Do not admit the whole service tree.
+const externalRuntimeModules = prefix => prefix === 'workers/auth'
+  ? ['services/homepage-ffmpeg-processor/canvas-diagnostics.mjs'] : [];
 function forwardPatch(before, after) {
   const a = /^(\d+)\.(\d+)\.(\d+)$/.exec(before || '');
   const b = /^(\d+)\.(\d+)\.(\d+)$/.exec(after || '');
@@ -68,7 +72,8 @@ export function isSharpToolingPatch(before,after) {
 
 function relativeSourcesStayReviewed(root, base, head, prefix, { allowSourceChanges = false } = {}) {
   const roots = [`${prefix}/src`, 'workers/shared', 'js/shared'];
-  const modes = new Map(git(root, ['ls-tree', '-r', '--format=%(objectmode) %(path)', head, '--', ...roots])
+  const external = externalRuntimeModules(prefix);
+  const modes = new Map(git(root, ['ls-tree', '-r', '--format=%(objectmode) %(path)', head, '--', ...roots, ...external])
     .split('\n').map(line => {const at = line.indexOf(' ');return [line.slice(at + 1), line.slice(0, at)];}));
   const pending = [`${prefix}/src/index.js`], visited = new Set();
   while (pending.length) {
@@ -79,13 +84,16 @@ function relativeSourcesStayReviewed(root, base, head, prefix, { allowSourceChan
     // frontend-only shared module is not an input, but changed/new reachable
     // modules (including whitespace-only edits) cannot inherit the exception.
     if (!allowSourceChanges && git(root, ['rev-parse', '--verify', `${base}:${file}`]) !== git(root, ['rev-parse', '--verify', `${head}:${file}`])) return false;
-    // JSON imports are inert data. The existing Auth baseline is outside src,
-    // so require its parsed value to remain unchanged across the release range.
+    // The release contract is an intentional Auth runtime input. Its change
+    // still requires Auth deployment; it cannot inherit the unchanged-runtime
+    // exemption below. Other external JSON keeps the existing strict proof.
     if (file.endsWith('.json')) {
-      if (!isDeepStrictEqual(read(root, base, file), read(root, head, file))) return false;
+      const before = read(root, base, file), after = read(root, head, file);
+      if (!(allowSourceChanges && prefix === 'workers/auth' && file === 'config/release-compat.json')
+          && !isDeepStrictEqual(before, after)) return false;
       continue;
     }
-    if (!roots.some(directory => file.startsWith(`${directory}/`)) || !/\.(?:[cm]?js|ts)$/.test(file)
+    if ((!roots.some(directory => file.startsWith(`${directory}/`)) && !external.includes(file)) || !/\.(?:[cm]?js|ts)$/.test(file)
         || !['100644', '100755'].includes(modes.get(file))) return false;
     const source = git(root, ['show', `${head}:${file}`]);
     // Limit the exception to the repository's literal module layout. Computed
@@ -140,7 +148,7 @@ function runtimeUsesTooling(root, base, head, prefix, { manifest, lock }, runtim
   // Match package/subpath string literals and explicit node_modules paths. This
   // intentionally also rejects non-import references; uncertain use stays a deploy.
   const pattern = `['"\x60](${names})(/|['"\x60])|node_modules/(${names})(/|['"\x60])`;
-  const usage = spawnSync('git', ['grep', '-l', '-E', pattern, head, '--', ...runtimePaths],
+  const usage = spawnSync('git', ['grep', '-l', '-E', pattern, head, '--', ...runtimePaths, ...externalRuntimeModules(prefix)],
     { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   return usage.status !== 1;
 }

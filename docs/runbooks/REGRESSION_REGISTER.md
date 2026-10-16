@@ -2073,3 +2073,23 @@ not any transport exception. Focused isolated workerd/D1 callers passed Canvas
 Sources: `tests/admin-model-status-runtime.mjs`, `canvas-smooth-control.mjs`,
 `canvas-assembly-control.mjs`, `tests/q2-lifecycle.spec.js` and the existing
 `test:q2-runtime` caller. Exact final-source release evidence remains separate.
+
+Deployment continuation, 2026-10-16: the completed `f75d812f` local release
+passed all 55 commands and source run [38818004151/1](https://github.com/bitbiai/Bitbi/actions/runs/38818004151)
+imported its accepted candidate and tested media image, but skipped publication.
+Auth's tooling-patch proof did not traverse the already shared processor diagnostic
+module and rejected a changed inert JSON contract even when runtime changes were
+separately admitted. The corrected proof traverses only that explicit external
+module, scans it for tooling imports, and keeps the unchanged-runtime proof strict.
+A closed deployment-only continuation pins the original SHA, run, attempt and
+artifact digests; full Git-tree equality excludes changed product, build, toolchain
+or existing test inputs. The protected job activates fresh backend versions and
+records new live receipts; local acceptance is never treated as prior activation.
+
+The two new `test-canvas-agent-deploy-*.mjs` guard callers run only in the existing
+`reuse-candidate` job, before protected publication. They cover altered source and
+artifact identity, unsupported graph/tooling changes, missing acceptance, fresh
+backend evidence and exact-source partial activation. Already passed suites and
+the tested image are retained, not rerun or rebuilt. Production readiness still
+requires the protected deploy job and live readback; paid Grok inference is a
+separate authorization and is not established by these receipts.

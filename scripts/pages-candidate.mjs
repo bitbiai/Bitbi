@@ -6,6 +6,7 @@ import { assertBrowserSourceIdentity, assertBrowserReportArtifact, assertOrigina
 import { hostingPolicy, prepareFrontend, verifyFrontend, cloudflarePublishedBase } from './lib/frontend-hosting.mjs';
 import { LOCAL_REQUIRED_JOBS, localPolicyAt } from './lib/local-release-evidence.mjs';
 import { LOCAL_BROWSER_POLICY, verifyMigrationBrowserReport, SMOOTH_BROWSER_POLICY, verifySmoothBrowserReport } from './lib/local-release-browser.mjs';
+import {CANVAS_AGENT_DEPLOY_SOURCE,resolveCanvasAgentDeploySource,assertCanvasAgentDeployDelta,assertCanvasAgentDeployArtifact} from './lib/canvas-agent-deploy-continuation.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { selectCiTests, requiresPrivateMediaImage, memberSpecSources, canvasCompletionRouteSources } from './lib/ci-test-selection.mjs';
@@ -167,10 +168,18 @@ export async function sourceAttempt(runId,attempt,selection) {
   }
   return Number(attempt)===latest.run_attempt?latest:api(`actions/runs/${runId}/attempts/${attempt}`);
 }
-export function validateSource({run,jobs,artifacts,laterRuns,mainSha}, expected, {previewBranch, currentPublication=false, mediaRepair=false, browserRepair=false, historicalActivation=false}={}) {
+export function validateSource({run,jobs,artifacts,laterRuns,mainSha}, expected, {previewBranch, currentPublication=false, mediaRepair=false, browserRepair=false, historicalActivation=false, canvasAgentDeploy=false}={}) {
   assert.equal(expected.repository,REPOSITORY,'Foreign repository');
   if (!expected.selection) assert.equal(expected.base,Q4_BASE,'Incomplete legacy Q4 release scope');
   if(mediaRepair){assert(!previewBranch&&!currentPublication);repairDelta(expected.sha,expected.publicationSha,expected.base);}
+  if(canvasAgentDeploy) {
+    assert(!previewBranch&&!currentPublication&&!mediaRepair&&!browserRepair&&!historicalActivation,'Ambiguous deployment continuation');
+    for(const key of ['sha','base','run','attempt'])assert.equal(String(expected[key]),CANVAS_AGENT_DEPLOY_SOURCE[key],'Wrong accepted Canvas source');
+    assertCanvasAgentDeployDelta(expected.publicationSha);
+    assert.equal(run.conclusion,'success','Canvas source acceptance did not pass');
+    const deployment=jobs.filter(job=>job.name==='deploy');assert.equal(deployment.length,1);
+    assert.equal(deployment[0].conclusion,'skipped','Canvas source must not have activated a backend');
+  }
   if(browserRepair) {
     assert(mediaRepair,'Browser continuation requires verified repair ancestry');
     assert(['browser-fixture','browser-publication'].includes(repairKind(repairDelta(expected.sha,expected.publicationSha,expected.base))));
@@ -184,7 +193,7 @@ export function validateSource({run,jobs,artifacts,laterRuns,mainSha}, expected,
     execFileSync('git',['merge-base','--is-ancestor',expected.base,expected.sha],{stdio:'pipe'});
     execFileSync('git',['merge-base','--is-ancestor',expected.sha,expected.publicationSha],{stdio:'pipe'});
   }
-  assert.equal(mainSha,mediaRepair||historicalActivation?expected.publicationSha:expected.sha,'Superseded candidate');
+  assert.equal(mainSha,mediaRepair||historicalActivation||canvasAgentDeploy?expected.publicationSha:expected.sha,'Superseded candidate');
   assert.equal(run.repository?.full_name,REPOSITORY); assert.equal(run.head_repository?.full_name,REPOSITORY);
   assert.equal(run.head_sha,expected.sha,'Source SHA mismatch'); assert.equal(run.head_branch,previewBranch||'main');
   if(previewBranch && previewBranch!=='main')assert.equal(run.event,'workflow_dispatch','Branch preview must use explicit dispatch');
@@ -234,12 +243,14 @@ export function validateSource({run,jobs,artifacts,laterRuns,mainSha}, expected,
   }
   const suffix=`${expected.sha}-${expected.run}-${expected.attempt}`;
   const names=[`pages-candidate-${suffix}`,...(local ? [] : proofJobs(expected.selection).filter(job=>!(browserRepair&&job==='browser-validation')).map(job=>`pages-proof-${job}-${suffix}`))];
-  return names.map(name=>{
+  const selected=names.map(name=>{
     const found=artifacts.filter(a=>a.name===name); assert.equal(found.length,1,`Missing/ambiguous artifact ${name}`);
     const a=found[0];assert.equal(a.expired,false,'Expired candidate artifact');assert(a.size_in_bytes>0);
     assert.equal(a.workflow_run?.id,Number(expected.run));assert.equal(a.workflow_run?.head_sha,expected.sha);
     assert(/^sha256:[a-f0-9]{64}$/.test(a.digest),'Missing immutable artifact digest'); return a;
   });
+  if(canvasAgentDeploy){assert.equal(selected.length,1);assertCanvasAgentDeployArtifact(selected[0],'candidate');}
+  return selected;
 }
 export function verifyProofs(manifest,proofs) {
   for(const job of [...proofJobs(manifest.selection),...(manifest.hosting?['frontend-runtime']:[])]) {
@@ -416,7 +427,7 @@ export async function collection(endpoint,key) {
   for(let page=1;page<=10;page++) { const data=await api(`${endpoint}${endpoint.includes('?')?'&':'?'}per_page=100&page=${page}`);rows.push(...data[key]);if(rows.length>=data.total_count)return rows; }
   throw new Error('Evidence pagination exceeded bounded scope');
 }
-function expected(env=process.env) { return {repository:env.GITHUB_REPOSITORY,sha:env.REPAIR_SOURCE_SHA||env.GITHUB_SHA,publicationSha:env.GITHUB_SHA,base:env.CANDIDATE_BASE,run:env.CANDIDATE_RUN||env.GITHUB_RUN_ID,attempt:env.CANDIDATE_ATTEMPT||env.GITHUB_RUN_ATTEMPT,currentRun:env.GITHUB_RUN_ID}; }
+function expected(env=process.env) { const continuation=resolveCanvasAgentDeploySource(env);return {repository:env.GITHUB_REPOSITORY,sha:env.REPAIR_SOURCE_SHA||continuation?.sha||env.GITHUB_SHA,publicationSha:env.GITHUB_SHA,base:env.CANDIDATE_BASE,run:env.CANDIDATE_RUN||env.GITHUB_RUN_ID,attempt:env.CANDIDATE_ATTEMPT||env.GITHUB_RUN_ATTEMPT,currentRun:env.GITHUB_RUN_ID}; }
 function policyName(){return fs.existsSync('config/static-hosting.json')?hostingPolicy().provider:'github-pages';}
 async function main(command) {
   const e=expected(),dir='candidate',manifestFile=path.join(dir,'manifest.json');
@@ -445,7 +456,7 @@ async function main(command) {
     const [run,jobs,artifacts,laterRuns,ref]=await Promise.all([sourceAttempt(e.run,e.attempt,e.selection),collection(`actions/runs/${e.run}/attempts/${e.attempt}/jobs`,'jobs'),collection(`actions/runs/${e.run}/artifacts`,'artifacts'),collection(`actions/runs?head_sha=${e.sha}`,'workflow_runs'),api('git/ref/heads/main')]);
     const relevant=laterRuns.filter(r=>isRequiredValidationRun(r,e.selection));
     for(const later of relevant.filter(r=>String(r.id)!==String(e.currentRun)&&Date.parse(r.created_at)>Date.parse(run.created_at)&&r.conclusion!=='success'))later.jobs=await collection(`actions/runs/${later.id}/attempts/${later.run_attempt}/jobs`,'jobs');
-    const selected=validateSource({run,jobs,artifacts,laterRuns:relevant,mainSha:ref.object.sha},e);
+    const selected=validateSource({run,jobs,artifacts,laterRuns:relevant,mainSha:ref.object.sha},e,{canvasAgentDeploy:Boolean(resolveCanvasAgentDeploySource())});
     if(process.env.CANDIDATE_ARTIFACT_IDS)assert.equal(selected.map(a=>a.id).join(','),process.env.CANDIDATE_ARTIFACT_IDS,'Candidate artifacts changed after selection');
     fs.writeFileSync('candidate-source.json',JSON.stringify({expected:e,artifacts:selected.map(({id,name,digest})=>({id,name,digest}))}));
     if(process.env.GITHUB_OUTPUT)fs.appendFileSync(process.env.GITHUB_OUTPUT,`artifact_ids=${selected.map(a=>a.id).join(',')}\n`);

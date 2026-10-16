@@ -9,6 +9,7 @@ import { hostingPolicy, readJson, verifyFrontend, wrangler, hash, cloudflareRead
 import {persistDurableReceipt,activateRecovery,findPendingFrontendActivation} from './lib/frontend-receipts.mjs';
 import {verifyUploadSource} from './lib/frontend-source.mjs';
 import {repairDelta,repairKind} from './lib/media-repair-source.mjs';
+import {resolveCanvasAgentDeploySource,canvasAgentDeployIdentity} from './lib/canvas-agent-deploy-continuation.mjs';
 import { tree, verifyProofs } from './pages-candidate.mjs';
 // Exact observed Cloudflare additions, not a general HTML sanitizer. Everything
 // else (including whitespace, changed attributes and unknown injections) hashes
@@ -114,14 +115,15 @@ async function main() {
  assert.equal(process.env.GITHUB_REF,'refs/heads/main');assert.equal(process.env.GITHUB_REPOSITORY,'bitbiai/Bitbi');
  assert(['push','workflow_dispatch'].includes(process.env.GITHUB_EVENT_NAME));
  const {manifest,proofs}=await verifyUploadSource();
- assert.equal(manifest.sha,process.env.REPAIR_SOURCE_SHA||process.env.GITHUB_SHA);assert.deepEqual(tree('_site'),manifest.files);
+ const continuation=resolveCanvasAgentDeploySource();
+ assert.equal(manifest.sha,process.env.REPAIR_SOURCE_SHA||continuation?.sha||process.env.GITHUB_SHA);assert.deepEqual(tree('_site'),manifest.files);
  const output='test-results/frontend-upload.ndjson';fs.mkdirSync('test-results',{recursive:true});fs.rmSync(output,{force:true});
  fs.rmSync('hosting-receipt.json',{force:true});
  const current=async()=>{
    execFileSync(process.execPath,['scripts/pages-candidate.mjs','current'],{stdio:'inherit'});
    if(process.env.BACKEND_RELEASE_RECEIPT)await (await import('./lib/backend-publication.mjs')).verifyBackendReceipt();
  };
- const reconcile=process.env.REPAIR_SOURCE_SHA&&repairKind(repairDelta(manifest.sha,process.env.GITHUB_SHA,process.env.CANDIDATE_BASE))==='tooling'?()=>findPendingFrontendActivation({manifest}):undefined;
+ const reconcile=continuation||process.env.REPAIR_SOURCE_SHA&&repairKind(repairDelta(manifest.sha,process.env.GITHUB_SHA,process.env.CANDIDATE_BASE))==='tooling'?()=>findPendingFrontendActivation({manifest}):undefined;
  const receipt=await publishFrontend({manifest,proofs,account:process.env.CLOUDFLARE_ACCOUNT_ID,current,read:cloudflareRead,reconcile,upload:async message=>{
    await verifyUploadSource();
    assert(process.env.CLOUDFLARE_API_TOKEN,'Explicit frontend deployment credential required');
@@ -136,6 +138,7 @@ async function main() {
    if(kind==='media')receipt.mediaRepair=identity;
    else receipt.releaseRepair={kind,...identity};
  }
+ if(continuation)receipt.deploymentContinuation=canvasAgentDeployIdentity(process.env.GITHUB_SHA);
  receipt.publicationRun=String(process.env.GITHUB_RUN_ID);receipt.publicationAttempt=String(process.env.GITHUB_RUN_ATTEMPT);
  // Keep recovered originals and their original activation provenance in the
  // existing durable deployment payload, beyond Actions artifact retention.

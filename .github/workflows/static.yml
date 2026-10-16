@@ -101,15 +101,21 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Defer pinned deployment-only push
+        id: deployment_continuation
+        run: node scripts/lib/canvas-agent-deploy-continuation.mjs push
       - name: Setup Node.js
+        if: steps.deployment_continuation.outputs.deferred != 'true'
         uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: 'npm'
       - name: Read hosting target
+        if: steps.deployment_continuation.outputs.deferred != 'true'
         id: hosting
         run: node scripts/frontend-release.mjs target
       - name: Resolve verified published Pages baseline
+        if: steps.deployment_continuation.outputs.deferred != 'true'
         id: baseline
         env:
           GH_TOKEN: ${{ github.token }}
@@ -118,8 +124,10 @@ jobs:
           RELEASE_BASE_INPUT: ${{ github.event.inputs.release_plan_base_ref }}
         run: node scripts/pages-candidate.mjs baseline
       - name: Install dependencies
+        if: steps.deployment_continuation.outputs.deferred != 'true'
         run: npm ci --ignore-scripts
       - name: Preflight complete static release plan
+        if: steps.deployment_continuation.outputs.deferred != 'true'
         id: release_preflight
         env:
           STATIC_DEPLOY_EVENT: ${{ github.event_name }}
@@ -130,6 +138,7 @@ jobs:
           set -euo pipefail
           npm run check:static-deploy-safety:github -- --backend-preflight --base "${STATIC_DEPLOY_BASE_REF:-}" --head "${STATIC_DEPLOY_HEAD_REF:-}" --event-name "$STATIC_DEPLOY_EVENT" --acknowledgement "$STATIC_DEPLOY_ACK"
       - name: Select tests from changed files
+        if: steps.deployment_continuation.outputs.deferred != 'true'
         id: selection
         env:
           GH_TOKEN: ${{ github.token }}
@@ -138,13 +147,16 @@ jobs:
           CI_HEAD_REF: ${{ github.sha }}
         run: node scripts/select-ci-tests.mjs --base "$CI_BASE_REF" --head "$CI_HEAD_REF" --github-output
       - name: Verify local release evidence and candidate bytes
+        if: steps.deployment_continuation.outputs.deferred != 'true'
         id: local_evidence
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/local-release.mjs import
       - name: Check committed artifact secrets
+        if: steps.deployment_continuation.outputs.deferred != 'true'
         run: npm run check:secrets
       - name: Upload immutable candidate build
+        if: steps.deployment_continuation.outputs.deferred != 'true'
         uses: actions/upload-artifact@v6
         with:
           name: pages-candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -153,7 +165,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Preserve tested private media image
-        if: steps.local_evidence.outputs.media_image == 'true'
+        if: steps.deployment_continuation.outputs.deferred != 'true' && steps.local_evidence.outputs.media_image == 'true'
         uses: actions/upload-artifact@v6
         with:
           name: private-media-image-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -171,6 +183,9 @@ jobs:
       deployments: read
     outputs:
       artifact_ids: ${{ steps.source.outputs.artifact_ids }}
+      canvas_deploy_source_sha: ${{ steps.deployment_continuation.outputs.source_sha }}
+      canvas_deploy_source_run: ${{ steps.deployment_continuation.outputs.source_run }}
+      canvas_deploy_source_attempt: ${{ steps.deployment_continuation.outputs.source_attempt }}
       backend_continuation: ${{ steps.release_preflight.outputs.backend_continuation }}
       hosting_provider: ${{ steps.hosting.outputs.provider }}
       candidate_base: ${{ steps.baseline.outputs.base }}
@@ -201,6 +216,17 @@ jobs:
         env:
           STATIC_DEPLOY_ACK: ${{ github.event.inputs.release_plan_dependency_acknowledgement }}
         run: node scripts/check-static-deploy-safety.mjs --base "$CANDIDATE_BASE" --head "$GITHUB_SHA" --event-name workflow_dispatch --acknowledgement "$STATIC_DEPLOY_ACK" --github-output --backend-preflight
+      - name: Verify Canvas deployment-only source
+        id: deployment_continuation
+        env:
+          CANDIDATE_RUN: ${{ github.event.inputs.candidate_run_id }}
+          CANDIDATE_ATTEMPT: ${{ github.event.inputs.candidate_run_attempt }}
+        run: node scripts/lib/canvas-agent-deploy-continuation.mjs source
+      - name: Check new Canvas deployment-only guards
+        if: steps.deployment_continuation.outputs.active == 'true'
+        run: |
+          node scripts/test-canvas-agent-deploy-continuation.mjs
+          node scripts/test-canvas-agent-deploy-backend.mjs
       - name: Verify exact completed source acceptance
         id: source
         env:
@@ -230,6 +256,9 @@ jobs:
       REPAIR_SOURCE_ATTEMPT: ${{ needs.release-compatibility.outputs.repair_source_attempt }}
       CANDIDATE_RUN: ${{ needs.release-compatibility.outputs.repair_source_run || github.event.inputs.candidate_run_id || github.run_id }}
       CANDIDATE_ATTEMPT: ${{ needs.release-compatibility.outputs.repair_source_attempt || (github.event.inputs.candidate_run_id && github.event.inputs.candidate_run_attempt) || github.run_attempt }}
+      CANVAS_AGENT_DEPLOY_SOURCE_SHA: ${{ needs.reuse-candidate.outputs.canvas_deploy_source_sha }}
+      CANVAS_AGENT_DEPLOY_SOURCE_RUN: ${{ needs.reuse-candidate.outputs.canvas_deploy_source_run }}
+      CANVAS_AGENT_DEPLOY_SOURCE_ATTEMPT: ${{ needs.reuse-candidate.outputs.canvas_deploy_source_attempt }}
     environment:
       name: ${{ (needs.reuse-candidate.outputs.hosting_provider || needs.release-compatibility.outputs.hosting_provider) == 'cloudflare' && 'cloudflare-static-production' || 'github-pages' }}
       url: ${{ steps.deployment.outputs.page_url }}

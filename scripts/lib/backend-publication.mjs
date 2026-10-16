@@ -18,6 +18,7 @@ import {verifyUploadSource} from './frontend-source.mjs';
 import {cloudflareRead} from './frontend-hosting.mjs';
 import {api,collection,REPOSITORY} from '../pages-candidate.mjs';
 import {repairDelta,repairKind,verifyRepairSource,isModelAreaSchemaRepair,MODEL_AREA_SCHEMA_REPAIR} from './media-repair-source.mjs';
+import {resolveCanvasAgentDeploySource} from './canvas-agent-deploy-continuation.mjs';
 const worker='bitbi-auth';
 const backendEnv=()=>({...process.env,CLOUDFLARE_API_TOKEN:process.env.CF_BACKEND_DEPLOY_TOKEN||process.env.CLOUDFLARE_API_TOKEN});
 const pause=milliseconds=>new Promise(resolve=>setTimeout(resolve,milliseconds));
@@ -137,11 +138,25 @@ export async function verifyAuthBundle(digest,read=()=>fetch(`https://api.cloudf
   const module=modules.get('index.js');assert(module&&typeof module!=='string'&&module.size<=10*1024*1024,'Invalid Auth module');
   assert.equal(createHash('sha256').update(Buffer.from(await module.arrayBuffer())).digest('hex'),digest,'Active Auth bytes differ from candidate build');
 }
-export function verifyBackendActivation(receipt,{sha,base,runId,attempt,version,deployment,migration,processorSha}) {
+export function verifyBackendActivation(receipt,{sha,base,runId,attempt,version,deployment,migration,processorSha,acceptedSource}) {
   assert.equal(receipt.sha,sha);assert.equal(receipt.base,base);assert.equal(receipt.run,runId);assert.equal(receipt.attempt,attempt);
   assert.equal(receipt.worker,worker);assert.equal(receipt.migration,migration);assert.equal(processorSha,sha);
   assert.equal(version.id,receipt.version);assert.equal(version.annotations?.['workers/message'],`bitbi-auth:${sha}`);
   assert.equal(deployment.id,receipt.deployment);assert.deepEqual(deployment.versions,[{version_id:receipt.version,percentage:100}]);
+  if(acceptedSource) {
+    // The acceptance source never activated a backend. This receipt records
+    // NEW publication, while preserving the exact earlier tested image identity.
+    assert.deepEqual(receipt.acceptedSource,acceptedSource,'Wrong accepted deployment source');
+    assert.equal(receipt.processorRef,sha,'Wrong fresh processor reference');
+    assert.equal(receipt.mediaSourceSha,sha,'Wrong fresh private media source');
+    assert.equal(receipt.media?.sha,sha,'Old media activation cannot substitute for fresh publication');
+    assert.equal(receipt.media?.imageSourceSha,acceptedSource.sha,'Wrong retained tested image source');
+    assert.equal(receipt.media?.sourceRun,acceptedSource.run,'Wrong retained image run');
+    assert.equal(receipt.media?.sourceAttempt,acceptedSource.attempt,'Wrong retained image attempt');
+    assert(!receipt.media?.reusedActivation,'Unproven previous media activation');
+    assert(receipt.smoke?.length===2&&receipt.smoke.every(row=>row.sha===sha&&!row.fixtureSha&&!row.reusedOutputs),
+      'Fresh deployment requires its own live media acceptance');
+  }else assert(!receipt.acceptedSource,'Unexpected cross-source deployment evidence');
 }
 export function backendD1Diagnostic(status,body) {
  const errors=Array.isArray(body?.errors)?body.errors.slice(0,8):[];
@@ -171,7 +186,9 @@ function context() {
   assert(/^[a-f0-9]{40}$/.test(sha||'')&&/^[a-f0-9]{40}$/.test(base||''));
   const plan=createReleasePlanFromRepo(process.cwd(),{base,head:sha});assert(backendContinuationSupported(plan),'Backend continuation not supported for this plan');
   const config=JSON.parse(fs.readFileSync('workers/auth/wrangler.jsonc'));
-  return {sha,base,plan,config,db:config.d1_databases.find(b=>b.binding==='DB').database_id,runId:process.env.GITHUB_RUN_ID,attempt:process.env.GITHUB_RUN_ATTEMPT};
+  const acceptedSource=resolveCanvasAgentDeploySource(process.env);
+  return {sha,base,plan,config,db:config.d1_databases.find(b=>b.binding==='DB').database_id,runId:process.env.GITHUB_RUN_ID,attempt:process.env.GITHUB_RUN_ATTEMPT,
+    ...(acceptedSource?{acceptedSource}:{})};
 }
 async function current(sha) {assert.equal((await readGithub('main-ref',()=>api('git/ref/heads/main'))).object.sha,sha,'Superseded backend candidate');}
 async function active() {
@@ -359,7 +376,7 @@ export async function verifyBackendReceipt(file=process.env.BACKEND_RELEASE_RECE
     if(receipt.media?.reusedActivation)verifyReusedMediaReceipt(receipt,c,reuse);
     else assert.equal(receipt.mediaSourceSha,c.sha,'Unproven cross-source media receipt');
     verifyMediaEvidence(receipt,{sha:reuse?.sha||c.sha,...(reuse?{run:reuse.run,attempt:reuse.attempt}:mediaEvidenceRun()),...(isSmoothContinuation(receipt.media?.imageSourceSha)?{imageSha:smoothReceiptImageSource(receipt.media,reuse?.sha||c.sha)}:{}),lifecycle:true,previewBase:c.plan.changedFiles.includes('workers/auth/migrations/0097_canvas_preview_base.sql'),publicPreviews:c.plan.changedFiles.includes('workers/auth/migrations/0091_separate_thumbnail_processing.sql'),videoReferences:true,exportMusic:c.plan.changedFiles.some(f=>['workers/auth/migrations/0096_canvas_export_versions.sql','workers/auth/migrations/0097_canvas_preview_base.sql'].includes(f))});
-    await mediaActive(receipt.media,backendEnv());
+    await mediaActive(receipt.media,backendEnv(),{requireSourceBinding:Boolean(c.acceptedSource)});
     if(c.plan.changedFiles.includes('workers/auth/migrations/0091_separate_thumbnail_processing.sql')) {
       const activation=receipt.smoke.find(s=>s.backend==='cloudflare')?.thumbnailActivation;
       assert.equal(activation?.sha,reuse?.sha||c.sha,'Missing thumbnail rollout evidence');
@@ -423,6 +440,7 @@ export async function publishBackend() {
   // checked by test:release-plan before any protected publication is possible.
   assertSupportedBackendMigrations(pending);
   const mediaReuse=mediaRequired?await resolveActiveMediaSource(c,{readCloudflare:readBackend}):null;
+  if(c.acceptedSource)assert(!mediaReuse,'Unexpected prior media activation; reconcile before fresh-source continuation');
   const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-backend-secret-'));
   const mediaSourceSha=mediaRequired?(mediaReuse?.sha||c.sha):before.version.resources.bindings.find(b=>b.name==='PRIVATE_MEDIA_SOURCE_SHA')?.text;
   assert(/^[a-f0-9]{40}$/.test(mediaSourceSha||''),'Missing existing media source identity');
@@ -454,6 +472,7 @@ export async function publishBackend() {
   await verifyCanvasAgentActivationFlags(featureFlags,c.config,state.version,'auth',id=>readBackend(`workers/scripts/bitbi-auth/versions/${id}`));
   const imageDelivery=c.plan.changedFiles.includes('workers/auth/src/lib/image-delivery-recovery.js')?await verifyImageDeliveryRecovery(imageTargets,{query:(sql,params)=>query(c.db,sql,params),object:imageDeliveryObject,current:()=>current(c.sha)}):undefined;
   const receipt={sha:c.sha,base:c.base,run:c.runId,attempt:c.attempt,worker,migration,version:state.version.id,deployment:state.deployment.id,featureFlags,
+    ...(c.acceptedSource?{acceptedSource:c.acceptedSource}:{}),
     ...(media?{media,smoke,...(mediaReuse?{mediaAcceptance:{publicationSha:c.sha,run:c.runId,attempt:c.attempt}}:{})}:{}),...(ai?{ai}:{}),...(c.plan.changedFiles.includes('workers/auth/src/lib/image-delivery-recovery.js')?{imageDelivery}:{}),mediaSourceSha,authBundleDigest:c.authBundleDigest,processorRef:c.sha,sourceTree:execFileSync('git',['rev-parse',`${c.sha}:workers/auth`],{encoding:'utf8'}).trim()};
   verifyBackendActivation(receipt,{...c,...state,migration,processorSha:c.sha});
   storeBackendReceipt(receipt);

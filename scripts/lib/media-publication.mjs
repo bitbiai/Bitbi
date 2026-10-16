@@ -9,6 +9,7 @@ import {api,collection} from '../pages-candidate.mjs';
 import {cloudflareRead,hash} from './frontend-hosting.mjs';
 import {verifyMediaImage} from '../private-media-image.mjs';
 import {CANVAS_AUDIO_BROWSER_REPAIR,assertBrowserRepairTrees} from './browser-fixture-repair.mjs';
+import {resolveCanvasAgentDeploySource,assertCanvasAgentDeployArtifact} from './canvas-agent-deploy-continuation.mjs';
 const run=(cmd,args,options={})=>{try{return execFileSync(cmd,args,{encoding:'utf8',stdio:['ignore','pipe','pipe'],timeout:600000,maxBuffer:8*1024*1024,...options});}catch{throw Error(`Private media ${path.basename(cmd)} operation failed; no frontend continuation`);}};
 const cli=path.resolve('workers/auth/node_modules/wrangler/bin/wrangler.js');
 const wrangler=args=>run(process.execPath,[cli,...args],{env:{...process.env,WRANGLER_SEND_METRICS:'false'}});
@@ -63,7 +64,7 @@ export function verifyMediaEvidence(receipt,{sha,run,attempt,imageSha=sha,lifecy
     }
   }
 }
-export async function mediaActive(expected,env=process.env,{read=endpoint=>cloudflareRead(endpoint,env),now=Date.now,pause=ms=>new Promise(r=>setTimeout(r,ms)),timeout=120000}={}) {
+export async function mediaActive(expected,env=process.env,{read=endpoint=>cloudflareRead(endpoint,env),now=Date.now,pause=ms=>new Promise(r=>setTimeout(r,ms)),timeout=120000,requireSourceBinding=false}={}) {
   const started=now();
   const application=async ns=>{
     const matches=(await read('containers/applications')).filter(a=>a.durable_objects?.namespace_id===ns);
@@ -76,6 +77,7 @@ export async function mediaActive(expected,env=process.env,{read=endpoint=>cloud
     assert(deployment?.versions?.length===1&&deployment.versions[0].percentage===100,'Ambiguous media traffic');
     const version=await read(`workers/scripts/bitbi-private-media/versions/${deployment.versions[0].version_id}`);
     assert.equal(version.annotations?.['workers/message'],`bitbi-media:${expected.sha}:${expected.imageDigest}`);
+    if(requireSourceBinding)assert(version.resources.bindings.some(b=>b.name==='SOURCE_SHA'&&b.text===expected.sha),'Wrong fresh private media source binding');
     assert(version.resources.bindings.some(b=>b.name==='CLOUDFLARE_STREAM_API_TOKEN'&&b.type==='secret_text'),'Missing preview processor credential');
     assert(version.resources.bindings.some(b=>b.name==='CLOUDFLARE_ACCOUNT_ID'&&b.text===env.CLOUDFLARE_ACCOUNT_ID),'Wrong preview account');
     const ns=version.resources.bindings.find(b=>b.name==='MEDIA_CONTAINER')?.namespace_id;assert(ns,'Missing container namespace');
@@ -144,6 +146,8 @@ export async function activateMedia(expected,{currentVersion,deploy,verify}) {
   return verify();
 }
 export function mediaEvidenceRun(env=process.env,{verify=assertBrowserRepairTrees}={}) {
+  const accepted=resolveCanvasAgentDeploySource(env);
+  if(accepted)return {run:accepted.run,attempt:accepted.attempt,imageSha:accepted.sha};
   const source=CANVAS_AUDIO_BROWSER_REPAIR;
   if(env.REPAIR_SOURCE_SHA===source.sha) {
     assert.equal(env.REPAIR_SOURCE_RUN,source.run);assert.equal(env.REPAIR_SOURCE_ATTEMPT,source.attempt);
@@ -154,6 +158,9 @@ export function mediaEvidenceRun(env=process.env,{verify=assertBrowserRepairTree
   return {run:env.REPAIR_SOURCE_SHA?env.GITHUB_RUN_ID:env.CANDIDATE_RUN,attempt:env.REPAIR_SOURCE_SHA?env.GITHUB_RUN_ATTEMPT:env.CANDIDATE_ATTEMPT};
 }
 export function mediaFixtureSha(env=process.env,options) {
+  // Accepted local fixtures are not prior live smoke results. This first
+  // activation must seed and verify its own fixed synthetic production jobs.
+  if(resolveCanvasAgentDeploySource(env))return undefined;
   // This browser-only continuation has no previous production smoke fixture.
   // Preserve its tested image, then execute the normal fresh deployment smoke.
   if(env.REPAIR_SOURCE_SHA===CANVAS_AUDIO_BROWSER_REPAIR.sha){mediaEvidenceRun(env,options);return undefined;}
@@ -211,6 +218,7 @@ export async function publishMedia(c,secretFile,{reuse,listArtifacts=collection,
     assert.equal(candidates.length,1,'Missing exact tested media image');const a=candidates[0];
     assert(!a.expired&&Date.parse(a.expires_at)>Date.now()&&a.workflow_run.head_sha===sha,'Expired/wrong media image');
     assert.equal(String(a.workflow_run.id),String(source.run),'Wrong media image run');
+    if(c.acceptedSource)assertCanvasAgentDeployArtifact(a,'media');
     if(reuse)assert.deepEqual({id:a.id,digest:a.digest},reuse.artifact,'Original media artifact changed');
     const response=await fetchArtifact(`https://api.github.com/repos/bitbiai/Bitbi/actions/artifacts/${a.id}/zip`,{headers:{Authorization:`Bearer ${process.env.GH_TOKEN}`},signal:AbortSignal.timeout(120000)});assert(response.ok,'Image artifact unavailable');
     const bytes=Buffer.from(await response.arrayBuffer());assert.equal(`sha256:${hash(bytes)}`,a.digest,'Image archive identity mismatch');
@@ -248,7 +256,7 @@ with zipfile.ZipFile(p/'image.zip') as z:
     const currentVersion=await currentMediaVersion();
     return await activateMedia(expected,{currentVersion,
       deploy:()=>wrangler(['deploy','--config',file,'--secrets-file',secretFile,'--message',`bitbi-media:${c.sha}:${imageDigest}`]),
-      verify:()=>mediaActive(expected),
+      verify:()=>mediaActive(expected,process.env,{requireSourceBinding:Boolean(c.acceptedSource)}),
     });
   }finally{fs.rmSync(dir,{recursive:true,force:true});}
 }
