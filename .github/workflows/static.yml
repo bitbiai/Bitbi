@@ -223,10 +223,34 @@ jobs:
           CANDIDATE_ATTEMPT: ${{ github.event.inputs.candidate_run_attempt }}
         run: node scripts/lib/canvas-agent-deploy-continuation.mjs source
       - name: Check new Canvas deployment-only guards
-        if: steps.deployment_continuation.outputs.active == 'true'
+        if: steps.deployment_continuation.outputs.active == 'true' && steps.deployment_continuation.outputs.recovery != 'true'
         run: |
           node scripts/test-canvas-agent-deploy-continuation.mjs
           node scripts/test-canvas-agent-deploy-backend.mjs
+      - name: Prepare Canvas backend recovery checks
+        if: steps.deployment_continuation.outputs.recovery == 'true'
+        run: |
+          npm ci --ignore-scripts
+          npm --prefix workers/auth ci
+          bash scripts/setup-media-tools.sh
+      - name: Check Canvas backend recovery guards
+        if: steps.deployment_continuation.outputs.recovery == 'true'
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/canvas-recovery-auth.json
+        run: |
+          set -euo pipefail
+          mkdir -p test-results
+          node scripts/test-canvas-import-guard.mjs | tee test-results/canvas-recovery-import.log
+          node scripts/test-canvas-agent-backend-recovery.mjs | tee test-results/canvas-recovery-backend.log
+          npx playwright test -c playwright.workers.config.js tests/q2-processor-capability.spec.js --workers=1 --retries=0 --reporter=list,json
+      - name: Preserve Canvas recovery check evidence
+        if: always() && steps.deployment_continuation.outputs.recovery == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: canvas-recovery-checks-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/canvas-recovery-*
+          if-no-files-found: error
+          retention-days: 90
       - name: Verify exact completed source acceptance
         id: source
         env:
@@ -328,6 +352,14 @@ jobs:
           path: test-results/backend-diagnostics.jsonl
           if-no-files-found: ignore
           retention-days: 14
+      - name: Preserve Canvas backend recovery source
+        if: always() && hashFiles('test-results/backend-recovery-source.json') != ''
+        uses: actions/upload-artifact@v6
+        with:
+          name: backend-recovery-source-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/backend-recovery-source.json
+          if-no-files-found: error
+          retention-days: 90
       - name: Preserve backend activation evidence
         if: success() && env.BACKEND_RELEASE_RECEIPT != ''
         uses: actions/upload-artifact@v6

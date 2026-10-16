@@ -2093,3 +2093,33 @@ backend evidence and exact-source partial activation. Already passed suites and
 the tested image are retained, not rerun or rebuilt. Production readiness still
 requires the protected deploy job and live readback; paid Grok inference is a
 separate authorization and is not established by these receipts.
+
+
+The deployment-only conditional import also required a matching boundary in
+`verifyImportWorkflow`: its original unconditional-import assertion rejected the
+new workflow when preparing future releases. Admit only the exact preceding,
+unconditional defer guard and consistently guarded subsequent steps; preserve
+permissions, token isolation and fatal-import semantics. The focused
+`test-canvas-import-guard.mjs` exercises the real parsed workflow and
+validation-plan caller plus missing, altered and unguarded counterexamples.
+This import-boundary correction changes only release tooling; it does not grant
+activation authority. The failed `fa95bf71` attempt retains its identity and original evidence.
+
+Live processor follow-up, run [38847674259/1](https://github.com/bitbiai/Bitbi/actions/runs/38847674259):
+the protected backend step stopped at 04:09:35 UTC with one incomplete media
+backend; frontend publication was skipped. Auth advertised `inspections:1` to
+GitHub although the inspection endpoint correctly accepts only Cloudflare. The
+real processor called that endpoint before claiming exports, received 403, then
+released its dispatch lease and woke the still-pending work. Advertise only the
+authenticated backend's supported capability; keep inspection access restricted.
+The new `tests/q2-processor-capability.spec.js` uses the actual Worker, migrated
+SQLite and processor/FFmpeg caller, reproduces the former handshake's 403 before
+export admission and checks a saved GitHub output plus the Cloudflare boundary.
+Its focused Worker invocation is separate from all previously accepted suites.
+
+The closed recovery authenticates the failed protected execution and its exact
+log, verifies already active component bytes and identities, and updates only
+Auth. It observes the original fixed smoke jobs and retained media without
+seeding, re-rendering, retrying a Cloudflare reference or rebuilding the accepted
+image. Previous successful checks remain original evidence; incomplete live
+acceptance and the final frontend receipt must still finish in the protected job.

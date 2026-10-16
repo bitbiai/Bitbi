@@ -172,7 +172,7 @@ export async function handleCanvasExportProcessor(ctx) {
   if(!backend) return json({ok:false,code:'processor_auth_failed'},{status:403});
   try {
     if(ctx.pathname===base+'/claim') {
-      if(ctx.method==='GET') return reply({protocol:1,recipeProtocol:8,previewBase:1,inspections:1});
+      if(ctx.method==='GET') return reply({protocol:1,recipeProtocol:8,previewBase:1,inspections:backend==='cloudflare'?1:0});
       // route-policy: internal.canvas-export.claim
       if (!(method === 'POST')) return null;
       const parsed=await readJsonBodyOrResponse(ctx.request,{maxBytes:BODY_LIMITS.homepageHeroProcessorJson});

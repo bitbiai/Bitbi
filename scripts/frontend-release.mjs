@@ -9,7 +9,7 @@ import { hostingPolicy, readJson, verifyFrontend, wrangler, hash, cloudflareRead
 import {persistDurableReceipt,activateRecovery,findPendingFrontendActivation} from './lib/frontend-receipts.mjs';
 import {verifyUploadSource} from './lib/frontend-source.mjs';
 import {repairDelta,repairKind} from './lib/media-repair-source.mjs';
-import {resolveCanvasAgentDeploySource,canvasAgentDeployIdentity} from './lib/canvas-agent-deploy-continuation.mjs';
+import {resolveCanvasAgentDeploySource,resolveCanvasAgentRecoverySource,canvasAgentDeployIdentity,canvasAgentRecoveryIdentity} from './lib/canvas-agent-deploy-continuation.mjs';
 import { tree, verifyProofs } from './pages-candidate.mjs';
 // Exact observed Cloudflare additions, not a general HTML sanitizer. Everything
 // else (including whitespace, changed attributes and unknown injections) hashes
@@ -139,6 +139,7 @@ async function main() {
    else receipt.releaseRepair={kind,...identity};
  }
  if(continuation)receipt.deploymentContinuation=canvasAgentDeployIdentity(process.env.GITHUB_SHA);
+ if(resolveCanvasAgentRecoverySource())receipt.deploymentRecovery=canvasAgentRecoveryIdentity(process.env.GITHUB_SHA);
  receipt.publicationRun=String(process.env.GITHUB_RUN_ID);receipt.publicationAttempt=String(process.env.GITHUB_RUN_ATTEMPT);
  // Keep recovered originals and their original activation provenance in the
  // existing durable deployment payload, beyond Actions artifact retention.

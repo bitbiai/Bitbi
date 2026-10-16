@@ -1,6 +1,6 @@
 import { repairDelta, repairKind, verifyRepairSource } from './media-repair-source.mjs';
 import { BROWSER_REPAIR_ACCEPTANCE, verifyBrowserRepairProof } from './browser-fixture-repair.mjs';
-import {resolveCanvasAgentDeploySource,assertCanvasAgentDeployAcceptance} from './canvas-agent-deploy-continuation.mjs';
+import {resolveCanvasAgentDeploySource,resolveCanvasAgentRecoverySource,verifyCanvasAgentRecoverySource,assertCanvasAgentDeployAcceptance,assertCanvasAgentRecoveryAcceptance} from './canvas-agent-deploy-continuation.mjs';
 // Read-only GitHub provenance and archive verification shared by preparation
 // and the immediately-before-upload boundary. No local JSON grants CI trust.
 import assert from 'node:assert/strict';
@@ -42,7 +42,9 @@ export async function sourceArchives(preview, env=process.env) {
   const selected=validateSource({run,jobs,artifacts,laterRuns:relevant,mainSha:ref.object.sha},e,{previewBranch:preview?e.branch:undefined,currentPublication,mediaRepair:Boolean(env.REPAIR_SOURCE_SHA),browserRepair,canvasAgentDeploy:Boolean(continuation)});
   if(continuation) {
     assert.equal(env.GITHUB_JOB,'deploy','Canvas continuation is protected-publication only');
-    assertCanvasAgentDeployAcceptance(await collection(`actions/runs/${env.GITHUB_RUN_ID}/attempts/${env.GITHUB_RUN_ATTEMPT}/jobs`,'jobs'),env.GITHUB_SHA,env.GITHUB_RUN_ID,env.GITHUB_RUN_ATTEMPT);
+    const recovery=resolveCanvasAgentRecoverySource(env);
+    if(recovery)await verifyCanvasAgentRecoverySource(env,{read:api,list:collection});
+    (recovery?assertCanvasAgentRecoveryAcceptance:assertCanvasAgentDeployAcceptance)(await collection(`actions/runs/${env.GITHUB_RUN_ID}/attempts/${env.GITHUB_RUN_ATTEMPT}/jobs`,'jobs'),env.GITHUB_SHA,env.GITHUB_RUN_ID,env.GITHUB_RUN_ATTEMPT);
   }
   if(completedBrowser) {
     assert(repairSource.completedBrowserArtifact,'Missing authenticated completed browser acceptance');

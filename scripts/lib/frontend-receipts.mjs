@@ -1,5 +1,5 @@
 import { repairDelta, repairKind, assertRepairAcceptance } from './media-repair-source.mjs';
-import {CANVAS_AGENT_DEPLOY_SOURCE,resolveCanvasAgentDeploySource,assertCanvasAgentDeployDelta,assertCanvasAgentDeployAcceptance,canvasAgentDeployIdentity} from './canvas-agent-deploy-continuation.mjs';
+import {CANVAS_AGENT_DEPLOY_SOURCE,resolveCanvasAgentDeploySource,resolveCanvasAgentRecoverySource,verifyCanvasAgentRecoverySource,assertCanvasAgentDeployDelta,assertCanvasAgentPublicationDelta,assertCanvasAgentRecoveryDelta,assertCanvasAgentDeployAcceptance,assertCanvasAgentRecoveryAcceptance,canvasAgentDeployIdentity,canvasAgentRecoveryIdentity} from './canvas-agent-deploy-continuation.mjs';
 // GitHub deployment payloads survive Actions artifact expiry. They are only
 // evidence together with their protected Actions job and Cloudflare identity.
 import assert from 'node:assert/strict';
@@ -69,7 +69,7 @@ export async function findPendingFrontendActivation({api=githubRequest,read=clou
   for(const d of deployments.filter(d=>d.task==='deploy')) {
     let delta;try{
       execFileSync('git',['merge-base','--is-ancestor',d.sha,env.GITHUB_SHA],{stdio:'pipe'});
-      if(d.sha!==sha){if(continuation){assert.equal(d.sha,env.GITHUB_SHA);delta=assertCanvasAgentDeployDelta(d.sha);}else{delta=repairDelta(sha,d.sha,previous.sha);if(repairKind(delta)!=='tooling')continue;}}
+      if(d.sha!==sha){if(continuation){assert.equal(d.sha,env.GITHUB_SHA);delta=assertCanvasAgentPublicationDelta(d.sha);}else{delta=repairDelta(sha,d.sha,previous.sha);if(repairKind(delta)!=='tooling')continue;}}
     }catch{continue;}
     const statuses=await api(`deployments/${d.id}/statuses`),status=statuses[0],log=status?.log_url?.match(/^https:\/\/github\.com\/bitbiai\/Bitbi\/actions\/runs\/(\d+)\/job\/(\d+)$/);
     if(status?.state!=='failure'||!log)continue;
@@ -92,7 +92,7 @@ export async function findPendingFrontendActivation({api=githubRequest,read=clou
       assert(jobs.some(j=>j.id===job.id&&j.name==='deploy'&&j.conclusion==='failure'),'Source lacks this failed publication');
     } else {
       const accepted=(await api(`actions/runs/${log[1]}/attempts/${job.run_attempt}/jobs?per_page=100`)).jobs;
-      if(continuation)assertCanvasAgentDeployAcceptance(accepted,d.sha,log[1],job.run_attempt);
+      if(continuation)(resolveCanvasAgentRecoverySource(env)?assertCanvasAgentRecoveryAcceptance:assertCanvasAgentDeployAcceptance)(accepted,d.sha,log[1],job.run_attempt);
       else assertRepairAcceptance(accepted,d.sha,delta);
     }
     const uploads=(await api(`actions/runs/${log[1]}/artifacts?per_page=100`)).artifacts.filter(a=>a.name===`frontend-failed-upload-${d.sha}-${log[1]}-${job.run_attempt}`);assert.equal(uploads.length,1,'Missing exact failed upload evidence');const artifact=uploads[0];assert.equal(String(artifact.workflow_run?.id),log[1]);assert.equal(artifact.workflow_run?.head_sha,d.sha);
@@ -144,8 +144,11 @@ export async function loadDurableReceipt(id,api=githubRequest,{parent=false}={})
       assert(!repair,'Ambiguous deployment receipt authority');assert.equal(run.event,'workflow_dispatch');
       assert.deepEqual(receipt.deploymentContinuation,canvasAgentDeployIdentity(receipt.publicationSha));
       for(const [key,value]of [['sha',CANVAS_AGENT_DEPLOY_SOURCE.sha],['run',CANVAS_AGENT_DEPLOY_SOURCE.run],['attempt',CANVAS_AGENT_DEPLOY_SOURCE.attempt]])assert.equal(String(receipt[key]),value);
-      assertCanvasAgentDeployDelta(receipt.publicationSha);
-      assertCanvasAgentDeployAcceptance((await api(`actions/runs/${receipt.publicationRun}/attempts/${receipt.publicationAttempt}/jobs?per_page=100`)).jobs,receipt.publicationSha,receipt.publicationRun,receipt.publicationAttempt);
+      if(receipt.deploymentRecovery){
+        assert.deepEqual(receipt.deploymentRecovery,canvasAgentRecoveryIdentity(receipt.publicationSha));
+        assertCanvasAgentRecoveryDelta(receipt.publicationSha);
+      }else assertCanvasAgentDeployDelta(receipt.publicationSha);
+      (receipt.deploymentRecovery?assertCanvasAgentRecoveryAcceptance:assertCanvasAgentDeployAcceptance)((await api(`actions/runs/${receipt.publicationRun}/attempts/${receipt.publicationAttempt}/jobs?per_page=100`)).jobs,receipt.publicationSha,receipt.publicationRun,receipt.publicationAttempt);
       for(const name of ['Validate candidate references before backend publication','Apply verified candidate backend prerequisites'])assert(job.steps.some(step=>step.name===name&&step.status==='completed'&&step.conclusion==='success'),`Missing protected continuation operation: ${name}`);
     }else if(repair){
       assert(!(receipt.releaseRepair&&receipt.mediaRepair),'Ambiguous repair receipt');
@@ -193,7 +196,12 @@ export async function persistDurableReceipt(receipt,{api=githubRequest,read=clou
     assert(!receipt.releaseRepair&&!receipt.mediaRepair);
     assert.deepEqual(receipt.deploymentContinuation,canvasAgentDeployIdentity(env.GITHUB_SHA));
     for(const key of ['sha','run','attempt'])assert.equal(String(receipt[key]),source[key]);
-    assertCanvasAgentDeployAcceptance(jobs.jobs,env.GITHUB_SHA,env.GITHUB_RUN_ID,env.GITHUB_RUN_ATTEMPT);
+    const recovery=resolveCanvasAgentRecoverySource(env);
+    if(recovery){
+      assert.deepEqual(receipt.deploymentRecovery,canvasAgentRecoveryIdentity(env.GITHUB_SHA));
+      await verifyCanvasAgentRecoverySource(env,{read:api,list:async endpoint=>(await api(`${endpoint}?per_page=100`)).jobs});
+    }else assert(!receipt.deploymentRecovery);
+    (recovery?assertCanvasAgentRecoveryAcceptance:assertCanvasAgentDeployAcceptance)(jobs.jobs,env.GITHUB_SHA,env.GITHUB_RUN_ID,env.GITHUB_RUN_ATTEMPT);
   }
   const matches=jobs.jobs.filter(j=>j.name===env.GITHUB_JOB&&j.status==='in_progress');assert.equal(matches.length,1);
   const job=matches[0],log=`https://github.com/${repo}/actions/runs/${env.GITHUB_RUN_ID}/job/${job.id}`;

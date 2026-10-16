@@ -36,7 +36,22 @@ export function verifyImportWorkflow(workflow) {
   assert(!token.test(JSON.stringify(workflow.env||{}))&&!token.test(JSON.stringify(job.env||{})),'No workflow/job-wide credential');
   const imports=job.steps.filter(step=>step.run==='node scripts/local-release.mjs import');
   assert.equal(imports.length,1,'Exactly one evidence import is required');
-  assert(!imports[0].if&&!imports[0]['continue-on-error']&&!job['continue-on-error'],'Evidence import must block publication');
+  assert(!imports[0]['continue-on-error']&&!job['continue-on-error'],'Evidence import must block publication');
+  if(Object.hasOwn(imports[0],'if')||job.steps.some(step=>step.id==='deployment_continuation')) {
+    const guard="steps.deployment_continuation.outputs.deferred != 'true'";
+    assert.equal(imports[0].if,guard,'Unknown evidence import condition');
+    const deferrals=job.steps.filter(step=>step.id==='deployment_continuation');
+    assert.equal(deferrals.length,1,'Missing unique pinned push deferral');
+    const defer=deferrals[0];
+    assert.equal(job.steps.indexOf(defer),1,'Push deferral must follow only checkout');
+    assert(job.steps[0].uses?.startsWith('actions/checkout@'));
+    assert.equal(defer.run,'node scripts/lib/canvas-agent-deploy-continuation.mjs push');
+    assert(!Object.hasOwn(defer,'if')&&!defer['continue-on-error']&&!defer.uses&&!defer.env,'Push deferral must be unconditional and blocking');
+    for(const step of job.steps.slice(2)) {
+      const expected=step.name==='Preserve tested private media image'?`${guard} && steps.local_evidence.outputs.media_image == 'true'`:guard;
+      assert.equal(step.if,expected,'Deferred push must not validate, import or create a candidate');
+    }
+  }
   assert.equal(imports[0].env?.GH_TOKEN,'${{ github.token }}');
   const checkout=job.steps.filter(step=>step.uses?.startsWith('actions/checkout@'));
   assert.equal(checkout.length,1);assert.equal(checkout[0].with?.['persist-credentials'],false,'Import credentials must not persist');

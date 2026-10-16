@@ -6,7 +6,7 @@ import { assertBrowserSourceIdentity, assertBrowserReportArtifact, assertOrigina
 import { hostingPolicy, prepareFrontend, verifyFrontend, cloudflarePublishedBase } from './lib/frontend-hosting.mjs';
 import { LOCAL_REQUIRED_JOBS, localPolicyAt } from './lib/local-release-evidence.mjs';
 import { LOCAL_BROWSER_POLICY, verifyMigrationBrowserReport, SMOOTH_BROWSER_POLICY, verifySmoothBrowserReport } from './lib/local-release-browser.mjs';
-import {CANVAS_AGENT_DEPLOY_SOURCE,resolveCanvasAgentDeploySource,assertCanvasAgentDeployDelta,assertCanvasAgentDeployArtifact} from './lib/canvas-agent-deploy-continuation.mjs';
+import {CANVAS_AGENT_DEPLOY_SOURCE,resolveCanvasAgentDeploySource,resolveCanvasAgentRecoverySource,verifyCanvasAgentRecoverySource,assertCanvasAgentPublicationDelta,assertCanvasAgentDeployArtifact} from './lib/canvas-agent-deploy-continuation.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { selectCiTests, requiresPrivateMediaImage, memberSpecSources, canvasCompletionRouteSources } from './lib/ci-test-selection.mjs';
@@ -175,7 +175,7 @@ export function validateSource({run,jobs,artifacts,laterRuns,mainSha}, expected,
   if(canvasAgentDeploy) {
     assert(!previewBranch&&!currentPublication&&!mediaRepair&&!browserRepair&&!historicalActivation,'Ambiguous deployment continuation');
     for(const key of ['sha','base','run','attempt'])assert.equal(String(expected[key]),CANVAS_AGENT_DEPLOY_SOURCE[key],'Wrong accepted Canvas source');
-    assertCanvasAgentDeployDelta(expected.publicationSha);
+    assertCanvasAgentPublicationDelta(expected.publicationSha);
     assert.equal(run.conclusion,'success','Canvas source acceptance did not pass');
     const deployment=jobs.filter(job=>job.name==='deploy');assert.equal(deployment.length,1);
     assert.equal(deployment[0].conclusion,'skipped','Canvas source must not have activated a backend');
@@ -452,6 +452,7 @@ async function main(command) {
     return;
   }
   if(command==='source') {
+    if(resolveCanvasAgentRecoverySource())await verifyCanvasAgentRecoverySource(process.env,{read:api,list:collection});
     assert(/^\d+$/.test(e.run||'')&&/^\d+$/.test(e.attempt||''),'Explicit source run/attempt required');
     const [run,jobs,artifacts,laterRuns,ref]=await Promise.all([sourceAttempt(e.run,e.attempt,e.selection),collection(`actions/runs/${e.run}/attempts/${e.attempt}/jobs`,'jobs'),collection(`actions/runs/${e.run}/artifacts`,'artifacts'),collection(`actions/runs?head_sha=${e.sha}`,'workflow_runs'),api('git/ref/heads/main')]);
     const relevant=laterRuns.filter(r=>isRequiredValidationRun(r,e.selection));
