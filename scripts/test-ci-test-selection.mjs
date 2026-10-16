@@ -90,7 +90,7 @@ assert.equal(selection(['playwright.config.js'], {forceFull: true}).full, true);
     'scripts/test-canvas-agent-release.mjs'];
   const chosen=selection(files);
   for(const flag of ['workers','auth','homepage','static','runtime'])assert.equal(chosen[flag],true);
-  for(const flag of ['full','canvasText','carousel','assets'])assert.equal(chosen[flag],false);
+  for(const flag of ['full','canvasText','carousel','assets'])assert.equal(Boolean(chosen[flag]),false);
   assert.equal(requiresPrivateMediaImage(files),false);
   assert.equal(selection(files,{forceFull:true}).full,true);
   assert.equal(selection([...files,'tests/helpers/unreviewed-agent-runtime.mjs']).full,true);

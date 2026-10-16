@@ -564,13 +564,29 @@ export const MODEL_OPERATION_PREFLIGHT=Object.freeze({
   failedLog:'4420aeaccd1c699d2ef3e6dea26675065f184a18082c9ea6ad028e5a87bd6647',
   retain:[1,4,5,6,7,8,9,12],
 });
+export const MODEL_SELECTION_PREFLIGHT=Object.freeze({
+  source:'b71dd6212ee83e9fad0d60a8cf9c03dbaa0087d5',
+  checkpoint:'00c88e0722249f029e5e668fdc0bc059839c892f9d5241da62f07422c9c29137',
+  failedLog:'d87b51c21ec4b8e1119cd189e883dd6af8fb725813d8cc2c1a9d0c68f494c7ff',
+  retain:[1,4,5,6,7,8,9,10,11,12,13,14,15],
+});
 export function canvasExampleBrowserContinuation(command){
   const passed='  node --test tests/canvas-transition-examples.test.mjs\n';
   assert.equal(command.split(passed).length,2);assert(command.includes("--grep 'Canvas transition examples'"));
   return command.replace(passed,''); // Pinned decoded-asset pass remains in the archived original log.
 }
-export const canvasPreflightProfile=source=>[CANVAS_PREFLIGHT,EXPORT_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,EXAMPLE_PREFLIGHT,EXAMPLE_BROWSER_PREFLIGHT,MODEL_OPERATION_PREFLIGHT].find(p=>p.source===source)||null;
+export const canvasPreflightProfile=source=>[CANVAS_PREFLIGHT,EXPORT_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,EXAMPLE_PREFLIGHT,EXAMPLE_BROWSER_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT].find(p=>p.source===source)||null;
 export function assertCanvasPreflightTree(head,read=gitBytes,profile=CANVAS_PREFLIGHT){
+  if(profile===MODEL_SELECTION_PREFLIGHT){
+    assertCanvasPreflightTree(profile.source,read,MODEL_OPERATION_PREFLIGHT);
+    assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,profile.source],'Selection continuation requires the direct source successor');
+    const files=read(['diff','--name-only',profile.source,head]).toString().trim().split('\n').filter(Boolean);
+    assert(files.every(file=>['scripts/test-ci-test-selection.mjs','scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs'].includes(file)),'Selection continuation changed product, tests, selection or environment');
+    assert(files.includes('scripts/test-ci-test-selection.mjs'),'Missing reviewed selection assertion correction');
+    assert.equal(sha256(read(['show',`${head}:scripts/test-ci-test-selection.mjs`])),'f6e963565f82c5ed7ad9a1a3e955650c6eca5d3c4ead2798c502cc65798b7128','Unreviewed selection assertion correction');
+    for(const file of files)assert(/^100644 blob [0-9a-f]{40}\t/.test(read(['ls-tree',head,'--',file]).toString()),'Continuation input must remain an ordinary file');
+    return;
+  }
   if(profile===MODEL_OPERATION_PREFLIGHT){
     assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,profile.source],'Model-operation continuation requires the direct source successor');
     const files=read(['diff','--name-only',profile.source,head]).toString().trim().split('\n').filter(Boolean);
@@ -652,8 +668,9 @@ export function canvasPreflightPrefix(bytes,{sha,base,planHash,environment,comma
   assertCanvasPreflightTree(sha,read,profile);assert.equal(sha256(bytes),profile.checkpoint,'Changed failed preflight checkpoint');
   assert.equal(original.sha,profile.source);assert.equal(original.status,'failed');
   assert.equal(original.base,base);assert.equal(original.planHash,planHash);assert.equal(original.environment.key,environment.key);
-  assert.equal(original.commands.length,profile===MODEL_OPERATION_PREFLIGHT?14:profile===EXAMPLE_BROWSER_PREFLIGHT?42:profile===EXAMPLE_PREFLIGHT?18:profile===EXPORT_PREFLIGHT?16:profile===EXPORT_MEDIA_PREFLIGHT?43:42);assert.equal(original.commands[profile===MODEL_OPERATION_PREFLIGHT?13:profile===EXAMPLE_BROWSER_PREFLIGHT?41:profile===EXAMPLE_PREFLIGHT?17:profile===EXPORT_PREFLIGHT?15:profile===EXPORT_MEDIA_PREFLIGHT?42:41].exitCode,1);
-  if(profile===MODEL_OPERATION_PREFLIGHT){
+  assert.equal(original.commands.length,profile===MODEL_SELECTION_PREFLIGHT?17:profile===MODEL_OPERATION_PREFLIGHT?14:profile===EXAMPLE_BROWSER_PREFLIGHT?42:profile===EXAMPLE_PREFLIGHT?18:profile===EXPORT_PREFLIGHT?16:profile===EXPORT_MEDIA_PREFLIGHT?43:42);assert.equal(original.commands[profile===MODEL_SELECTION_PREFLIGHT?16:profile===MODEL_OPERATION_PREFLIGHT?13:profile===EXAMPLE_BROWSER_PREFLIGHT?41:profile===EXAMPLE_PREFLIGHT?17:profile===EXPORT_PREFLIGHT?15:profile===EXPORT_MEDIA_PREFLIGHT?42:41].exitCode,1);
+  if(profile===MODEL_SELECTION_PREFLIGHT)assert.deepEqual(original.preflightContinuation,{source:MODEL_OPERATION_PREFLIGHT.source,checkpoint:MODEL_OPERATION_PREFLIGHT.checkpoint},'Missing original preflight chain');
+  if([MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT].includes(profile)){
     const flags=({files,reasons,...metadata})=>metadata;
     assert.deepEqual(flags(selection),flags(original.selection),'Changed selection cannot inherit preflight evidence');
     assert.equal(environment.image,original.environment.image,'Changed execution image');
@@ -681,7 +698,8 @@ export function verifyCanvasPreflight(directory,evidence,commands){
   const profile=canvasPreflightProfile(evidence.preflightContinuation?.source);assert(profile,'Unknown preflight origin');
   assert.deepEqual(evidence.preflightContinuation,{source:profile.source,checkpoint:profile.checkpoint});
   const original=canvasPreflightPrefix(fs.readFileSync(path.join(directory,'reuse/preflight-checkpoint.json')),{...evidence,commands});
-  if(profile===MODEL_OPERATION_PREFLIGHT)assert.equal(sha256(fs.readFileSync(path.join(directory,'reuse/preflight-failed.log'))),profile.failedLog,'Changed original failed compatibility log');
+  if([MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT].includes(profile))assert.equal(sha256(fs.readFileSync(path.join(directory,'reuse/preflight-failed.log'))),profile.failedLog,'Changed original failed preflight log');
+  if(profile===MODEL_SELECTION_PREFLIGHT)verifyCanvasPreflight(path.join(directory,'reuse/model-operation-origin'),original,selectedCommands(original.selection,{GITHUB_SHA:original.sha,CANDIDATE_BASE:original.base}));
   if(profile===EXAMPLE_BROWSER_PREFLIGHT){
     const log=fs.readFileSync(path.join(directory,'reuse/example-asset-pass.log'));assert.equal(sha256(log),profile.assetLog);
     assert(log.toString().includes('ok 1 - Every offered transition has a small distinct decoded GIF'));

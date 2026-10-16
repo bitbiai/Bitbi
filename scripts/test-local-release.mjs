@@ -590,11 +590,11 @@ testSmoothContinuation(EXPORT_BROWSER_CONTINUATION);
 // evolving working-tree files; the real verifier still pins the original hashes.
 const historicalExportFile=file=>execFileSync('git',['show','5f0384373bd7e1505beaa5f243e2f085e2958c95:'+file]);
 
-{
- const {MODEL_OPERATION_PREFLIGHT:p,canvasPreflightProfile,assertCanvasPreflightTree,canvasPreflightPrefix,verifyCanvasPreflight}=await import('./lib/local-release-evidence.mjs');
- assert.equal(canvasPreflightProfile(p.source),p);
- assert.deepEqual(p.retain,[1,4,5,6,7,8,9,12]);
- for(const affected of [0,2,3,10,11,13,18,41,42,48,51])assert(!p.retain.includes(affected),'Changed checks and all unexecuted acceptance must run');
+for(const source of ['9443369e0780144d2ffeea3900d3b86ccd57bc85','b71dd6212ee83e9fad0d60a8cf9c03dbaa0087d5']){
+ const {MODEL_SELECTION_PREFLIGHT,canvasPreflightProfile,assertCanvasPreflightTree,canvasPreflightPrefix,verifyCanvasPreflight}=await import('./lib/local-release-evidence.mjs');
+ const p=canvasPreflightProfile(source),selectionRepair=p===MODEL_SELECTION_PREFLIGHT,failedIndex=selectionRepair?16:13;
+ assert(p);assert.deepEqual(p.retain,selectionRepair?[1,4,5,6,7,8,9,10,11,12,13,14,15]:[1,4,5,6,7,8,9,12]);
+ for(const affected of (selectionRepair?[0,2,3,16,17,41,42,48,51]:[0,2,3,10,11,13,18,41,42,48,51]))assert(!p.retain.includes(affected),'Changed checks and all unexecuted acceptance must run');
  // Query real isolated Git trees, sharing only read-only original objects. This
  // never changes the checkout/index and does not execute a retained command.
  const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-model-preflight-'));
@@ -605,7 +605,9 @@ const historicalExportFile=file=>execFileSync('git',['show','5f0384373bd7e1505be
   execFileSync('git',['init','--bare',bare],{stdio:'pipe'});
   const objects=path.resolve(execFileSync('git',['rev-parse','--git-path','objects'],{encoding:'utf8'}).trim());
   fs.writeFileSync(path.join(bare,'objects/info/alternates'),objects+'\n');
-  const fixes={
+  const fixes=selectionRepair?{
+   'scripts/test-ci-test-selection.mjs':execFileSync('git',['cat-file','blob','f9a66de2cd4adf47a4512a697584cc6f6c672ea2']),
+  }:{
    'config/release-compat.json':execFileSync('git',['cat-file','blob','3b7535583f87d15e6ef6318bc07c863d7a6f086d']),
    'scripts/test-release-compat.mjs':execFileSync('git',['cat-file','blob','c3293d9abcef4eface7f39b25fc4a41b711da96d']),
   };
@@ -620,12 +622,12 @@ const historicalExportFile=file=>execFileSync('git',['show','5f0384373bd7e1505be
    return read(['commit-tree',tree,'-p',parent],Buffer.from('Synthetic continuation boundary\n')).toString().trim();
   };
   const accepted=commit(fixes);assertCanvasPreflightTree(accepted,read,p);
-  for(const file of ['workers/auth/src/index.js','js/pages/canvas/agent.js','tests/canvas.spec.js','package-lock.json','.github/workflows/static.yml','config/release-validation.yml','scripts/lib/ci-test-selection.mjs']){
+  for(const file of ['workers/auth/src/index.js','js/pages/canvas/agent.js','tests/canvas.spec.js','package-lock.json','.github/workflows/static.yml','config/release-validation.yml','scripts/lib/ci-test-selection.mjs',...(selectionRepair?['config/release-compat.json','scripts/test-release-compat.mjs']:[])]){
    const changed=commit({...fixes,[file]:Buffer.from('Unrelated change')});
    assert.throws(()=>assertCanvasPreflightTree(changed,read,p),/changed product, tests, selection or environment/);
   }
   for(const file of Object.keys(fixes))assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,[file]:Buffer.from('Unreviewed repair')}),read,p),/Unreviewed/);
-  assert.throws(()=>assertCanvasPreflightTree(commit({'config/release-compat.json':fixes['config/release-compat.json']}),read,p),/Missing reviewed/);
+  assert.throws(()=>assertCanvasPreflightTree(commit(selectionRepair?{}:{'config/release-compat.json':fixes['config/release-compat.json']}),read,p),/Missing reviewed/);
   for(const value of [null,{mode:'120000',content:Buffer.from('outside')}])assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,'scripts/local-release.mjs':value}),read,p),/ordinary file/);
   assert.throws(()=>assertCanvasPreflightTree(commit(fixes,accepted),read,p),/direct source successor/);
   assert.throws(()=>canvasPreflightPrefix(Buffer.from(JSON.stringify({sha:p.source})),{sha:accepted},read),/Changed failed preflight checkpoint/);
@@ -642,7 +644,7 @@ const historicalExportFile=file=>execFileSync('git',['show','5f0384373bd7e1505be
   const selection=gitSelection(original.base,head),commands=selectedCommands(selection,{GITHUB_SHA:head,CANDIDATE_BASE:original.base});
   const context={sha:head,base:original.base,planHash:validationPlan().digest,selection,environment:original.environment,commands};
   assert.equal(canvasPreflightPrefix(bytes,context).sha,p.source);
-  for(const change of [o=>o.status='passed',o=>o.commands[13].exitCode=0,o=>o.commands[1].exitCode=1,o=>o.commands[1].logHash='changed',o=>o.commands.pop()]){
+  for(const change of [o=>o.status='passed',o=>o.commands[failedIndex].exitCode=0,o=>o.commands[1].exitCode=1,o=>o.commands[1].logHash='changed',o=>o.commands.pop()]){
    const altered=structuredClone(original);change(altered);assert.throws(()=>canvasPreflightPrefix(Buffer.from(JSON.stringify(altered)),context));
   }
   for(const change of [c=>c.base='b'.repeat(40),c=>c.planHash='changed',c=>c.environment.key='changed',c=>c.environment.image='changed',c=>c.selection.full=true,c=>c.commands.pop(),c=>c.commands[13].run='echo skipped',c=>c.commands[48].run='echo skipped']){
@@ -658,14 +660,15 @@ const historicalExportFile=file=>execFileSync('git',['show','5f0384373bd7e1505be
    // controls. Actual release acceptance still requires all normal final proofs.
    const rows=commands.map((command,index)=>{
     if(p.retain.includes(index)){
-     const row={...original.commands[index],reusedFrom:p.source};
+     const row={...original.commands[index],reusedFrom:original.commands[index].reusedFrom||p.source};
      fs.copyFileSync(path.join(evidenceRoot,row.log),path.join(bundle,row.log));return row;
     }
     return {command,exitCode:0,log:`logs/${index}.log`,durationMs:1,logHash:sha256('Synthetic fresh verifier row')};
    });
    const evidence={...context,commands:rows,preflightContinuation:{source:p.source,checkpoint:p.checkpoint}};
+   if(selectionRepair)fs.cpSync(path.join(evidenceRoot,'reuse/model-operation-origin'),path.join(bundle,'reuse/model-operation-origin'),{recursive:true});
    verifyCanvasPreflight(bundle,evidence,commands);
-   for(const index of [0,10,13,18,48]){
+   for(const index of (selectionRepair?[0,16,17,48]:[0,10,13,18,48])){
     const forged=structuredClone(evidence);forged.commands[index].reusedFrom=p.source;
     assert.throws(()=>verifyCanvasPreflight(bundle,forged,commands),/cannot inherit/);
    }
@@ -676,8 +679,19 @@ const historicalExportFile=file=>execFileSync('git',['show','5f0384373bd7e1505be
    fs.writeFileSync(path.join(bundle,'reuse/preflight-failed.log'),'pretend compatibility passed');assert.throws(()=>verifyCanvasPreflight(bundle,evidence,commands),/Changed original failed/);
    fs.unlinkSync(path.join(bundle,'reuse/preflight-failed.log'));assert.throws(()=>verifyCanvasPreflight(bundle,evidence,commands));
    fs.writeFileSync(path.join(bundle,'reuse/preflight-failed.log'),failed);verifyCanvasPreflight(bundle,evidence,commands);
+   if(selectionRepair){
+    const provenance=structuredClone(evidence);provenance.commands[1].reusedFrom=p.source;
+    assert.throws(()=>verifyCanvasPreflight(bundle,provenance,commands),'Earlier retained rows must keep their original source');
+    for(const file of ['reuse/preflight-checkpoint.json','reuse/preflight-failed.log','logs/1.log']){
+     const origin=path.join(bundle,'reuse/model-operation-origin',file),originalBytes=fs.readFileSync(origin);
+     fs.unlinkSync(origin);assert.throws(()=>verifyCanvasPreflight(bundle,evidence,commands));
+     fs.writeFileSync(origin,'forged origin');assert.throws(()=>verifyCanvasPreflight(bundle,evidence,commands));
+     fs.writeFileSync(origin,originalBytes);
+    }
+    verifyCanvasPreflight(bundle,evidence,commands);
+   }
   }finally{fs.rmSync(bundle,{recursive:true,force:true});}
-  console.log('Model-operation continuation: actual checkpoint, failed log and eight retained command logs verified; failure, missing, forged, command and selection controls reject.');
+  console.log(`Model preflight ${p.source.slice(0,8)}: actual checkpoint, failed log and ${p.retain.length} retained command logs verified; failure, missing, forged, command, selection and origin controls reject.`);
  }
  console.log('Model-operation continuation: real Git trees reject product, environment, selection, wrong repair, deleted input, symlink and foreign-parent changes.');
 }
