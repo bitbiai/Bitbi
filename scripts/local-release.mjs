@@ -1,4 +1,4 @@
-import {MODEL_SELECTION_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,EXAMPLE_BROWSER_PREFLIGHT,canvasExampleBrowserContinuation,CANVAS_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,canvasExportStageContinuation,canvasPreflightProfile,assertCanvasPreflightTree,canvasPreflightPrefix,canvasWorkspaceStageContinuation,verifyCanvasPreflight} from './lib/local-release-evidence.mjs';
+import {MODEL_WORKFLOW_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,EXAMPLE_BROWSER_PREFLIGHT,canvasExampleBrowserContinuation,CANVAS_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,canvasExportStageContinuation,canvasPreflightProfile,assertCanvasPreflightTree,canvasPreflightPrefix,canvasWorkspaceStageContinuation,verifyCanvasPreflight} from './lib/local-release-evidence.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -196,8 +196,8 @@ async function runLocalRelease({ base, resume }) {
     const prior=canvasPreflightPrefix(bytes,{...state,commands});
     fs.mkdirSync(path.join(bundle,'reuse'),{recursive:true});fs.mkdirSync(path.join(bundle,'logs'),{recursive:true});
     fs.writeFileSync(path.join(bundle,'reuse/preflight-checkpoint.json'),bytes);
-    if([MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT].includes(preflightContinuation)){
-      const failedIndex=preflightContinuation===MODEL_SELECTION_PREFLIGHT?16:13;
+    if([MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT].includes(preflightContinuation)){
+      const failedIndex=preflightContinuation===MODEL_WORKFLOW_PREFLIGHT?17:preflightContinuation===MODEL_SELECTION_PREFLIGHT?16:13;
       const failed=fs.readFileSync(path.join(originalDirectory,`bundle/logs/${failedIndex}.log`));
       assert.equal(sha256(failed),preflightContinuation.failedLog,'Changed original failed preflight log');
       fs.writeFileSync(path.join(bundle,'reuse/preflight-failed.log'),failed);
@@ -208,6 +208,14 @@ async function runLocalRelease({ base, resume }) {
       fs.mkdirSync(path.join(origin,'reuse'),{recursive:true});fs.mkdirSync(path.join(origin,'logs'),{recursive:true});
       for(const file of ['preflight-checkpoint.json','preflight-failed.log'])fs.copyFileSync(path.join(originalBundle,'reuse',file),path.join(origin,'reuse',file));
       for(const i of MODEL_OPERATION_PREFLIGHT.retain)fs.copyFileSync(path.join(originalBundle,prior.commands[i].log),path.join(origin,prior.commands[i].log));
+    }
+    if(preflightContinuation===MODEL_WORKFLOW_PREFLIGHT){
+      const originalBundle=path.join(originalDirectory,'bundle'),origin=path.join(bundle,'reuse/model-selection-origin');
+      verifyCanvasPreflight(originalBundle,prior,selectedCommands(prior.selection,{GITHUB_SHA:prior.sha,CANDIDATE_BASE:prior.base}));
+      fs.mkdirSync(path.join(origin,'reuse'),{recursive:true});fs.mkdirSync(path.join(origin,'logs'),{recursive:true});
+      for(const file of ['preflight-checkpoint.json','preflight-failed.log'])fs.copyFileSync(path.join(originalBundle,'reuse',file),path.join(origin,'reuse',file));
+      fs.cpSync(path.join(originalBundle,'reuse/model-operation-origin'),path.join(origin,'reuse/model-operation-origin'),{recursive:true});
+      for(const i of MODEL_SELECTION_PREFLIGHT.retain)fs.copyFileSync(path.join(originalBundle,prior.commands[i].log),path.join(origin,prior.commands[i].log));
     }
     if(preflightContinuation.guardLog)fs.copyFileSync(path.join(originalDirectory,'bundle/logs/41.log'),path.join(bundle,'reuse/stage-guard.log'));
     if(preflightContinuation===EXPORT_NATIVE_PREFLIGHT)fs.copyFileSync(path.join(cacheRoot(),'runs',preflightContinuation.progressRun,'bundle/logs/41.log'),path.join(bundle,'reuse/stage-progress.log'));
@@ -371,7 +379,7 @@ async function runLocalRelease({ base, resume }) {
       docker(['exec',name,'chown','-R','1001:1001','/tmp/bitbi-release']);
     }
     const unprivileged=['exec',name,'/usr/bin/setpriv','--reuid=1001','--regid=1001','--clear-groups','--bounding-set=-all','--inh-caps=-all','--ambient-caps=-all','--no-new-privs'];
-    if(state.repair||state.permissionContinuation||[EXAMPLE_BROWSER_PREFLIGHT.source,MODEL_OPERATION_PREFLIGHT.source,MODEL_SELECTION_PREFLIGHT.source].includes(state.preflightContinuation?.source)) {
+    if(state.repair||state.permissionContinuation||[EXAMPLE_BROWSER_PREFLIGHT.source,MODEL_OPERATION_PREFLIGHT.source,MODEL_SELECTION_PREFLIGHT.source,MODEL_WORKFLOW_PREFLIGHT.source].includes(state.preflightContinuation?.source)) {
       const tooling=path.join(directory,'tooling-inputs');fs.rmSync(tooling,{recursive:true,force:true});copyEvidenceToolInputs(bundle,tooling);
       docker(['cp',tooling,`${name}:/workspace/.local-release`]);fs.rmSync(tooling,{recursive:true,force:true});
       docker(['exec',name,'chown','-R','1001:1001','/workspace/.local-release']);

@@ -405,13 +405,55 @@ async function testLocalRepair() {
 }
 if(process.argv.includes('--repair-only')) {await testLocalRepair();process.exit(0);}
 
+// BEGIN PINNED LOCAL WORKFLOW GUARD
 const workflow = yaml.parse(fs.readFileSync('.github/workflows/static.yml','utf8'));
-assert.deepEqual(Object.keys(workflow.jobs),['release-compatibility','reuse-candidate','deploy','recover-frontend']);
-assert.deepEqual(workflow.jobs.deploy.needs,['release-compatibility','reuse-candidate']);
-const source = JSON.stringify(workflow);
-for(const name of ['test:workers','test:homepage-core','test:auth','test:static','test:q2-runtime','test:quality-gates','playwright test','Validate JS import paths','Validate page metadata','Check target=']) assert(!source.includes(name),`Migrated check still executes on GitHub: ${name}`);
-assert(source.includes('node scripts/local-release.mjs import'));
-assert(!source.includes('continue-on-error'));
+const historicalWorkflow = yaml.parse(execFileSync('git',['show','770c595a9885e411462d89097847a08da972b184:.github/workflows/static.yml'],{encoding:'utf8'}));
+const recoveryNames = ['Verify Canvas deployment-only source','Check new Canvas deployment-only guards',
+  'Prepare Canvas backend recovery checks','Check Canvas backend recovery guards',
+  'Check corrected Canvas processor capability','Preserve Canvas recovery check evidence'];
+const historicalStart = historicalWorkflow.jobs['reuse-candidate'].steps.findIndex(step=>step.name===recoveryNames[0]);
+const historicalRecovery = historicalWorkflow.jobs['reuse-candidate'].steps.slice(historicalStart,historicalStart+recoveryNames.length);
+assert.deepEqual(historicalRecovery.map(step=>step.name),recoveryNames);
+function verifyNoRepeatedGithubSuites(value) {
+  assert.deepEqual(Object.keys(value.jobs),['release-compatibility','reuse-candidate','deploy','recover-frontend']);
+  assert.deepEqual(value.jobs.deploy.needs,['release-compatibility','reuse-candidate']);
+  const reuse=value.jobs['reuse-candidate'],start=reuse.steps.findIndex(step=>step.name===recoveryNames[0]);
+  assert.equal(reuse.if,historicalWorkflow.jobs['reuse-candidate'].if);
+  assert.equal(start,historicalStart,'Historical checks cannot move ahead of their source gate');
+  assert.deepEqual(reuse.steps.slice(start,start+recoveryNames.length),historicalRecovery,
+    'Only the exact historical commands, conditions, source gate and evidence steps are exempt');
+  const normal=structuredClone(value);
+  // These two old checks are guarded by an exact-source recovery resolver.
+  // Every other occurrence, including a duplicate or moved command, is banned.
+  for(const offset of [3,4])normal.jobs['reuse-candidate'].steps[start+offset].run='';
+  const source=JSON.stringify(normal);
+  for(const name of ['test:workers','test:homepage-core','test:auth','test:static','test:q2-runtime','test:quality-gates','playwright test','Validate JS import paths','Validate page metadata','Check target='])
+    assert(!source.includes(name),`Migrated check still executes on GitHub: ${name}`);
+  assert(source.includes('node scripts/local-release.mjs import'));
+  assert(!source.includes('continue-on-error'));
+}
+verifyNoRepeatedGithubSuites(workflow);
+for(const mutate of [
+  value=>delete value.jobs['reuse-candidate'].steps[historicalStart+3].if,
+  value=>value.jobs.deploy.steps.push(value.jobs['reuse-candidate'].steps.splice(historicalStart+3,1)[0]),
+  value=>value.jobs['reuse-candidate'].steps[historicalStart+4].run+=' --grep changed',
+  value=>value.jobs.deploy.steps.push({run:historicalRecovery[4].run}),
+  value=>value.jobs['reuse-candidate'].steps[historicalStart].run='echo active=true',
+]) {
+  const broken=structuredClone(workflow);mutate(broken);
+  assert.throws(()=>verifyNoRepeatedGithubSuites(broken),'A broadened historical exception must fail');
+}
+{
+  const {CANVAS_AGENT_DEPLOY_SOURCE:accepted,CANVAS_AGENT_RECOVERY_SOURCE:activated,resolveCanvasAgentDeploySource}=await import('./lib/canvas-agent-deploy-continuation.mjs');
+  const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+  const env={GITHUB_ACTIONS:'true',GITHUB_REPOSITORY:'bitbiai/Bitbi',GITHUB_REF:'refs/heads/main',GITHUB_EVENT_NAME:'workflow_dispatch',
+    GITHUB_SHA:head,CANDIDATE_BASE:accepted.base,CANDIDATE_RUN:accepted.run,CANDIDATE_ATTEMPT:accepted.attempt};
+  assert.equal(resolveCanvasAgentDeploySource({...env,GITHUB_SHA:activated.sha}),accepted,'The pinned historical source calibrates the closed resolver');
+  assert.equal(resolveCanvasAgentDeploySource({...env,CANDIDATE_RUN:'ordinary-current-candidate'}),null);
+  assert.throws(()=>resolveCanvasAgentDeploySource(env),/Continuation is not the direct source successor/,
+    'Current product bytes cannot borrow the old candidate identity to rerun historical checks');
+}
+// END PINNED LOCAL WORKFLOW GUARD
 assert.equal(workflow.permissions.deployments,'read');
 assert.equal(workflow.jobs.deploy.permissions.deployments,'write');
 const fast=yaml.parse(fs.readFileSync('.github/workflows/ui-fast-deploy.yml','utf8'));
@@ -590,11 +632,12 @@ testSmoothContinuation(EXPORT_BROWSER_CONTINUATION);
 // evolving working-tree files; the real verifier still pins the original hashes.
 const historicalExportFile=file=>execFileSync('git',['show','5f0384373bd7e1505beaa5f243e2f085e2958c95:'+file]);
 
-for(const source of ['9443369e0780144d2ffeea3900d3b86ccd57bc85','b71dd6212ee83e9fad0d60a8cf9c03dbaa0087d5']){
- const {MODEL_SELECTION_PREFLIGHT,canvasPreflightProfile,assertCanvasPreflightTree,canvasPreflightPrefix,verifyCanvasPreflight}=await import('./lib/local-release-evidence.mjs');
- const p=canvasPreflightProfile(source),selectionRepair=p===MODEL_SELECTION_PREFLIGHT,failedIndex=selectionRepair?16:13;
- assert(p);assert.deepEqual(p.retain,selectionRepair?[1,4,5,6,7,8,9,10,11,12,13,14,15]:[1,4,5,6,7,8,9,12]);
- for(const affected of (selectionRepair?[0,2,3,16,17,41,42,48,51]:[0,2,3,10,11,13,18,41,42,48,51]))assert(!p.retain.includes(affected),'Changed checks and all unexecuted acceptance must run');
+for(const source of ['9443369e0780144d2ffeea3900d3b86ccd57bc85','b71dd6212ee83e9fad0d60a8cf9c03dbaa0087d5','a56a8baf0a74dfc826e5b8ae884b4022ebf2633d']){
+ const {MODEL_WORKFLOW_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,canvasPreflightProfile,assertCanvasPreflightTree,canvasPreflightPrefix,verifyCanvasPreflight}=await import('./lib/local-release-evidence.mjs');
+ const p=canvasPreflightProfile(source),workflowRepair=p===MODEL_WORKFLOW_PREFLIGHT,selectionRepair=p===MODEL_SELECTION_PREFLIGHT,failedIndex=workflowRepair?17:selectionRepair?16:13;
+ const chained=selectionRepair||workflowRepair,originDirectory=workflowRepair?'model-selection-origin':'model-operation-origin';
+ assert(p);assert.deepEqual(p.retain,workflowRepair?[1,4,5,6,7,8,9,10,11,12,13,14,15,16]:selectionRepair?[1,4,5,6,7,8,9,10,11,12,13,14,15]:[1,4,5,6,7,8,9,12]);
+ for(const affected of (workflowRepair?[0,2,3,17,18,41,42,48,51]:selectionRepair?[0,2,3,16,17,41,42,48,51]:[0,2,3,10,11,13,18,41,42,48,51]))assert(!p.retain.includes(affected),'Changed checks and all unexecuted acceptance must run');
  // Query real isolated Git trees, sharing only read-only original objects. This
  // never changes the checkout/index and does not execute a retained command.
  const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-model-preflight-'));
@@ -605,7 +648,9 @@ for(const source of ['9443369e0780144d2ffeea3900d3b86ccd57bc85','b71dd6212ee83e9
   execFileSync('git',['init','--bare',bare],{stdio:'pipe'});
   const objects=path.resolve(execFileSync('git',['rev-parse','--git-path','objects'],{encoding:'utf8'}).trim());
   fs.writeFileSync(path.join(bare,'objects/info/alternates'),objects+'\n');
-  const fixes=selectionRepair?{
+  const fixes=workflowRepair?{
+   'scripts/test-local-release.mjs':fs.readFileSync('scripts/test-local-release.mjs'),
+  }:selectionRepair?{
    'scripts/test-ci-test-selection.mjs':execFileSync('git',['cat-file','blob','f9a66de2cd4adf47a4512a697584cc6f6c672ea2']),
   }:{
    'config/release-compat.json':execFileSync('git',['cat-file','blob','3b7535583f87d15e6ef6318bc07c863d7a6f086d']),
@@ -614,7 +659,7 @@ for(const source of ['9443369e0780144d2ffeea3900d3b86ccd57bc85','b71dd6212ee83e9
   const commit=(changes,parent=p.source)=>{
    read(['read-tree',p.source]);
    for(const [file,value]of Object.entries(changes)){
-    if(value===null){read(['update-index','--force-remove',file]);continue;}
+    if(value===null){read(['update-index','--index-info'],Buffer.from(`0 ${'0'.repeat(40)}\t${file}\n`));continue;}
     const blob=read(['hash-object','-w','--stdin'],value.content??value).toString().trim();
     read(['update-index','--add','--cacheinfo',`${value.mode||'100644'},${blob},${file}`]);
    }
@@ -622,15 +667,19 @@ for(const source of ['9443369e0780144d2ffeea3900d3b86ccd57bc85','b71dd6212ee83e9
    return read(['commit-tree',tree,'-p',parent],Buffer.from('Synthetic continuation boundary\n')).toString().trim();
   };
   const accepted=commit(fixes);assertCanvasPreflightTree(accepted,read,p);
-  for(const file of ['workers/auth/src/index.js','js/pages/canvas/agent.js','tests/canvas.spec.js','package-lock.json','.github/workflows/static.yml','config/release-validation.yml','scripts/lib/ci-test-selection.mjs',...(selectionRepair?['config/release-compat.json','scripts/test-release-compat.mjs']:[])]){
+  for(const file of ['workers/auth/src/index.js','js/pages/canvas/agent.js','tests/canvas.spec.js','package-lock.json','.github/workflows/static.yml','config/release-validation.yml','scripts/lib/ci-test-selection.mjs',...(chained?['config/release-compat.json','scripts/test-release-compat.mjs']:[]),...(workflowRepair?['scripts/test-ci-test-selection.mjs']:[])]){
    const changed=commit({...fixes,[file]:Buffer.from('Unrelated change')});
    assert.throws(()=>assertCanvasPreflightTree(changed,read,p),/changed product, tests, selection or environment/);
   }
   for(const file of Object.keys(fixes))assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,[file]:Buffer.from('Unreviewed repair')}),read,p),/Unreviewed/);
-  assert.throws(()=>assertCanvasPreflightTree(commit(selectionRepair?{}:{'config/release-compat.json':fixes['config/release-compat.json']}),read,p),/Missing reviewed/);
+  assert.throws(()=>assertCanvasPreflightTree(commit(chained?{}:{'config/release-compat.json':fixes['config/release-compat.json']}),read,p),/Missing reviewed/);
   for(const value of [null,{mode:'120000',content:Buffer.from('outside')}])assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,'scripts/local-release.mjs':value}),read,p),/ordinary file/);
   assert.throws(()=>assertCanvasPreflightTree(commit(fixes,accepted),read,p),/direct source successor/);
   assert.throws(()=>canvasPreflightPrefix(Buffer.from(JSON.stringify({sha:p.source})),{sha:accepted},read),/Changed failed preflight checkpoint/);
+  if(workflowRepair){
+   const file='scripts/test-local-release.mjs',original=fixes[file].toString(),marker=['// BEGIN','PINNED LOCAL WORKFLOW GUARD'].join(' ');
+   for(const changed of [original.replace(marker,marker+'\n// changed guard'),original+marker])assert.throws(()=>assertCanvasPreflightTree(commit({[file]:Buffer.from(changed)}),read,p),/Unreviewed workflow guard/);
+  }
  }finally{fs.rmSync(temporary,{recursive:true,force:true});}
 
  // The real resumed caller supplies the original private checkpoint and logs as
@@ -666,9 +715,9 @@ for(const source of ['9443369e0780144d2ffeea3900d3b86ccd57bc85','b71dd6212ee83e9
     return {command,exitCode:0,log:`logs/${index}.log`,durationMs:1,logHash:sha256('Synthetic fresh verifier row')};
    });
    const evidence={...context,commands:rows,preflightContinuation:{source:p.source,checkpoint:p.checkpoint}};
-   if(selectionRepair)fs.cpSync(path.join(evidenceRoot,'reuse/model-operation-origin'),path.join(bundle,'reuse/model-operation-origin'),{recursive:true});
+   if(chained)fs.cpSync(path.join(evidenceRoot,'reuse',originDirectory),path.join(bundle,'reuse',originDirectory),{recursive:true});
    verifyCanvasPreflight(bundle,evidence,commands);
-   for(const index of (selectionRepair?[0,16,17,48]:[0,10,13,18,48])){
+   for(const index of (workflowRepair?[0,17,18,48]:selectionRepair?[0,16,17,48]:[0,10,13,18,48])){
     const forged=structuredClone(evidence);forged.commands[index].reusedFrom=p.source;
     assert.throws(()=>verifyCanvasPreflight(bundle,forged,commands),/cannot inherit/);
    }
@@ -679,11 +728,11 @@ for(const source of ['9443369e0780144d2ffeea3900d3b86ccd57bc85','b71dd6212ee83e9
    fs.writeFileSync(path.join(bundle,'reuse/preflight-failed.log'),'pretend compatibility passed');assert.throws(()=>verifyCanvasPreflight(bundle,evidence,commands),/Changed original failed/);
    fs.unlinkSync(path.join(bundle,'reuse/preflight-failed.log'));assert.throws(()=>verifyCanvasPreflight(bundle,evidence,commands));
    fs.writeFileSync(path.join(bundle,'reuse/preflight-failed.log'),failed);verifyCanvasPreflight(bundle,evidence,commands);
-   if(selectionRepair){
+   if(chained){
     const provenance=structuredClone(evidence);provenance.commands[1].reusedFrom=p.source;
     assert.throws(()=>verifyCanvasPreflight(bundle,provenance,commands),'Earlier retained rows must keep their original source');
-    for(const file of ['reuse/preflight-checkpoint.json','reuse/preflight-failed.log','logs/1.log']){
-     const origin=path.join(bundle,'reuse/model-operation-origin',file),originalBytes=fs.readFileSync(origin);
+    for(const file of ['reuse/preflight-checkpoint.json','reuse/preflight-failed.log','logs/1.log',...(workflowRepair?['reuse/model-operation-origin/reuse/preflight-checkpoint.json','reuse/model-operation-origin/reuse/preflight-failed.log','reuse/model-operation-origin/logs/1.log']:[])]){
+     const origin=path.join(bundle,'reuse',originDirectory,file),originalBytes=fs.readFileSync(origin);
      fs.unlinkSync(origin);assert.throws(()=>verifyCanvasPreflight(bundle,evidence,commands));
      fs.writeFileSync(origin,'forged origin');assert.throws(()=>verifyCanvasPreflight(bundle,evidence,commands));
      fs.writeFileSync(origin,originalBytes);
