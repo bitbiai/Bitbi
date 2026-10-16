@@ -235,6 +235,8 @@
       "authProxyFile": "workers/auth/src/lib/admin-ai-proxy.js",
       "deployOrder": ["ai-worker", "auth-worker"],
       "routes": [
+        {"aiRoute": "/internal/ai/canvas-agent/prepare","allowedOperationIds": ["member.text.generate"],"authSources": [{"sourceFile": "workers/auth/src/lib/canvas-agent-planning.js","sourceRoute": "/api/account/canvas/projects/:projectId/agent","operationIds": ["member.text.generate"]}]},
+        {"aiRoute": "/internal/ai/canvas-agent/normalize","allowedOperationIds": ["member.text.generate"],"authSources": [{"sourceFile": "workers/auth/src/lib/canvas-agent-model-operations.js","operationIds": ["member.text.generate"],"operationIdReferences": ["JSON.parse(op.caller_policy_json)"]}]},
         {"aiRoute": "/internal/ai/canvas-agent/plan","allowedOperationIds": ["member.text.generate"],"authSources": [{"sourceFile": "workers/auth/src/lib/canvas-agent-planning.js","sourceRoute": "/api/account/canvas/projects/:projectId/agent","operationIds": ["member.text.generate"]}]},
         {"aiRoute": "/internal/ai/canvas-agent/evaluate","allowedOperationIds": ["member.text.generate"],"authSources": [{"sourceFile": "workers/auth/src/lib/canvas-agent-planning.js","sourceRoute": "/api/account/canvas/projects/:projectId/agent","operationIds": ["member.text.generate"]}]},
         {
@@ -936,6 +938,8 @@
     ],
     "internalOnlyRoutes": [
       "/internal/ai/canvas-agent/readiness",
+      "/internal/ai/canvas-agent/prepare",
+      "/internal/ai/canvas-agent/normalize",
       "/internal/ai/canvas-agent/plan",
       "/internal/ai/canvas-agent/evaluate",
       "/internal/ai/fable-chat",

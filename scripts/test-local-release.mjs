@@ -591,6 +591,98 @@ testSmoothContinuation(EXPORT_BROWSER_CONTINUATION);
 const historicalExportFile=file=>execFileSync('git',['show','5f0384373bd7e1505beaa5f243e2f085e2958c95:'+file]);
 
 {
+ const {MODEL_OPERATION_PREFLIGHT:p,canvasPreflightProfile,assertCanvasPreflightTree,canvasPreflightPrefix,verifyCanvasPreflight}=await import('./lib/local-release-evidence.mjs');
+ assert.equal(canvasPreflightProfile(p.source),p);
+ assert.deepEqual(p.retain,[1,4,5,6,7,8,9,12]);
+ for(const affected of [0,2,3,10,11,13,18,41,42,48,51])assert(!p.retain.includes(affected),'Changed checks and all unexecuted acceptance must run');
+ // Query real isolated Git trees, sharing only read-only original objects. This
+ // never changes the checkout/index and does not execute a retained command.
+ const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-model-preflight-'));
+ const bare=path.join(temporary,'git');
+ const gitEnv={...process.env,GIT_AUTHOR_NAME:'Synthetic',GIT_AUTHOR_EMAIL:'synthetic@example.invalid',GIT_COMMITTER_NAME:'Synthetic',GIT_COMMITTER_EMAIL:'synthetic@example.invalid'};
+ const read=(args,input)=>execFileSync('git',['--git-dir',bare,...args],{env:gitEnv,input,stdio:['pipe','pipe','pipe']});
+ try{
+  execFileSync('git',['init','--bare',bare],{stdio:'pipe'});
+  const objects=path.resolve(execFileSync('git',['rev-parse','--git-path','objects'],{encoding:'utf8'}).trim());
+  fs.writeFileSync(path.join(bare,'objects/info/alternates'),objects+'\n');
+  const fixes={
+   'config/release-compat.json':execFileSync('git',['cat-file','blob','3b7535583f87d15e6ef6318bc07c863d7a6f086d']),
+   'scripts/test-release-compat.mjs':execFileSync('git',['cat-file','blob','c3293d9abcef4eface7f39b25fc4a41b711da96d']),
+  };
+  const commit=(changes,parent=p.source)=>{
+   read(['read-tree',p.source]);
+   for(const [file,value]of Object.entries(changes)){
+    if(value===null){read(['update-index','--force-remove',file]);continue;}
+    const blob=read(['hash-object','-w','--stdin'],value.content??value).toString().trim();
+    read(['update-index','--add','--cacheinfo',`${value.mode||'100644'},${blob},${file}`]);
+   }
+   const tree=read(['write-tree']).toString().trim();
+   return read(['commit-tree',tree,'-p',parent],Buffer.from('Synthetic continuation boundary\n')).toString().trim();
+  };
+  const accepted=commit(fixes);assertCanvasPreflightTree(accepted,read,p);
+  for(const file of ['workers/auth/src/index.js','js/pages/canvas/agent.js','tests/canvas.spec.js','package-lock.json','.github/workflows/static.yml','config/release-validation.yml','scripts/lib/ci-test-selection.mjs']){
+   const changed=commit({...fixes,[file]:Buffer.from('Unrelated change')});
+   assert.throws(()=>assertCanvasPreflightTree(changed,read,p),/changed product, tests, selection or environment/);
+  }
+  for(const file of Object.keys(fixes))assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,[file]:Buffer.from('Unreviewed repair')}),read,p),/Unreviewed/);
+  assert.throws(()=>assertCanvasPreflightTree(commit({'config/release-compat.json':fixes['config/release-compat.json']}),read,p),/Missing reviewed/);
+  for(const value of [null,{mode:'120000',content:Buffer.from('outside')}])assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,'scripts/local-release.mjs':value}),read,p),/ordinary file/);
+  assert.throws(()=>assertCanvasPreflightTree(commit(fixes,accepted),read,p),/direct source successor/);
+  assert.throws(()=>canvasPreflightPrefix(Buffer.from(JSON.stringify({sha:p.source})),{sha:accepted},read),/Changed failed preflight checkpoint/);
+ }finally{fs.rmSync(temporary,{recursive:true,force:true});}
+
+ // The real resumed caller supplies the original private checkpoint and logs as
+ // evidence inputs, never Git fixtures. Require them for this direct successor.
+ const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+ const parents=execFileSync('git',['rev-list','--parents','-n','1',head],{encoding:'utf8'}).trim().split(/\s+/);
+ const evidenceRoot='.local-release',checkpoint=path.join(evidenceRoot,'reuse/preflight-checkpoint.json');
+ if(parents.length===2&&parents[1]===p.source){
+  assert(fs.existsSync(checkpoint),'Continuation must exercise its real checkpoint and retained logs');
+  const bytes=fs.readFileSync(checkpoint),original=JSON.parse(bytes);
+  const selection=gitSelection(original.base,head),commands=selectedCommands(selection,{GITHUB_SHA:head,CANDIDATE_BASE:original.base});
+  const context={sha:head,base:original.base,planHash:validationPlan().digest,selection,environment:original.environment,commands};
+  assert.equal(canvasPreflightPrefix(bytes,context).sha,p.source);
+  for(const change of [o=>o.status='passed',o=>o.commands[13].exitCode=0,o=>o.commands[1].exitCode=1,o=>o.commands[1].logHash='changed',o=>o.commands.pop()]){
+   const altered=structuredClone(original);change(altered);assert.throws(()=>canvasPreflightPrefix(Buffer.from(JSON.stringify(altered)),context));
+  }
+  for(const change of [c=>c.base='b'.repeat(40),c=>c.planHash='changed',c=>c.environment.key='changed',c=>c.environment.image='changed',c=>c.selection.full=true,c=>c.commands.pop(),c=>c.commands[13].run='echo skipped',c=>c.commands[48].run='echo skipped']){
+   const altered=structuredClone(context);change(altered);assert.throws(()=>canvasPreflightPrefix(bytes,altered));
+  }
+  const bundle=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-model-prefix-proof-'));
+  try{
+   fs.mkdirSync(path.join(bundle,'reuse'));fs.mkdirSync(path.join(bundle,'logs'));
+   fs.copyFileSync(checkpoint,path.join(bundle,'reuse/preflight-checkpoint.json'));
+   const failed=fs.readFileSync(path.join(evidenceRoot,'reuse/preflight-failed.log'));
+   fs.writeFileSync(path.join(bundle,'reuse/preflight-failed.log'),failed);
+   // Fresh rows are explicitly synthetic only for the verifier's rejection
+   // controls. Actual release acceptance still requires all normal final proofs.
+   const rows=commands.map((command,index)=>{
+    if(p.retain.includes(index)){
+     const row={...original.commands[index],reusedFrom:p.source};
+     fs.copyFileSync(path.join(evidenceRoot,row.log),path.join(bundle,row.log));return row;
+    }
+    return {command,exitCode:0,log:`logs/${index}.log`,durationMs:1,logHash:sha256('Synthetic fresh verifier row')};
+   });
+   const evidence={...context,commands:rows,preflightContinuation:{source:p.source,checkpoint:p.checkpoint}};
+   verifyCanvasPreflight(bundle,evidence,commands);
+   for(const index of [0,10,13,18,48]){
+    const forged=structuredClone(evidence);forged.commands[index].reusedFrom=p.source;
+    assert.throws(()=>verifyCanvasPreflight(bundle,forged,commands),/cannot inherit/);
+   }
+   const retained=path.join(bundle,original.commands[1].log),retainedBytes=fs.readFileSync(retained);
+   fs.unlinkSync(retained);assert.throws(()=>verifyCanvasPreflight(bundle,evidence,commands));
+   fs.writeFileSync(retained,'forged retained success');assert.throws(()=>verifyCanvasPreflight(bundle,evidence,commands));
+   fs.writeFileSync(retained,retainedBytes);
+   fs.writeFileSync(path.join(bundle,'reuse/preflight-failed.log'),'pretend compatibility passed');assert.throws(()=>verifyCanvasPreflight(bundle,evidence,commands),/Changed original failed/);
+   fs.unlinkSync(path.join(bundle,'reuse/preflight-failed.log'));assert.throws(()=>verifyCanvasPreflight(bundle,evidence,commands));
+   fs.writeFileSync(path.join(bundle,'reuse/preflight-failed.log'),failed);verifyCanvasPreflight(bundle,evidence,commands);
+  }finally{fs.rmSync(bundle,{recursive:true,force:true});}
+  console.log('Model-operation continuation: actual checkpoint, failed log and eight retained command logs verified; failure, missing, forged, command and selection controls reject.');
+ }
+ console.log('Model-operation continuation: real Git trees reject product, environment, selection, wrong repair, deleted input, symlink and foreign-parent changes.');
+}
+
+{
  const {EXPORT_PREFLIGHT,canvasPreflightProfile,assertCanvasPreflightTree,canvasPreflightPrefix}=await import('./lib/local-release-evidence.mjs');
  assert.equal(canvasPreflightProfile(EXPORT_PREFLIGHT.source),EXPORT_PREFLIGHT);assert.equal(canvasPreflightProfile('unknown'),null);
  const read=args=>args[0]==='diff'?Buffer.from('scripts/test-homepage-selection.mjs'):args[0]==='show'?historicalExportFile('scripts/test-homepage-selection.mjs'):Buffer.from('');

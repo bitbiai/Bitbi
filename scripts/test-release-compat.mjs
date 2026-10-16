@@ -1181,6 +1181,49 @@ function createValidContext() {
   assert.deepEqual(issues, []);
 }
 
+// Preparation and receipt normalization perform no inference, but still cross
+// the signed Auth/AI member-policy boundary. They must remain internal-only and
+// mapped to the actual caller, including normalization's persisted policy.
+for (const [name, sourceFile, sourceRoute, operationIdReferences] of [
+  ['prepare', 'workers/auth/src/lib/canvas-agent-planning.js', '/api/account/canvas/projects/:projectId/agent', undefined],
+  ['normalize', 'workers/auth/src/lib/canvas-agent-model-operations.js', undefined, ['JSON.parse(op.caller_policy_json)']],
+]) {
+  const aiRoute = `/internal/ai/canvas-agent/${name}`;
+  const context = loadReleaseCompatibilityContext(repoRoot);
+  const routes = context.manifest.release.authAiCallerPolicy.routes;
+  assert.deepEqual(routes.find(route => route.aiRoute === aiRoute), {
+    aiRoute, allowedOperationIds: ['member.text.generate'],
+    authSources: [{ sourceFile, ...(sourceRoute ? { sourceRoute } : {}), operationIds: ['member.text.generate'],
+      ...(operationIdReferences ? { operationIdReferences } : {}) }],
+  });
+  assert(context.manifest.adminAi.internalOnlyRoutes.includes(aiRoute));
+  assert(!Object.values(context.manifest.adminAi.authToAiRoutes).includes(aiRoute));
+
+  context.manifest.release.authAiCallerPolicy.routes = routes.filter(route => route.aiRoute !== aiRoute);
+  assert(validateReleaseCompatibility(context).some(issue => issue.includes(`missing provider-cost route "${aiRoute}"`)),
+    `Removing ${name}'s policy declaration must fail even though the adapter performs no inference`);
+
+  const missingOwner = loadReleaseCompatibilityContext(repoRoot);
+  missingOwner.manifest.adminAi.internalOnlyRoutes = missingOwner.manifest.adminAi.internalOnlyRoutes.filter(route => route !== aiRoute);
+  assert(validateReleaseCompatibility(missingOwner).some(issue => issue.includes('internal route ownership contract') && issue.includes(aiRoute)),
+    `Removing ${name}'s internal ownership must fail`);
+
+  const wrongCaller = loadReleaseCompatibilityContext(repoRoot);
+  const otherSource = name === 'prepare' ? 'workers/auth/src/lib/canvas-agent-model-operations.js' : 'workers/auth/src/lib/canvas-agent-planning.js';
+  wrongCaller.manifest.release.authAiCallerPolicy.routes.find(route => route.aiRoute === aiRoute).authSources[0].sourceFile = otherSource;
+  assert(validateReleaseCompatibility(wrongCaller).some(issue => issue.includes(`does not reference internal AI route "${aiRoute}"`)),
+    `An existing but unrelated ${name} caller must not satisfy the source mapping`);
+}
+
+{
+  const context = loadReleaseCompatibilityContext(repoRoot);
+  const source = 'workers/auth/src/lib/canvas-agent-model-operations.js';
+  assert(context.sourceFiles[source].includes('JSON.parse(op.caller_policy_json)'));
+  context.sourceFiles[source] = context.sourceFiles[source].replaceAll('JSON.parse(op.caller_policy_json)', 'undefined');
+  assert(validateReleaseCompatibility(context).some(issue => issue.includes(source) && issue.includes('does not emit caller-policy operation "member.text.generate"')),
+    'Normalization must read the original persisted member policy, not invent a fresh operation');
+}
+
 for (const missing of ["release-compatibility", "worker-validation", "browser-validation", "homepage-validation", "reuse-candidate"]) {
   const context = createValidContext();
   const gates = ["release-compatibility", "worker-validation", "browser-validation", "homepage-validation", "reuse-candidate"];
