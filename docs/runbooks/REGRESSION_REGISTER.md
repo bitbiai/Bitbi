@@ -2140,3 +2140,11 @@ esbuild countercheck confirmed that a dependency symlink changes module path
 comments and the bundle digest; Auth also imports root-installed `viem`. Copying
 the unchanged installed trees preserves bytes without reinstalling dependencies
 or repeating acceptance. Keep the actual active-bundle digest comparison fatal.
+
+The corrected Auth case passed in [38852027878/1](https://github.com/bitbiai/Bitbi/actions/runs/38852027878).
+Its protected deployment then stopped before activation at the media dry-run:
+`workers/media/package.json` installs Containers only, while `backendCommand`
+resolves Wrangler relative to its working directory. Use the already installed
+Auth Wrangler with the absolute media config/main/output paths, as the ordinary
+media publisher does. Preserve the successful acceptance job and resume only
+publication; no accepted test needs to run again for this exact CLI-path fix.

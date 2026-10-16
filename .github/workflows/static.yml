@@ -229,7 +229,7 @@ jobs:
           node scripts/test-canvas-agent-deploy-continuation.mjs
           node scripts/test-canvas-agent-deploy-backend.mjs
       - name: Prepare Canvas backend recovery checks
-        if: steps.deployment_continuation.outputs.recovery == 'true'
+        if: steps.deployment_continuation.outputs.recovery == 'true' && steps.deployment_continuation.outputs.recovery_deploy_only != 'true'
         run: |
           npm ci --ignore-scripts
           npm --prefix workers/auth ci
@@ -245,12 +245,12 @@ jobs:
           node scripts/test-canvas-agent-backend-recovery.mjs | tee test-results/canvas-recovery-backend.log
           npx playwright test -c playwright.workers.config.js tests/q2-processor-capability.spec.js --workers=1 --retries=0 --reporter=list,json
       - name: Check corrected Canvas processor capability
-        if: steps.deployment_continuation.outputs.recovery_tail == 'true'
+        if: steps.deployment_continuation.outputs.recovery_tail == 'true' && steps.deployment_continuation.outputs.recovery_deploy_only != 'true'
         env:
           PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/canvas-recovery-auth.json
         run: npx playwright test -c playwright.workers.config.js tests/q2-processor-capability.spec.js --workers=1 --retries=0 --reporter=list,json
       - name: Preserve Canvas recovery check evidence
-        if: always() && steps.deployment_continuation.outputs.recovery == 'true'
+        if: always() && steps.deployment_continuation.outputs.recovery == 'true' && steps.deployment_continuation.outputs.recovery_deploy_only != 'true'
         uses: actions/upload-artifact@v6
         with:
           name: canvas-recovery-checks-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}

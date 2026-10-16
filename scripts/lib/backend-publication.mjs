@@ -290,7 +290,7 @@ async function canvasRecoveryComponents(c,directory,{previous=null}={}) {
   mediaConfig.main=path.resolve('workers/media/src/index.js');mediaConfig.vars.SOURCE_SHA=c.recoverySource.sha;mediaConfig.vars.CLOUDFLARE_ACCOUNT_ID=process.env.CLOUDFLARE_ACCOUNT_ID;
   mediaConfig.containers[0].image=imageDigest;delete mediaConfig.containers[0].image_build_context;
   const mediaConfigFile=path.join(directory,'media-config.json'),mediaDirectory=path.join(directory,'media');fs.writeFileSync(mediaConfigFile,JSON.stringify(mediaConfig));
-  backendCommand(['deploy','--dry-run','--config',mediaConfigFile,'--outdir',mediaDirectory],execFileSync,undefined,'workers/media');
+  backendCommand(['deploy','--dry-run','--config',mediaConfigFile,'--outdir',mediaDirectory]);
   const mediaDigest=createHash('sha256').update(fs.readFileSync(path.join(mediaDirectory,'index.js'))).digest('hex');
   await verifyAuthBundle(mediaDigest,undefined,'bitbi-private-media');origin.media.bundleDigest=mediaDigest;origin.media.imageDigest=imageDigest;
   if(previous)assert.deepEqual(origin,previous,'Retained protected components changed');
