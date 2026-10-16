@@ -18,7 +18,7 @@ import {verifyUploadSource} from './frontend-source.mjs';
 import {cloudflareRead} from './frontend-hosting.mjs';
 import {api,collection,REPOSITORY} from '../pages-candidate.mjs';
 import {repairDelta,repairKind,verifyRepairSource,isModelAreaSchemaRepair,MODEL_AREA_SCHEMA_REPAIR} from './media-repair-source.mjs';
-import {resolveCanvasAgentDeploySource,resolveCanvasAgentRecoverySource,verifyCanvasAgentRecoverySource} from './canvas-agent-deploy-continuation.mjs';
+import {resolveCanvasAgentDeploySource,resolveCanvasAgentRecoverySource,verifyCanvasAgentRecoverySource,resolveCanvasAgentFrontendSource,verifyCanvasAgentFrontendSource} from './canvas-agent-deploy-continuation.mjs';
 import {verifyCanvasRecoveryComponent,readCanvasRecoveryJobs,verifyCanvasRecoveryLifecycle,canvasRecoveryOutputIdentity,readCanvasRecoveryActor} from './canvas-agent-backend-recovery.mjs';
 const worker='bitbi-auth';
 const backendEnv=()=>({...process.env,CLOUDFLARE_API_TOKEN:process.env.CF_BACKEND_DEPLOY_TOKEN||process.env.CLOUDFLARE_API_TOKEN});
@@ -300,7 +300,7 @@ async function canvasRecoveryComponents(c,directory,{previous=null}={}) {
     artifact:{id:c.acceptedSource.media.id,digest:c.acceptedSource.media.digest},activation};
   // Load and compare the original accepted archive; this path cannot push or
   // deploy media and retains its original image/source/run identity.
-  const media=await publishMedia(c,null,{reuse});
+  const media=await publishMedia(c,null,{reuse,verifyActive:expected=>mediaActive(expected,backendEnv(),{requireSourceBinding:true})});
   return {evidence,origin,ai,media};
 }
 const recoveryActor=async(media,source)=>readCanvasRecoveryActor(media,source,endpoint=>verifiedRead({provider:'cloudflare',operation:'container-recovery-identity',action:async()=>{
@@ -350,6 +350,12 @@ async function publishCanvasRecovery(c) {
 // A tooling repair preserves the independently recorded backend identity. The
 // authenticated Actions archive, not a mutable local receipt, authorizes reuse.
 export function backendReceiptContext(c,env=process.env) {
+  const frontendSource=resolveCanvasAgentFrontendSource(env);
+  if(frontendSource) {
+    assert.equal(c.sha,env.GITHUB_SHA,'Wrong frontend continuation checkout');
+    assert(c.acceptedSource&&c.recoverySource,'Missing retained Canvas activation context');
+    return {...c,frontendSource,publicationSha:c.sha,sha:frontendSource.sha,runId:frontendSource.run,attempt:frontendSource.attempt};
+  }
   if(!env.REPAIR_SOURCE_SHA)return c;
   const files=repairDelta(env.REPAIR_SOURCE_SHA,c.sha,c.base);
   if(repairKind(files)!=='tooling')return c;
@@ -365,7 +371,12 @@ export function modelAreaBackendReceiptContext(c) {
 }
 export async function readToolingBackendReceipt(c,env=process.env,{list=collection,download=fetch,verify=verifyRepairSource}={}) {
   assert(c.publicationSha,'Not a tooling receipt continuation');
-  await readGithub('repair-source',()=>verify(env,{complete:true}));
+  let frontend;
+  if(c.frontendSource) {
+    assert.deepEqual(c.frontendSource,resolveCanvasAgentFrontendSource(env),'Wrong completed Canvas source');
+    frontend=await readGithub('completed-backend-source',()=>verifyCanvasAgentFrontendSource(env,{read:api,list}));
+    assert.deepEqual(frontend.source,c.frontendSource);
+  }else await readGithub('repair-source',()=>verify(env,{complete:true}));
   const jobs=await readGithub('backend-receipt-jobs',()=>list(`actions/runs/${c.runId}/attempts/${c.attempt}/jobs`,'jobs'));
   const deploys=jobs.filter(j=>j.name==='deploy');assert.equal(deploys.length,1,'Missing/ambiguous source backend publication');
   const job=deploys[0];assert.equal(job.head_sha,c.sha);assert.equal(String(job.run_id),c.runId);assert.equal(String(job.run_attempt),c.attempt);assert.equal(job.status,'completed');
@@ -375,6 +386,10 @@ export async function readToolingBackendReceipt(c,env=process.env,{list=collecti
   assert.equal(artifact.expired,false);assert(Date.parse(artifact.expires_at)>Date.now(),'Expired backend receipt');
   assert.equal(String(artifact.workflow_run?.id),c.runId);assert.equal(artifact.workflow_run?.head_sha,c.sha);
   assert(/^sha256:[a-f0-9]{64}$/.test(artifact.digest||''),'Missing backend archive digest');assert(artifact.size_in_bytes>0&&artifact.size_in_bytes<=65536,'Oversized backend receipt');
+  if(frontend) {
+    for(const key of ['id','name','digest','size_in_bytes'])assert.equal(artifact[key],frontend.artifact[key],'Authenticated backend artifact changed');
+    assert.equal(artifact.id,c.frontendSource.artifact.id);assert.equal(artifact.digest,c.frontendSource.artifact.digest);assert.equal(artifact.size_in_bytes,c.frontendSource.artifact.size);
+  }
   const bytes=await readGithub('backend-receipt-download',async()=>{
     const response=await download(`https://api.github.com/repos/${REPOSITORY}/actions/artifacts/${artifact.id}/zip`,{headers:{Authorization:`Bearer ${env.GH_TOKEN}`},signal:AbortSignal.timeout(30000)});
     assert(response.ok,`Cannot download backend receipt (${response.status})`);return Buffer.from(await response.arrayBuffer());
@@ -388,7 +403,11 @@ with zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read())) as z:
  sys.stdout.buffer.write(z.read(e))
 `],{input:bytes,timeout:10000,maxBuffer:65536});
   const receipt=JSON.parse(json);
-  for(const [key,value] of Object.entries({sha:c.sha,base:c.base,run:c.runId,attempt:c.attempt,worker,processorRef:c.sha}))assert.equal(receipt[key],value,`Wrong source backend ${key}`);
+  for(const [key,value] of Object.entries({sha:c.sha,base:c.base,run:c.runId,attempt:c.attempt,worker,processorRef:frontend?c.recoverySource.sha:c.sha}))assert.equal(receipt[key],value,`Wrong source backend ${key}`);
+  if(frontend) {
+    assert.deepEqual(receipt.acceptedSource,c.acceptedSource);assert.deepEqual(receipt.recoverySource,c.recoverySource);
+    assert.equal(json.toString('utf8'),JSON.stringify(receipt,null,2)+'\n','Preserve original backend receipt bytes');
+  }
   assert.equal(receipt.sourceTree,execFileSync('git',['rev-parse',`${c.sha}:workers/auth`],{encoding:'utf8'}).trim(),'Wrong source Auth tree');
   return receipt;
 }
@@ -397,7 +416,7 @@ function storeBackendReceipt(receipt) {
   if(process.env.GITHUB_ENV)fs.appendFileSync(process.env.GITHUB_ENV,`BACKEND_RELEASE_RECEIPT=${path.resolve('test-results/backend-release.json')}\n`);
 }
 export function imageAcceptanceRepair(c) {
-  return Boolean(c.publicationSha&&repairDelta(c.acceptedSourceSha||c.sha,c.publicationSha,c.base).includes('scripts/lib/image-delivery-acceptance.mjs'));
+  return Boolean(!c.frontendSource&&c.publicationSha&&repairDelta(c.acceptedSourceSha||c.sha,c.publicationSha,c.base).includes('scripts/lib/image-delivery-acceptance.mjs'));
 }
 // Independently attribute an already-active backend to the protected failed
 // publication window. The failed step stays failed; this run records NEW
@@ -461,6 +480,7 @@ export async function reconcileImageDeliveryBackend(c) {
 export async function verifyBackendReceipt(file=process.env.BACKEND_RELEASE_RECEIPT) {
   const publication=context();await current(publication.sha);let c=backendReceiptContext(publication);
   const receipt=JSON.parse(fs.readFileSync(file));
+  if(c.frontendSource)assert.deepEqual(receipt,await readToolingBackendReceipt(c),'Local backend receipt differs from authenticated source');
   if(c.recoverySource) {
     const directory=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-recovery-readback-'));
     try {
@@ -487,7 +507,7 @@ export async function verifyBackendReceipt(file=process.env.BACKEND_RELEASE_RECE
     assert.equal(receipt.sourceTree,execFileSync('git',['rev-parse',`${c.sha}:workers/auth`],{encoding:'utf8'}).trim());
     verifyImageAcceptanceReceipt(receipt,c,publication,await findImageDeliveryActivation(c,await imageActivationStates()));
     c={...c,runId:publication.runId,attempt:publication.attempt};
-  }else if(c.publicationSha)assert.deepEqual(receipt,await readToolingBackendReceipt(c),'Local backend receipt differs from authenticated source');
+  }else if(c.publicationSha&&!c.frontendSource)assert.deepEqual(receipt,await readToolingBackendReceipt(c),'Local backend receipt differs from authenticated source');
   const state=await active();
   const migration=JSON.parse(fs.readFileSync('config/release-compat.json')).release.schemaCheckpoints.auth.latest;
   assert((await query(c.db,'SELECT name FROM d1_migrations WHERE name=?',[migration])).length===1,'Required schema not active');
@@ -547,12 +567,12 @@ export function assertModelAreaSchemaResume(version,sha,env=process.env) {
 export async function publishBackend() {
   fs.mkdirSync('test-results',{recursive:true});fs.rmSync('test-results/backend-diagnostics.jsonl',{force:true});
   const c=context();await verifyUploadSource();await current(c.sha);
-  if(c.recoverySource)return publishCanvasRecovery(c);
   const original=backendReceiptContext(c);
   if(original.publicationSha) {
     const receipt=imageAcceptanceRepair(original)?await reconcileImageDeliveryBackend(original):await readToolingBackendReceipt(original);storeBackendReceipt(receipt);
     await verifyBackendReceipt('test-results/backend-release.json');console.log(JSON.stringify({reusedBackend:receipt}));return;
   }
+  if(c.recoverySource)return publishCanvasRecovery(c);
   const mediaRequired=requiresPrivateMediaImage(c.plan.changedFiles);
   const beforeConfig=JSON.parse(execFileSync('git',['show',`${c.base}:workers/auth/wrangler.jsonc`],{encoding:'utf8'}));
   assertMediaAuthConfig(beforeConfig,c.config);

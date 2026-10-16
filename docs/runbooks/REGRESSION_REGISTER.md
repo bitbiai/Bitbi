@@ -2148,3 +2148,13 @@ resolves Wrangler relative to its working directory. Use the already installed
 Auth Wrangler with the absolute media config/main/output paths, as the ordinary
 media publisher does. Preserve the successful acceptance job and resume only
 publication; no accepted test needs to run again for this exact CLI-path fix.
+
+The backend completed in [38852692377/1](https://github.com/bitbiai/Bitbi/actions/runs/38852692377)
+with immutable receipt artifact `12025684633`; the next static-safety step failed
+with Cloudflare 403. Its recovery media read inherited the frontend token through
+`publishMedia` even though the backend token was available. Pass `backendEnv()`
+to that read explicitly; do not widen either credential. After backend success,
+import the authenticated receipt before the activation branch, preserve its
+original SHA/version/job identities, and perform read-only current-state checks.
+Continue the same protected frontend path without reactivation, media acceptance
+replay or repeated tests. A completed backend receipt is the recovery checkpoint.

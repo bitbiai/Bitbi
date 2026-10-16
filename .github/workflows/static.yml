@@ -186,6 +186,7 @@ jobs:
       canvas_deploy_source_sha: ${{ steps.deployment_continuation.outputs.source_sha }}
       canvas_deploy_source_run: ${{ steps.deployment_continuation.outputs.source_run }}
       canvas_deploy_source_attempt: ${{ steps.deployment_continuation.outputs.source_attempt }}
+      canvas_frontend_only: ${{ steps.deployment_continuation.outputs.frontend_only }}
       backend_continuation: ${{ steps.release_preflight.outputs.backend_continuation }}
       hosting_provider: ${{ steps.hosting.outputs.provider }}
       candidate_base: ${{ steps.baseline.outputs.base }}
@@ -289,6 +290,7 @@ jobs:
       CANVAS_AGENT_DEPLOY_SOURCE_SHA: ${{ needs.reuse-candidate.outputs.canvas_deploy_source_sha }}
       CANVAS_AGENT_DEPLOY_SOURCE_RUN: ${{ needs.reuse-candidate.outputs.canvas_deploy_source_run }}
       CANVAS_AGENT_DEPLOY_SOURCE_ATTEMPT: ${{ needs.reuse-candidate.outputs.canvas_deploy_source_attempt }}
+      CANVAS_AGENT_FRONTEND_ONLY: ${{ needs.reuse-candidate.outputs.canvas_frontend_only }}
     environment:
       name: ${{ (needs.reuse-candidate.outputs.hosting_provider || needs.release-compatibility.outputs.hosting_provider) == 'cloudflare' && 'cloudflare-static-production' || 'github-pages' }}
       url: ${{ steps.deployment.outputs.page_url }}
@@ -334,6 +336,8 @@ jobs:
       - name: Validate candidate references before backend publication
         run: node scripts/validate-site-references.mjs --root candidate/site
       - name: Apply verified candidate backend prerequisites
+        # A closed frontend-only continuation imports and reads back its
+        # authenticated backend receipt; it never reactivates that backend.
         if: success() && (needs.release-compatibility.outputs.backend_continuation == 'true' || needs.reuse-candidate.outputs.backend_continuation == 'true') && env.HOSTING_PROVIDER == 'cloudflare'
         env:
           GH_TOKEN: ${{ github.token }}

@@ -104,6 +104,33 @@ export const CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE=Object.freeze({
   sha:'3a7eaaed8a024d900eb9cbb929bca3f0db828f29',run:'38852027878',attempt:'1',job:'116815151179',deployJob:'116815439125',
   backend:Object.freeze({path:'scripts/lib/backend-publication.mjs',before:'620d3f7f91c44801304816eae3a68a1314947118',after:'b0c67e8d860cd39e1b7c8659414d6007131b0e69'}),
 });
+// Backend activation and its acceptance are complete. Retain that receipt;
+// this final tooling correction authorizes only frontend continuation.
+export const CANVAS_AGENT_FRONTEND_SOURCE=Object.freeze({
+  sha:'6825cbf9d646af6e81eeb000895b00e338c6cba9',run:'38852692377',attempt:'1',job:'116817211746',deployJob:'116817296647',
+  artifact:Object.freeze({id:12025684633,digest:'sha256:8532deda77bb7f0d4ec663c927b6df583c6953f7bc0c507384bccfcc29bf3cd3',size:4795}),
+  backend:Object.freeze({path:'scripts/lib/backend-publication.mjs',before:'b0c67e8d860cd39e1b7c8659414d6007131b0e69',after:'9b9b23f255b7367cd9d1b808b5ec716df71a7487'}),
+});
+export function assertCanvasAgentFrontendDelta(head,{readGit=git}={}) {
+  const source=CANVAS_AGENT_FRONTEND_SOURCE;
+  assert(/^[a-f0-9]{40}$/.test(head||''));assert.equal(readGit(['rev-parse',`${head}^`]),source.sha,'Frontend continuation must directly follow completed 6825 activation');
+  assertCanvasAgentRecoveryDeployDelta(source.sha,{readGit});
+  const allowed=new Set(['.github/workflows/static.yml','scripts/lib/canvas-agent-deploy-continuation.mjs',source.backend.path,'docs/runbooks/REGRESSION_REGISTER.md']);
+  const before=entries(readGit(['ls-tree','-rz',source.sha])),after=entries(readGit(['ls-tree','-rz',head]));
+  assert.deepEqual(after.filter(row=>!allowed.has(row.file)),before.filter(row=>!allowed.has(row.file)),'Frontend continuation changed accepted product or tests');
+  for(const row of before)assert(after.some(next=>next.file===row.file),'Frontend continuation deleted an input');
+  for(const row of after.filter(row=>allowed.has(row.file)))assert(/^100644 blob [a-f0-9]{40}$/.test(row.identity));
+  assert.equal(readGit(['rev-parse',`${source.sha}:${source.backend.path}`]),source.backend.before);
+  assert.equal(readGit(['rev-parse',`${head}:${source.backend.path}`]),source.backend.after,'Wrong completed backend receipt correction');
+  const prior=new Map(before.map(row=>[row.file,row.identity]));
+  const changed=after.filter(row=>prior.get(row.file)!==row.identity).map(row=>row.file);
+  for(const file of [...allowed].filter(file=>!file.startsWith('docs/')))assert(changed.includes(file),`Missing frontend continuation input: ${file}`);
+  return changed;
+}
+export function resolveCanvasAgentFrontendSource(env=process.env,options={}) {
+  if(!resolveCanvasAgentDeploySource(env,options))return null;
+  return (options.readGit||git)(['rev-parse',`${env.GITHUB_SHA}^`])===CANVAS_AGENT_FRONTEND_SOURCE.sha?CANVAS_AGENT_FRONTEND_SOURCE:null;
+}
 export function assertCanvasAgentRecoveryDeployDelta(head,{readGit=git}={}) {
   const source=CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE;
   assert(/^[a-f0-9]{40}$/.test(head||''));assert.equal(readGit(['rev-parse',`${head}^`]),source.sha,'Deployment continuation must directly follow 3a');
@@ -139,6 +166,7 @@ export function assertCanvasAgentRecoveryCheckDelta(head,{readGit=git}={}) {
   return changed;
 }
 export function assertCanvasAgentRecoveryDelta(head,{readGit=git}={}) {
+  if(readGit(['rev-parse',`${head}^`])===CANVAS_AGENT_FRONTEND_SOURCE.sha)return assertCanvasAgentFrontendDelta(head,{readGit});
   if(readGit(['rev-parse',`${head}^`])===CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha)return assertCanvasAgentRecoveryDeployDelta(head,{readGit});
   if(readGit(['rev-parse',`${head}^`])===CANVAS_AGENT_RECOVERY_CHECK_SOURCE.sha)return assertCanvasAgentRecoveryCheckDelta(head,{readGit});
   const source=CANVAS_AGENT_RECOVERY_SOURCE;
@@ -164,12 +192,12 @@ export function assertCanvasAgentRecoveryDelta(head,{readGit=git}={}) {
 }
 export function assertCanvasAgentPublicationDelta(head,options={}) {
   const readGit=options.readGit||git;
-  if([CANVAS_AGENT_RECOVERY_SOURCE.sha,CANVAS_AGENT_RECOVERY_CHECK_SOURCE.sha,CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha].includes(readGit(['rev-parse',`${head}^`])))return assertCanvasAgentRecoveryDelta(head,{readGit});
+  if([CANVAS_AGENT_RECOVERY_SOURCE.sha,CANVAS_AGENT_RECOVERY_CHECK_SOURCE.sha,CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha,CANVAS_AGENT_FRONTEND_SOURCE.sha].includes(readGit(['rev-parse',`${head}^`])))return assertCanvasAgentRecoveryDelta(head,{readGit});
   return assertCanvasAgentDeployDelta(head,{readGit});
 }
 export function resolveCanvasAgentRecoverySource(env=process.env,options={}) {
   if(!resolveCanvasAgentDeploySource(env,options))return null;
-  return [CANVAS_AGENT_RECOVERY_SOURCE.sha,CANVAS_AGENT_RECOVERY_CHECK_SOURCE.sha,CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha].includes((options.readGit||git)(['rev-parse',`${env.GITHUB_SHA}^`]))?CANVAS_AGENT_RECOVERY_SOURCE:null;
+  return [CANVAS_AGENT_RECOVERY_SOURCE.sha,CANVAS_AGENT_RECOVERY_CHECK_SOURCE.sha,CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha,CANVAS_AGENT_FRONTEND_SOURCE.sha].includes((options.readGit||git)(['rev-parse',`${env.GITHUB_SHA}^`]))?CANVAS_AGENT_RECOVERY_SOURCE:null;
 }
 export function canvasAgentRecoveryIdentity(publicationSha) {
   assertCanvasAgentRecoveryDelta(publicationSha);const {policy,sha,run,attempt}=CANVAS_AGENT_RECOVERY_SOURCE;
@@ -177,7 +205,7 @@ export function canvasAgentRecoveryIdentity(publicationSha) {
 }
 export function assertCanvasAgentRecoveryAcceptance(jobs,sha,run,attempt) {
   assertCanvasAgentRecoveryDelta(sha);
-  const parent=git(['rev-parse',`${sha}^`]),deployOnly=parent===CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha;
+  const parent=git(['rev-parse',`${sha}^`]),deployOnly=[CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha,CANVAS_AGENT_FRONTEND_SOURCE.sha].includes(parent);
   const tail=deployOnly||parent===CANVAS_AGENT_RECOVERY_CHECK_SOURCE.sha;
   const selected=jobs.filter(job=>job.name==='reuse-candidate');assert.equal(selected.length,1);const job=selected[0];
   assert.equal(job.head_sha,sha);assert.equal(String(job.run_id),String(run));assert.equal(String(job.run_attempt),String(attempt));
@@ -194,7 +222,7 @@ export function assertCanvasAgentRecoveryAcceptance(jobs,sha,run,attempt) {
 }
 export async function verifyCanvasAgentRecoverySource(env,{read,list,download=fetch}) {
   const source=resolveCanvasAgentRecoverySource(env);assert(source,'Missing closed recovery source');
-  const retainedGuards=[CANVAS_AGENT_RECOVERY_CHECK_SOURCE.sha,CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha].includes(git(['rev-parse',`${env.GITHUB_SHA}^`]))
+  const retainedGuards=[CANVAS_AGENT_RECOVERY_CHECK_SOURCE.sha,CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha,CANVAS_AGENT_FRONTEND_SOURCE.sha].includes(git(['rev-parse',`${env.GITHUB_SHA}^`]))
     ?await verifyCanvasAgentRecoveryChecks(env,{read,list,download}):null;
   const [run,jobs,authorization,statuses]=await Promise.all([read(`actions/runs/${source.run}`),list(`actions/runs/${source.run}/attempts/${source.attempt}/jobs`,'jobs'),
     read(`deployments/${source.authorization}`),read(`deployments/${source.authorization}/statuses`)]);
@@ -221,8 +249,9 @@ export async function verifyCanvasAgentRecoverySource(env,{read,list,download=fe
 }
 export async function verifyCanvasAgentRecoveryChecks(env,{read,list,download=fetch}) {
   assertCanvasAgentRecoveryDelta(env.GITHUB_SHA);
-  const completed=git(['rev-parse',`${env.GITHUB_SHA}^`])===CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha
+  const completed=[CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha,CANVAS_AGENT_FRONTEND_SOURCE.sha].includes(git(['rev-parse',`${env.GITHUB_SHA}^`]))
     ?await verifyCanvasAgentCompletedRecoveryChecks(env,{read,list}):null;
+  const backend=resolveCanvasAgentFrontendSource(env)?await verifyCanvasAgentFrontendSource(env,{read,list}):null;
   const source=CANVAS_AGENT_RECOVERY_CHECK_SOURCE;
   const [run,jobs,artifact]=await Promise.all([read(`actions/runs/${source.run}`),
     list(`actions/runs/${source.run}/attempts/${source.attempt}/jobs`,'jobs'),read(`actions/artifacts/${source.artifact.id}`)]);
@@ -252,10 +281,11 @@ export async function verifyCanvasAgentRecoveryChecks(env,{read,list,download=fe
   for(const marker of ['New import-guard repair checks passed; accepted product and deployment suites were not repeated.',
     'New Canvas backend recovery guards passed: original activation/source bounds, redacted pre-mutation evidence, result-only completion, retained lifecycle provenance, Auth-only publication.',
     'tests/q2-processor-capability.spec.js:58:33'])assert(bytes.includes(Buffer.from(marker)),'Missing exact retained guard/failed Auth evidence');
-  return {sourceSha:source.sha,sourceRun:source.run,sourceAttempt:source.attempt,sourceJob:source.job,log:source.log,artifact:source.artifact,...(completed?{completed}:{})};
+  return {sourceSha:source.sha,sourceRun:source.run,sourceAttempt:source.attempt,sourceJob:source.job,log:source.log,artifact:source.artifact,...(completed?{completed}:{}),
+    ...(backend?{completedBackend:{sourceSha:backend.source.sha,sourceRun:backend.source.run,sourceAttempt:backend.source.attempt,sourceJob:backend.source.deployJob,artifact:backend.source.artifact}}:{})};
 }
 export async function verifyCanvasAgentCompletedRecoveryChecks(env,{read,list}) {
-  assertCanvasAgentRecoveryDeployDelta(env.GITHUB_SHA);
+  assertCanvasAgentRecoveryDelta(env.GITHUB_SHA);
   const source=CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE;
   const [run,jobs]=await Promise.all([read(`actions/runs/${source.run}`),list(`actions/runs/${source.run}/attempts/${source.attempt}/jobs`,'jobs')]);
   assert.equal(String(run.id),source.run);assert.equal(String(run.run_attempt),source.attempt);assert.equal(run.head_sha,source.sha);
@@ -272,11 +302,34 @@ export async function verifyCanvasAgentCompletedRecoveryChecks(env,{read,list}) 
     assert(job.steps?.some(step=>step.name===name&&step.status==='completed'&&step.conclusion===conclusion),`Wrong deployment-only source stage: ${name}`);
   return {sourceSha:source.sha,sourceRun:source.run,sourceAttempt:source.attempt,sourceJob:source.job};
 }
+export async function verifyCanvasAgentFrontendSource(env,{read,list}) {
+  const source=resolveCanvasAgentFrontendSource(env);assert(source,'Missing closed completed backend source');
+  const [run,jobs,artifact]=await Promise.all([read(`actions/runs/${source.run}`),
+    list(`actions/runs/${source.run}/attempts/${source.attempt}/jobs`,'jobs'),read(`actions/artifacts/${source.artifact.id}`)]);
+  assert.equal(String(run.id),source.run);assert.equal(String(run.run_attempt),source.attempt);assert.equal(run.head_sha,source.sha);
+  assert.equal(run.repository?.full_name,'bitbiai/Bitbi');assert.equal(run.head_repository?.full_name,'bitbiai/Bitbi');
+  assert.equal(run.path,'.github/workflows/static.yml');assert.equal(run.head_branch,'main');assert.equal(run.event,'workflow_dispatch');
+  assert.equal(run.status,'completed');assert.equal(run.conclusion,'failure');
+  assertCanvasAgentRecoveryAcceptance(jobs,source.sha,source.run,source.attempt);
+  assert.equal(String(jobs.find(job=>job.name==='reuse-candidate').id),source.job);
+  const selected=jobs.filter(job=>job.name==='deploy');assert.equal(selected.length,1);const job=selected[0];
+  assert.equal(String(job.id),source.deployJob);assert.equal(job.head_sha,source.sha);assert.equal(String(job.run_id),source.run);assert.equal(String(job.run_attempt),source.attempt);
+  assert.equal(job.status,'completed');assert.equal(job.conclusion,'failure');
+  for(const [name,conclusion]of [['Validate candidate references before backend publication','success'],['Apply verified candidate backend prerequisites','success'],
+    ['Preserve backend activation evidence','success'],['Check static deploy release-plan safety','failure'],
+    ['Deploy and verify Cloudflare frontend','skipped'],['Record durable frontend receipt','skipped']])
+    assert(job.steps?.some(step=>step.name===name&&step.status==='completed'&&step.conclusion===conclusion),`Wrong completed backend stage: ${name}`);
+  assert.equal(artifact.id,source.artifact.id);assert.equal(artifact.digest,source.artifact.digest);assert.equal(artifact.size_in_bytes,source.artifact.size);
+  assert.equal(artifact.name,`backend-receipt-${source.sha}-${source.run}-${source.attempt}`);
+  assert.equal(artifact.workflow_run?.id,Number(source.run));assert.equal(artifact.workflow_run?.head_sha,source.sha);
+  assert.equal(artifact.expired,false);assert(Date.parse(artifact.expires_at)>Date.now());
+  return {source,run,job,artifact};
+}
 export function canvasAgentDeployPushDeferred(env=process.env,options={}) {
   if(env.GITHUB_EVENT_NAME!=='push'||env.GITHUB_REF!=='refs/heads/main')return false;
   const readGit=options.readGit||git;
   const parent=readGit(['rev-parse',`${env.GITHUB_SHA}^`]);
-  if([CANVAS_AGENT_RECOVERY_SOURCE.sha,CANVAS_AGENT_RECOVERY_CHECK_SOURCE.sha,CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha].includes(parent)){assertCanvasAgentRecoveryDelta(env.GITHUB_SHA,{readGit});return true;}
+  if([CANVAS_AGENT_RECOVERY_SOURCE.sha,CANVAS_AGENT_RECOVERY_CHECK_SOURCE.sha,CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha,CANVAS_AGENT_FRONTEND_SOURCE.sha].includes(parent)){assertCanvasAgentRecoveryDelta(env.GITHUB_SHA,{readGit});return true;}
   if(parent!==CANVAS_AGENT_DEPLOY_SOURCE.sha)return false;
   assertCanvasAgentDeployDelta(env.GITHUB_SHA,{readGit});
   return true;
@@ -290,7 +343,8 @@ if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.ur
       console.log(deferred?'Accepted artifacts remain unchanged; use the explicit protected candidate continuation.':'Ordinary exact-source validation.');
     } else {
       const source=resolveCanvasAgentDeploySource(),recovery=resolveCanvasAgentRecoverySource();
-      const parent=git(['rev-parse',`${process.env.GITHUB_SHA}^`]),deployOnly=Boolean(recovery&&parent===CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha);
+      const parent=git(['rev-parse',`${process.env.GITHUB_SHA}^`]),frontendOnly=Boolean(recovery&&parent===CANVAS_AGENT_FRONTEND_SOURCE.sha);
+      const deployOnly=Boolean(recovery&&(frontendOnly||parent===CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha));
       const tail=Boolean(recovery&&(deployOnly||parent===CANVAS_AGENT_RECOVERY_CHECK_SOURCE.sha));
       if(tail) {
         // Keep this entrypoint independent of pages-candidate, which imports
@@ -303,7 +357,7 @@ if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.ur
         const list=async(endpoint,key)=>{const response=await read(`${endpoint}?per_page=100`);assert(Array.isArray(response[key])&&response.total_count===response[key].length,'Incomplete retained job list');return response[key];};
         await verifyCanvasAgentRecoveryChecks(process.env,{read,list});
       }
-      if(process.env.GITHUB_OUTPUT)fs.appendFileSync(process.env.GITHUB_OUTPUT,`active=${Boolean(source)}\nrecovery=${Boolean(recovery)}\nrecovery_tail=${tail}\nrecovery_deploy_only=${deployOnly}\n${source?`source_sha=${source.sha}\nsource_run=${source.run}\nsource_attempt=${source.attempt}\n`:''}`);
+      if(process.env.GITHUB_OUTPUT)fs.appendFileSync(process.env.GITHUB_OUTPUT,`active=${Boolean(source)}\nrecovery=${Boolean(recovery)}\nrecovery_tail=${tail}\nrecovery_deploy_only=${deployOnly}\nfrontend_only=${frontendOnly}\n${source?`source_sha=${source.sha}\nsource_run=${source.run}\nsource_attempt=${source.attempt}\n`:''}`);
       console.log(source?'Pinned completed Canvas candidate accepted for deployment-only continuation.':'Ordinary same-source candidate reuse.');
     }
   } catch(error){console.error(error.message);process.exitCode=1;}
