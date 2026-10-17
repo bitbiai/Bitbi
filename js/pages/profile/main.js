@@ -41,8 +41,6 @@ import { createPublicMediaDetailPanel } from '../index/public-media-detail-panel
 import {
     initAvatarGenerate,
     openAvatarGenerateModal,
-    closeAvatarGenerateModal,
-    isAvatarGenerateModalOpen,
 } from './avatar-generate.js?v=__ASSET_VERSION__';
 
 /* ── DOM refs ── */

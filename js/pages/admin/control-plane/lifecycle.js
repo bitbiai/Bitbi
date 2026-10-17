@@ -24,7 +24,6 @@ import {
     badge,
     byId,
     clear,
-    detailRows,
     downloadTextFile,
     el,
     readableToken,

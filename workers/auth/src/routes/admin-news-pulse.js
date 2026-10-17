@@ -163,10 +163,6 @@ function normalizeCursor(value) {
   return Math.floor(cursor);
 }
 
-function serializeBoolean(value) {
-  return value === true || Number(value) === 1;
-}
-
 function serializeNewsPulseItem(row, { now = new Date().toISOString(), includeDetail = false } = {}) {
   const expiresAt = row?.expires_at || null;
   const isExpired = Boolean(expiresAt && expiresAt <= now);

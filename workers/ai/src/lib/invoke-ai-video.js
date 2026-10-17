@@ -18,13 +18,7 @@ import {
   seedance2ResolutionsForModel,
 } from "../../../../js/shared/seedance-2-pricing.mjs";
 import {
-  GROK_IMAGINE_VIDEO_ASPECT_RATIOS,
-  GROK_IMAGINE_VIDEO_DEFAULT_ASPECT_RATIO,
-  GROK_IMAGINE_VIDEO_DEFAULT_DURATION,
   GROK_IMAGINE_VIDEO_DEFAULT_RESOLUTION,
-  GROK_IMAGINE_VIDEO_MAX_DURATION,
-  GROK_IMAGINE_VIDEO_MIN_DURATION,
-  GROK_IMAGINE_VIDEO_RESOLUTIONS,
 } from "../../../../js/shared/grok-imagine-video-pricing.mjs";
 import {
   GROK_IMAGINE_VIDEO_15_PREVIEW_ASPECT_RATIOS,

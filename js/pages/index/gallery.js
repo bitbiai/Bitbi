@@ -63,7 +63,6 @@ export function initGallery() {
     };
     let currentFilter = MEMPICS_CATEGORY;
     let mempicsVisibleLimit = PUBLIC_EXPLORE_INITIAL_VISIBLE_LIMIT;
-    let mempicsObserver = null;
     let mempicsResizeObserver = null;
     let mempicsResizeFrame = 0;
     let mempicsLayoutDirty = false;
@@ -109,10 +108,6 @@ export function initGallery() {
 
     function getVisibleMempicsCount() {
         return Math.min(mempicsVisibleLimit, mempicsState.items.length, PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT);
-    }
-
-    function syncWideColumnCount(itemCount = 0) {
-        return getWideLayoutMetrics(itemCount).columnCount;
     }
 
     function getWideLayoutMetrics(itemCount = 0) {
@@ -369,7 +364,6 @@ export function initGallery() {
         if (!$pagination) return;
         if (filter !== MEMPICS_CATEGORY) {
             $pagination.style.display = 'none';
-            syncMempicsScrollLoading();
             return;
         }
         if (errorMessage) {
@@ -382,14 +376,12 @@ export function initGallery() {
             $loadMore.textContent = '';
             $loadMore.disabled = false;
             $scrollSentinel.hidden = true;
-            syncMempicsScrollLoading();
             return;
         }
         if (!mempicsState.items.length) {
             $pagination.style.display = 'none';
             syncMobileMediaTrigger($paginationStatus, { enabled: false, label: localeText('browse.openMempicsGrid') });
             $scrollSentinel.hidden = true;
-            syncMempicsScrollLoading();
             return;
         }
         const visibleCount = getVisibleMempicsCount();
@@ -417,7 +409,6 @@ export function initGallery() {
         $loadMore.disabled = mempicsState.loadingMore;
         $loadMore.textContent = '';
         $scrollSentinel.hidden = true;
-        syncMempicsScrollLoading();
     }
 
     async function fetchMempics(cursor = null, limit = MEMPICS_PAGE_LIMIT) {
@@ -500,10 +491,6 @@ export function initGallery() {
         resetMempicsWideWindow();
     }
 
-    async function fetchNextMempicsPage() {
-        return fetchAndMergeNextMempicsPage({ updateUi: true });
-    }
-
     async function loadMoreMempics() {
         let errorMessage = '';
         try {
@@ -521,34 +508,6 @@ export function initGallery() {
 
     async function revealNextMempicsBatch() {
         return loadMoreMempics();
-    }
-
-    function shouldUseScrollLoading() {
-        return false;
-    }
-
-    function maybeRevealMempicsFromScroll() {
-        return undefined;
-    }
-
-    function handleMempicsProgressiveScroll() {
-        maybeRevealMempicsFromScroll();
-    }
-
-    function handleMempicsIntersection(entries) {
-        if (!entries.some((entry) => entry.isIntersecting)) return;
-        maybeRevealMempicsFromScroll();
-    }
-
-    function disconnectMempicsObserver() {
-        if (!mempicsObserver) return;
-        mempicsObserver.disconnect();
-        mempicsObserver = null;
-    }
-
-    function syncMempicsScrollLoading() {
-        window.removeEventListener('scroll', handleMempicsProgressiveScroll);
-        disconnectMempicsObserver();
     }
 
     function buildGalleryCard(item) {
@@ -1150,12 +1109,10 @@ export function initGallery() {
         document.removeEventListener('bitbi:homepage-category-activated', handleMempicsCategoryActivation);
         document.removeEventListener('bitbi:homepage-category-layout-request', handleMempicsCategoryLayoutRequest);
         window.removeEventListener('resize', scheduleMempicsWideLimitSync);
-        window.removeEventListener('scroll', handleMempicsProgressiveScroll);
         window.cancelAnimationFrame(mempicsResizeFrame);
         window.cancelAnimationFrame(mempicsBreakpointRenderFrame);
         mempicsLayoutDirty = false;
         mempicsLayoutRequestSeq += 1;
         mempicsLayoutInFlight = null;
-        disconnectMempicsObserver();
     });
 }

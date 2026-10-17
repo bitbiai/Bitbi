@@ -32,7 +32,6 @@ import {
 import {
   isPixverseV6AspectRatio,
   isPixverseV6Quality,
-  PIXVERSE_V6_ASPECT_RATIOS,
   PIXVERSE_V6_MAX_DURATION,
   PIXVERSE_V6_MAX_NEGATIVE_PROMPT_LENGTH,
   PIXVERSE_V6_MAX_PROMPT_LENGTH,
@@ -54,15 +53,8 @@ import {
   SEEDANCE_2_MIN_DURATION,
 } from "../../../../../js/shared/seedance-2-pricing.mjs";
 import {
-  GROK_IMAGINE_VIDEO_ASPECT_RATIOS,
-  GROK_IMAGINE_VIDEO_DEFAULT_ASPECT_RATIO,
-  GROK_IMAGINE_VIDEO_DEFAULT_DURATION,
-  GROK_IMAGINE_VIDEO_DEFAULT_RESOLUTION,
-  GROK_IMAGINE_VIDEO_MAX_DURATION,
-  GROK_IMAGINE_VIDEO_MIN_DURATION,
   GROK_IMAGINE_VIDEO_MODEL_ID,
   GROK_IMAGINE_VIDEO_MODEL_LABEL,
-  GROK_IMAGINE_VIDEO_RESOLUTIONS,
   GROK_IMAGINE_VIDEO_VENDOR,
 } from "../../../../../js/shared/grok-imagine-video-pricing.mjs";
 import { calculateAiVideoCreditCost } from "../../../../../js/shared/ai-model-pricing.mjs";

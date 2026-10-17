@@ -10,7 +10,6 @@ import {
     apiAdminOperationsTimeline,
 } from '../../../shared/auth-api.js?v=__ASSET_VERSION__';
 import {
-    apiUnavailableMessage,
     badge,
     byId,
     clear,

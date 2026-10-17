@@ -3,7 +3,7 @@ import { updateWorkspace } from '../lib/canvas-workspace.js';
 import { handleCanvasAssembly } from '../lib/canvas-assembly.js';
 import { canvasAgentAuthority } from '../lib/canvas-agent-authority.js';
 import { handleCanvasMediaInspection } from './canvas-media-inspections.js';
-import { SEEDANCE_25_MODEL, seedance25References, seedance25MediaType, seedance25Settings } from '../../../../js/shared/seedance-25-contract.mjs';
+import { SEEDANCE_25_MODEL, seedance25References, seedance25Settings } from '../../../../js/shared/seedance-25-contract.mjs';
 import { areaCatalog, modelAreaEnvironment, assertModelArea, publicModelAvailability } from '../lib/model-availability.js';
 import { OMNI_MODEL, omniReferences, omniMediaType, omniOperation } from '../../../../js/shared/gemini-omni-contract.mjs';
 import { isGptImage25Model } from '../../../../js/shared/gpt-image-25-contract.mjs';
@@ -28,7 +28,6 @@ import { getErrorFields, logDiagnostic, withCorrelationId } from "../../../../js
 import {
   getCanvasModel,
   getCanvasModelForRole,
-  listCanvasModels,
   listCanvasModelsForRole,
 } from "../../../../js/shared/canvas-model-contract.mjs";
 import { ORG_ROLE_RANK, listUserOrganizations, requireOrgRole } from "../lib/orgs.js";

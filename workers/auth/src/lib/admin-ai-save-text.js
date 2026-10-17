@@ -145,19 +145,6 @@ function optionalBoolean(value, field, defaultValue = null) {
   return value;
 }
 
-function optionalEnum(value, field, allowedValues, defaultValue = null) {
-  if (value === undefined || value === null || value === "") return defaultValue;
-  const normalized = requiredString(value, field, 80);
-  if (!allowedValues.includes(normalized)) {
-    throw new InputError(
-      `${field} must be one of: ${allowedValues.join(", ")}.`,
-      400,
-      "validation_error"
-    );
-  }
-  return normalized;
-}
-
 function normalizeStringArray(value, field, minItems, maxItems, maxItemLength) {
   const values = typeof value === "string" ? [value] : value;
   if (!Array.isArray(values)) {

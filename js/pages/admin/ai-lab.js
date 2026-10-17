@@ -830,11 +830,6 @@ function setText(el, value) {
     el.textContent = value || '';
 }
 
-function setBadge(el, text, variant) {
-    el.className = `badge badge--${variant}`;
-    el.textContent = text;
-}
-
 async function copyText(text, showToast, successMessage) {
     if (!text) return;
     try {
@@ -868,12 +863,6 @@ function getCatalogPresets(catalog, task) {
 
 function getModelInfo(catalog, task, modelId) {
     return getCatalogModels(catalog, task).find((model) => model.id === modelId) || null;
-}
-
-function getModelLabel(catalog, task, modelId) {
-    if (!modelId) return 'Preset default';
-    const model = getModelInfo(catalog, task, modelId);
-    return model ? `${model.label} (${model.id})` : modelId;
 }
 
 function generateAdminImageIdempotencyKey() {
@@ -1518,13 +1507,6 @@ export function createAdminAiLab({ showToast } = {}) {
         }
     }
 
-    function parsePreviewReferenceImageUrls(value) {
-        return String(value || '')
-            .split(/\r?\n/)
-            .map((entry) => entry.trim())
-            .filter(Boolean);
-    }
-
     function normalizeInternalApiPath(value) {
         const raw = String(value || '').trim();
         if (!raw) return '';
@@ -1642,14 +1624,6 @@ export function createAdminAiLab({ showToast } = {}) {
         if (!state.results.video) renderVideoResult();
     }
 
-    function setSelectedSourceVideo(candidate) {
-        state.forms.video.sourceVideo = normalizeVideoSourceCandidate(candidate);
-        persistState();
-        renderVideoSourcePicker();
-        syncVideoFieldState();
-        if (!state.results.video) renderVideoResult();
-    }
-
     function clearSelectedMediaSource({ persist = true } = {}) {
         if (videoReferenceMode) state.forms.video.sourceImages = [];
         else if (getPreviewMediaTypeForOperation() === 'image') {
@@ -1657,14 +1631,6 @@ export function createAdminAiLab({ showToast } = {}) {
         } else {
             state.forms.video.sourceVideo = null;
         }
-        if (persist) persistState();
-        renderVideoSourcePicker();
-        syncVideoFieldState();
-        if (!state.results.video) renderVideoResult();
-    }
-
-    function clearSelectedSourceVideo({ persist = true } = {}) {
-        state.forms.video.sourceVideo = null;
         if (persist) persistState();
         renderVideoSourcePicker();
         syncVideoFieldState();

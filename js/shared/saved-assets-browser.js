@@ -870,20 +870,6 @@ export function createSavedAssetsBrowser({
         return folders.find((entry) => entry.id === folderId) || null;
     }
 
-    function getFolderCount(filterValue) {
-        if (filterValue === UNFOLDERED) return Number(unfolderedCount || 0);
-        if (filterValue && filterValue !== ALL_ASSETS) {
-            if (!Object.prototype.hasOwnProperty.call(folderCounts, filterValue)) {
-                return !folderViewActive && $galleryFilter.value === filterValue && currentAssets.length === 0
-                    ? 0
-                    : null;
-            }
-            const count = Number(folderCounts[filterValue]);
-            return Number.isFinite(count) ? count : null;
-        }
-        return null;
-    }
-
     function getGenerateLabHref() {
         return getCurrentLocale() === 'de'
             ? '/de/generate-lab/?source=assets-manager'

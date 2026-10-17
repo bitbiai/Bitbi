@@ -8,7 +8,7 @@ import { getMemberExposedModels } from './member-model-exposure.mjs';
 import { calculateAiModelCreditCost } from './ai-model-pricing.mjs';
 import { GROK_4_6_MODEL_ID, getGrokMaxCompletionTokens, GROK_TEXT_PRICING } from './grok-text-contract.mjs';
 import { calculateElevenLabsMusicV2ProviderCost } from './elevenlabs-music-v2-pricing.mjs';
-import { canonicalPricingModel, mediaTariffBasis, tariffConfiguration, textTariffBasis, FACTORY_TARIFF_VERSION } from './model-tariff.mjs';
+import { canonicalPricingModel, mediaTariffBasis, tariffConfiguration, FACTORY_TARIFF_VERSION } from './model-tariff.mjs';
 import { isGptImage25Model, normalizeGptImage25Options } from './gpt-image-25-contract.mjs';
 import { gptImage25FactoryPrice, isGptImage25PricingAvailable } from './gpt-image-25-pricing.mjs';
 import { creditsForProviderCostUsd } from './model-credit-pricing.mjs';

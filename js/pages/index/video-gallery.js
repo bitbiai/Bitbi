@@ -65,7 +65,6 @@ export function initVideoGallery() {
         loadingMore: false,
     };
     let memvidsVisibleLimit = PUBLIC_EXPLORE_INITIAL_VISIBLE_LIMIT;
-    let memvidsObserver = null;
     let memvidsResizeObserver = null;
     let memvidsResizeFrame = 0;
     let memvidsLayoutDirty = false;
@@ -131,10 +130,6 @@ export function initVideoGallery() {
 
     function getVisibleMemvidsCount() {
         return Math.min(memvidsVisibleLimit, memvidsState.items.length, PUBLIC_EXPLORE_MAX_VISIBLE_LIMIT);
-    }
-
-    function syncWideColumnCount(itemCount = 0) {
-        return getWideLayoutMetrics(itemCount).columnCount;
     }
 
     function getWideLayoutMetrics(itemCount = 0) {
@@ -743,14 +738,12 @@ export function initVideoGallery() {
             $loadMore.textContent = '';
             $loadMore.disabled = false;
             $scrollSentinel.hidden = true;
-            syncMemvidsScrollLoading();
             return;
         }
         if (!memvidsState.items.length) {
             $pagination.style.display = 'none';
             syncMobileMediaTrigger($paginationStatus, { enabled: false, label: localeText('browse.openMemvidsGrid') });
             $scrollSentinel.hidden = true;
-            syncMemvidsScrollLoading();
             return;
         }
         const visibleCount = getVisibleMemvidsCount();
@@ -785,7 +778,6 @@ export function initVideoGallery() {
             ? (memvidsState.loadingMore ? localeText('browse.loading') : localeText('browse.loadMore'))
             : '';
         $scrollSentinel.hidden = true;
-        syncMemvidsScrollLoading();
     }
 
     async function fetchMemvids(cursor = null, limit = MEMVIDS_LIMIT) {
@@ -849,34 +841,6 @@ export function initVideoGallery() {
 
     async function revealNextMemvidsBatch() {
         return loadMoreMemvids();
-    }
-
-    function shouldUseMemvidsScrollLoading() {
-        return false;
-    }
-
-    function maybeRevealMemvidsFromScroll() {
-        return undefined;
-    }
-
-    function handleMemvidsProgressiveScroll() {
-        maybeRevealMemvidsFromScroll();
-    }
-
-    function handleMemvidsIntersection(entries) {
-        if (!entries.some((entry) => entry.isIntersecting)) return;
-        maybeRevealMemvidsFromScroll();
-    }
-
-    function disconnectMemvidsObserver() {
-        if (!memvidsObserver) return;
-        memvidsObserver.disconnect();
-        memvidsObserver = null;
-    }
-
-    function syncMemvidsScrollLoading() {
-        window.removeEventListener('scroll', handleMemvidsProgressiveScroll);
-        disconnectMemvidsObserver();
     }
 
     function buildVideoCard(item) {
@@ -1261,12 +1225,10 @@ export function initVideoGallery() {
         document.removeEventListener('bitbi:homepage-category-activated', handleMemvidsCategoryActivation);
         document.removeEventListener('bitbi:homepage-category-layout-request', handleMemvidsCategoryLayoutRequest);
         window.removeEventListener('resize', scheduleMemvidsWideLimitSync);
-        window.removeEventListener('scroll', handleMemvidsProgressiveScroll);
         window.cancelAnimationFrame(memvidsResizeFrame);
         memvidsLayoutDirty = false;
         memvidsLayoutRequestSeq += 1;
         memvidsLayoutInFlight = null;
-        disconnectMemvidsObserver();
     });
 
     $loadMore?.addEventListener('click', () => {

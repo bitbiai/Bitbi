@@ -18,7 +18,6 @@ import {
     detailRows,
     el,
     renderUnavailable,
-    shortId,
 } from './core.js?v=__ASSET_VERSION__';
 
 const DEFAULT_LIMIT = 100;

@@ -632,14 +632,6 @@ async function parseMediaSourceToken(env, token, { now = Date.now() } = {}) {
   };
 }
 
-function getSourceRefForOperation(payload) {
-  const operation = String(payload?._operation || "generate").trim() || "generate";
-  if (operation === "generate") {
-    return normalizeAdminAiMediaSourceReference(payload.source_image, "image", "source_image");
-  }
-  return normalizeAdminAiMediaSourceReference(payload.source_video, "video", "source_video");
-}
-
 function stripPreviewMediaSourceFields(payload) {
   const {
     _source_snapshots: _sourceSnapshots,

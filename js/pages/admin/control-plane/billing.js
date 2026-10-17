@@ -2122,10 +2122,6 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
         };
     }
 
-    function archiveDateKey(item) {
-        return archiveDateInfo(item).key;
-    }
-
     function archiveDateLabel(item) {
         return archiveDateInfo(item).label;
     }
