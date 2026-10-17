@@ -306,6 +306,19 @@ for (const field of Object.keys(runtime.privileges)) {
   assert.throws(() => validateHomepageRuntime({ ...runtime, privileges: { ...runtime.privileges, [field]: field === 'NoNewPrivs' ? '0' : '0001' } }));
 }
 
+function homepageImagePattern(version) {
+  const prefix = `image: mcr.microsoft.com/playwright:v${version}-noble@sha256:`;
+  return new RegExp(`${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[a-f0-9]{64}`);
+}
+// Versions are literal text, including regex metacharacters in synthetic inputs.
+const ordinaryImage = 'image: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:' + 'a'.repeat(64);
+assert.match(ordinaryImage, homepageImagePattern('1.58.2'));
+assert.doesNotMatch(ordinaryImage.replace('1.58.2', '1x58x2'), homepageImagePattern('1.58.2'));
+assert.doesNotMatch(ordinaryImage.replace('mcr.microsoft.com', 'mcrXmicrosoftXcom'), homepageImagePattern('1.58.2'));
+assert.doesNotMatch(ordinaryImage, homepageImagePattern('1.58.2|evil'));
+assert.match('image: mcr.microsoft.com/playwright:v1.58.2+canary(1)[x]{2}?^$|\\.*-noble@sha256:' + 'a'.repeat(64),
+  homepageImagePattern('1.58.2+canary(1)[x]{2}?^$|\\.*'));
+
 function job(source, name) {
   const match = source.match(new RegExp(`^  ${name}:\\n([\\s\\S]*?)(?=^  [a-zA-Z][\\w-]*:|$(?![\\s\\S]))`, 'm'));
   assert.ok(match, `Missing job ${name}`);
@@ -350,7 +363,7 @@ for (const workflow of ['static.yml', 'full-regression.yml']) {
   assert.ok(early.includes('run: npm run test:homepage-functional\n'));
   assert.ok(!early.includes('--max-failures'), 'Complete homepage acceptance must not leave the remaining scenarios unexecuted');
   assert.ok(early.includes('npm run check:homepage-runtime'));
-  assert.match(early, new RegExp(`image: mcr\\.microsoft\\.com/playwright:v${lockVersion.replace(/\./g, '\\.')}\-noble@sha256:[a-f0-9]{64}`));
+  assert.match(early, homepageImagePattern(lockVersion));
   assert.ok(early.includes('--user 1001:1001'));
   assert.ok(early.includes('--cap-drop=ALL'));
   assert.ok(early.includes('--security-opt=no-new-privileges'));

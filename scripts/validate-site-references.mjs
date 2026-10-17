@@ -26,7 +26,9 @@ export function validateSiteReferences(directory,{source=false}={}) {
   assert(html.length,'No website HTML to validate');
   let references=0;const errors=[];
   for(const file of html) {
-    const text=fs.readFileSync(path.join(root,file),'utf8').replace(/<!--[\s\S]*?-->/g,'');
+    // Mask complete comments instead of joining their neighbours: removing a
+    // comment could manufacture a tag such as <scr<!-- note -->ipt src="...">.
+    const text=fs.readFileSync(path.join(root,file),'utf8').replace(/<!--[\s\S]*?-->/g,comment=>' '.repeat(comment.length));
     // Match actual link/script tags, including multiline and single-quoted URLs.
     for(const tag of text.matchAll(/<(link|script)\b[^>]*>/gi)) {
       const attribute=tag[1].toLowerCase()==='link'?'href':'src';

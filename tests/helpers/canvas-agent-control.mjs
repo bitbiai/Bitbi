@@ -6,6 +6,19 @@ import worker from '../../workers/auth/src/index.js';
 import { getModelTariff } from '../../workers/auth/src/lib/model-tariffs.js';
 
 const check = (value, message) => { if (!value) throw new Error(message); };
+
+export function isCanvasAgentProviderEndpoint(value, accountId) {
+  if (typeof value !== 'string' && !(value instanceof URL)) return false;
+  if (typeof accountId !== 'string' || !/^[a-f0-9]{32}$/.test(accountId)) return false;
+  try {
+    const url = new URL(value);
+    return url.origin === 'https://api.cloudflare.com'
+      && url.username === '' && url.password === ''
+      && url.pathname === `/client/v4/accounts/${accountId}/ai/run`
+      && url.search === '' && url.hash === '';
+  } catch { return false; }
+}
+
 async function rejected(operation, fragment) {
   try { await operation(); } catch (error) {
     const details = [error, error?.cause, error?.cause?.cause].map(item => `${item?.code || ''} ${item?.message || item || ''}`).join('\n');
@@ -188,7 +201,7 @@ export async function finishCanvasAgentFixture({ f, processor, targetSeconds = 1
       {waitUntil(){throw new Error('Canvas model result must not rely on detached inference');}});
   } };
   f.env.__TEST_FETCH=async(url,init)=>{
-    const body=String(url).includes('api.cloudflare.com')&&init?.body?JSON.parse(init.body):null;
+    const body=isCanvasAgentProviderEndpoint(url,f.env.CLOUDFLARE_ACCOUNT_ID)&&init?.body?JSON.parse(init.body):null;
     if(body?.model!=='xai/grok-4.7')return oldProviderFetch(url,init);
     check(String(url)===`https://api.cloudflare.com/client/v4/accounts/${f.env.CLOUDFLARE_ACCOUNT_ID}/ai/run`&&init.method==='POST','Exact existing REST provider endpoint');
     check(body.options.background===true&&body.options.webhookUrl.startsWith('https://bitbi.ai/api/internal/ai/canvas-agent-result/'),'Durable signed callback');
@@ -406,7 +419,7 @@ export async function canvasAgentLateCompletionCase(env, media) {
   let editedNode = null;
   f.env.__TEST_FETCH = async (url, init) => {
     const response = await originalFetch(url, init);
-    if (!String(url).includes('api.cloudflare.com')) return response;
+    if (!isCanvasAgentProviderEndpoint(url, f.env.CLOUDFLARE_ACCOUNT_ID)) return response;
     check(!editedNode, 'Only one external generation was accepted before cancellation');
     const step = await f.db.prepare("SELECT s.node_id,s.run_id FROM canvas_agent_steps s JOIN canvas_agent_runs r ON r.id=s.run_id WHERE r.project_id=? AND s.kind='node' ORDER BY s.rowid LIMIT 1").bind(f.project).first();
     editedNode = step.node_id;
@@ -432,7 +445,7 @@ export async function canvasAgentLateCompletionCase(env, media) {
     const before=ordinary.env.__TEST_FETCH;
     ordinary.env.__TEST_FETCH=async(url,init)=>{
       const response=await before(url,init);
-      if(String(url).includes('api.cloudflare.com'))await ordinary.data(await ordinary.request(ordinary.projectPath+'/edges','POST',{source_node_id:source.id,target_node_id:target.id,...(music?{config:{purpose:'export_background_music'}}:{})}));
+      if(isCanvasAgentProviderEndpoint(url,ordinary.env.CLOUDFLARE_ACCOUNT_ID))await ordinary.data(await ordinary.request(ordinary.projectPath+'/edges','POST',{source_node_id:source.id,target_node_id:target.id,...(music?{config:{purpose:'export_background_music'}}:{})}));
       return response;
     };
     const tariff=(await getModelTariff(ordinary.env)).revision;
@@ -450,11 +463,17 @@ export async function canvasAgentUnknownProviderCase(env,media) {
   const {canvasAudioFixture}=await import('./canvas-audio-control.mjs');
   const f=await canvasAudioFixture(env,{...media,scope:'agent-unknown-provider'});
   f.env.__TEST_FETCH=async(url,init)=>{
-    check(String(url).includes('api.cloudflare.com'),'Unknown provider fixture must not download a nonexistent result');
+    check(isCanvasAgentProviderEndpoint(url,f.env.CLOUDFLARE_ACCOUNT_ID),'Unknown provider fixture must not download a nonexistent result');
     f.calls.push(JSON.parse(init.body));
     // A provider HTTP429 is not the trusted internal pre-admission marker.
     return new Response('{}',{status:429,headers:{'Content-Type':'application/json'}});
   };
+  for (const origin of ['https://api.cloudflare.com@attacker.invalid', 'https://api.cloudflare.com:8443']) {
+    await rejected(() => f.env.__TEST_FETCH(`${origin}/client/v4/accounts/${f.env.CLOUDFLARE_ACCOUNT_ID}/ai/run`, {
+      method: 'POST', body: JSON.stringify({ model: 'minimax/h3' }),
+    }), 'Unknown provider fixture must not download a nonexistent result');
+  }
+  check(f.calls.length === 0, 'Unexpected fixture URLs cannot become accepted provider submissions');
   const finished=await finishCanvasAgentFixture({f,targetSeconds:12,planOverride:freshCanvasAgentPlan(),expectedTerminal:'review_required',deliverGeneration:async()=>{
     const index=f.messages.findIndex(message=>message.job_id),body=f.messages.splice(index,1)[0],waits=[];
     await worker.queue({queue:'bitbi-ai-video-jobs',messages:[{body,attempts:1,ack(){},retry(){throw new Error('Ambiguous provider work cannot be resubmitted');}}]},f.env,{waitUntil(p){waits.push(p);}});

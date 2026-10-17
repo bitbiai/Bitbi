@@ -2,6 +2,35 @@ const { test, expect } = require('@playwright/test');
 const { SqliteD1Database, applyAuthMigrations } = require('./helpers/sqlite-d1.js');
 const { createAuthTestEnv } = require('./helpers/auth-worker-harness.js');
 
+test('Canvas agent provider fixtures match only the configured HTTPS account endpoint', async () => {
+  const { isCanvasAgentProviderEndpoint } = await import('./helpers/canvas-agent-control.mjs');
+  const accountId = 'a'.repeat(32);
+  const pathname = `/client/v4/accounts/${accountId}/ai/run`;
+  const endpoint = `https://api.cloudflare.com${pathname}`;
+  for (const url of [endpoint, new URL(endpoint), `https://API.CLOUDFLARE.COM${pathname}`, `https://api.cloudflare.com:443${pathname}`]) {
+    expect(isCanvasAgentProviderEndpoint(url, accountId), String(url)).toBe(true);
+  }
+  for (const url of [
+    `https://api.cloudflare.com.attacker.invalid${pathname}`,
+    `https://not-api.cloudflare.com${pathname}`,
+    `https://api.cloudflare.com@attacker.invalid${pathname}`,
+    `https://attacker@api.cloudflare.com${pathname}`,
+    `https://user:secret@api.cloudflare.com${pathname}`,
+    `https://attacker.invalid/api.cloudflare.com${pathname}`,
+    `https://attacker.invalid/?next=${endpoint}`,
+    `http://api.cloudflare.com${pathname}`,
+    `https://api.cloudflare.com:8443${pathname}`,
+    `https://api.cloudflare.com/client/v4/accounts/${'b'.repeat(32)}/ai/run`,
+    `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run-extra`,
+    `${endpoint}/`, `${endpoint}?next=https://attacker.invalid`, `${endpoint}#api.cloudflare.com`,
+    pathname, '//api.cloudflare.com' + pathname, 'https://[api.cloudflare.com', 'not a URL', '', null, {},
+  ]) {
+    expect(isCanvasAgentProviderEndpoint(url, accountId), String(url)).toBe(false);
+  }
+  expect(isCanvasAgentProviderEndpoint(endpoint, undefined)).toBe(false);
+  expect(isCanvasAgentProviderEndpoint(endpoint, accountId + '/ai/run')).toBe(false);
+});
+
 for (const [name, method, expected] of [
   ['atomic budget and revocable project execution authority', 'canvasAgentAuthorityCase', { atomicAllocations: 1, existingUsageAttempts: 2, providerSubmissions: 0, walletDebits: 0, manualEditPaused: true }],
   ['automatic duration, explicit credit consent, replay, controls and manual takeover', 'canvasAgentApiCase', { autonomousDuration: true, starts: 2, duplicateStarts: 1, providerCalls: 0, foreignDenied: true, manualTakeover: true }],
@@ -68,7 +97,7 @@ test('Canvas agent completes a measured two-minute film from thirteen fresh edit
   try {
     global.Date=class extends RealDate {constructor(...args){super(...(args.length?args:[clock]));}static now(){return clock;}};
     const { canvasAudioFixture } = await import('./helpers/canvas-audio-control.mjs');
-    const { finishCanvasAgentFixture, freshCanvasAgentPlan } = await import('./helpers/canvas-agent-control.mjs');
+    const { finishCanvasAgentFixture, freshCanvasAgentPlan, isCanvasAgentProviderEndpoint } = await import('./helpers/canvas-agent-control.mjs');
     const { processCanvasExports, inspectClip } = await import('../services/homepage-ffmpeg-processor/canvas-full-video.mjs');
     const { processCanvasInspections } = await import('../services/homepage-ffmpeg-processor/canvas-media-inspection.mjs');
     const video = path.join(dir, 'source.mp4');
@@ -86,7 +115,7 @@ test('Canvas agent completes a measured two-minute film from thirteen fresh edit
     const beforeFetch = f.env.__TEST_FETCH;
     f.env.__TEST_FETCH = async (url, init) => {
       const response = await beforeFetch(url, init);
-      if (!String(url).includes('api.cloudflare.com')) return response;
+      if (!isCanvasAgentProviderEndpoint(url, f.env.CLOUDFLARE_ACCOUNT_ID)) return response;
       const body = await response.json(); body.result.result.task.duration = 10; body.result.result.task.usage.output_seconds = 10;
       return Response.json(body);
     };

@@ -362,6 +362,23 @@ try {
   const candidateArgs=referenceCommand.split(' ').slice(2);
   assert.equal(check(['--root','.','--source']).status,0);
   assert.equal(check(candidateArgs).status,0,'Root, nested relative and versioned references resolve within candidate');
+  for(const inert of [
+    '<!-- <script src="/js/comment-only-missing.js"></script> -->',
+    '<scr<!-- separator -->ipt src="/js/constructed-missing.js"></script>',
+    '<<!-- separator -->script src="/js/constructed-missing.js"></script>',
+  ]) {
+    write('candidate/site/index.html',html+inert);
+    const result=check(candidateArgs);
+    assert.equal(result.status,0,result.stderr);
+    assert.equal(JSON.parse(result.stdout).references,4,'Comments must not manufacture local asset tags');
+  }
+  for(const prefix of ['<!-- complete -->','<!-- outer <!-- nested -->']) {
+    write('candidate/site/index.html',html+prefix+'<script src="/js/actual-missing.js"></script>');
+    const result=check(candidateArgs);
+    assert.equal(result.status,1,'A real reference after the first comment terminator must still be checked');
+    assert.match(result.stderr,/missing\/unsafe.*actual-missing\.js/);
+  }
+  write('candidate/site/index.html',html.replaceAll('source','built'));
   write('candidate/broken.html','<script src="/not-a-site-input.js"></script>');
   assert.equal(check(['--root','.','--source']).status,0,'Checkout scanner must not traverse candidate or unrelated HTML');
   fs.unlinkSync(path.join(root,'candidate/site/js/theme.js'));
