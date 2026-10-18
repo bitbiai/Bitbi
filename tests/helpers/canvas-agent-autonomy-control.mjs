@@ -377,10 +377,29 @@ export async function canvasAgentAutonomyCase(base,name) {
 // Seed the pre-0107 historical shape through the actual charge gateway. The
 // caller applies only the new forward migration, then compares retained data.
 export async function seedCanvasAgentStoppedMigration(base) {
+    const columns=(await base.DB.prepare('PRAGMA table_info(canvas_agent_runs)').all()).results.map(row=>row.name);
+    check(!columns.includes('budget_revision')&&!columns.includes('purpose'),'Historical migration seed must retain the actual pre-0107 schema');
     const f=await budgetFixture(base,'migration'),run=await f.createRun('stopped',3000),step=await f.allocate(run,'plan',127);
-    await charge(f,run,step,78);
+    // Reconstruct historical server metadata, not current execution authority:
+    // the current authority query requires later schema columns. Reservation,
+    // dispatch fencing and settlement still use the real existing credit gateway.
+    const reserve=async()=>{
+        const metadata={canvas_agent:{run_id:run.id,step_id:step.id,project_id:run.project_id}};
+        const args={env:f.env,userId:f.owner,featureKey:'ai.text.generate',operationKey:'member.text.generate',route:f.route,
+            idempotencyKey:`autonomy-${step.id}`,requestFingerprint:await sha256Hex(step.id),creditCost:step.allocation_credits,metadata};
+        const result=await beginMemberAiUsageAttempt(args);
+        await f.db.prepare('UPDATE canvas_agent_steps SET usage_attempt_id=? WHERE id=?').bind(result.attempt.id,step.id).run();
+        return {scoped:f.env,args,metadata,attempt:result.attempt};
+    };
+    await charge({...f,reserve},run,step,78);
     const receipt={ok:true,plan:incompatiblePlan(),model:'xai/grok-4.7',outcome:'completed'};
     await f.db.prepare('UPDATE canvas_agent_steps SET receipt_json=? WHERE id=?').bind(JSON.stringify(receipt),step.id).run();
     await f.db.prepare("UPDATE canvas_agent_runs SET status='taken_over',error_code=NULL,lease_token=NULL,lease_until=NULL WHERE id=?").bind(run.id).run();
-    return {...f,runId:run.id,stepId:step.id,receipt,before:await f.db.prepare('SELECT * FROM canvas_agent_runs WHERE id=?').bind(run.id).first()};
+    const beforeStep=await f.db.prepare('SELECT * FROM canvas_agent_steps WHERE id=?').bind(step.id).first();
+    const beforeAttempt=await f.db.prepare('SELECT * FROM member_ai_usage_attempts_v2 WHERE id=?').bind(beforeStep.usage_attempt_id).first();
+    const beforeLedger=(await f.db.prepare('SELECT * FROM member_credit_ledger WHERE user_id=? ORDER BY id').bind(f.owner).all()).results;
+    check(beforeStep.status==='completed'&&beforeAttempt.billing_status==='finalized'&&beforeAttempt.provider_outcome==='succeeded','Historical paid receipt must be settled before migration');
+    check(await debitsOf(f)===78,'Historical fixture must contain a real 78-credit debit before migration');
+    return {...f,runId:run.id,stepId:step.id,receipt,beforeStep,beforeAttempt,beforeLedger,
+        before:await f.db.prepare('SELECT * FROM canvas_agent_runs WHERE id=?').bind(run.id).first()};
 }

@@ -279,31 +279,58 @@ test('Canvas legacy plan and evaluation survive the former 180s cutoff, retainin
   const { invokeCanvasAgentPlan, invokeCanvasAgentEvaluation } = await import('../workers/ai/src/lib/canvas-agent-plan.js');
   const { BITBI_GENERATION_TIMEOUT_MS } = await import('../js/shared/generation-timeout.mjs');
   const realSet = global.setTimeout, realClear = global.clearTimeout;
-  const timers = new Map(); let now = 0, sequence = 0;
+  const timers = new Map(); let now = 0, sequence = 0, shortenDeadline = false;
   const advance = async milliseconds => {
     now += milliseconds;
     for (const [id, task] of [...timers]) if (task.at <= now) { timers.delete(id); task.fn(); }
     for (let turn = 0; turn < 8; turn++) await Promise.resolve();
   };
   try {
-    global.setTimeout = (fn, delay) => { const id = ++sequence; timers.set(id, { fn, at: now + delay }); return id; };
+    global.setTimeout = (fn, delay) => {
+      const id = ++sequence;
+      timers.set(id, { fn, at: now + (shortenDeadline && delay === BITBI_GENERATION_TIMEOUT_MS ? 180000 : delay) });
+      return id;
+    };
     global.clearTimeout = id => { timers.delete(id); };
-    for (const [kind, invoke] of [['plan', invokeCanvasAgentPlan], ['evaluate', invokeCanvasAgentEvaluation]]) {
-      let resolve, calls = 0, settled = false, providerSignal;
-      const output = completion(kind === 'plan' ? plan() : evaluation());
-      const env = { ENABLE_GROK_4_7: 'true', AI: { run(_model, _input, options) { calls++; providerSignal = options.signal; return new Promise(done => { resolve = done; }); } } };
+    const startProvider = async (kind, invoke) => {
+      let resolve, started, calls = 0, settled = false, providerSignal;
+      const dispatched = new Promise(done => { started = done; });
+      const env = { ENABLE_GROK_4_7: 'true', AI: { run(_model, _input, options) {
+        calls++; providerSignal = options.signal;
+        return new Promise(done => { resolve = done; started(); });
+      } } };
       const pending = invoke(env, input(kind)).then(value => { settled = true; return { value }; }, error => { settled = true; return { error }; });
-      await advance(0); await advance(180001);
-      expect(calls).toBe(1); expect(settled).toBe(false); expect(providerSignal.aborted).toBe(false);
-      resolve(output);
-      expect((await pending).value).toMatchObject({ outcome: 'completed', responseId: 'chatcmpl_canvas_background' });
-      let timedOutCalls = 0, late;
-      const unknown = invoke({ ...env, AI: { run() { timedOutCalls++; return new Promise(done => { late = done; }); } } }, input(kind))
-        .then(value => ({ value }), error => ({ error }));
-      await advance(0); await advance(BITBI_GENERATION_TIMEOUT_MS);
-      expect((await unknown).error).toMatchObject({ code: 'canvas_agent_provider_timeout', outcome: 'unknown', retryable: false });
-      late(output); await advance(0);
-      expect(timedOutCalls).toBe(1);
+      // Policy hashing uses native WebCrypto. Promise-only draining does not
+      // establish that the provider and its deadline have actually started.
+      await Promise.race([dispatched, pending.then(result => { throw result.error || Error('Provider completed before dispatch'); })]);
+      return { pending, finish: value => resolve(value), observe: () => ({ calls, settled, aborted: providerSignal.aborted }) };
+    };
+    const observeFormerCutoff = async (kind, invoke) => {
+      const provider = await startProvider(kind, invoke);
+      await advance(180001);
+      return { provider, observed: provider.observe() };
+    };
+    for (const [kind, invoke] of [['plan', invokeCanvasAgentPlan], ['evaluate', invokeCanvasAgentEvaluation]]) {
+      const output = completion(kind === 'plan' ? plan() : evaluation());
+      const { provider, observed } = await observeFormerCutoff(kind, invoke);
+      expect(observed).toEqual({ calls: 1, settled: false, aborted: false });
+      provider.finish(output);
+      expect((await provider.pending).value).toMatchObject({ outcome: 'completed', responseId: 'chatcmpl_canvas_background' });
+      const unknown = await startProvider(kind, invoke);
+      await advance(BITBI_GENERATION_TIMEOUT_MS);
+      expect((await unknown.pending).error).toMatchObject({ code: 'canvas_agent_provider_timeout', outcome: 'unknown', retryable: false });
+      unknown.finish(output); await advance(0);
+      expect(unknown.observe()).toEqual({ calls: 1, settled: true, aborted: true });
+
+      // The identical observer must detect the original broken 180s deadline.
+      // Only timer delivery changes; policy validation and provider calls stay real.
+      shortenDeadline = true;
+      const broken = await observeFormerCutoff(kind, invoke);
+      expect(broken.observed).toEqual({ calls: 1, settled: true, aborted: true });
+      expect((await broken.provider.pending).error).toMatchObject({ code: 'canvas_agent_provider_timeout', outcome: 'unknown', retryable: false });
+      broken.provider.finish(output); await advance(0);
+      expect(broken.provider.observe().calls).toBe(1);
+      shortenDeadline = false;
     }
     expect(timers.size).toBe(0);
   } finally { global.setTimeout = realSet; global.clearTimeout = realClear; }

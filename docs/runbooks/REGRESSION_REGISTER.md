@@ -2052,6 +2052,18 @@ impact and inventory classification. The inventory countercheck scans actual
 README bytes and rejects neighboring unreviewed documents. Preserve failed
 checkpoints; cross-source reuse is not authorized by a documentation-only intent.
 
+The `f532ea12` ordinary Worker suite passed 1,492 cases and exposed two stale
+fixtures. The pre-0107 migration seed called current authority code requiring
+0109 columns; seed historical metadata at that boundary while retaining actual
+reservation/settlement and byte-equivalent before/after billing records. Keep the
+old-schema absence guard and reject unfinished plan-shaped receipts. The legacy
+reasoning timer test advanced before asynchronous WebCrypto policy hashing had
+started the provider (expected one dispatch, observed zero). Synchronize on the
+actual provider start; the same observer must detect a deliberately shortened
+180-second deadline while retaining the real 600-second bound and no resubmission.
+Both repaired cases passed individually without retries; native and release
+acceptance still require their actual callers and exact-source checkpoint.
+
 ### Canvas reasoning deadline and durable receipt recovery — 2026-10-16
 
 Source `770c595a` imposed a separate 180-second planning/evaluation timeout. An
