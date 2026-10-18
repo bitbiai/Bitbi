@@ -317,6 +317,7 @@ exports.outcome=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMoc
         targetDurationSeconds:45,toleranceSeconds:.5,budgetCredits:3000,allocatedCredits:127,chargedCredits:0,reservedCredits:127,pendingOutcomeCredits:127,
         errorCode:'canvas_agent_provider_timeout',result:null,allowedActions:['cancel','takeover'],
         modelOperation:{operationId:'b'.repeat(32),kind:'plan',outcome:'unknown',recovery:'review_required'}};
+    const originalUnknownRun=structuredClone(state.run);
     const refresh=panel.getByRole('button',{name:de?'Status prüfen':'Check status',exact:true});
     const summary=panel.locator('.canvas-agent__production > .canvas-agent__summary');
     const value=label=>summary.getByText(label,{exact:true}).locator('xpath=following-sibling::dd[1]');
@@ -361,7 +362,9 @@ exports.outcome=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMoc
     await expect(resume).toBeHidden();await resume.evaluate(node=>node.click());expect(state.controls).toEqual([]);
     await expect(value(de?'Bereits abgerechnet (Credits)':'Already charged (credits)')).toHaveText('0');
     await expect(value(de?'Im Guthaben reserviert (Credits)':'Reserved in wallet (credits)')).toHaveText('127');
-    state.run={...state.run,modelOperation:{...state.run.modelOperation,outcome:'unknown',recovery:'review_required'}};
+    // These are distinct saved states. Do not carry the completed answer's
+    // accounting code, current action or cleared unknown commitment forward.
+    state.run=structuredClone(originalUnknownRun);
     await page.reload();await page.locator('#canvasAgentToggle').click();await showProject(panel,locale);
     await expect(value(de?'Im Guthaben reserviert (Credits)':'Reserved in wallet (credits)')).toHaveText('127');
     expect(state.posts).toEqual([]);expect(state.controls).toEqual([]);
@@ -380,8 +383,14 @@ exports.outcome=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMoc
     expect(state.controls).toHaveLength(1);
     // Unknown legacy receipts have no durable callback to promise; keep the
     // timeout and cost state honest when the additive projection is absent.
-    state.run={...state.run,status:'blocked',modelOperation:undefined,allowedActions:undefined};
+    const legacyUnknownRun={...state.run,status:'blocked',modelOperation:undefined,allowedActions:undefined};
+    state.run={...legacyUnknownRun,errorCode:'canvas_agent_receipt_review_required'};
+    await refresh.click();await expect(panel.locator('h3')).toHaveText(de?'Blockiert':'Blocked');
+    await expect(panel).not.toContainText(de?'Die Antwortfrist ist abgelaufen':'The response deadline has passed');
+    state.run=legacyUnknownRun;
     await refresh.click();await expect(panel.locator('h3')).toHaveText(de?'Anbieterergebnis ungeklärt':'Provider outcome unknown');
+    await expect(value(de?'Bereits abgerechnet (Credits)':'Already charged (credits)')).toHaveText('0');
+    await expect(value(de?'Im Guthaben reserviert (Credits)':'Reserved in wallet (credits)')).toHaveText('127');
     state.run={...state.run,status:'cancelled',modelOperation:{operationId:'b'.repeat(32),kind:'evaluate',outcome:'unknown',recovery:'review_required'},allowedActions:[]};
     await refresh.click();
     await expect(panel.locator('h3')).toHaveText(de?'Abgebrochen':'Cancelled');

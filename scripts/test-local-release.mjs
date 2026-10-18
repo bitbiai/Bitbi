@@ -21,6 +21,11 @@ import { LOCAL_IMPORT_REPAIR, assertImportRepairWorkflow, localRepairCommand, ve
 import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,assertPermissionContinuationTree,permissionContinuationPrefix,CANVAS_STAGE_CASES,canvasStageContinuation} from './lib/local-release-evidence.mjs';
 import {testLocalMediaProcess} from './test-local-media-process.mjs';
 
+if(process.argv.includes('--settlement-browser-only')) {
+  assert.deepEqual(process.argv.slice(2),['--settlement-browser-only']);
+  await testSettlementBrowserContinuation();process.exit(0);
+}
+
 if(process.argv.includes('--settlement-native-progress-only')) {
   assert.deepEqual(process.argv.slice(2),['--settlement-native-progress-only']);
   await testSettlementNativeProgress();process.exit(0);
@@ -2107,3 +2112,50 @@ async function testSettlementNativeProgress() {
  console.log('Settlement native progress: actual saved Node22 empty-file envelope verified; staging assertion retained once and native child still required.');
 }
 await testSettlementNativeProgress();
+
+async function testSettlementBrowserContinuation() {
+ const {SETTLEMENT_BROWSER_PREFLIGHT:p,canvasPreflightProfile,assertCanvasPreflightTree,canvasPreflightPrefix,verifyModelBrowserRepair,settlementBrowserGuard,settlementBrowserContinuation}=await import('./lib/local-release-evidence.mjs');
+ const {MODEL_BROWSER_POLICY,verifyModelBrowserReport,verifyBrowserUnion,passedBrowserCase}=await import('./lib/local-release-browser.mjs');
+ assert.equal(canvasPreflightProfile(p.source),p);assert.equal(settlementBrowserGuard('npm run test:local-release'),'npm run test:local-release -- --settlement-browser-only');assert.throws(()=>settlementBrowserGuard('echo skipped'));
+ const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-settlement-browser-')),bare=path.join(temporary,'git'),previousGitDir=process.env.GIT_DIR;
+ try {
+  execFileSync('git',['init','--bare',bare],{stdio:'pipe'});fs.writeFileSync(path.join(bare,'objects/info/alternates'),path.resolve(execFileSync('git',['rev-parse','--git-path','objects'],{encoding:'utf8'}).trim())+'\n');
+  const env={...process.env,GIT_AUTHOR_NAME:'Synthetic',GIT_AUTHOR_EMAIL:'synthetic@example.invalid',GIT_COMMITTER_NAME:'Synthetic',GIT_COMMITTER_EMAIL:'synthetic@example.invalid'},read=(args,input)=>execFileSync('git',['--git-dir',bare,...args],{env,input,stdio:['pipe','pipe','pipe']});
+  const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),reviewed=read(['rev-list','--ancestry-path','--reverse',`${p.source}..${head}`]).toString().trim().split('\n')[0];assert(reviewed);
+  const tooling=['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/lib/local-release-browser.mjs','scripts/test-local-release.mjs'];
+  const fixes=Object.fromEntries([...Object.keys(p.specs),...tooling].map(file=>[file,read(['show',`${reviewed}:${file}`])]));for(const[file,hash]of Object.entries(p.specs))assert.equal(sha256(fixes[file]),hash);
+  const commit=(changes,parent=p.source)=>{
+   read(['read-tree',p.source]);for(const[file,value]of Object.entries(changes)){
+    if(value===null){read(['update-index','--index-info'],Buffer.from(`0 ${'0'.repeat(40)}\t${file}\n`));continue;}
+    const blob=read(['hash-object','-w','--stdin'],value.content??value).toString().trim();read(['update-index','--add','--cacheinfo',`${value.mode||'100644'},${blob},${file}`]);
+   }return read(['commit-tree',read(['write-tree']).toString().trim(),'-p',parent],Buffer.from('Synthetic closed browser fixture continuation\n')).toString().trim();
+  };
+  const accepted=commit(fixes);assertCanvasPreflightTree(accepted,read,p);
+  for(const file of Object.keys(p.specs))for(const value of [null,Buffer.from('Unreviewed fixture'),{mode:'120000',content:Buffer.from('outside')}])assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,[file]:value}),read,p));
+  for(const file of ['tests/canvas.spec.js','tests/helpers/q2-runtime/linux-hosted.mjs','workers/auth/src/lib/canvas-agent-settlement-review.js','frontend/index.mjs','js/pages/canvas/agent.js','package-lock.json','config/release-validation.yml'])assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,[file]:Buffer.from('Changed accepted input')}),read,p));
+  for(const file of tooling)for(const value of [null,{mode:'120000',content:Buffer.from('outside')}])assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,[file]:value}),read,p));
+  assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,'scripts/test-local-release.mjs':Buffer.from('Removed accepted verifier')}),read,p));assert.throws(()=>assertCanvasPreflightTree(commit(fixes,accepted),read,p));
+  const root='.local-release',checkpoint=path.join(root,'reuse/preflight-checkpoint.json');
+  if(fs.existsSync(checkpoint)&&JSON.parse(fs.readFileSync(checkpoint)).sha===p.source){
+   const bytes=fs.readFileSync(checkpoint),original=JSON.parse(bytes),proof=path.join(temporary,'proof');fs.mkdirSync(proof);for(const folder of ['reuse','runtime','test-results'])fs.cpSync(path.join(root,folder),path.join(proof,folder),{recursive:true});process.env.GIT_DIR=bare;
+   const selection=gitSelection(original.base,accepted),commands=selectedCommands(selection,{GITHUB_SHA:accepted,CANDIDATE_BASE:original.base}),context={sha:accepted,base:original.base,planHash:validationPlan().digest,selection,environment:original.environment,nativeBrowsers:original.nativeBrowsers,commands};assert.equal(canvasPreflightPrefix(bytes,context).sha,p.source);
+   const verify=()=>verifyModelBrowserRepair(proof,accepted,{allowPending:true,profile:p}),{previous}=verify();assert.equal(previous.filter(passedBrowserCase).length,630);
+   for(const file of ['reuse/preflight-checkpoint.json','reuse/preflight-failed.log','reuse/model-browser-original.json','reuse/model-browser-standard.json','reuse/settlement-native-progress-origin/candidate/site/index.html',...Object.keys(p.nativeProof),'test-results/homepage-functional.json']){
+    const target=path.join(proof,file),saved=fs.readFileSync(target);fs.unlinkSync(target);assert.throws(verify);fs.writeFileSync(target,'forged proof');assert.throws(verify);fs.writeFileSync(target,saved);
+   }
+   const raw=JSON.parse(fs.readFileSync(path.join(proof,'reuse/model-browser-original.json'))),standard=JSON.parse(fs.readFileSync(path.join(proof,'reuse/model-browser-standard.json'))),retained=new Map(previous.filter(passedBrowserCase).map(row=>[row.key,row]));
+   const discoveries={homepage:browserRows(raw,{discovery:true}),auth:browserRows(standard,{discovery:true}).filter(row=>row.project==='chromium'&&(/^(auth-admin|wallet-nav|locale|oma2-q1-member)\.spec\.js$/.test(row.file)||row.file.startsWith('oma2-q3-')))};
+   // Disposable synthetic successes validate the union only; they never become
+   // release evidence and do not claim the four corrected browser cases ran.
+   for(const [scope,discovery]of Object.entries(discoveries)){
+    const fresh=discovery.filter(row=>!retained.has(row.key)).map(row=>({...row,expectedStatus:'passed',status:'expected',results:[{status:'passed',retry:0}]})),counts=verifyBrowserUnion(discovery,retained,fresh);
+    assert.deepEqual(counts,scope==='homepage'?{required:634,reused:630,executed:4}:{required:709,reused:25,executed:684});
+    const report={policy:MODEL_BROWSER_POLICY,sha:accepted,source:p.source,scope,previous,discovery,fresh,counts};assert.deepEqual(verifyModelBrowserReport(report,accepted),counts);
+    for(const mutate of [r=>r.source='f'.repeat(40),r=>r.previous.pop(),r=>r.discovery.pop(),r=>r.fresh.pop(),r=>r.fresh.push(r.fresh[0]),r=>r.fresh[0].results[0].status='failed',r=>r.fresh[0].results[0].status='skipped',r=>r.fresh[0].results[0].retry=1,r=>r.fresh[0].title='Unselected case',r=>r.counts.executed=0]){const bad=structuredClone(report);mutate(bad);assert.throws(()=>verifyModelBrowserReport(bad,accepted));}
+   }
+   assert.equal(settlementBrowserContinuation(commands[49].run),'node scripts/local-release.mjs settlement-browser-continuation');assert(settlementBrowserContinuation(commands[50].run,'auth').includes('settlement-browser-continuation auth'));assert.throws(()=>settlementBrowserContinuation('echo skipped'));
+  }
+ }finally{if(previousGitDir===undefined)delete process.env.GIT_DIR;else process.env.GIT_DIR=previousGitDir;fs.rmSync(temporary,{recursive:true,force:true});}
+ console.log('Settlement browser continuation:634-case discovery,630 retained outcomes,4 required corrections,25 Auth overlaps and385 native passes remain bound to original evidence.');
+}
+await testSettlementBrowserContinuation();

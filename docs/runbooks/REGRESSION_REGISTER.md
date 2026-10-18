@@ -2499,3 +2499,12 @@ against the actual TAP: require the one named assertion and separately validate
 the empty file envelope. Retain the completed staging assertion and execute the
 still-unstarted native runtime; neither missing nor failed assertions may inherit
 an empty-file pass.
+
+Candidate `d633fe47` passed 385 native cases and 45 homepage cases; core browsers
+passed 630/634. The four EN/DE Chromium/WebKit `outcome` failures came from the
+new settlement fixture leaving its receipt-review error and action in the later
+legacy-unknown scenario. Restore the complete original unknown snapshot between
+scenarios; retain a negative non-provider-error control and the original timeout
+assertions. Preserve all 630 passes and rerun only the four affected cases before
+fresh Auth acceptance. Progress reporting must inspect cumulative failures and
+retries, not infer a clean run from the most recent successful log lines.
