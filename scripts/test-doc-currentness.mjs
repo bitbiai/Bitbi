@@ -31,11 +31,36 @@ function writeFile(repo, relativePath, text) {
   fs.writeFileSync(absolutePath, text);
 }
 
+function testCanvasPolicyInventory() {
+  const repo = makeRepo();
+  try {
+    const readme = "workers/shared/canvas-agent/README.md";
+    writeFile(repo, readme, fs.readFileSync(new URL(`../${readme}`, import.meta.url), "utf8"));
+    const scan = () => scanDocCurrentness(repo, { currentDocs: [] });
+    const valid = scan();
+    assert.equal(valid.markdownInventory.find(entry => entry.path === readme)?.category, "active_runbook_policy");
+    assert.deepEqual(valid.violations, [], "The actual Canvas policy README must pass the inventory caller");
+    const unknown = ["workers/shared/canvas-agent/UNREVIEWED.md", "workers/shared/canvas-agent/skills/unreviewed.md"];
+    for (const file of unknown) writeFile(repo, file, "Unreviewed policy document.\n");
+    assert.deepEqual(scan().violations.filter(issue => issue.rule === "markdown-inventory-classified").map(issue => issue.file).sort(), [...unknown].sort());
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+}
+
+if (process.argv.length === 3 && process.argv[2] === "--canvas-policy-inventory-only") {
+  testCanvasPolicyInventory();
+  console.log("Canvas policy Markdown inventory: exact README classification and unknown adjacent policy rejection passed.");
+  process.exit(0);
+}
+
 if (process.argv.length === 3 && process.argv[2] === "--local-release-inventory-only") {
   testLocalReleaseInventory();
   console.log("Local release Markdown inventory boundary tests passed.");
   process.exit(0);
 }
+
+testCanvasPolicyInventory();
 
 {
   const repo = makeRepo();

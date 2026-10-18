@@ -2045,7 +2045,12 @@ new policy README had no release-plan classification. Map that exact documentati
 path as validation-only, retain deployment impacts for all imported runtime
 modules, and reject unknown neighboring modules. The Canvas release regression
 and full unpublished-range preflight exercise this boundary; do not bypass the
-backend dependency gate to compensate for an unclassified file.
+backend dependency gate to compensate for an unclassified file. The subsequent
+`0c0aedc4` run passed 29 commands before the Markdown inventory independently
+rejected the same README. New server-side documentation needs both exact release
+impact and inventory classification. The inventory countercheck scans actual
+README bytes and rejects neighboring unreviewed documents. Preserve failed
+checkpoints; cross-source reuse is not authorized by a documentation-only intent.
 
 ### Canvas reasoning deadline and durable receipt recovery — 2026-10-16
 
