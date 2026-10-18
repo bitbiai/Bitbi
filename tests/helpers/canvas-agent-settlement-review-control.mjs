@@ -215,7 +215,27 @@ async function continuationRevalidationCase(base) {
         const price=(await f.db.prepare('SELECT revision FROM model_pricing_state WHERE id=1').first()).revision;
         if(action==='price')await f.db.prepare('UPDATE model_pricing_state SET revision=revision+1 WHERE id=1').run();
         else if(action==='capability')f.env.ENABLE_GROK_4_6='true';
-        else if(action==='cap')await f.db.prepare('UPDATE canvas_agent_runs SET budget_credits=budget_credits-1 WHERE id=?').bind(c.ids.runId).run();
+        else if(action==='cap'){
+            const original=await c.run();
+            await rejected(()=>f.db.prepare('UPDATE canvas_agent_runs SET budget_credits=budget_credits-1 WHERE id=?').bind(c.ids.runId).run(),'canvas_agent_budget_consent_required');
+            equal(await c.run(),original,'A direct cap write is rejected without changing the original authorization');
+            // Fixture an ordinary pending budget decision, then use the actual
+            // authenticated approval route. The consent trigger stays enabled.
+            const requestId=(await sha256Hex(f.owner+':budget-amendment')).slice(0,32),now=new Date().toISOString();
+            await f.db.prepare("UPDATE canvas_agent_runs SET status='paused',phase='budget' WHERE id=?").bind(c.ids.runId).run();
+            await f.db.prepare(`INSERT INTO canvas_agent_budget_requests(id,run_id,reason_key,revision,project_revision,tariff_revision,
+                current_cap,proposed_cap,action_json,resume_status,created_at)
+                VALUES(?,?,'synthetic-cap-amendment',?,?,?,?,?,?,'planning',?)`)
+                .bind(requestId,c.ids.runId,original.budget_revision,original.expected_revision,price,original.budget_credits,
+                    original.budget_credits+1,JSON.stringify({action:'media.generate'}),now).run();
+            const response=await f.request(`${f.route}/${c.ids.runId}/budget`,'POST',{
+                requestId,requestRevision:original.budget_revision,decision:'accept',proposedCapCredits:original.budget_credits+1,expectedRevision:original.expected_revision,
+            },{'Idempotency-Key':'synthetic-cap-amendment-approval'});
+            check(response.ok,'The normal owner approval accepts the synthetic budget amendment');
+            const amended=await c.run();
+            check(amended.budget_credits===original.budget_credits+1&&amended.budget_revision===original.budget_revision+1,
+                'Accepted spending scope has a genuinely different cap and revision');
+        }
         else if(action==='headroom'){
             // A separately accepted briefing allocation shares the real project
             // cap. It is not another production or a fabricated ledger debit.

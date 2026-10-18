@@ -141,6 +141,7 @@ export const SETTLEMENT_BROWSER_PREFLIGHT=Object.freeze({
 export const STORED_PLAN_CONTINUATION=Object.freeze({
   source:'976310e5bb02dd3bd317a1964bd90320f78db3d7',
   run:'976310e5bb02dd3bd317a1964bd90320f78db3d7-5bc79b8e-08f9-44fc-a595-a4ec869b099c',
+  worker:Object.freeze({source:'aee29a0d536c6ed68673da5ba99dc90eb6a1e522',checkpoint:'b1567bccae2088398bacae57caaf0430a9b8cb2d9f06495f9a682846754105d3',report:'bfcba82a6b5526c028749f8d800c526348f8534948676e91ed1562fdfa68a5c8',failed:'1f4bf5fb0f16168312ae2c11370d705a6a893506e2799fea9384f5cf3f9ac52d',guard:'059202981b0cde5e2115300a0609b5e1ff2783ab86ec7e81472236c86dcb390c',helper:'2cce6ac9c6806f214ad635c96e37537b887a1e8c74f984061366c1dbc091da6e'}),
   placement:Object.freeze({source:'946d32c4cb5d35ab4653ed42a035b82a59b495d5',checkpoint:'7568ac5a524c7e7be11d56103d0afb5dcefc5354f617ea77246c8cfe40261b4a',preflight:'05cb0d53f874b72b53bed175cbd428236700b6ea586fd10cdaf092730e7a2f9e',failed:'4970a6841914aebbca609b757c44476b8c8ffed7deb4bb623ed3ccf4b1edbf86'}),
   checkpoint:'1fd347b91a4b2c3fdff267f8a8f06844555d571d36b7ec16ac50478242969ea9',
   reports:Object.freeze({
@@ -169,15 +170,25 @@ export function assertStoredPlanTree(head,read=args=>execFileSync('git',args,{ma
   const p=STORED_PLAN_CONTINUATION;
   const tooling=['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/lib/local-release-browser.mjs','scripts/test-local-release.mjs'];
   const parents=read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/);
-  if(parents[1]===p.placement.source){
+  const worker=parents[1]===p.worker.source,helper='tests/helpers/canvas-agent-settlement-review-control.mjs';
+  if(worker){
+    assert.deepEqual(parents,[head,p.worker.source]);assertStoredPlanTree(p.worker.source,read);
+    const repair=read(['diff','--name-only',p.worker.source,head]).toString().trim().split('\n').filter(Boolean);
+    assert(repair.includes(helper)&&repair.every(file=>tooling.includes(file)||file===helper),'Worker continuation changed unrelated accepted input');
+  }else if(parents[1]===p.placement.source){
     assert.deepEqual(parents,[head,p.placement.source]);assertStoredPlanTree(p.placement.source,read);
     const repair=read(['diff','--name-only',p.placement.source,head]).toString().trim().split('\n').filter(Boolean);
     assert(repair.length&&repair.every(file=>tooling.includes(file)),'Evidence-placement repair changed accepted runtime or test inputs');
   }else assert.deepEqual(parents,[head,p.source],'Stored-plan continuation must preserve the exact accepted-source chain');
   const files=read(['diff','--name-only',p.source,head]).toString().trim().split('\n').filter(Boolean);
   assert(files.length&&files.every(file=>tooling.includes(file)||Object.hasOwn(p.specs,file)),'Unreviewed runtime, test, policy, dependency or frontend change');
-  for(const[file,hash]of Object.entries(p.specs)){assert(files.includes(file),`Missing reviewed change: ${file}`);assert.equal(sha256(read(['show',`${head}:${file}`])),hash,`Changed reviewed input: ${file}`);}
+  for(const[file,hash]of Object.entries(p.specs)){assert(files.includes(file),`Missing reviewed change: ${file}`);assert.equal(sha256(read(['show',`${head}:${file}`])),worker&&file===helper?p.worker.helper:hash,`Changed reviewed input: ${file}`);}
   for(const file of files)assert.match(read(['ls-tree',head,'--',file]).toString(),/^100644 blob /,'Continuation must contain ordinary committed files');
+  if(worker){
+    const before=read(['show',`${p.worker.source}:scripts/test-local-release.mjs`]).toString(),after=read(['show',`${head}:scripts/test-local-release.mjs`]).toString();
+    const entry="if(process.argv.includes('--stored-plan-worker-only')) {\n  assert.deepEqual(process.argv.slice(2),['--stored-plan-worker-only']);\n  await testStoredPlanWorkerContinuation();process.exit(0);\n}\n\n",tail='\nasync function testStoredPlanWorkerContinuation() {';
+    assert.equal(after.split(tail).length,2);assert.equal(after.split(tail)[0].replace(entry,''),before,'Previously accepted release assertions changed');assert(after.endsWith('\nawait testStoredPlanWorkerContinuation();\n'));return;
+  }
   const before=read(['show',`${p.source}:scripts/test-local-release.mjs`]).toString(),after=read(['show',`${head}:scripts/test-local-release.mjs`]).toString();
   const entry="if(process.argv.includes('--stored-plan-only')) {\n  assert.deepEqual(process.argv.slice(2),['--stored-plan-only']);\n  await testStoredPlanContinuation();process.exit(0);\n}\n\n",tail='\nasync function testStoredPlanContinuation() {';
   assert.equal(after.split(tail).length,2,'Missing unique continuation countercheck');assert.equal(after.split(tail)[0].replace(entry,''),before,'Existing release assertions changed');assert(after.endsWith('\nawait testStoredPlanContinuation();\n'));

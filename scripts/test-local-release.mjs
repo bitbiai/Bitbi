@@ -21,6 +21,11 @@ import { LOCAL_IMPORT_REPAIR, assertImportRepairWorkflow, localRepairCommand, ve
 import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,assertPermissionContinuationTree,permissionContinuationPrefix,CANVAS_STAGE_CASES,canvasStageContinuation} from './lib/local-release-evidence.mjs';
 import {testLocalMediaProcess} from './test-local-media-process.mjs';
 
+if(process.argv.includes('--stored-plan-worker-only')) {
+  assert.deepEqual(process.argv.slice(2),['--stored-plan-worker-only']);
+  await testStoredPlanWorkerContinuation();process.exit(0);
+}
+
 if(process.argv.includes('--stored-plan-only')) {
   assert.deepEqual(process.argv.slice(2),['--stored-plan-only']);
   await testStoredPlanContinuation();process.exit(0);
@@ -2235,3 +2240,36 @@ async function testStoredPlanContinuation() {
  console.log('Stored-plan continuation: actual accepted evidence calibrated;1574 Worker/385 native/browser outcomes retained;9 new Worker and7 new native identities mandatory; missing, forged, failed, duplicate and unrelated-source controls rejected.');
 }
 await testStoredPlanContinuation();
+
+async function testStoredPlanWorkerContinuation() {
+ const {STORED_PLAN_CONTINUATION:p,assertStoredPlanTree}=await import('./lib/local-release-browser.mjs');
+ const {verifyStoredPlanWorkerProgress,verifyStoredPlanWorkerUnion,storedPlanCommand,workerDiscovery,parseDiscovery,STORED_PLAN_WORKER_REFRESH}=await import('./lib/local-release-evidence.mjs');
+ const root='.local-release',relative='reuse/test-results/stored-plan-worker-progress';
+ if(!fs.existsSync(path.join(root,relative,'checkpoint.json'))){assert(!process.argv.includes('--stored-plan-worker-only'),'The Worker continuation requires its actual failed-source receipts');return;}
+ const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),read=args=>execFileSync('git',args,{maxBuffer:64*1024*1024});
+ const {partial,passed,failed}=verifyStoredPlanWorkerProgress(root,head);assert.equal(partial.sha,p.worker.source);assert.equal(passed.length,8);assert.equal(failed.length,1);
+ const helper='tests/helpers/canvas-agent-settlement-review-control.mjs';
+ assert.throws(()=>assertStoredPlanTree(head,args=>args[0]==='show'&&args[1]===head+':'+helper?Buffer.from('unreviewed fixture'):read(args)));
+ assert.throws(()=>assertStoredPlanTree(head,args=>args[0]==='diff'&&args[2]===p.worker.source?Buffer.concat([read(args),Buffer.from('workers/auth/src/lib/canvas-agent-graph.js\n')]):read(args)));
+ const old=workerDiscovery(parseDiscovery(fs.readFileSync(path.join(root,'reuse/test-results/stored-plan-origin/test-results/settlement-worker-discovery.json'),'utf8')));
+ // Disposable verifier calibration only: actual acceptance still requires the
+ // separate executed corrected report and complete current --list receipts.
+ const corrected={...failed[0],results:[{status:'passed',retry:0,error:false}]},discovery=[...old,...passed,...failed];
+ assert.deepEqual(verifyStoredPlanWorkerUnion(old,discovery,[...passed,corrected]),{retained:1574,executed:9,required:1583});
+ for(const bad of [passed,[...passed,...failed],[...passed,corrected,passed[0]],[...passed,{...corrected,results:[{status:'passed',retry:1}]}], [...passed,{...corrected,id:'unreviewed'}]])assert.throws(()=>verifyStoredPlanWorkerUnion(old,discovery,bad));
+ assert.throws(()=>verifyStoredPlanWorkerUnion(old,discovery.slice(1),[...passed,corrected]));
+ assert.equal(storedPlanCommand(partial.commands[17].command,{progress:true}),'npm run test:local-release -- --stored-plan-worker-only');
+ const command=storedPlanCommand(partial.commands[41].command,{progress:true});
+ assert(command.includes('--grep "(?:Canvas stored planning settlement continuation-revalidation)$"'));assert(command.includes('--output=test-results/stored-plan-worker-artifacts'));assert(command.includes('--retries=0'));assert(command.includes('stored-plan-worker-corrected.json'));assert(command.includes('--suite canvas-settlement-continuation'));assert(!command.includes('stored-plan-worker-fresh.json'));assert(!command.includes('npm run test:workers'));
+ assert.deepEqual([...STORED_PLAN_WORKER_REFRESH],[2,3,12,17,34,41,43,45]);
+ const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-stored-plan-worker-'));
+ try{
+  const snapshot=path.join(temporary,'proof');fs.cpSync(root,snapshot,{recursive:true});
+  for(const file of ['checkpoint.json','logs/17.log','logs/41.log','test-results/worker-failed.json']){
+   const target=path.join(snapshot,relative,file),bytes=fs.readFileSync(target);fs.writeFileSync(target,'forged');assert.throws(()=>verifyStoredPlanWorkerProgress(snapshot,head));fs.writeFileSync(target,bytes);
+  }
+  assert.equal(verifyStoredPlanWorkerProgress(snapshot,head).passed.length,8);
+ }finally{fs.rmSync(temporary,{recursive:true,force:true});}
+ console.log('Stored-plan Worker continuation: eight actual Linux passes retained; only failed revalidation selected, seven native cases still mandatory; changed source, omitted/failed/retried/duplicate outcomes and forged receipts rejected.');
+}
+await testStoredPlanWorkerContinuation();
