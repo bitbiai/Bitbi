@@ -1870,6 +1870,15 @@ export function verifyStoredPlanNativeProgress(directory,head,previous){
   assert.deepEqual(result.reports[0].records,canvasSettlementRecoveryRetainedInventory.map(name=>({name,status:'PASS'})));assert.deepEqual(result.reports[0].failure,{stage:canvasSettlementRecoveryInventory[0],name:'Error',message:'D1_ERROR: Expression tree is too large (maximum depth 100): SQLITE_ERROR'});
   return {...previous,partial,profile:p,completed,native:result.reports[0].records};
 }
+export const STORED_PLAN_GUARD_REFRESH=new Set([2,3,12,17,29,34,40,41,43,45]);
+export function verifyStoredPlanGuard(directory,head,progress){
+  const p=STORED_PLAN_CONTINUATION.guard,root=path.join(directory,'reuse/test-results/stored-plan-guard');assert.equal(gitBytes(['rev-parse',head+'^']).toString().trim(),p.source);assertStoredPlanTree(head);
+  const bytes=fs.readFileSync(path.join(root,'checkpoint.json'));assert.equal(sha256(bytes),p.checkpoint);const partial=JSON.parse(bytes);assert.equal(partial.sha,p.source);assert.equal(partial.status,'failed');assert.equal(partial.commands.length,46);
+  assert.deepEqual(partial.storedPlanWorkerProgress,{source:progress.profile.source,checkpoint:progress.profile.checkpoint});assert.equal(partial.environment.key,progress.partial.environment.key);assert.equal(partial.nativeBrowsers.key,progress.partial.nativeBrowsers.key);assert.equal(partial.planHash,progress.partial.planHash);
+  const commands=selectedCommands(partial.selection,{GITHUB_SHA:partial.sha,CANDIDATE_BASE:partial.base});assert.equal(commands.length,46);
+  for(let i=0;i<46;i++){const row=partial.commands[i];if([29,34,40,41,43,45].includes(i)){assert.equal(row,null);continue;}assert.deepEqual(row.command,commands[i]);assert.equal(row.exitCode,i===17?1:0);assert.equal(sha256(fs.readFileSync(path.join(root,row.log))),row.logHash);if(!storedPlanFreshIndexes(progress.profile).has(i))assert.deepEqual(row,{...progress.partial.commands[i],command:commands[i],reusedFrom:progress.partial.sha});}
+  assert.equal(partial.commands[17].logHash,p.failed);return partial;
+}
 export function verifyStoredPlanOrigin(directory,head){
   assertStoredPlanTree(head);const origin=path.join(directory,'reuse/test-results/stored-plan-origin');
   const bytes=fs.readFileSync(path.join(origin,'evidence.json'));assert.equal(sha256(bytes),STORED_PLAN_CONTINUATION.checkpoint);
@@ -1964,12 +1973,14 @@ export function verifyStoredPlanContinuation(directory,evidence,commands){
   storedPlanPrefix(fs.readFileSync(path.join(origin,'evidence.json')),{...evidence,commands});
   const progress=evidence.storedPlanWorkerProgress?verifyStoredPlanWorkerProgress(directory,evidence.sha):null;
   if(progress)assert.deepEqual(evidence.storedPlanWorkerProgress,{source:progress.profile.source,checkpoint:progress.profile.checkpoint});
+  const guard=evidence.storedPlanGuard?verifyStoredPlanGuard(directory,evidence.sha,progress):null;if(guard)assert.deepEqual(evidence.storedPlanGuard,{source:STORED_PLAN_CONTINUATION.guard.source,checkpoint:STORED_PLAN_CONTINUATION.guard.checkpoint});
   const placement=evidence.storedPlanPlacement?verifyStoredPlanPlacement(directory,{...evidence,commands},original):null;
   if(placement)assert.deepEqual(evidence.storedPlanPlacement,{source:STORED_PLAN_CONTINUATION.placement.source,checkpoint:STORED_PLAN_CONTINUATION.placement.checkpoint});
   const old=new Map(original.commands.map(row=>[storedPlanKey(row.command),row]));
   for(const[i,command]of commands.entries()){
     const row=evidence.commands[i],before=old.get(storedPlanKey(command));
-    if(progress&&!storedPlanFreshIndexes(progress.profile).has(i))assert.deepEqual(row,{...progress.partial.commands[i],command,reusedFrom:progress.partial.sha},'Changed retained preflight/Worker-prefix receipt');
+    if(guard&&!STORED_PLAN_GUARD_REFRESH.has(i))assert.deepEqual(row,{...guard.commands[i],command,reusedFrom:guard.sha},'Changed shell-verifier retained command');
+    else if(!guard&&progress&&!storedPlanFreshIndexes(progress.profile).has(i))assert.deepEqual(row,{...progress.partial.commands[i],command,reusedFrom:progress.partial.sha},'Changed retained preflight/Worker-prefix receipt');
     else if(placement&&i===0)assert.deepEqual(row,{...placement.commands[0],command,reusedFrom:placement.sha},'Changed passed preflight receipt');
     else if(STORED_PLAN_REFRESH.has(command.name)){assert(!row.reusedFrom);const effective=storedPlanCommand(command,{progress:!!progress,native:!!progress?.native});if(effective!==command.run)assert.equal(row.continuation,effective);else assert(!row.continuation);}
     else assert.deepEqual(row,{...before,command,log:`logs/${i}.log`,reusedFrom:p.source},'Changed retained command receipt');
