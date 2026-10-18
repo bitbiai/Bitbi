@@ -8,7 +8,9 @@ import { CANVAS_AGENT_PLAN_MAX_OUTPUT_TOKENS, CANVAS_AGENT_PLAN_INPUT_MAX_BYTES,
 import { buildServiceAuthHeaders } from '../../../../js/shared/service-auth.mjs';
 import { AI_CALLER_POLICY_VERSION } from '../../../shared/ai-caller-policy.mjs';
 import { readGenerationResponseJson, fetchWithGenerationTimeout } from './generation-timeout.js';
-import { quoteModelTariff, settlePinnedModelTariff } from './model-tariffs.js';
+import { quoteModelTariff, settlePinnedModelTariff, calculateCanvasPlanningSettlementReview } from './model-tariffs.js';
+import { canvasGrokUsageUnits } from '../../../shared/canvas-agent-metering.mjs';
+import { CANVAS_GROK_ADMISSION_VERSION } from '../../../../js/shared/canvas-grok-admission.mjs';
 import { canvasAgentEnvironment, canvasAgentSession } from './canvas-agent-authority.js';
 import { nowIso, sha256Hex } from './tokens.js';
 import { modelAreaEnvironment } from './model-availability.js';
@@ -43,16 +45,16 @@ export function plannerPriceInput(payload) {
     if(new TextEncoder().encode(prompt).byteLength>CANVAS_AGENT_PLAN_INPUT_MAX_BYTES)
         throw Object.assign(new Error('canvas_agent_context_limit'),{code:'canvas_agent_context_limit',status:413});
     return {model:CANVAS_AGENT_MODEL,prompt,system:canvasAgentPlanSystem(payload)+JSON.stringify(CANVAS_AGENT_PLAN_SCHEMA),
-        maxTokens:CANVAS_AGENT_PLAN_MAX_OUTPUT_TOKENS};
+        maxTokens:CANVAS_AGENT_PLAN_MAX_OUTPUT_TOKENS,canvasGrokAdmission:CANVAS_GROK_ADMISSION_VERSION};
 }
 export function evaluationPriceInput() {
-    // Cloudflare documents a 500,000-token context for this exact model, but
-    // does not document a dependable image-token formula. Reserve the entire
-    // possible input context at its >=200k tariff, plus the bounded output.
-    // This is an explicit conservative spending authorization, not actual usage.
+    // Image tokenization and the request output control are not verified hard
+    // billing bounds on this transport. Admission prices the worst feasible
+    // input/output split of the documented context, including long-context rates.
     return {model:CANVAS_AGENT_MODEL,prompt:'Bounded Canvas sampled-frame evaluation v1',
         system:CANVAS_AGENT_EVALUATION_SYSTEM+JSON.stringify(CANVAS_AGENT_EVALUATION_SCHEMA),
-        previewInputTokens:500000-CANVAS_AGENT_EVALUATION_MAX_OUTPUT_TOKENS,maxTokens:CANVAS_AGENT_EVALUATION_MAX_OUTPUT_TOKENS};
+        previewInputTokens:500000-CANVAS_AGENT_EVALUATION_MAX_OUTPUT_TOKENS,maxTokens:CANVAS_AGENT_EVALUATION_MAX_OUTPUT_TOKENS,
+        canvasGrokAdmission:CANVAS_GROK_ADMISSION_VERSION};
 }
 export const quoteCanvasAgentPlan=(env,payload)=>quoteModelTariff(env,{modelId:CANVAS_AGENT_MODEL,input:plannerPriceInput(payload)});
 export async function budgetCanvasAgentPlan(env,run,payload) {
@@ -74,13 +76,35 @@ export async function budgetCanvasAgentPlan(env,run,payload) {
 export const quoteCanvasAgentEvaluation=env=>quoteModelTariff(env,{modelId:CANVAS_AGENT_MODEL,input:evaluationPriceInput()});
 const fail=code=>{throw Object.assign(new Error(code),{code,status:409});};
 
-export async function settleStoredReceipt(env,run,step,result,operation=null) {
+export async function settleStoredReceipt(env,run,step,result,operation=null,{settlementReviewId=null,settlementReviewLeaseToken=null}={}) {
     const row=await env.DB.prepare('SELECT * FROM member_ai_usage_attempts_v2 WHERE id=? AND user_id=?').bind(step.usage_attempt_id,run.user_id).first();
     const metadata=JSON.parse(row?.metadata_json||'{}');
     const durable=operation&&await env.DB.prepare("SELECT id FROM canvas_agent_model_operations WHERE id=? AND step_id=? AND usage_attempt_id=? AND dispatch_token=? AND state='completed' AND receipt_json=?")
         .bind(operation.id,step.id,row?.id||'',row?.dispatch_token||'',JSON.stringify((({request,operationId,...rest})=>rest)(result))).first();
     if(!row||!row.dispatch_token||metadata.canvas_agent?.step_id!==step.id||metadata.canvas_agent?.run_id!==run.id
         ||row.credit_cost!==step.allocation_credits||row.reservation_released_at)fail('canvas_agent_billing_review_required');
+    let reviewedCredits=null;
+    if(settlementReviewId){
+        if(!durable)fail('canvas_agent_settlement_review_invalid');
+        const review=await env.DB.prepare(`SELECT * FROM canvas_agent_settlement_reviews WHERE id=? AND operation_id=?
+            AND run_id=? AND project_id=? AND step_id=? AND usage_attempt_id=? AND user_id=?
+            AND state IN ('approved','settled') AND lease_token=? AND lease_until>?`)
+            .bind(settlementReviewId,operation.id,run.id,run.project_id,step.id,row.id,run.user_id,settlementReviewLeaseToken,nowIso()).first();
+        const calculation=calculateCanvasPlanningSettlementReview(metadata.model_tariff,row.credit_cost,result.usage);
+        if(!review||review.receipt_digest!==await sha256Hex(operation.receipt_json)
+            ||review.response_digest!==await sha256Hex(operation.response_json)
+            ||review.tariff_digest!==await sha256Hex(JSON.stringify(metadata.model_tariff))
+            ||review.input_digest!==operation.input_digest||review.request_id!==operation.request_id
+            ||review.reservation_credits!==row.credit_cost||review.settlement_credits!==calculation.credits
+            ||review.units_json!==JSON.stringify(calculation.units)||review.project_cap_credits!==run.budget_credits
+            ||review.budget_revision!==(run.budget_revision||0))fail('canvas_agent_settlement_review_invalid');
+        reviewedCredits=calculation.credits;
+        if(row.billing_status==='finalized'){
+            const debit=await env.DB.prepare('SELECT amount,ai_dispatch_token FROM member_credit_ledger WHERE user_id=? AND idempotency_key=?')
+                .bind(run.user_id,row.idempotency_key).first();
+            if(debit?.amount!==-reviewedCredits||debit.ai_dispatch_token!==row.dispatch_token)fail('canvas_agent_billing_review_required');
+        }
+    }
     if(row.billing_status!=='finalized') {
         if(row.billing_status!=='reserved'||(!durable&&row.expires_at<=nowIso()))fail('canvas_agent_billing_review_required');
         if(row.provider_outcome==='unknown') {
@@ -99,21 +123,18 @@ export async function settleStoredReceipt(env,run,step,result,operation=null) {
             } else await markMemberAiUsageAttemptFinalizing(env,row.id,{dispatchToken:row.dispatch_token});
         }
         else if(row.provider_outcome!=='succeeded')fail('canvas_agent_billing_review_required');
-        const usage=result.usage;
-        // xAI's documented Grok4.7 envelope can report reasoning outside
-        // completion_tokens; total minus prompt includes that billable output
-        // without double counting providers that include reasoning already.
-        const units=usage&&['input_tokens','output_tokens'].every(key=>Number.isSafeInteger(usage[key])&&usage[key]>=0)
-            &&Number.isSafeInteger(usage.provider?.total_tokens)&&usage.provider.total_tokens>=usage.input_tokens+usage.output_tokens
-            ?{inputToken:usage.input_tokens,outputToken:usage.provider.total_tokens-usage.input_tokens}:undefined;
-        const credits=settlePinnedModelTariff(metadata.model_tariff,row.credit_cost,units);
+        const units=canvasGrokUsageUnits(result.usage);
+        if(!units)fail('canvas_agent_usage_invalid');
+        const credits=reviewedCredits??settlePinnedModelTariff(metadata.model_tariff,row.credit_cost,units);
         if(!Number.isSafeInteger(credits)||credits<1||credits>row.credit_cost)fail('canvas_agent_billing_review_required');
         const charged=await consumeMemberCredits({env,userId:run.user_id,featureKey:row.feature_key,quantity:row.quantity||1,
             credits,idempotencyKey:row.idempotency_key,requestFingerprint:row.request_fingerprint,
             aiDispatchToken:row.dispatch_token,source:'canvas_agent_'+step.kind,
-            metadata:{route:row.route,operation:row.operation_key,model:CANVAS_AGENT_MODEL,pricing_mode:'estimated_upper_bound',canvas_agent_receipt:step.id}});
+            metadata:{route:row.route,operation:row.operation_key,model:CANVAS_AGENT_MODEL,pricing_mode:'estimated_upper_bound',canvas_agent_receipt:step.id,
+                ...(settlementReviewId?{canvas_agent_settlement_review:settlementReviewId}:{})}});
         await markMemberAiUsageAttemptSucceeded(env,row.id,{dispatchToken:row.dispatch_token,model:CANVAS_AGENT_MODEL,resultStatus:'stored',
-            balanceAfter:charged.creditBalance,metadata:{...metadata,canvas_agent_receipt:step.id}});
+            balanceAfter:charged.creditBalance,metadata:{...metadata,canvas_agent_receipt:step.id,
+                ...(settlementReviewId?{canvas_agent_settlement_review:settlementReviewId}:{})}});
     } else if(row.provider_outcome!=='succeeded')fail('canvas_agent_billing_review_required');
     await env.DB.prepare('UPDATE canvas_agent_steps SET status=?,receipt_json=?,updated_at=? WHERE id=? AND usage_attempt_id=?')
         .bind(result.ok?'completed':'rejected',JSON.stringify(result),nowIso(),step.id,row.id).run();
@@ -155,6 +176,7 @@ export async function executeCanvasAgentModel(env,run,step,user,suppliedPayload)
     };
     if(operation)return observe();
     if(step.status!=='ready')fail('canvas_agent_planning_review_required');
+    if(step.kind==='plan'&&run.purpose!=='briefing')await (await import('./canvas-agent-repair.js')).assertCanvasAgentPlanningAllowed(env,run);
     const phase=kind==='dialogue'?'briefing':step.kind==='evaluate'?'evaluation':payload.repair?'correction':'planning';
     const version=kind==='dialogue'?(payload.version===1?'canvas-policy-1':CANVAS_AGENT_POLICY_VERSION):payload.policy?.version;
     let effectivePolicy;try { effectivePolicy=await canvasAgentPolicyIdentity(phase,version); } catch { fail('canvas_agent_policy_review_required'); }

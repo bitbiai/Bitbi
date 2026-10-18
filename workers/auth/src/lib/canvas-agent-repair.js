@@ -4,7 +4,17 @@ import { CANVAS_AGENT_MODEL } from '../../../../js/shared/canvas-agent-contract.
 import { nowIso,sha256Hex } from './tokens.js';
 import { appendCanvasAgentEvent,markCanvasAgentProposal } from './canvas-agent-progress.js';
 
+export async function assertCanvasAgentPlanningAllowed(env,run,issues=[]) {
+    // Reviewing an already accepted answer authorizes its settlement and the
+    // original film, not another paid planning/correction request. Keep this
+    // fence on the run after recovery so preflight or visual review cannot
+    // silently spend on a replacement answer.
+    const review=await env.DB.prepare('SELECT operation_id FROM canvas_agent_settlement_reviews WHERE run_id=? AND allow_new_reasoning=0 LIMIT 1').bind(run.id).first();
+    if(review)throw Object.assign(new Error('canvas_agent_recovered_plan_requires_review'),{code:'canvas_agent_recovered_plan_requires_review',status:409,issues:issues.slice(0,16)});
+}
+
 export async function prepareCanvasAgentCorrection(env,run,view,inventory,step,plan,issues) {
+    await assertCanvasAgentPlanningAllowed(env,run,issues);
     if((run.repair_attempts||0)>=2)return {queued:false,reason:'attempt_limit'};
     const attempt=(run.repair_attempts||0)+1;
     const id=(await sha256Hex(`canvas-agent-preflight-repair:${run.id}:${attempt}`)).slice(0,32);

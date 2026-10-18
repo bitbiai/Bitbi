@@ -173,7 +173,7 @@ export async function canvasAgentApiCase(base) {
 // Reuses an owned media fixture while exercising the real signed AI Worker,
 // member credit gateway, durable queue, guarded graph writes and export routes.
 // processor is a caller-owned real FFmpeg executor; no browser drives the run.
-export async function finishCanvasAgentFixture({ f, processor, targetSeconds = 16, order = f.order, generate = false, planOverride = null, stopAtExport = false, stopBeforeEvaluation = false, budgetCredits = 5000, beforeTurn = () => {}, legacyProjectionGap = false, evaluationRejectCount = 0, expectedTerminal = null,deliverGeneration=null, admittedRunId=null }) {
+export async function finishCanvasAgentFixture({ f, processor, targetSeconds = 16, order = f.order, generate = false, planOverride = null, stopAtExport = false, stopBeforeEvaluation = false, budgetCredits = 5000, beforeTurn = () => {}, legacyProjectionGap = false, evaluationRejectCount = 0, expectedTerminal = null,deliverGeneration=null, admittedRunId=null,recoveredPlanning=false }) {
   const aiWorker = (await import('../../workers/ai/src/index.js')).default;
   const plannerCalls = [], evaluationCalls = [], callbacks = [], providerBaseline = f.calls.length;
   const oldAiLab = f.env.AI_LAB,oldProviderFetch=f.env.__TEST_FETCH; let rejectedNode = null;
@@ -227,10 +227,16 @@ export async function finishCanvasAgentFixture({ f, processor, targetSeconds = 1
   let runId=admittedRunId;
   if(runId) {
     const admitted=await f.db.prepare('SELECT * FROM canvas_agent_runs WHERE id=? AND project_id=? AND user_id=?').bind(runId,f.project,f.owner).first();
-    check(admitted?.status==='queued'&&admitted.expected_revision===before.project.revision&&admitted.target_seconds===targetSeconds,
+    check(admitted?.status===(recoveredPlanning?'planning':'queued')&&admitted.expected_revision===before.project.revision&&admitted.target_seconds===targetSeconds,
       'Conversational handoff must already have admitted this exact project, revision and duration');
     check(admitted.budget_credits===budgetCredits,'Conversational handoff retains the explicitly authorized production cap');
+    if(recoveredPlanning){
+      const recovered=await f.db.prepare(`SELECT s.id FROM canvas_agent_settlement_reviews v JOIN canvas_agent_steps s ON s.id=v.step_id
+        WHERE v.run_id=? AND v.state='completed' AND v.allow_new_reasoning=0 AND s.status='completed'`).bind(runId).first();
+      check(recovered&&!evaluationRejectCount,'Recovered fixture must reuse an audited completed original plan, without a new correction');
+    }
   } else {
+    check(!recoveredPlanning,'Recovery cannot start a replacement production');
     const response = await f.request(f.projectPath + '/agent', 'POST', { brief: `Create this ${targetSeconds} second film with editable sources.`, targetDurationSeconds: targetSeconds,
       expectedRevision: before.project.revision, budgetCredits }, { 'Idempotency-Key': 'native-agent-production-start', 'X-Bitbi-Tariff-Revision': String(revision) });
     const started = await response.json(); check(response.status === 202, `Agent production admission: ${response.status}/${started.code}`);
@@ -280,7 +286,7 @@ export async function finishCanvasAgentFixture({ f, processor, targetSeconds = 1
     }
   }
   check(current.status === (expectedTerminal || (evaluationRejectCount > 1 ? 'review_required' : stopBeforeEvaluation ? 'running' : stopAtExport ? 'exporting' : 'completed')), `Agent did not reach bounded target state: ${current.status}`);
-  check(plannerCalls.length === (evaluationRejectCount ? 2 : 1), 'Only explicitly authorized planning/repair rounds occur');
+  check(plannerCalls.length === (recoveredPlanning ? 0 : evaluationRejectCount ? 2 : 1), 'Only explicitly authorized planning/repair rounds occur');
   check(f.calls.length - providerBaseline === (expectedTerminal ? 1 : expectedGeneration + (evaluationRejectCount ? 1 : 0)), `Only planned generation/variant is submitted: ${f.calls.length - providerBaseline}/${expectedGeneration}`);
   const after = await f.readProject();
   check(JSON.stringify(after.project.assembly.clips.map(clip => clip.nodeId)) === JSON.stringify(expectedOrder), 'Real persisted assembly matches the plan');

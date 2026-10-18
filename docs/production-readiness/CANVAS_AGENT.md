@@ -54,7 +54,8 @@ empty conversation; old activity is not fabricated into dialogue.
 Context contains the current brief, at most six recent completed exchanges,
 selected current-project node facts and current production state. Older messages
 are omitted first to stay within 64 KiB; incomplete replies never update the brief.
-An 80-turn bound and a 4,096-token output ceiling constrain inference. Prompt,
+An 80-turn bound and a 4,096-token completion request control constrain dialogue.
+The request control is not treated as a verified billable-output ceiling. Prompt,
 schema and selected instructions are shared between quoting and actual dispatch.
 The versioned typed response permits text, creative proposals and up to four narrowly typed action proposals. Proposals do not grant execution or spending authority. Duration is admitted
 from user input or an explicit control, not a model-proposed memory field.
@@ -259,11 +260,71 @@ generation retains its separate explicit user authorization. Planner context
 contains the cap, actual charges, reservations, commitments, remaining headroom
 and its prospective planning ceiling. Tariff changes require renewed admission.
 Planning and sampled-frame evaluation use the pinned tariff and reported usage.
-Evaluation reserves the documented maximum context because no dependable image
-token formula has been verified; this ceiling is **not** reported as actual spend.
+New Grok requests reserve the worst feasible input/output split of the documented
+context, including reasoning and the long-context price tier; this ceiling is
+**not** reported as actual spend. Image input also retains its conservative context bound.
 If that optional review cannot fit, the assistant explicitly reports technical
 validation only; it does not claim visual approval. Final technical checks remain
 mandatory.
+
+### Grok planning metering and settlement review
+
+The scoped operator entrypoint is
+`node scripts/canvas-planning-settlement-review.mjs --input /private/target.json --output /private/preview.json`.
+Its default is read-only. The private input contains the exact `userId`,
+`projectId`, `runId`, `stepId`, `operationId`, `usageAttemptId`, `expectedSource`
+(full serving commit), `expectedSchema` (current release contract),
+`originalReservationCredits` and `projectCapCredits`. Do not commit this file.
+It must be outside the repository with owner-only file permissions. The command
+silently captures existing Wrangler authorization; no new secret is needed.
+
+Only an explicitly authorized recovery adds `--execute`, the preview's
+`reviewDigest`, a bounded nonsecret `actor` and `authorizationRef`, and a new
+private output path. The command verifies clean matching runtime source, both
+serving Worker versions and D1 schema before invoking the same billing service.
+It saves before/after evidence and never repeats an uncertain HTTP mutation.
+Inspect the persisted original identities before retrying the same approval.
+Successful accounting can produce `continuationStatus:held` if authority changed;
+that is not permission to renew, edit, restart or increase the budget. The service
+leaves wake-up to existing scheduled processing and prohibits new paid planning
+for the reviewed run. It has no browser or agent-tool endpoint.
+
+[`canvas-agent-metering.mjs`](../../workers/shared/canvas-agent-metering.mjs)
+validates the original usage components before settlement. Cloudflare's
+[Grok 4.7 examples](https://developers.cloudflare.com/ai/models/xai/grok-4.7/)
+report completion and reasoning separately; an inclusive completion is accepted
+only when the exact total proves that encoding. Missing, negative, contradictory
+or unsupported metering requires review. Reasoning is never dropped, counted
+twice or clipped to a requested limit. Existing cached-input pricing is unchanged.
+[xAI documents reasoning at the completion rate](https://docs.x.ai/developers/advanced-api-usage/prompt-caching/usage-and-pricing).
+
+The versioned [`canvas-grok-admission.mjs`](../../js/shared/canvas-grok-admission.mjs)
+policy separates the unchanged completion request controls (planning/correction
+16,384; briefing 4,096; evaluation 2,048) from credit admission. The
+[background transport documentation](https://developers.cloudflare.com/ai-gateway/usage/rest-api/#background-requests-and-webhooks)
+does not establish enforcement of those controls, and
+[xAI publishes no separate text-output limit](https://docs.x.ai/developers/grok-4-7).
+New quotes therefore cover the most expensive feasible token split within the
+500,000-token model context and the existing composed-input bound. Factory and
+custom retail rates use their own worst split; rates, conversion and margin do
+not change. This is conservative admission, not proof that a provider can never
+violate its resource contract. A higher quote requires sufficient explicit
+allowance or project authorization; it never raises an existing cap. Normalized
+receipts retain bounded request-control diagnostics without prompt/response text.
+Immediate-start quotes bind this admission version as well as the tariff. An
+unstarted legacy quote requires fresh approval; already started intents retain
+their original replay identities and accepted usage.
+
+Historical quotes and accepted request identities are immutable. A stored
+successful planning answer that exceeded its historical token estimate remains
+review-required until an explicitly authorized settlement review verifies its
+response/receipt digests, original tariff, ownership and unchanged monetary
+reservation. Reviewed settlement must fit that original reservation; otherwise
+the operation reports the exact additional authorization required. Review uses
+the existing ledger and original idempotency identity, preserves exhausted retry
+history and never repeats the planning inference. Accounting for accepted work
+does not renew production authority: continuation still checks cancellation,
+expiry, takeover, project/brief revisions and ordinary plan preflight.
 
 A necessary increase pauses before new commitment and shows the affected action,
 additional maximum and exact new ceiling. Accept/Decline bind to the request,

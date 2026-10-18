@@ -212,7 +212,17 @@ export async function prepareCanvasAgentGraph(env,run,view,inventory,rawPlan,rep
     statements.push(env.DB.prepare(`INSERT INTO canvas_agent_steps(id,run_id,step_key,kind,input_json,allocation_credits,created_at,updated_at) VALUES(?,?,?,'evaluate',?,?,?,?)`).bind(evaluation.id,run.id,evaluation.key,JSON.stringify(evaluation.input),evaluation.credits,now,now));
     statements.push(env.DB.prepare('UPDATE canvas_projects SET assembly_json=?,workspace_width=MAX(workspace_width,2400),workspace_height=MAX(workspace_height,?),updated_at=? WHERE id=? AND user_id=?').bind(JSON.stringify(assembly),Math.max(1600,Math.ceil(changes.length/5)*380+600),now,run.project_id,run.user_id),
         env.DB.prepare(`UPDATE canvas_agent_runs SET status='running',rounds=rounds+1,phase='generating',plan_json=?,target_seconds=?,expected_revision=(SELECT revision FROM canvas_projects WHERE id=?),updated_at=? WHERE id=? AND lease_token=?`).bind(JSON.stringify(plan),plan.assembly.targetDurationSeconds,run.project_id,now,run.id,run.lease_token));
-    await env.DB.batch(statements);
+    try {await env.DB.batch(statements);}
+    catch(error){
+        // D1 may have committed this atomic graph while its response was lost.
+        // Observe the exact same application instead of inserting it again or
+        // replacing a successful run with the caller's stale error state.
+        const applied=await env.DB.prepare(`SELECT r.status,r.lease_token,r.rounds,r.plan_json,r.expected_revision,p.revision
+            FROM canvas_agent_runs r JOIN canvas_projects p ON p.id=r.project_id
+            WHERE r.id=? AND r.user_id=? AND r.project_id=?`).bind(run.id,run.user_id,run.project_id).first();
+        if(applied?.status!=='running'||applied.lease_token!==run.lease_token||applied.rounds!==run.rounds+1
+            ||applied.plan_json!==JSON.stringify(plan)||applied.expected_revision!==applied.revision)throw error;
+    }
     return {plan,steps,assembly,repairs:checked.repairs,costs:checked.costs,plannedDurationSeconds:checked.plannedDurationSeconds};
 }
 

@@ -596,6 +596,12 @@ export async function runCanvasTests(f) {
     const result=await response.json();assert.equal(result.case,name);f.metrics.push(result);
     assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
   });
+  for(const name of ['exact','unrelated','concurrent','debit-crash','graph-crash','cancelled','expired','taken-over','edited','invalid-plan','usage-invalid','raw-usage-contract','over-reservation','identity']) await f.test(`canvas_planning_settlement_${name.replaceAll('-','_')}`,async()=>{
+    const response=await f.control('/canvas-agent-settlement-review',{name});
+    assert.equal(response.status,200,await response.clone().text());
+    const result=await response.json();assert.equal(result.case,name);assert.equal(result.planningCalls,0);
+    f.metrics.push(result);assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
+  });
   for (const path of ['/canvas-agent-preflight', '/canvas-assembly', '/canvas-inspection', '/canvas-agent-dispatch', '/canvas-agent-capabilities', '/canvas-agent-late-completion','/canvas-agent-unknown-provider']) await f.test('canvas_native' + path.replaceAll('-', '_').replace('/', '_'), async () => {
     const response = await f.control(path, {
       videoBase64: fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4', import.meta.url)).toString('base64'),
@@ -636,7 +642,7 @@ export async function runCanvasTests(f) {
     const result=await response.json();assert.equal(result.case,name);f.metrics.push(result);
     assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
   });
-  for(const name of ['immediate','delegation','waiting','unknown-waiting','cancel-waiting','stale-project','stale-brief','stale-price','consent-isolation','concurrent-approval','natural-start','button-chat-race','emergency','saved-brief','clear-intent','quote-evaluation'])await f.test('canvas_natural_chat_native_'+name,async()=>{
+  for(const name of ['immediate','delegation','waiting','unknown-waiting','cancel-waiting','stale-project','stale-brief','stale-price','consent-isolation','concurrent-approval','natural-start','button-chat-race','emergency','saved-brief','clear-intent','quote-evaluation','stale-metering-quote'])await f.test('canvas_natural_chat_native_'+name,async()=>{
     const response=await f.control('/canvas-natural-chat',{name});
     assert.equal(response.status,200,await response.clone().text());
     const result=await response.json();assert.equal(result.case,name);f.metrics.push(result);

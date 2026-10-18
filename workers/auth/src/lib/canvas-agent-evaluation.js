@@ -9,6 +9,7 @@ import { nowIso,sha256Hex } from './tokens.js';
 import { appendCanvasAgentEvent } from './canvas-agent-progress.js';
 import { requestCanvasAgentBudget } from './canvas-agent-budget.js';
 import { canvasAgentPolicyIdentity } from '../../../shared/canvas-agent/manifest.mjs';
+import { assertCanvasAgentPlanningAllowed } from './canvas-agent-repair.js';
 
 // A small, explicitly limited sample of the first, middle and final shots. The
 // normal private processor owns frame decoding; no browser remains involved.
@@ -60,6 +61,7 @@ export async function evaluateCanvasAgent(env,run,view,user) {
 }
 
 export async function prepareCanvasAgentImprovement(env,run,view,evaluation) {
+    await assertCanvasAgentPlanningAllowed(env,run);
     if(run.rounds>=CANVAS_AGENT_LIMITS.maxEvaluations)agentFail('canvas_agent_quality_review_required');
     const affected=new Set(evaluation.issues.map(issue=>issue.nodeId));
     // Regenerate only the rejected shots and their actual generation dependents.

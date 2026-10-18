@@ -12,6 +12,8 @@ import { canonicalPricingModel, mediaTariffBasis, tariffConfiguration, FACTORY_T
 import { isGptImage25Model, normalizeGptImage25Options } from './gpt-image-25-contract.mjs';
 import { gptImage25FactoryPrice, isGptImage25PricingAvailable } from './gpt-image-25-pricing.mjs';
 import { creditsForProviderCostUsd } from './model-credit-pricing.mjs';
+import { CANVAS_GROK_ADMISSION_VERSION, CANVAS_GROK_CONTEXT_TOKENS, CANVAS_GROK_LONG_CONTEXT_THRESHOLD,
+    canvasGrokAdmissionPricePoints } from './canvas-grok-admission.mjs';
 
 export function modelPricingCatalog() {
     const canvas = listCanvasModels(), members = getMemberExposedModels(), byId = new Map();
@@ -46,6 +48,8 @@ export function modelFactoryPrice(modelId, input = {}, { credits, context = 'can
     const model = modelPricingCatalog().find(item => item.id === canonicalPricingModel(modelId));
     if (!model) throw new TypeError('Unknown model.');
     input = { ...input };
+    if (input.canvasGrokAdmission !== undefined && (model.id !== 'xai/grok-4.7'
+        || input.canvasGrokAdmission !== CANVAS_GROK_ADMISSION_VERSION)) throw new TypeError('Invalid Canvas Grok admission policy.');
     if (model.id === SEEDANCE_25_MODEL) {
         const price = input.inputTier === undefined ? seedance25FactoryPrice(input) : seedance25FactoryPriceForTier(input, input.inputTier);
         return { model, price, basis: mediaTariffBasis(price, 'video', input) };
@@ -72,6 +76,19 @@ export function modelFactoryPrice(modelId, input = {}, { credits, context = 'can
         if (!Number.isSafeInteger(outputTokens) || outputTokens > 200_000) throw new TypeError('Invalid token limit.');
         const rates = model.tokenRates;
         if(model.id==='xai/grok-4.7'&&(!Number.isSafeInteger(inputTokens)||inputTokens+outputTokens>500000))throw new TypeError('Invalid Grok 4.7 context bound.');
+        if (input.canvasGrokAdmission === CANVAS_GROK_ADMISSION_VERSION) {
+            if (outputTokens > model.controls.maxTokens.max) throw new TypeError('Invalid Canvas Grok request control.');
+            const cost = units => (units.inputToken * rates.input + units.outputToken * rates.output) / 1e6
+                * rates.fundingMultiplier * (units.inputToken >= CANVAS_GROK_LONG_CONTEXT_THRESHOLD ? 2 : 1);
+            const units = canvasGrokAdmissionPricePoints(inputTokens).reduce((worst, point) => !worst || cost(point) > cost(worst) ? point : worst, null);
+            const providerCostUsd = cost(units);
+            const canvasGrokAdmission = { version: CANVAS_GROK_ADMISSION_VERSION, contextTokens: CANVAS_GROK_CONTEXT_TOKENS,
+                inputTokenBound: inputTokens, requestMaxCompletionTokens: outputTokens };
+            return { model, canvasGrokAdmission, price: { modelId: model.id, credits: creditsForProviderCostUsd(providerCostUsd), providerCostUsd,
+                normalized: {}, formula: { billingMode: 'context_reservation', pricingVersion: FACTORY_TARIFF_VERSION,
+                    admissionVersion: CANVAS_GROK_ADMISSION_VERSION, requestLimitEnforcement: 'unverified_background_transport' } },
+                basis: { configuration: {}, units } };
+        }
         const contextRateMultiplier=model.id==='xai/grok-4.7'&&inputTokens>=200000?2:1;
         const providerCostUsd = rates && Number.isFinite(rates.input) && Number.isFinite(rates.output ?? 0)
             ? (inputTokens * rates.input + outputTokens * (rates.output || 0)) / 1e6 * (rates.fundingMultiplier || 1)*contextRateMultiplier : null;

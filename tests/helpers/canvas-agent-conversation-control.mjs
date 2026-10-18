@@ -36,7 +36,9 @@ export async function attachCanvasConversation(f,{locale='en',scope='conversatio
   const data=async response=>{const body=await response.json();check(response.ok,`Conversation API ${response.status}/${body.code||'unknown'}`);return body.data;};
   const read=async()=>(await data(await f.request(route))).conversation;
   const post=async(suffix,body,id=key(suffix))=>f.request(route+suffix,'POST',body,{'Idempotency-Key':id,'X-Bitbi-Tariff-Revision':String((await getModelTariff(f.env)).revision)});
-  const approve=async(capCredits=200)=>{const c=await read();return data(await post('/allowance',{capCredits,expectedConversationRevision:c.revision}));};
+  // Explicit synthetic authorization covers one conservative context reservation
+  // plus this fixture's small settled exchanges; it does not change real limits.
+  const approve=async(capCredits=3000)=>{const c=await read();return data(await post('/allowance',{capCredits,expectedConversationRevision:c.revision}));};
   const send=async(text,{id=key('message'),body}={})=>{
     const c=await read(),input=body||{text,locale,expectedConversationRevision:c.revision,expectedBriefRevision:c.briefRevision};
     const response=await post('/messages',input,id);
@@ -138,6 +140,12 @@ export async function canvasConversationCase(base,name) {
       return {case:name,pausedCapPreserved:true,providerCalls:1,debits:1};
     }
     if(name==='briefing') {
+      await c.approve(200);
+      const underfunded=await c.send('A comic film about Amish builders, a neighboring duck pool and visiting friends.');
+      await responseCode(underfunded.response,402,'canvas_agent_briefing_allowance_required');
+      check(c.calls.length===0&&await count('SELECT COUNT(*) AS n FROM canvas_agent_turns WHERE project_id=?',f.project)===0,
+        'The historical small allowance cannot silently authorize the new context reservation');
+      await c.approve();
       const before=await projectRevision(),sent=await c.send('A comic film about Amish builders, a neighboring duck pool and visiting friends.');
       await responseCode(sent.response,202);
       const pending=await c.read();check(pending.pendingTurnId&&pending.messages[1].status==='pending'&&c.calls.length===0,'A pending turn survives a read before durable execution');

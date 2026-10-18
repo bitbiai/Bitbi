@@ -62,7 +62,7 @@ test('Canvas natural-chat migration preserves paid identities and saved conversa
   } finally {DB.close();}
 });
 
-for(const name of ['immediate','delegation','waiting','unknown-waiting','cancel-waiting','stale-project','stale-brief','stale-price','consent-isolation','concurrent-approval','natural-start','button-chat-race','emergency','saved-brief','clear-intent','quote-evaluation'])test(`Canvas natural chat ${name} uses the existing durable production authority`,async()=>{
+for(const name of ['immediate','delegation','waiting','unknown-waiting','cancel-waiting','stale-project','stale-brief','stale-price','consent-isolation','concurrent-approval','natural-start','button-chat-race','emergency','saved-brief','clear-intent','quote-evaluation','stale-metering-quote'])test(`Canvas natural chat ${name} uses the existing durable production authority`,async()=>{
   const DB=new SqliteD1Database();applyAuthMigrations(DB);
   try{
     const {canvasNaturalCase}=await import('./helpers/canvas-agent-natural-control.mjs');

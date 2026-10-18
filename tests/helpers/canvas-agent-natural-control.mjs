@@ -48,7 +48,7 @@ export async function verifyCanvasNaturalChatMigration(env,seed){
   return {originalDebit:78,originalConversationPreserved:true,newAuthorizations:0};
 }
 
-export const CANVAS_NATURAL_CASES=['immediate','delegation','waiting','unknown-waiting','cancel-waiting','stale-project','stale-brief','stale-price','consent-isolation','concurrent-approval','natural-start','button-chat-race','emergency','saved-brief','clear-intent','quote-evaluation'];
+export const CANVAS_NATURAL_CASES=['immediate','delegation','waiting','unknown-waiting','cancel-waiting','stale-project','stale-brief','stale-price','consent-isolation','concurrent-approval','natural-start','button-chat-race','emergency','saved-brief','clear-intent','quote-evaluation','stale-metering-quote'];
 const bee='Ein 45 Sekunden Film über eine Biene, die in eine Fabrik fliegt.';
 async function expected(response,status,code){const body=await response.json();check(response.status===status&&(!code||body.code===code),`Expected ${status}/${code||'ok'}, received ${response.status}/${body.code||'ok'}`);return body.data||body;}
 export async function canvasNaturalCase(base,name){
@@ -62,6 +62,39 @@ export async function canvasNaturalCase(base,name){
  };
  const approval=intent=>({intentId:intent.id,intentRevision:intent.revision,capCredits:intent.quote.proposedCapCredits,authorized:true,expectedRevision:intent.expectedRevision,expectedBriefRevision:intent.expectedBriefRevision});
  try {
+  if(name==='stale-metering-quote'){
+   const {CANVAS_GROK_ADMISSION_VERSION}=await import('../../js/shared/canvas-grok-admission.mjs');
+   const start=await immediate(),quote=structuredClone(start.intent.quote),oldApproval=approval(start.intent);
+   check(quote.canvasGrokAdmission===CANVAS_GROK_ADMISSION_VERSION,'The displayed current quote binds the actual metering admission version');
+   delete quote.canvasGrokAdmission;
+   await f.db.prepare('UPDATE canvas_agent_start_intents SET quote_json=? WHERE id=?').bind(JSON.stringify(quote),start.intent.id).run();
+   await expected(await c.post('/immediate/approve',oldApproval),409,'model_pricing_stale');
+   check(await productionCount()===0&&c.calls.length===0,'Unchanged tariff revision cannot make a legacy quote authorize new inference');
+   const legacy=await f.db.prepare('SELECT * FROM canvas_agent_start_intents WHERE id=?').bind(start.intent.id).first();
+   check(legacy.authorization_json===null,'Rejected legacy approval creates no spending authority');
+   const oldAuthorization={capCredits:quote.proposedCapCredits,tariffRevision:quote.tariffRevision,scope:legacy.scope_json};
+   await f.db.prepare("UPDATE canvas_agent_start_intents SET state='authorized',authorization_json=? WHERE id=?").bind(JSON.stringify(oldAuthorization),legacy.id).run();
+   await expected(await c.post('/immediate/approve',oldApproval),409,'model_pricing_stale');
+   await f.atClock(()=>worker.queue({queue:'bitbi-ai-video-jobs',messages:[0,1].map(()=>({body:{type:'canvas_agent.process',intent_id:legacy.id},attempts:1,ack(){},retry(){throw new Error('Stale consent is not retry authority');}}))},f.env,{waitUntil(){throw new Error('No detached work');}}));
+   const blocked=(await c.read()).immediateIntent;
+   check(blocked.state==='blocked'&&blocked.code==='model_pricing_stale'&&await productionCount()===0,'Durable duplicate delivery blocks a pre-release unstarted authorization before production admission');
+   await expected(await c.post('/immediate/control',{intentId:blocked.id,intentRevision:blocked.revision,action:'cancel'}),200);
+   const refreshed=await immediate(bee,'natural-current-metering-quote');
+   check(refreshed.intent.id!==legacy.id&&refreshed.intent.quote.canvasGrokAdmission===CANVAS_GROK_ADMISSION_VERSION,'Existing cancel/start controls provide a fresh reviewable quote without paid work');
+   const approved=approval(refreshed.intent);await expected(await c.post('/immediate/approve',approved),202);
+   const started=await f.db.prepare('SELECT * FROM canvas_agent_start_intents WHERE id=?').bind(refreshed.intent.id).first();
+   const before=await f.db.prepare('SELECT * FROM canvas_agent_runs WHERE id=?').bind(started.run_id).first();
+   const steps=(await f.db.prepare('SELECT * FROM canvas_agent_steps WHERE run_id=? ORDER BY id').bind(started.run_id).all()).results;
+   check(JSON.parse(started.authorization_json).canvasGrokAdmission===CANVAS_GROK_ADMISSION_VERSION,'New spending approval is bound to the displayed version');
+   const historicalQuote=JSON.parse(started.quote_json),historicalAuthorization=JSON.parse(started.authorization_json);
+   delete historicalQuote.canvasGrokAdmission;delete historicalAuthorization.canvasGrokAdmission;
+   await f.db.prepare('UPDATE canvas_agent_start_intents SET quote_json=?,authorization_json=? WHERE id=?').bind(JSON.stringify(historicalQuote),JSON.stringify(historicalAuthorization),started.id).run();
+   await expected(await c.post('/immediate/approve',approved),202);
+   check(await productionCount()===1&&c.calls.length===0,'A started historical intent replays its original production without new inference');
+   check(JSON.stringify(await f.db.prepare('SELECT * FROM canvas_agent_runs WHERE id=?').bind(started.run_id).first())===JSON.stringify(before)
+    &&JSON.stringify((await f.db.prepare('SELECT * FROM canvas_agent_steps WHERE run_id=? ORDER BY id').bind(started.run_id).all()).results)===JSON.stringify(steps),'Started replay preserves exact accepted run and step bytes');
+   return {case:name,providerCalls:0,productions:1};
+  }
   if(name==='quote-evaluation'){
    const start=await immediate(),quote=start.intent.quote,{quoteCanvasAgentEvaluation}=await import('../../workers/auth/src/lib/canvas-agent-planning.js'),existing=await quoteCanvasAgentEvaluation(f.env);
    check(Number.isSafeInteger(existing.credits)&&existing.credits>0&&quote.evaluationCredits===existing.credits,'The displayed review allocation uses the current ordinary evaluation tariff ceiling');

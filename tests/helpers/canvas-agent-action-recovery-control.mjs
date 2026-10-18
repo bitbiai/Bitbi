@@ -13,7 +13,7 @@ export async function canvasActionRecoveryCase(base,name){
   await c.deliver();await c.complete({text:'I requested the change.',actions});await c.deliver();return (await c.read()).actions;
  };
  try{
-  await c.approve(2000);
+  await c.approve(3000);
   if(name==='late-stop'){
    await c.exchange('A 45 second film about bees in a factory.',{fields:{story:'Bees in a factory'}});
    const node=(await f.data(await f.request(f.projectPath+'/nodes','POST',{type:'note',content:{text:'manual decision'}}))).node;

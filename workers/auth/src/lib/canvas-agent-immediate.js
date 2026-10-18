@@ -1,6 +1,7 @@
 import { CANVAS_AGENT_LIMITS,CANVAS_AGENT_MODEL,resolveCanvasAgentDuration } from '../../../../js/shared/canvas-agent-contract.mjs';
 import { getCanvasModelForRole } from '../../../../js/shared/canvas-model-contract.mjs';
 import { stablePricingJson,TARIFF_HEADER } from '../../../../js/shared/model-tariff.mjs';
+import { CANVAS_GROK_ADMISSION_VERSION } from '../../../../js/shared/canvas-grok-admission.mjs';
 import { nowIso,randomTokenHex,sha256Hex } from './tokens.js';
 import { agentFail,publicAgentRun,CANVAS_AGENT_MESSAGE } from './canvas-agent-store.js';
 import { canvasAgentProject,plannerProject,startCanvasAgent } from '../routes/canvas-agent.js';
@@ -114,7 +115,7 @@ async function quoteImmediate(env,intent,scope,view){
  const estimatedMediaCredits=selected.credits+extras,proposedCapCredits=priced.budget.committedCredits+3*priced.credits+estimatedMediaCredits+evaluation.credits;
  if(proposedCapCredits>CANVAS_AGENT_LIMITS.maxBudgetCredits)agentFail('canvas_agent_budget_exceeded');
  return {proposedCapCredits,planningCredits:priced.credits,evaluationCredits:evaluation.credits,estimatedMediaCredits,committedCredits:priced.budget.committedCredits,
-  tariffRevision:inventory.tariffRevision,scope:{brief:scope.brief,targetDurationSeconds:scope.targetDurationSeconds,durationChoice:scope.durationChoice,
+  tariffRevision:inventory.tariffRevision,canvasGrokAdmission:CANVAS_GROK_ADMISSION_VERSION,scope:{brief:scope.brief,targetDurationSeconds:scope.targetDurationSeconds,durationChoice:scope.durationChoice,
    estimatedSeconds,estimateModelId:selected.modelId,estimatedClips:selected.clips,includesPlanningAttempts:3,includesEvaluations:1},
   expectedRevision:scope.projectRevision,expectedBriefRevision:scope.briefRevision};
 }
@@ -171,6 +172,7 @@ export async function advanceCanvasImmediateIntent(env,id){
   }else{
    const authorization=JSON.parse(intent.authorization_json||'null'),quote=JSON.parse(intent.quote_json||'null');
    if(!authorization||authorization.scope!==intent.scope_json||authorization.tariffRevision!==quote?.tariffRevision)agentFail('canvas_agent_production_consent_required');
+   if(quote.canvasGrokAdmission!==CANVAS_GROK_ADMISSION_VERSION||authorization.canvasGrokAdmission!==quote.canvasGrokAdmission)agentFail('model_pricing_stale');
    if((await getModelTariff(env)).revision!==authorization.tariffRevision)agentFail('model_pricing_stale');
    const body={brief:scope.brief,targetDurationSeconds:scope.targetDurationSeconds,durationChoice:scope.durationChoice,
     budgetCredits:authorization.capCredits,expectedRevision:scope.projectRevision,locale:scope.locale};
@@ -194,14 +196,19 @@ export async function approveCanvasImmediateIntent(env,userId,projectId,body,tar
  let row=await read(env,body.intentId);
  if(!row||row.project_id!==projectId||row.user_id!==userId)agentFail('canvas_agent_immediate_not_found',404);
  const quote=JSON.parse(row.quote_json||'null'),scope=JSON.parse(row.scope_json||'null');
- const authorization={capCredits:body.capCredits,tariffRevision:quote?.tariffRevision,scope:row.scope_json};
+ const authorization={capCredits:body.capCredits,tariffRevision:quote?.tariffRevision,scope:row.scope_json,
+  ...(quote?.canvasGrokAdmission!==undefined?{canvasGrokAdmission:quote.canvasGrokAdmission}:{})};
  if(['authorized','started'].includes(row.state)){
   if(stablePricingJson(JSON.parse(row.authorization_json))!==stablePricingJson(authorization))agentFail('idempotency_conflict');
+  // Started intentions retain their original replay shape and accepted usage.
+  // An unstarted authorization cannot silently accept a new metering contract.
+  if(row.state==='authorized'&&quote?.canvasGrokAdmission!==CANVAS_GROK_ADMISSION_VERSION)agentFail('model_pricing_stale');
   await advanceCanvasImmediateIntent(env,row.id);return read(env,row.id);
  }
  if(row.state!=='approval_required'||row.revision!==body.intentRevision||scope?.projectRevision!==body.expectedRevision||scope?.briefRevision!==body.expectedBriefRevision)agentFail('canvas_agent_immediate_changed');
  const current=await ensureConversation(env,projectId,userId);
  if(current.brief_revision!==scope.briefRevision)agentFail('canvas_agent_conversation_changed');
+ if(quote?.canvasGrokAdmission!==CANVAS_GROK_ADMISSION_VERSION)agentFail('model_pricing_stale');
  if(String(quote.tariffRevision)!==String(tariff)||(await getModelTariff(env)).revision!==quote.tariffRevision)agentFail('model_pricing_stale');
  if(body.capCredits<quote.committedCredits+quote.planningCredits)agentFail('canvas_agent_budget_exceeded');
  try {await env.DB.batch([guard(env,row),conversationGuard(env,current),env.DB.prepare("UPDATE canvas_agent_start_intents SET state='authorized',authorization_json=?,revision=revision+1,updated_at=? WHERE id=?").bind(JSON.stringify(authorization),nowIso(),row.id)]);}

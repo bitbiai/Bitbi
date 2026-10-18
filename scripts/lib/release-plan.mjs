@@ -60,6 +60,8 @@ const SHARED_WORKER_FILE_MAP = Object.freeze({
   "workers/shared/fable-chat-memory-contract.mjs": ["auth", "ai"],
   "workers/shared/grok-chat-contract.mjs": ["auth", "ai"],
   "workers/shared/canvas-agent-plan.mjs": ["auth", "ai"],
+  "workers/shared/canvas-agent-metering.mjs": ["auth", "ai"],
+  "js/shared/canvas-grok-admission.mjs": ["auth", "ai"],
   "workers/shared/canvas-agent-dialogue.mjs": ["auth", "ai"],
   "workers/shared/canvas-agent-actions.mjs": ["auth", "ai"],
   "js/shared/canvas-agent-control-intent.mjs": ["auth", "ai"],

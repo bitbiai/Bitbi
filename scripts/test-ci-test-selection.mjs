@@ -18,6 +18,23 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 
 {
+ const metering=['workers/shared/canvas-agent-metering.mjs','js/shared/canvas-grok-admission.mjs'];
+ for(const file of metering) {
+  const selected=selectCiTests([file]);
+  assert(selected.workers&&selected.auth&&!selected.docsOnly&&!selected.full,`${file}: existing Worker/native and authenticated callers remain selected`);
+  assert.equal(selected.static,file.startsWith('js/'),'Only the shared public pricing input also requires frontend publication');
+ }
+ for(const file of ['tests/q2-canvas-agent-provider.spec.js','tests/model-pricing.spec.js',
+  'tests/helpers/canvas-agent-settlement-review-control.mjs','tests/q2-canvas-agent-settlement-review.spec.js','tests/q2-canvas-settlement-operator.spec.js'])
+  assert(selectCiTests([file]).workers,`${file}: metering and quote regressions execute through the actual Worker test entrypoint`);
+ assert(selectCiTests([...metering,'tests/unreviewed-metering.fixture']).full,'Unknown added coverage still requires full discovery');
+ for(const file of ['scripts/canvas-planning-settlement-review.mjs','scripts/lib/canvas-settlement-operator.mjs']) {
+  const selected=selectCiTests([file]);assert(selected.workers&&!selected.full,`${file}: exact operator safety checks use the existing Worker caller`);
+ }
+ assert(selectCiTests(['scripts/unreviewed-canvas-settlement.mjs']).full,'Unknown operational tooling keeps broad safety selection');
+}
+
+{
  const policyFiles=['workers/shared/canvas-agent-dialogue.mjs','workers/shared/canvas-agent-actions.mjs','js/shared/canvas-agent-control-intent.mjs','workers/shared/canvas-agent/legacy/creative-briefing-v1.mjs','workers/shared/canvas-agent/core.mjs','workers/shared/canvas-agent/manifest.mjs',
   ...['creative-briefing','conversation-actions','story-and-continuity','model-selection','canvas-editing','generation-and-recovery','review-and-export'].map(name=>`workers/shared/canvas-agent/skills/${name}.mjs`)];
  for(const file of policyFiles) {

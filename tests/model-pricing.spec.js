@@ -1,6 +1,79 @@
 const {test,expect}=require('@playwright/test');
 const {SqliteD1Database,applyAuthMigrations}=require('./helpers/sqlite-d1');
 const load=async()=>({...await import('../js/shared/model-tariff.mjs'),...await import('../js/shared/model-pricing-catalog.mjs'),...await import('../workers/auth/src/lib/model-tariffs.js')});
+test('Canvas Grok context admission separates unchanged request controls from a conservative reasoning-inclusive monetary quote',async()=>{
+ const m=await load(),{CANVAS_GROK_ADMISSION_VERSION,canvasGrokAdmissionPricePoints}=await import('../js/shared/canvas-grok-admission.mjs');
+ const original=m.modelFactoryPrice('xai/grok-4.7',{previewInputTokens:56954,maxTokens:16384});
+ expect(original.basis.units).toEqual({inputToken:56954,outputToken:16384});
+ expect(original.price.credits).toBe(146);
+ expect(original).not.toHaveProperty('canvasGrokAdmission');
+ const revised=m.modelFactoryPrice('xai/grok-4.7',{previewInputTokens:56954,maxTokens:16384,canvasGrokAdmission:CANVAS_GROK_ADMISSION_VERSION},{credits:1});
+ expect(revised.canvasGrokAdmission).toEqual({version:CANVAS_GROK_ADMISSION_VERSION,contextTokens:500000,inputTokenBound:56954,requestMaxCompletionTokens:16384});
+ expect(revised.basis.units).toEqual({inputToken:0,outputToken:500000});
+ expect(revised.price.providerCostUsd).toBeCloseTo(3.15,12);
+ expect(revised.price.credits).toBeGreaterThan(original.price.credits);
+ expect(revised.price.formula.requestLimitEnforcement).toBe('unverified_background_transport');
+ // Image evaluation must cover the jump at 200k input and output's higher rate,
+ // rather than assuming its small visible-completion control also caps reasoning.
+ const evaluation=m.modelFactoryPrice('xai/grok-4.7',{previewInputTokens:497952,maxTokens:2048,canvasGrokAdmission:CANVAS_GROK_ADMISSION_VERSION});
+ expect(evaluation.basis.units).toEqual({inputToken:200000,outputToken:300000});
+ expect(evaluation.price.providerCostUsd).toBeCloseTo(4.62,12);
+ const cost=(input,output)=>(input*2+output*6)/1e6*1.05*(input>=200000?2:1);
+ for(const bound of [1,56954,199999,200000,200001,497952]){
+  const points=canvasGrokAdmissionPricePoints(bound),maximum=Math.max(...points.map(p=>cost(p.inputToken,p.outputToken)));
+  for(const input of [0,1,bound,199998,199999,200000,200001,...Array.from({length:50},(_,i)=>Math.floor(bound*i/50))].filter(v=>v<=bound)){
+   for(const fraction of [0,.5,1])expect(cost(input,Math.floor((500000-input)*fraction))).toBeLessThanOrEqual(maximum);
+  }
+  for(const rates of [{inputToken:.01,outputToken:.02},{inputToken:.02,outputToken:.01}]){
+   const maximumCredits=Math.max(...points.map(p=>p.inputToken*rates.inputToken+p.outputToken*rates.outputToken));
+   for(const input of [0,1,bound])expect(input*rates.inputToken+(500000-input)*rates.outputToken).toBeLessThanOrEqual(maximumCredits);
+  }
+ }
+ for(const bound of [-1,0,500001,1.5,'100'])expect(()=>canvasGrokAdmissionPricePoints(bound)).toThrow();
+ for(const options of [{canvasGrokAdmission:'unlimited'},{canvasGrokAdmission:CANVAS_GROK_ADMISSION_VERSION,maxTokens:32768}])
+  expect(()=>m.modelFactoryPrice('xai/grok-4.7',options)).toThrow();
+ expect(()=>m.modelFactoryPrice('xai/grok-4.6',{canvasGrokAdmission:CANVAS_GROK_ADMISSION_VERSION})).toThrow();
+});
+test('Canvas Grok settlement pins custom worst-case prices and rejects missing usage, malformed admission and insufficient monetary authorization',async()=>{
+ const m=await load(),{CANVAS_GROK_ADMISSION_VERSION}=await import('../js/shared/canvas-grok-admission.mjs');
+ const {normalizeCanvasGrokUsage}=await import('../workers/shared/canvas-agent-metering.mjs');
+ const DB=new SqliteD1Database();applyAuthMigrations(DB);const env={DB};
+ try{
+  const input={previewInputTokens:56954,maxTokens:16384,canvasGrokAdmission:CANVAS_GROK_ADMISSION_VERSION};
+  const pinned=await m.pinModelTariff(env,{modelId:'xai/grok-4.7',input});
+  const original=await m.pinModelTariff(env,{modelId:'xai/grok-4.7',input:{previewInputTokens:56954,maxTokens:16384}});
+  expect(original.credits).toBe(146);
+  expect(await m.pinModelTariff(env,{modelId:'xai/grok-4.7',input,existing:{metadata:{model_tariff:original}}})).toEqual(original);
+  const actual={inputToken:16076,outputToken:17333};
+  expect(m.settlePinnedModelTariff(pinned,pinned.credits,actual)).toBe(94);
+  expect(()=>m.settlePinnedModelTariff(original,146,actual)).toThrow(/exceeds/);
+  for(const usage of [null,undefined,{}, {...actual,outputToken:-1},{...actual,inputToken:56955},{inputToken:16076,outputToken:483925}])
+   expect(()=>m.settlePinnedModelTariff(pinned,pinned.credits,usage)).toThrow();
+  for(const mutate of [p=>{p.credits=93;},p=>{p.canvasGrokAdmission.requestMaxCompletionTokens=32768;},
+   p=>{p.canvasGrokAdmission.authorized=true;},p=>{p.canvasGrokAdmission.version='unlimited';}]){
+   const bad=structuredClone(pinned);mutate(bad);expect(()=>m.settlePinnedModelTariff(bad,bad.credits,actual)).toThrow();
+  }
+  const usage=normalizeCanvasGrokUsage({prompt_tokens:16076,completion_tokens:2582,total_tokens:33409,
+   completion_tokens_details:{reasoning_tokens:14751},prompt_tokens_details:{cached_tokens:0}});
+  expect(m.calculateCanvasPlanningSettlementReview(original,146,usage)).toMatchObject({credits:94,units:actual,
+   diagnostics:{originalReservationCredits:146,unusedReservationCredits:52,outputTokenExcess:949}});
+  const more=normalizeCanvasGrokUsage({prompt_tokens:56954,completion_tokens:16384,total_tokens:100338,
+   completion_tokens_details:{reasoning_tokens:27000}});
+  expect(()=>m.calculateCanvasPlanningSettlementReview(original,146,more)).toThrow(/exceeds/);
+  for(const rates of [{inputToken:.02,outputToken:.01},{inputToken:.01,outputToken:.02}]){
+   const changed=await m.changeModelTariff(env,{id:'synthetic-canvas-metering-admin'},
+    {modelId:'xai/grok-4.7',revision:(await m.getModelTariff(env)).revision,action:'save',settings:{maxTokens:16384},rates});
+   const custom=await m.pinModelTariff(env,{modelId:'xai/grok-4.7',input});
+   expect(custom.tariff.rates).toEqual(rates);
+   expect(custom.tariff.revision).toBe(changed.revision);
+   expect(custom.tariff.units).toEqual(rates.inputToken>rates.outputToken?{inputToken:56954,outputToken:443046}:{inputToken:0,outputToken:500000});
+   const expected=Math.ceil(actual.inputToken*rates.inputToken+actual.outputToken*rates.outputToken);
+   expect(m.settlePinnedModelTariff(custom,custom.credits,actual)).toBe(expected);
+   expect(()=>m.settlePinnedModelTariff({...custom,credits:expected-1},expected-1,actual)).toThrow(/exceeds/);
+   expect(m.settlePinnedModelTariff(pinned,pinned.credits,actual)).toBe(94);
+  }
+ }finally{DB.close();}
+});
 test('model pricing preserves all factory defaults, canonical registry membership and immutable migration baseline',async()=>{
  const m=await load(),DB=new SqliteD1Database();applyAuthMigrations(DB);
  try{const catalog=m.modelPricingCatalog();expect(new Set(catalog.map(v=>v.id)).size).toBe(catalog.length);

@@ -32,7 +32,7 @@ module.exports=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock
         requestJson:async(url,init={})=>{const response=await f.request(url,init.method||'GET',init.body,{Authorization:'Bearer synthetic-audio-processor',...init.headers});const payload=await response.json();expect(response.ok,JSON.stringify(payload)).toBe(true);return payload;},fetchImpl:(url,init)=>f.request(url.pathname+url.search,'GET',null,init.headers)};
     const processor=async()=>{await processCanvasInspections(processorOptions);await processCanvasExports(processorOptions);};
     const conversation=await attachCanvasConversation(f,{scope:'editable-film-'+locale,locale});
-    await conversation.approve(200);
+    await conversation.approve(3000);
     let brief=await conversation.exchange('Create a warm film about builders finishing a house beside a pool with ducks, then welcoming visitors.',{
         text:'We can follow the house construction through to the celebration.',fields:{story:'Builders finish the same house beside its duck pool and welcome visitors.',style:'warm realistic film'}});
     expect(brief.brief.duration.asked).toBe(true);expect(brief.brief.duration.choice).toBeNull();
@@ -168,7 +168,7 @@ module.exports=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock
         // stale source of truth.
         const followup=await attachCanvasConversation(f,{scope:'edited-film-result-'+locale,locale});
         try{
-            await followup.approve(2000);await select(f.nodes[0]);
+            await followup.approve(3000);await select(f.nodes[0]);
             await page.locator('#canvasAgentToggle').click();
             const panel=page.locator('#canvasAgentPanel'),composer=panel.locator('.canvas-agent__composer');
             await composer.locator('textarea').fill(de?'Zeig mir bitte das fertige Video dieses aktuell bearbeiteten Projekts.':'Please show the finished video of this currently edited project.');

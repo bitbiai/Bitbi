@@ -30,7 +30,8 @@ export async function publicAgentRun(env,row) {
         chargedCredits:budget?.chargedCredits||0,reservedCredits:budget?.reservedCredits||0,pendingOutcomeCredits:budget?.pendingOutcomeCredits||0,
         committedCredits:budget?.committedCredits||0,remainingCredits:budget?.remainingCredits||0,budgetRevision:row.budget_revision||0,
         budgetRequest:actionableBudget?publicCanvasBudgetRequest(budgetRequest):null,proposedPlan,partialOutputs,
-        currentAction:event?JSON.parse(event.payload_json):{phase:held?row.status==='taken_over'?'manual_takeover':row.status:row.phase,model:!held&&modelOperation?'xai/grok-4.7':null},
+        currentAction:!held&&modelOperation?.recovery==='settlement_review'?{code:'settlement_review',phase:'settlement_review',model:'xai/grok-4.7',tool:'billing.review'}:
+            event?JSON.parse(event.payload_json):{phase:held?row.status==='taken_over'?'manual_takeover':row.status:row.phase,model:!held&&modelOperation?'xai/grok-4.7':null},
         cause,
         summarySupport:{status:'unavailable',mode:'completed'},
         modelOperation,allowedActions:canvasAgentAllowedActions({...row,current_revision:project?.revision},modelOperation),
@@ -39,16 +40,19 @@ export async function publicAgentRun(env,row) {
         createdAt:row.created_at,updatedAt:row.updated_at};
 }
 export async function publicCanvasAgentModelOperation(env,runId) {
-    const op=await env.DB.prepare(`SELECT s.id,s.kind,s.status,a.provider_outcome,o.id AS operation_id,o.state,o.error_code,o.dispatched_at,o.response_at,o.receipt_json,o.reconcile_attempts
+    const op=await env.DB.prepare(`SELECT s.id,s.kind,s.status,a.provider_outcome,a.billing_status,o.id AS operation_id,o.state,o.error_code,o.dispatched_at,o.response_at,o.receipt_json,o.reconcile_attempts
         FROM canvas_agent_steps s LEFT JOIN canvas_agent_model_operations o ON o.step_id=s.id
         LEFT JOIN member_ai_usage_attempts_v2 a ON a.id=s.usage_attempt_id
         WHERE s.run_id=? AND s.kind IN ('plan','evaluate') AND s.usage_attempt_id IS NOT NULL ORDER BY s.rowid DESC LIMIT 1`).bind(runId).first();
     if(!op)return null;
-    const failed=op.receipt_json&&JSON.parse(op.receipt_json).outcome==='failed';
+    const receipt=op.receipt_json?JSON.parse(op.receipt_json):null,failed=receipt?.outcome==='failed';
+    const settled=op.state==='completed'&&op.status==='completed'&&op.billing_status==='finalized';
+    const settlementReview=op.state==='completed'&&receipt?.ok===true&&op.status!=='completed'&&op.billing_status==='reserved'
+        &&['generation_result_requires_credit_review','canvas_agent_billing_review_required'].includes(op.error_code);
     const outcome=failed?'failed':op.state==='completed'?'completed':op.state==='rejected'?'rejected':op.state==='unknown'?'unknown':op.state?'pending':
         ['dispatched','unknown'].includes(op.provider_outcome)?'unknown':op.provider_outcome==='succeeded'?'completed':op.provider_outcome==='failed'?'rejected':'not_dispatched';
     return {operationId:op.operation_id||op.id,kind:op.kind,outcome,
-        recovery:failed?'billing_review':op.reconcile_attempts>=5?'review_required':op.state==='received'||(op.state==='completed'&&op.status!=='completed')?'receipt_ready':outcome==='unknown'?'review_required':outcome==='pending'?'waiting_callback':null,
+        recovery:settled?null:settlementReview?'settlement_review':failed?'billing_review':op.reconcile_attempts>=5?'review_required':op.state==='received'||(op.state==='completed'&&op.status!=='completed')?'receipt_ready':outcome==='unknown'?'review_required':outcome==='pending'?'waiting_callback':null,
         ...(op.dispatched_at?{dispatchedAt:op.dispatched_at}:{}),...(op.response_at?{responseAt:op.response_at}:{})};
 }
 export function canvasAgentAllowedActions(run,operation) {
@@ -56,7 +60,7 @@ export function canvasAgentAllowedActions(run,operation) {
     const actions=['cancel','takeover'];
     if(ACTIVE_AGENT_STATES.includes(run.status))actions.unshift('pause');
     if(run.status==='paused'&&run.phase!=='budget'&&(run.current_revision===undefined||run.current_revision===run.expected_revision)
-        &&!['pending','unknown','failed'].includes(operation?.outcome)&&!['review_required','billing_review'].includes(operation?.recovery))actions.unshift('resume');
+        &&!['pending','unknown','failed'].includes(operation?.outcome)&&!['review_required','billing_review','settlement_review'].includes(operation?.recovery))actions.unshift('resume');
     return actions;
 }
 export async function wakeCanvasAgent(env,id,delaySeconds=0) {

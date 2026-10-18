@@ -90,7 +90,7 @@ test('Canvas background evaluation prepares bounded images and keeps persisted v
   const f = await fixture(), source = input('evaluate');
   const prepared = await f.call('prepare', { kind: 'evaluate', input: source });
   expect(prepared.status).toBe(200);
-  expect(prepared.body.context).toEqual({ frames: [{ nodeId, timeSeconds: 2 }], policy: {
+  expect(prepared.body.context).toEqual({ frames: [{ nodeId, timeSeconds: 2 }], metering: { version: 'canvas-grok-4.7-usage-v1', maxCompletionTokens: 2048 }, policy: {
     version: 'canvas-policy-2', phase: 'evaluation', sha256: createHash('sha256').update(prepared.body.input.messages[0].content).digest('hex'),
     skills: ['core', 'personality', 'review-and-export'].map(id => ({ id, version: 1 })),
   } });
@@ -137,6 +137,109 @@ test('Canvas late background results normalize after disablement, with exact usa
   expect(f.calls).toEqual([]);
 });
 
+test('Canvas stored planning usage retains separate reasoning and detects the original output-control discrepancy without reinference', async () => {
+  const f = await fixture(), prepared = (await f.call('prepare', { kind: 'plan', input: input('plan') })).body;
+  const { canvasGrokUsageUnits, canvasGrokLimitDiagnostic } = await import('../workers/shared/canvas-agent-metering.mjs');
+  // Sanitized metering only. No production identifiers, prompt or reasoning text.
+  const raw = completion(plan());
+  raw.usage = { prompt_tokens: 16076, completion_tokens: 2582, total_tokens: 33409,
+    prompt_tokens_details: { cached_tokens: 0 }, completion_tokens_details: { reasoning_tokens: 14751 } };
+  const envelope = { kind: 'plan', requestId: prepared.requestId, context: prepared.context, response: raw };
+  const result = await f.call('normalize', envelope);
+  expect(result.status).toBe(200);
+  expect(result.body.usage).toMatchObject({ input_tokens: 16076, output_tokens: 2582,
+    output_tokens_details: { thinking_tokens: 14751 }, provider: { total_tokens: 33409 },
+    metering: { completionIncludesReasoning: false, billableOutputTokens: 17333 } });
+  expect(canvasGrokUsageUnits(result.body.usage)).toEqual({ inputToken: 16076, outputToken: 17333 });
+  expect(prepared.input.max_completion_tokens).toBe(16384);
+  expect(canvasGrokLimitDiagnostic(result.body.usage, prepared.input.max_completion_tokens)).toMatchObject({
+    requestedMaxCompletionTokens: 16384, reportedCompletionTokens: 2582, billableOutputTokens: 17333,
+    completionExceedsRequest: false, billableOutputExceedsRequest: true, enforcement: 'unverified_background_transport' });
+  expect((await f.call('normalize', envelope)).body).toEqual(result.body);
+  const historical = structuredClone(result.body.usage); delete historical.metering;
+  expect(canvasGrokUsageUnits(historical)).toEqual({ inputToken: 16076, outputToken: 17333 });
+  expect(f.calls).toEqual([]);
+});
+
+test('Canvas metering accepts provably inclusive completion without counting reasoning twice and rejects unexplained totals', async () => {
+  const f = await fixture(), prepared = (await f.call('prepare', { kind: 'evaluate', input: input('evaluate') })).body;
+  const { canvasGrokUsageUnits, canvasGrokLimitDiagnostic } = await import('../workers/shared/canvas-agent-metering.mjs');
+  const normalize = async usage => {
+    const response = completion(evaluation()); response.usage = usage;
+    return f.call('normalize', { kind: 'evaluate', requestId: prepared.requestId, context: prepared.context, response });
+  };
+  const inclusive = { prompt_tokens: 100, completion_tokens: 80, total_tokens: 180,
+    prompt_tokens_details: { cached_tokens: 20 }, completion_tokens_details: { reasoning_tokens: 30 } };
+  const valid = await normalize(inclusive);
+  expect(valid.status).toBe(200);
+  expect(valid.body.usage.metering).toMatchObject({ completionIncludesReasoning: true, billableOutputTokens: 80 });
+  expect(canvasGrokUsageUnits(valid.body.usage)).toEqual({ inputToken: 100, outputToken: 80 });
+  const noReasoning = await normalize({ prompt_tokens: 100, completion_tokens: 80, total_tokens: 180 });
+  expect(canvasGrokUsageUnits(noReasoning.body.usage)).toEqual({ inputToken: 100, outputToken: 80 });
+  // A real control overrun remains observable independently from valid metering.
+  const overrun = await normalize({ ...inclusive, completion_tokens: 3000, total_tokens: 3100 });
+  expect(canvasGrokLimitDiagnostic(overrun.body.usage, 2048)).toMatchObject({ completionExceedsRequest: true, billableOutputExceedsRequest: true });
+  for (const mutate of [
+    u => { delete u.total_tokens; }, u => { u.total_tokens = 181; }, u => { u.total_tokens = 179; },
+    u => { u.total_tokens = 500001; }, u => { u.prompt_tokens = '100'; }, u => { u.completion_tokens = 80.5; },
+    u => { u.completion_tokens_details.reasoning_tokens = -1; }, u => { u.completion_tokens_details.reasoning_tokens = 81; },
+    u => { u.prompt_tokens_details.cached_tokens = 101; }, u => { u.prompt_tokens_details = []; },
+    u => { u.prompt_tokens_details.text_tokens = 90; u.prompt_tokens_details.image_tokens = 20; },
+    u => { u.completion_tokens_details.audio_tokens = 1; }, u => { u.num_sources_used = 1; },
+    u => { u.cost_in_usd_ticks = 'unknown'; },
+    u => { u.reasoning_tokens = 31; }, u => { u.cached_tokens = 21; },
+    u => { u.reasoning_tokens = 30; delete u.completion_tokens_details; },
+    u => { u.total_tokens = 210; delete u.completion_tokens_details; },
+  ]) {
+    const bad = structuredClone(inclusive); mutate(bad);
+    const result = await normalize(bad);
+    expect(result.body).toMatchObject({ ok: false, outcome: 'completed', code: 'canvas_agent_provider_usage_missing' });
+    expect(result.body).not.toHaveProperty('usage');
+    expect(result.body).not.toHaveProperty('evaluation');
+  }
+  for (const mutate of [
+    u => { u.provider.total_tokens++; }, u => { u.input_tokens++; }, u => { u.output_tokens++; },
+    u => { u.cache_read_input_tokens++; }, u => { u.output_tokens_details.thinking_tokens++; },
+    u => { u.metering.billableOutputTokens--; }, u => { u.metering.authorized = true; },
+  ]) {
+    const forged = structuredClone(valid.body.usage); mutate(forged);
+    expect(canvasGrokUsageUnits(forged)).toBeNull();
+  }
+  expect(f.calls).toEqual([]);
+});
+
+test('Canvas prepared request controls persist bounded usage diagnostics while historical receipts keep their original context', async () => {
+  const f = await fixture();
+  for (const kind of ['plan', 'evaluate']) {
+    const prepared = (await f.call('prepare', { kind, input: input(kind) })).body;
+    const limit = kind === 'plan' ? 16384 : 2048;
+    expect(prepared.input.max_completion_tokens).toBe(limit);
+    expect(prepared.context.metering).toEqual({ version: 'canvas-grok-4.7-usage-v1', maxCompletionTokens: limit });
+    const raw = completion(kind === 'plan' ? plan() : evaluation());
+    raw.usage = { prompt_tokens: 100, completion_tokens: 30, total_tokens: 101 + limit,
+      completion_tokens_details: { reasoning_tokens: limit - 29 } };
+    const envelope = { kind, requestId: prepared.requestId, context: prepared.context, response: raw };
+    const result = await f.call('normalize', envelope);
+    expect(result.status).toBe(200);
+    expect(result.body.usageDiagnostic).toEqual({ version: 'canvas-grok-4.7-usage-v1', requestedMaxCompletionTokens: limit,
+      reportedCompletionTokens: 30, billableOutputTokens: limit + 1, completionExceedsRequest: false,
+      billableOutputExceedsRequest: true, enforcement: 'unverified_background_transport' });
+    expect(JSON.stringify(result.body.usageDiagnostic)).not.toMatch(/brief|prompt|reasoning_content|https:|PRIVATE/);
+    const old = structuredClone(envelope); delete old.context.metering;
+    const historical = await f.call('normalize', old);
+    expect(historical.status).toBe(200);
+    expect(historical.body).not.toHaveProperty('usageDiagnostic');
+    expect(historical.body.usage).toEqual(result.body.usage);
+    for (const mutate of [m => { m.version = 'untrusted'; }, m => { m.maxCompletionTokens++; }, m => { m.authorized = true; }]) {
+      const bad = structuredClone(envelope); mutate(bad.context.metering);
+      expect((await f.call('normalize', bad)).body).toMatchObject({ ok: false, code: 'canvas_agent_normalization_context_invalid' });
+    }
+    const refused = structuredClone(envelope); refused.response.choices[0].message.refusal = 'Cannot assist';
+    expect((await f.call('normalize', refused)).body).toMatchObject({ ok: false, outcome: 'completed', usageDiagnostic: result.body.usageDiagnostic });
+  }
+  expect(f.calls).toEqual([]);
+});
+
 const creativeInput = () => ({ ...input('plan'), durationMode: 'creative', targetDurationSeconds: null,
   budget: { capCredits: 1000, chargedCredits: 78, reservedCredits: 127, pendingOutcomeCredits: 0,
     committedCredits: 127, remainingCredits: 873, allocatedCredits: 127, revision: 2, planningCeilingCredits: 100 } });
@@ -149,7 +252,7 @@ test('Canvas creative planning receives authoritative budget, conditional constr
     field: 'dependencies', message: 'Frame and reference input modes cannot be combined.', allowed: ['frame inputs with adaptive aspect ratio', 'reference inputs'] }], previousPlan: plan() };
   const result = await f.call('prepare', { kind: 'plan', input: source });
   expect(result.status).toBe(200);
-  expect(result.body.context).toEqual({ durationMode: 'creative', targetDurationSeconds: null, existingNodeIds: [nodeId], policy: {
+  expect(result.body.context).toEqual({ durationMode: 'creative', targetDurationSeconds: null, existingNodeIds: [nodeId], metering: { version: 'canvas-grok-4.7-usage-v1', maxCompletionTokens: 16384 }, policy: {
     version: 'canvas-policy-2', phase: 'correction', sha256: createHash('sha256').update(result.body.input.messages[0].content).digest('hex'),
     skills: ['core', 'personality', 'story-and-continuity', 'model-selection', 'canvas-editing', 'generation-and-recovery'].map(id => ({ id, version: 1 })),
   } });

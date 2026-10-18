@@ -6,6 +6,7 @@ import {CANVAS_ACTION_RECOVERY_CASES,canvasActionRecoveryCase} from '../canvas-a
 import {CANVAS_AGENT_AUTONOMY_CASES,canvasAgentAutonomyCase} from '../canvas-agent-autonomy-control.mjs';
 import {canvasWorkspaceTransitionCase} from '../canvas-workspace-transition-control.mjs';
 import {CANVAS_MODEL_CASES,canvasModelOperationCase} from '../canvas-agent-model-operation-cases.mjs';
+import {CANVAS_SETTLEMENT_CASES,canvasPlanningSettlementCase} from '../canvas-agent-settlement-review-control.mjs';
 import { canvasAgentAuthorityCase, canvasAgentApiCase, canvasAgentDispatchCase, canvasAgentCapabilityCase, canvasAgentLateCompletionCase,canvasAgentUnknownProviderCase, canvasAgentManualTakeoverCase } from '../canvas-agent-control.mjs';
 import { canvasAssemblyCase, canvasInspectionCase, canvasAssemblyRetentionCase, seedCanvasAssemblyRetentionMigration, verifyCanvasAssemblyRetentionMigration } from '../canvas-assembly-control.mjs';
 import {memberGenerationCase} from '../member-generation-control.mjs';
@@ -49,6 +50,7 @@ export default {
     if(path==='/canvas-conversation-recovery'&&CANVAS_CONVERSATION_RECOVERY_CASES.includes(body.name))return Response.json(await canvasConversationRecoveryCase(env,body.name));
     if(path==='/canvas-agent-autonomy'&&CANVAS_AGENT_AUTONOMY_CASES.includes(body.name))return Response.json(await canvasAgentAutonomyCase(env,body.name));
     if(path==='/canvas-agent-model-operation'&&CANVAS_MODEL_CASES.includes(body.name))return Response.json(await canvasModelOperationCase(env,body.name));
+    if(path==='/canvas-agent-settlement-review'&&CANVAS_SETTLEMENT_CASES.includes(body.name))return Response.json(await canvasPlanningSettlementCase(env,body.name));
     if (path === '/canvas-agent-authority') return Response.json(await canvasAgentAuthorityCase(env));
     if (path === '/canvas-agent-api') return Response.json(await canvasAgentApiCase(env));
     if (path === '/canvas-agent-dispatch') return Response.json(await canvasAgentDispatchCase(env,body));

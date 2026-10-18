@@ -727,6 +727,24 @@ for (const file of ["workers/auth/recovery/c-entry.mjs", "workers/auth/recovery/
 }
 
 {
+  for(const file of ['workers/shared/canvas-agent-metering.mjs','js/shared/canvas-grok-admission.mjs']) {
+    const plan=createReleasePlanFromRepo(repoRoot,{files:[file]});
+    assert.deepEqual(plan.workerDeploys.map(step=>step.worker),['ai','auth'],`${file}: normalization and settlement deploy together`);
+    assert.deepEqual(plan.impacts.uncategorizedFiles,[]);
+    assert.equal(plan.impacts.static.required,file.startsWith('js/'));
+    assert((await import('./lib/backend-continuation.mjs')).backendContinuationSupported(plan));
+  }
+  const unknown=createReleasePlanFromRepo(repoRoot,{files:['workers/shared/canvas-agent-metering-unreviewed.mjs']});
+  assert.deepEqual(unknown.impacts.uncategorizedFiles,['workers/shared/canvas-agent-metering-unreviewed.mjs']);
+  const {assertSupportedBackendMigrations}=await import('./lib/backend-publication.mjs');
+  assertSupportedBackendMigrations(['0111_canvas_agent_settlement_reviews.sql']);
+  assert.throws(()=>assertSupportedBackendMigrations(['0112_unreviewed_settlement.sql']));
+  const recovery=createReleasePlanFromRepo(repoRoot,{files:['workers/shared/canvas-agent-metering.mjs',
+    'workers/auth/migrations/0111_canvas_agent_settlement_reviews.sql','config/release-compat.json']});
+  assert.deepEqual(recovery.deploySteps.map(step=>step.id),['auth-migrations','ai-worker','auth-worker']);
+}
+
+{
   const plan = createReleasePlanFromRepo(repoRoot, {
     files: [
       "workers/shared/chat-model-contract.mjs",

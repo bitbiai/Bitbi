@@ -2436,3 +2436,36 @@ proof archives. Derive the closed continuation identity from the observed active
 version annotation and verified previous baseline, then validate its immutable
 source/proofs and exact failed protected upload. Do not weaken public-byte
 comparison, guess a published base or fall back to repeated suites.
+
+### Canvas stored planning settlement review (2026-10-18)
+
+Serving source `80abf93f` retained a successful Grok 4.7 planning completion but
+exhausted five settlement attempts. Private owner-scoped D1 evidence confirmed
+16,076 input + 2,582 visible completion + 14,751 reasoning = 33,409 total tokens.
+The valid 17,333 billable output exceeded the pinned 16,384-token estimate; the
+unchanged pinned monetary tariff calculates 94 credits within its 146-credit
+reservation. `generation_result_requires_credit_review` preceded the run's
+`canvas_agent_receipt_review_required`. No missing provider response or exhausted
+project ceiling was evidenced. The exact original input digest and serving
+serializer select `max_completion_tokens:16384`, medium effort; neither the
+receipt nor official background-transport documentation proves how that control
+was enforced. Do not clip usage or infer that visible completion includes reasoning.
+
+The new versioned context admission separates request controls, validated usage
+and monetary limits. Historical pins stay unchanged. The operator-only settlement
+service validates original receipt/usage/owner/plan digests, records a bounded
+review and consumes the original billing identity once. The original five failures
+remain; cancellation, expiry, takeover and changed graph/brief prevent continuation.
+A recovered run cannot initiate a new paid planning/correction operation. Lost
+graph-batch responses require matching committed state, never duplicate insertion.
+
+Smallest executable controls: `tests/q2-canvas-agent-settlement-review.spec.js`
+through the existing Worker caller, the shared recovery cases through native
+`test:q2-runtime -- --suite canvas`, and `tests/q2-canvas-settlement-operator.spec.js`
+for the actual REST adapter. They cover the numeric failure, replay, crash after
+debit/application, invalid usage, insufficient authorization, isolation and stopped
+authority. The real FFmpeg case reuses the stored answer, exports, then manually
+reruns one node/removes/reorders/transitions/mixes and preserves the old export.
+EN/DE browser status coverage distinguishes stored success awaiting accounting
+from provider waiting. Synthetic acceptance does not establish live continuation;
+deployment versions and private before/dry-run/after receipts are required.

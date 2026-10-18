@@ -349,6 +349,18 @@ exports.outcome=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMoc
     await refresh.click();await expect(panel.locator('h3')).toHaveText(de?'Anbieterantwort erhalten':'Provider response received');
     await expect(panel).toContainText(de?'Anbieterantwort ist gespeichert':'provider response has been saved');
     await expect(panel).not.toContainText(de?'Die Antwortfrist ist abgelaufen':'The response deadline has passed');
+    state.run={...state.run,errorCode:'canvas_agent_receipt_review_required',pendingOutcomeCredits:0,
+        currentAction:{code:'settlement_review',phase:'settlement_review',model:'xai/grok-4.7',tool:'billing.review'},
+        modelOperation:{...state.run.modelOperation,outcome:'completed',recovery:'settlement_review'}};
+    await refresh.click();
+    await expect(panel.locator('h3')).toHaveText(de?'Gespeicherte Antwort: Abrechnung prüfen':'Saved response: billing review');
+    await expect(panel).toContainText(de?'Die erfolgreiche Modellantwort ist gespeichert':'The successful model response is saved');
+    await expect(panel).toContainText(de?'neue Medien werden noch nicht erzeugt':'new media is not being generated yet');
+    await expect(panel.locator('.canvas-agent__current')).toContainText('billing.review');
+    await expect(panel).not.toContainText(de?'Der Anbieter hat einen Fehler bestätigt':'The provider confirmed a failure');
+    await expect(resume).toBeHidden();await resume.evaluate(node=>node.click());expect(state.controls).toEqual([]);
+    await expect(value(de?'Bereits abgerechnet (Credits)':'Already charged (credits)')).toHaveText('0');
+    await expect(value(de?'Im Guthaben reserviert (Credits)':'Reserved in wallet (credits)')).toHaveText('127');
     state.run={...state.run,modelOperation:{...state.run.modelOperation,outcome:'unknown',recovery:'review_required'}};
     await page.reload();await page.locator('#canvasAgentToggle').click();await showProject(panel,locale);
     await expect(value(de?'Im Guthaben reserviert (Credits)':'Reserved in wallet (credits)')).toHaveText('127');

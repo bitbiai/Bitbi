@@ -87,7 +87,7 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
         return /provider.*(timeout|unknown|review)/.test(run?.errorCode || '');
     }
     function modelHeld() {
-        return modelPending() || run?.modelOperation?.outcome === 'failed' || ['review_required', 'billing_review'].includes(run?.modelOperation?.recovery);
+        return modelPending() || run?.modelOperation?.outcome === 'failed' || ['review_required', 'billing_review', 'settlement_review'].includes(run?.modelOperation?.recovery);
     }
     function canControl(action) {
         if (!run || TERMINAL.has(run.status) || run.status === 'clarification_required') return false;
@@ -124,7 +124,8 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
         phase.textContent = copy.phases[terminal||waiting?run.status:run.phase] || copy.phases[run.status] || copy.failed;
         const operation = run.modelOperation;
         const uncertain = modelPending();
-        if (!terminal && operation?.recovery === 'receipt_ready') phase.textContent = copy.modelReceived;
+        if (!terminal && operation?.recovery === 'settlement_review') phase.textContent = copy.phases.settlement_review;
+        else if (!terminal && operation?.recovery === 'receipt_ready') phase.textContent = copy.modelReceived;
         else if (!terminal && operation?.recovery === 'review_required' && operation.outcome !== 'unknown') phase.textContent = copy.modelNeedsReview;
         else if (!terminal && uncertain) phase.textContent = operation?.outcome === 'pending' ? copy.modelPending : copy.modelUnknown;
         else if (!terminal && operation?.outcome === 'rejected') phase.textContent = copy.modelRejected;
@@ -154,6 +155,7 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
         else if (!terminal && operation?.outcome === 'rejected') note.textContent = copy.rejectedRequest;
         if (operation?.recovery === 'review_required' && operation.outcome !== 'unknown') note.textContent = copy.receiptNeedsReview;
         if (operation?.recovery === 'billing_review') note.textContent = copy.billingReview;
+        if (operation?.recovery === 'settlement_review') note.textContent = copy.settlementReview;
         if (uncertain && operation?.recovery !== 'receipt_ready' && run.errorCode === 'canvas_agent_provider_timeout') note.textContent = `${copy.providerTimeout} ${note.textContent}`;
         if (complete) {
             let video = media.querySelector('video');

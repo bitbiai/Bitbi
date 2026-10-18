@@ -7,11 +7,11 @@ import {
   CANVAS_AGENT_REASONING_SUMMARY_DELIVERY, canvasAgentReasoningSummary,
   canvasAgentPlanSystem,
 } from '../../../shared/canvas-agent-plan.mjs';
-import { CANVAS_AGENT_DIALOGUE_VERSION, validateCanvasAgentDialogue } from '../../../shared/canvas-agent-dialogue.mjs';
+import { CANVAS_AGENT_DIALOGUE_VERSION, CANVAS_AGENT_DIALOGUE_MAX_OUTPUT_TOKENS, validateCanvasAgentDialogue } from '../../../shared/canvas-agent-dialogue.mjs';
 import { CANVAS_AGENT_POLICY_VERSION, canvasAgentPolicyIdentity, validateCanvasAgentPolicyIdentity } from '../../../shared/canvas-agent/manifest.mjs';
 import { validateCanvasAgentDialogueInput, buildCanvasAgentDialoguePayload, canvasAgentDialogueContext,
   validateCanvasAgentDialogueContext } from './canvas-agent-dialogue.js';
-import { normalizeGrokUsage } from './openai-chat-stream.js';
+import { normalizeCanvasGrokUsage, canvasGrokLimitDiagnostic, CANVAS_GROK_METERING_VERSION } from '../../../shared/canvas-agent-metering.mjs';
 import { runWithGenerationTimeout } from './generation-timeout.js';
 
 export class CanvasAgentProviderError extends Error {
@@ -93,19 +93,9 @@ export function buildCanvasAgentPlanPayload(input) {
   };
 }
 
-function checkedUsage(value) {
-  if (!object(value) || !['prompt_tokens', 'completion_tokens', 'total_tokens'].every(key => Number.isSafeInteger(value[key]) && value[key] >= 0)
-    || value.total_tokens < value.prompt_tokens + value.completion_tokens) return null;
-  for (const [group, key] of [['prompt_tokens_details', 'cached_tokens'], ['completion_tokens_details', 'reasoning_tokens']]) {
-    if (value[group]?.[key] !== undefined && (!Number.isSafeInteger(value[group][key]) || value[group][key] < 0)) return null;
-  }
-  if ((value.prompt_tokens_details?.cached_tokens || 0) > value.prompt_tokens) return null;
-  return normalizeGrokUsage(value);
-}
-
 function normalizeCanvasStructuredResponse(raw, validate, invalidCode) {
   const response = object(raw?.result) ? raw.result : raw;
-  const usage = checkedUsage(response?.usage);
+  const usage = normalizeCanvasGrokUsage(response?.usage);
   const responseId = typeof response?.id === 'string' && /^[A-Za-z0-9_.:-]{1,180}$/.test(response.id) ? response.id : null;
   const rejected = code => { throw new CanvasAgentProviderError(code, { outcome: 'completed', usage, responseId }); };
   if (!object(response) || !['grok-4.7', GROK_4_7_MODEL_ID].includes(response.model)
@@ -214,6 +204,14 @@ function validateNormalizationContext(kind, context) {
   const reject = () => { throw new CanvasAgentProviderError('canvas_agent_normalization_context_invalid', { status: 400 }); };
   if (!object(context)) reject();
   const policy = context.policy;
+  const metering = context.metering;
+  if (metering !== undefined) {
+    const limit = kind === 'plan' ? CANVAS_AGENT_PLAN_MAX_OUTPUT_TOKENS
+      : kind === 'dialogue' ? CANVAS_AGENT_DIALOGUE_MAX_OUTPUT_TOKENS : CANVAS_AGENT_EVALUATION_MAX_OUTPUT_TOKENS;
+    if (!object(metering) || Object.keys(metering).sort().join(',') !== 'maxCompletionTokens,version'
+      || metering.version !== CANVAS_GROK_METERING_VERSION || metering.maxCompletionTokens !== limit) reject();
+    context = Object.fromEntries(Object.entries(context).filter(([key]) => key !== 'metering'));
+  }
   if (policy !== undefined) {
     try { validateCanvasAgentPolicyIdentity(policy); } catch { reject(); }
     context = Object.fromEntries(Object.entries(context).filter(([key]) => key !== 'policy'));
@@ -241,7 +239,7 @@ function validateNormalizationContext(kind, context) {
   } else if (kind === 'dialogue') {
     try { context = validateCanvasAgentDialogueContext(context); } catch { reject(); }
   } else reject();
-  return structuredClone({ ...context, ...(policy !== undefined ? { policy } : {}) });
+  return structuredClone({ ...context, ...(policy !== undefined ? { policy } : {}), ...(metering !== undefined ? { metering } : {}) });
 }
 
 // Auth owns durable dispatch, the background webhook and the original usage
@@ -262,12 +260,15 @@ export async function prepareCanvasAgentModel(env, envelope) {
     ? { targetDurationSeconds: input.targetDurationSeconds ?? null, ...(input.toleranceSeconds !== undefined ? { toleranceSeconds: input.toleranceSeconds } : {}),
       ...(input.durationMode !== undefined ? { durationMode: input.durationMode } : {}), existingNodeIds: input.currentProject.nodes.map(node => node?.id) }
     : kind === 'dialogue' ? canvasAgentDialogueContext(input) : { frames: input.frames.map(({ nodeId, timeSeconds }) => ({ nodeId, timeSeconds })) };
-  const context = { ...validationContext, policy };
+  const providerInput = (kind === 'plan' ? buildCanvasAgentPlanPayload : kind === 'dialogue' ? buildCanvasAgentDialoguePayload : buildCanvasAgentEvaluationPayload)(input);
+  const context = { ...validationContext, policy, metering: {
+    version: CANVAS_GROK_METERING_VERSION, maxCompletionTokens: providerInput.max_completion_tokens,
+  } };
   try { validateNormalizationContext(kind, context); }
   catch { invalid('canvas_agent_context_invalid'); }
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(input)));
   return { protocolVersion: CANVAS_AGENT_MODEL_PROTOCOL_VERSION, model: GROK_4_7_MODEL_ID,
-    input: (kind === 'plan' ? buildCanvasAgentPlanPayload : kind === 'dialogue' ? buildCanvasAgentDialoguePayload : buildCanvasAgentEvaluationPayload)(input),
+    input: providerInput,
     requestId: input.requestId, inputDigest: Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join(''), context, policy };
 }
 
@@ -291,10 +292,12 @@ export function normalizeCanvasAgentModel(envelope) {
     // Briefing never projects provider reasoning into a pretend conversation.
     if (dialogue) delete receipt.reasoningSummary;
     return { [plan ? 'plan' : dialogue ? 'dialogue' : 'evaluation']: value, ...receipt, requestId: envelope.requestId,
+      ...(context.metering ? { usageDiagnostic: canvasGrokLimitDiagnostic(receipt.usage, context.metering.maxCompletionTokens) } : {}),
       ...(context.policy ? { policy: context.policy } : {}) };
   } catch (error) {
     if (error instanceof CanvasAgentProviderError && error.outcome === 'completed') {
       Object.assign(error, { requestId: envelope.requestId, model: GROK_4_7_MODEL_ID });
+      if (context.metering && error.usage) error.usageDiagnostic = canvasGrokLimitDiagnostic(error.usage, context.metering.maxCompletionTokens);
     }
     throw error;
   }

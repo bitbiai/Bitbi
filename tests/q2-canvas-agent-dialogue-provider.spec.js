@@ -64,7 +64,8 @@ test('Canvas dialogue prepares signed member-only private structured context wit
   const { canvasAgentPolicyIdentity, canvasAgentSystem } = await import('../workers/shared/canvas-agent/manifest.mjs');
   const { dialoguePriceInput, CANVAS_AGENT_DIALOGUE_SCHEMA } = await import('../workers/shared/canvas-agent-dialogue.mjs');
   const identity = await canvasAgentPolicyIdentity('briefing');
-  expect(result.body.context).toEqual({ dialogue: true, dialogueVersion: 2, conversationRevision: 2, briefRevision: 1, projectRevision: 7, messageId, policy: identity });
+  expect(result.body.context).toEqual({ dialogue: true, dialogueVersion: 2, conversationRevision: 2, briefRevision: 1, projectRevision: 7, messageId, policy: identity,
+    metering: { version: 'canvas-grok-4.7-usage-v1', maxCompletionTokens: 4096 } });
   expect(result.body.policy).toEqual(identity);
   expect(identity.sha256).toBe(createHash('sha256').update(canvasAgentSystem('briefing')).digest('hex'));
   expect(result.body.inputDigest).toBe(createHash('sha256').update(JSON.stringify(source)).digest('hex'));
@@ -75,7 +76,8 @@ test('Canvas dialogue prepares signed member-only private structured context wit
   expect(result.body.input.messages.map(message => message.role)).toEqual(['system', 'user']);
   const quote = dialoguePriceInput(source);
   expect(quote).toEqual({ model, prompt: result.body.input.messages[1].content,
-    system: result.body.input.messages[0].content + JSON.stringify(result.body.input.response_format.json_schema.schema), maxTokens: result.body.input.max_completion_tokens });
+    system: result.body.input.messages[0].content + JSON.stringify(result.body.input.response_format.json_schema.schema), maxTokens: result.body.input.max_completion_tokens,
+    canvasGrokAdmission: 'canvas-grok-context-v1' });
   expect(JSON.stringify(result.body.context)).not.toMatch(/small town|Amish|realistic/);
   expect(f.calls).toEqual([]);
 });

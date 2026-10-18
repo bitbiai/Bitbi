@@ -128,7 +128,7 @@ test('Canvas conversational briefing completes a measured two-minute film from t
     // current minute could accidentally cross a boundary and conceal the 13th
     // request's real admission limit. Keep existing limits and accepted costs.
     const conversation=await attachCanvasConversation(f,{scope:'two-minute-briefing'});
-    await conversation.approve(200);
+    await conversation.approve(3000);
     let brief=await conversation.exchange('I want a film about Amish people constructing a house in a small town. A neighboring pool has ducks. After the house is complete, visitors arrive to celebrate.',{
       text:'We can tell that as a construction story ending with a welcoming celebration.',fields:{story:'Amish builders construct a small-town house; ducks swim in the neighboring pool; visitors celebrate after completion.',setting:'A small town, with the same house and pool in fixed positions.',style:'realistic documentary'}});
     expect(brief.brief.duration.asked).toBe(true);expect(brief.brief.duration.choice).toBeNull();

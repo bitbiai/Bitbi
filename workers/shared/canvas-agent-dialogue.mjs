@@ -1,5 +1,6 @@
 import { canvasAgentSystem } from './canvas-agent/manifest.mjs';
 import { CANVAS_AGENT_ACTION_SCHEMA, validateCanvasAgentActions } from './canvas-agent-actions.mjs';
+import { CANVAS_GROK_ADMISSION_VERSION } from '../../js/shared/canvas-grok-admission.mjs';
 
 export const CANVAS_AGENT_DIALOGUE_VERSION = 2;
 export const CANVAS_AGENT_DIALOGUE_INPUT_MAX_BYTES = 64 * 1024;
@@ -87,7 +88,8 @@ export function dialoguePriceInput(input) {
   const messages = canvasAgentDialogueMessages(input);
   if (new TextEncoder().encode(JSON.stringify(input)).byteLength > CANVAS_AGENT_DIALOGUE_INPUT_MAX_BYTES) fail('canvas_agent_dialogue_context_limit');
   return { model: 'xai/grok-4.7', prompt: messages[1].content,
-    system: messages[0].content + JSON.stringify(canvasAgentDialogueSchema(input.version)), maxTokens: CANVAS_AGENT_DIALOGUE_MAX_OUTPUT_TOKENS };
+    system: messages[0].content + JSON.stringify(canvasAgentDialogueSchema(input.version)), maxTokens: CANVAS_AGENT_DIALOGUE_MAX_OUTPUT_TOKENS,
+    canvasGrokAdmission: CANVAS_GROK_ADMISSION_VERSION };
 }
 
 export const validateCanvasAgentDialogueReply = validateCanvasAgentDialogue;

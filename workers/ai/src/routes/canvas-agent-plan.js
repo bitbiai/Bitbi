@@ -17,6 +17,7 @@ function failure(error, afterDispatch = false, preparationOnly = false) {
     outcome: preparationOnly ? 'not_submitted' : expected ? error.outcome : isRequestBodyError(error) && !afterDispatch ? 'not_submitted' : 'unknown',
     retryable: false,
     ...(expected && error.usage ? { usage: error.usage } : {}),
+    ...(expected && error.usageDiagnostic ? { usageDiagnostic: error.usageDiagnostic } : {}),
     ...(expected && error.responseId ? { responseId: error.responseId } : {}),
     ...(expected && error.requestId ? { requestId: error.requestId, model: GROK_4_7_MODEL_ID } : {}),
   }, { status: expected || isRequestBodyError(error) ? error.status : 502 });

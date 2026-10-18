@@ -51,6 +51,8 @@ const SHARED_WORKER_FILE_MAP = new Map([
   ["js/shared/gemini-omni-pricing.mjs", ["auth"]],
   ["workers/shared/ai-caller-policy.mjs", ["auth", "ai"]],
   ["workers/shared/canvas-agent-plan.mjs", ["auth", "ai"]],
+  ["workers/shared/canvas-agent-metering.mjs", ["auth", "ai"]],
+  ["js/shared/canvas-grok-admission.mjs", ["auth", "ai"]],
   ["workers/shared/canvas-agent-dialogue.mjs", ["auth", "ai"]],
   ["workers/shared/canvas-agent-actions.mjs", ["auth", "ai"]],
   ["js/shared/canvas-agent-control-intent.mjs", ["auth", "ai"]],
@@ -591,6 +593,8 @@ const WORKER_TEST_PREFIXES = [
   "tests/helpers/canvas-agent-action-recovery-control.mjs",
   "tests/q2-canvas-agent-action-recovery.spec.js",
   "tests/q2-canvas-agent-dialogue-provider.spec.js",
+  "tests/helpers/canvas-agent-settlement-review-control.mjs", "tests/q2-canvas-agent-settlement-review.spec.js",
+  "tests/q2-canvas-settlement-operator.spec.js",
   "tests/appearance.spec.js", "tests/appearance-runtime.mjs",
   "tests/model-pricing.spec.js", "tests/model-pricing-runtime.mjs", "tests/helpers/model-pricing-control.mjs",
   "tests/helpers/q2-runtime/",
@@ -1226,6 +1230,10 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
 
   let documentationCount = 0;
   for (const file of changedFiles) {
+    if (['scripts/canvas-planning-settlement-review.mjs','scripts/lib/canvas-settlement-operator.mjs'].includes(file)) {
+      addReason(selection,'workers',file,'audited operator safety, dry-run and ambiguous-mutation cases execute in tests/q2-canvas-settlement-operator.spec.js');
+      continue;
+    }
     if (['frontend/index.mjs','frontend/wrangler.jsonc'].includes(file) || RELEASE_TOOLING_FILES.has(file)) {
       addReason(selection,'static',file,'covered by release contracts, build and native frontend HTTP/routing/privacy checks');
       continue;

@@ -6,6 +6,8 @@ import { modelFactoryPrice, modelPricingCatalog, validateModelPricingSettings } 
 import { isGptImage25Model } from '../../../../js/shared/gpt-image-25-contract.mjs';
 import { BillingError } from './billing.js';
 import { sha256Hex, randomTokenHex } from './tokens.js';
+import { canvasGrokUsageUnits } from '../../../shared/canvas-agent-metering.mjs';
+import { CANVAS_GROK_ADMISSION_VERSION, CANVAS_GROK_CONTEXT_TOKENS, canvasGrokAdmissionPricePoints } from '../../../../js/shared/canvas-grok-admission.mjs';
 
 const fail = (message, code = 'model_pricing_invalid', status = 400) => { throw new BillingError(message, { code, status }); };
 export async function getModelTariff(env) {
@@ -32,7 +34,15 @@ export async function quoteModelTariff(env, { modelId, input = {}, credits, cont
         fail('Cloudflare input-image token quantities are not verified; reference editing pricing is unavailable.', 'gpt_image_25_reference_pricing_unavailable', 503);
     }
     const basis = factory ? mediaTariffBasis(factory, model.kind, input) : resolved.basis;
-    const priced = applyModelTariff(price, snapshot, basis);
+    let priced = applyModelTariff(price, snapshot, basis);
+    // A custom retail tariff has its own worst feasible context split. Preserve
+    // those rates; do not quote the factory-price vertex as if it bounded them.
+    if(resolved.canvasGrokAdmission&&priced.tariff.rates){
+        for(const units of canvasGrokAdmissionPricePoints(resolved.canvasGrokAdmission.inputTokenBound)){
+            const candidate=applyModelTariff(price,snapshot,{configuration:basis.configuration,units});
+            if(candidate.credits>priced.credits)priced=candidate;
+        }
+    }
     // Duration-settled adapters pin authoritative output-second pricing. Freeze
     // provider rate, conversion and margin, including under factory pricing.
     const factorySettlement = ['minimax/h3', 'elevenlabs/music-v2', SEEDANCE_25_MODEL].includes(model.id) ? {
@@ -44,7 +54,7 @@ export async function quoteModelTariff(env, { modelId, input = {}, credits, cont
         inputRateUsdPerMillion:2,outputRateUsdPerMillion:6,longContextThreshold:200000,longContextMultiplier:2,fundingMultiplier:1.05,
         usdToEur: BITBI_MODEL_PRICING_USD_TO_EUR,netEurPerCredit: BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING,targetProfitMargin: BITBI_TARGET_PROFIT_MARGIN,
     } : null;
-    return { ...priced, factorySettlement, exempt: model.exemption || null };
+    return { ...priced, factorySettlement, ...(resolved.canvasGrokAdmission?{canvasGrokAdmission:resolved.canvasGrokAdmission}:{}),exempt: model.exemption || null };
 }
 
 // Used before reservation, after an exact existing-attempt lookup. No request
@@ -57,6 +67,7 @@ export async function pinModelTariff(env, { modelId, input, credits, request, ex
     const price = await quoteModelTariff(env, { modelId, input, credits, context, request, factory });
     if (!Number.isSafeInteger(price.credits) || price.credits < 0) fail('This execution path has no configured credit tariff.', 'model_pricing_unavailable', 503);
     return { credits: price.credits, tariff: price.tariff, factorySettlement: price.factorySettlement,
+        ...(price.canvasGrokAdmission?{canvasGrokAdmission:price.canvasGrokAdmission}:{}),
         ...(isGptImage25Model(modelId) ? { factoryQuote: {
             pricingVersion: price.formula.pricingVersion,
             providerCostUsdEstimate: price.providerCostUsd,
@@ -80,14 +91,28 @@ export function settlePinnedModelTariff(pinned, fallbackCredits, actualUnits) {
         if (!Number.isSafeInteger(pinned.credits) || pinned.credits < 1) fail('The accepted image tariff requires review.', 'generation_result_requires_credit_review', 409);
         return pinned.credits;
     }
+    if (!actualUnits && pinned?.tariff?.key?.startsWith('xai/grok-4.7:'))
+        fail('Actual token usage is missing.','generation_result_requires_credit_review',409);
     if (!actualUnits || !pinned?.tariff) return fallbackCredits;
     if(pinned.tariff.key?.startsWith('xai/grok-4.7:')){
-        if(Object.keys(actualUnits).sort().join(',')!=='inputToken,outputToken'||!['inputToken','outputToken'].every(k=>Number.isSafeInteger(actualUnits[k])&&actualUnits[k]>=0&&actualUnits[k]<=pinned.tariff.units[k]))
+        const admission=pinned.canvasGrokAdmission;
+        const validUnits=Object.keys(actualUnits).sort().join(',')==='inputToken,outputToken'
+            &&['inputToken','outputToken'].every(k=>Number.isSafeInteger(actualUnits[k])&&actualUnits[k]>=0);
+        const admitted=admission
+            ?Object.keys(admission).sort().join(',')==='contextTokens,inputTokenBound,requestMaxCompletionTokens,version'
+                &&admission.version===CANVAS_GROK_ADMISSION_VERSION&&admission.contextTokens===CANVAS_GROK_CONTEXT_TOKENS
+                &&Number.isSafeInteger(admission.inputTokenBound)&&admission.inputTokenBound>0&&admission.inputTokenBound<=admission.contextTokens
+                &&Number.isSafeInteger(admission.requestMaxCompletionTokens)&&admission.requestMaxCompletionTokens>0&&admission.requestMaxCompletionTokens<=16384
+                &&actualUnits.inputToken<=admission.inputTokenBound&&actualUnits.inputToken+actualUnits.outputToken<=admission.contextTokens
+            :['inputToken','outputToken'].every(k=>actualUnits[k]<=pinned.tariff.units[k]);
+        if(!validUnits||!admitted)
             fail('Actual token usage exceeds the accepted reservation.','generation_result_requires_credit_review',409);
         if(!pinned.tariff.rates&&pinned.factorySettlement){
             const rates=pinned.factorySettlement,multiplier=actualUnits.inputToken>=rates.longContextThreshold?rates.longContextMultiplier:1;
             const cost=(actualUnits.inputToken*rates.inputRateUsdPerMillion+actualUnits.outputToken*rates.outputRateUsdPerMillion)/1e6*multiplier*rates.fundingMultiplier;
-            return creditsForProviderCostUsd(cost,rates);
+            const credits=creditsForProviderCostUsd(cost,rates);
+            if(credits>pinned.credits)fail('Actual usage exceeds the accepted reservation.','generation_result_requires_credit_review',409);
+            return credits;
         }
     }
     if (!pinned.tariff.rates) {
@@ -102,6 +127,43 @@ export function settlePinnedModelTariff(pinned, fallbackCredits, actualUnits) {
         { configuration: tariff.configuration, units: { ...tariff.units, ...actualUnits } }).credits;
     if (credits > pinned.credits) fail('Actual usage exceeds the accepted reservation.', 'generation_result_requires_credit_review', 409);
     return credits;
+}
+
+// A calculation for an explicitly audited Canvas settlement review, never an
+// automatic relaxation of historical tariff bounds. The original quote stays
+// intact. Its monetary ceiling, tariff and conversion continue to govern.
+export function calculateCanvasPlanningSettlementReview(pinned, fallbackCredits, usage) {
+    const invalid=()=>fail('Stored Canvas metering requires review.', 'canvas_agent_settlement_review_invalid', 409);
+    if(pinned?.tariff?.key!=='xai/grok-4.7:{}'||pinned.canvasGrokAdmission||!Number.isSafeInteger(fallbackCredits)||fallbackCredits<1
+        ||pinned.credits!==fallbackCredits||!Number.isSafeInteger(pinned.tariff.revision))invalid();
+    const units=canvasGrokUsageUnits(usage),bounds=pinned.tariff.units;
+    if(!units||!bounds||!['inputToken','outputToken'].every(k=>Number.isSafeInteger(bounds[k])&&bounds[k]>=0)
+        ||units.inputToken>bounds.inputToken||units.outputToken<=bounds.outputToken||!(usage.provider?.reasoning_tokens>0)
+        ||units.inputToken+units.outputToken>500000)invalid();
+    let credits;
+    if(pinned.tariff.rates){
+        const rates=validateTariffRates(pinned.tariff.rates,['inputToken','outputToken']);
+        credits=applyModelTariff({modelId:'xai/grok-4.7',credits:fallbackCredits},
+            {revision:pinned.tariff.revision,rules:{[pinned.tariff.key]:{rates}}},
+            {configuration:pinned.tariff.configuration,units}).credits;
+    }else{
+        const rates=pinned.factorySettlement;
+        if(!rates||!['inputRateUsdPerMillion','outputRateUsdPerMillion','longContextThreshold','longContextMultiplier',
+            'fundingMultiplier','usdToEur','netEurPerCredit'].every(k=>Number.isFinite(rates[k])&&rates[k]>0)
+            ||!Number.isFinite(rates.targetProfitMargin)||rates.targetProfitMargin<0||rates.targetProfitMargin>=1)invalid();
+        const multiplier=units.inputToken>=rates.longContextThreshold?rates.longContextMultiplier:1;
+        const cost=(units.inputToken*rates.inputRateUsdPerMillion+units.outputToken*rates.outputRateUsdPerMillion)/1e6*multiplier*rates.fundingMultiplier;
+        credits=creditsForProviderCostUsd(cost,rates);
+    }
+    if(!Number.isSafeInteger(credits)||credits<1)invalid();
+    if(credits>fallbackCredits)throw Object.assign(new BillingError('Verified usage exceeds the original monetary reservation.',{
+        status:409,code:'canvas_agent_settlement_additional_authorization_required',
+    }),{settlementCredits:credits,originalReservationCredits:fallbackCredits,additionalCredits:credits-fallbackCredits});
+    return {credits,units,diagnostics:{classification:'verified_reasoning_output_exceeds_original_estimate',
+        originalOutputTokenBound:bounds.outputToken,billableOutputTokens:units.outputToken,
+        outputTokenExcess:Math.max(0,units.outputToken-bounds.outputToken),
+        providerLimitEnforcement:'unverified',originalReservationCredits:fallbackCredits,
+        unusedReservationCredits:fallbackCredits-credits}};
 }
 
 export async function changeModelTariff(env, actor, input) {

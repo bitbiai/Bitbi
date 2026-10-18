@@ -36,7 +36,7 @@ module.exports = async ({ page, expect, locale, info, mockSharedAuth, createCanv
         };
         const allowance = panel.locator('.canvas-agent__allowance');
         await panel.locator('.canvas-agent__approval-prompt').click();await expect(allowance.locator('[name=briefingBudget]')).not.toHaveValue('');
-        await allowance.locator('[name=briefingBudget]').fill('500');
+        await allowance.locator('[name=briefingBudget]').fill('3000');
         await allowance.getByRole('button', { name: de ? 'Dieses Gesprächsbudget freigeben' : 'Authorize this briefing allowance', exact: true }).click();
         await expect(allowance).toBeHidden();
         const initial = de ? 'Ein freundlicher Comicfilm über Hausbau, einen Pool mit Enten und ankommende Gäste.' : 'A friendly comic film about building a house, a duck pool and arriving visitors.';
