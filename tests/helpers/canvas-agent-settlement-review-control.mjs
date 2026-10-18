@@ -10,11 +10,16 @@ import { reconcileCanvasAgentModelOperations } from '../../workers/auth/src/lib/
 import { publicAgentRun } from '../../workers/auth/src/lib/canvas-agent-store.js';
 import { previewCanvasPlanningSettlementReview,applyCanvasPlanningSettlementReview } from '../../workers/auth/src/lib/canvas-agent-settlement-review.js';
 import { sha256Hex } from '../../workers/auth/src/lib/tokens.js';
+import { preflightCanvasAgentGraph,validateCanvasAgentNodeConfig } from '../../workers/auth/src/lib/canvas-agent-graph.js';
+import { canvasGenerationSettings } from '../../js/shared/canvas-generation-settings.mjs';
+import { getCanvasModelForRole } from '../../js/shared/canvas-model-contract.mjs';
+import { persistCanvasAgentProposal,markCanvasAgentProposal } from '../../workers/auth/src/lib/canvas-agent-progress.js';
+import { canvasAgentValidationIssue } from '../../workers/auth/src/lib/canvas-agent-plan-feedback.js';
 
 const check=(condition,message)=>{if(!condition)throw new Error(message);};
 const equal=(actual,expected,message)=>check(JSON.stringify(actual)===JSON.stringify(expected),message);
 async function rejected(operation,code){try{await operation();}catch(error){check([error.code,error.message,error.cause?.message].some(value=>String(value||'').includes(code)),`Expected ${code}, got ${error.code||error.message}`);return;}throw new Error(`Missing rejection ${code}`);}
-export const CANVAS_SETTLEMENT_CASES=['exact','unrelated','concurrent','debit-crash','graph-crash','cancelled','expired','taken-over','edited','invalid-plan','usage-invalid','raw-usage-contract','over-reservation','identity'];
+export const CANVAS_SETTLEMENT_CASES=['exact','unrelated','concurrent','debit-crash','graph-crash','cancelled','expired','taken-over','edited','invalid-plan','usage-invalid','raw-usage-contract','over-reservation','identity','inert-music-normalization','inert-music-boundary','continuation','continuation-crash','continuation-authority','continuation-evidence','continuation-revalidation'];
 
 // Sanitized historical metering and tariff only. All identities, content and
 // provider receipts below are synthetic; no production payload is embedded.
@@ -104,8 +109,231 @@ function failOnce(db,{statement=null,afterBatch=null}) {
     }})};
 }
 
+function inertMusicPlan() {
+    const plan=freshCanvasAgentPlan();
+    plan.nodes.push({key:'comedyScore',type:'music_generation',title:'Playful dog score',modelId:'elevenlabs/music-v2',
+        prompt:'A playful instrumental comedy score for a dog film.',dependencies:[],
+        config:{inputMode:'prompt',musicLengthMs:45000,forceInstrumental:true,originalAudio:{enabled:false,gain:0}}});
+    plan.assembly.musicKey='comedyScore';plan.assembly.backgroundMusic={enabled:true,gain:.25};
+    return plan;
+}
+const inertMusicRepair={code:'canvas_agent_music_original_audio_noop',nodeKey:'comedyScore',field:'config.originalAudio',from:{enabled:false,gain:0},to:null};
+
+async function inertMusicCase(base,name) {
+    const f=await canvasAgentBudgetFixture(base,'settlement-'+name),plan=inertMusicPlan();
+    const c=await seedCanvasPlanningSettlement(f,{scope:name,plan});
+    const raw=JSON.stringify(plan),original=await c.operation();
+    const inventory=await canvasAgentCapabilities(f.env),view=await canvasAgentProject(f.env,f.owner,f.project),run=await c.run();
+    const clean=structuredClone(plan);delete clean.nodes.at(-1).config.originalAudio;
+    const normal=await preflightCanvasAgentGraph(f.env,run,view,inventory,clean);
+    check(normal.ok,'Independent ordinary music plan is executable');
+    if(name==='inert-music-boundary'){
+        const variants=[
+            ['enabled',value=>{value.nodes.at(-1).config.originalAudio.enabled=true;}],
+            ['gain',value=>{value.nodes.at(-1).config.originalAudio.gain=.25;}],
+            ['extra-field',value=>{value.nodes.at(-1).config.originalAudio.fadeIn=0;}],
+            ['different-model',value=>{value.nodes.at(-1).modelId='minimax/music-2.6';value.nodes.at(-1).config={instrumental:true,originalAudio:{enabled:false,gain:0}};}],
+            ['different-type',value=>{value.nodes[0].config.originalAudio={enabled:false,gain:0};value.nodes[0].modelId='google/imagen-4.0-fast';value.nodes[0].type='image_generation';}],
+            ['other-invalid',value=>{value.nodes.at(-1).config.generateAudio=true;}],
+        ];
+        for(const [label,change]of variants){
+            const invalid=structuredClone(plan);change(invalid);const before=JSON.stringify(invalid);
+            const checked=await preflightCanvasAgentGraph(f.env,run,view,inventory,invalid);
+            check(!checked.ok&&checked.issues.length>0,`Invalid ${label} remains rejected`);
+            if(label!=='other-invalid'&&label!=='different-type')check(!checked.repairs.some(repair=>repair.code===inertMusicRepair.code),`${label} is not normalized`);
+            check(JSON.stringify(invalid)===before,`Rejected ${label} preserves raw evidence`);
+        }
+        const video=structuredClone(clean);video.nodes[0].config.originalAudio={enabled:false,gain:0};
+        const checked=await preflightCanvasAgentGraph(f.env,run,view,inventory,video);
+        check(checked.ok&&!checked.repairs.length,'Valid video muting is not stripped');
+        equal(checked.plan.nodes[0].config.originalAudio,{enabled:false,gain:0},'Video muting remains editable and effective');
+        equal(await c.ledger(),[],'Read-only normalization countercontrols never debit');
+        check((await f.db.prepare('SELECT COUNT(*) AS n FROM canvas_nodes WHERE project_id=?').bind(f.project).first()).n===0,'Rejected plans cannot mutate the creative graph');
+        check(f.unexpected.length===0,'Boundary checks cannot call any provider');
+        return {case:name,planningCalls:0,debits:0};
+    }
+    const normalized=await preflightCanvasAgentGraph(f.env,run,view,inventory,plan);
+    check(normalized.ok,'Exact inert music field is normalized by full preflight');
+    equal(normalized.repairs,[inertMusicRepair],'Only the explicit inert-field repair is recorded');
+    equal(normalized.plan,normal.plan,'Derived executable plan equals the independently valid ordinary plan');
+    equal(normalized.costs,normal.costs,'Normalization does not alter the admitted media or evaluation prices');
+    const expectedBody={model:'elevenlabs/music-v2',prompt:plan.nodes.at(-1).prompt,inputMode:'prompt',musicLengthMs:45000,forceInstrumental:true};
+    const model=getCanvasModelForRole('elevenlabs/music-v2','member');
+    equal(canvasGenerationSettings(plan.nodes.at(-1).config,model,expectedBody.prompt),expectedBody,'Original inert field has no provider meaning');
+    equal(canvasGenerationSettings(normalized.plan.nodes.at(-1).config,model,expectedBody.prompt),expectedBody,'Effective provider request preserves the requested duration and instrumental score');
+    check(JSON.stringify(plan)===raw,'Preflight preserves the complete raw plan');
+    await c.apply();await deliver(f.env,c.ids.runId);
+    const current=await c.run();check(current.status==='running'&&current.rounds===1,'Stored original answer reaches normal graph execution without inference');
+    const proposal=await f.db.prepare('SELECT * FROM canvas_agent_proposals WHERE step_id=?').bind(c.ids.stepId).first();
+    equal(JSON.parse(proposal.plan_json),{...plan,updates:[]},'Historical proposal retains the original unsupported field');
+    equal(JSON.parse(proposal.validation_json).repairs,[inertMusicRepair],'Applied proposal explains its effective normalization');
+    const graph=await canvasAgentProject(f.env,f.owner,f.project);
+    const music=graph.nodes.find(node=>node.model_id==='elevenlabs/music-v2');
+    check(Boolean(music)&&!Object.hasOwn(JSON.parse(music.config_json),'originalAudio'),'Ordinary editable music node contains only supported settings');
+    equal(canvasGenerationSettings(JSON.parse(music.config_json),model,expectedBody.prompt),expectedBody,'Persisted ordinary node builds the same provider request');
+    equal(JSON.parse(current.plan_json).nodes.at(-1).config,clean.nodes.at(-1).config,'Saved effective plan agrees with the actual graph');
+    equal(JSON.parse(graph.project.assembly_json).backgroundMusic,{enabled:true,gain:.25},'Independent assembly music controls remain intact');
+    const nodeIds=graph.nodes.map(node=>node.id);await c.apply();
+    await worker.queue({queue:'bitbi-ai-video-jobs',messages:[{body:{type:'canvas_agent.process',run_id:c.ids.runId},attempts:2,ack(){},retry(){throw new Error('Unexpected duplicate wake retry');}}]},f.env,{waitUntil(){throw new Error('Unexpected detached recovery');}});
+    equal((await canvasAgentProject(f.env,f.owner,f.project)).nodes.map(node=>node.id),nodeIds,'Repeated recovery does not create duplicate nodes');
+    equal(await c.operation(),original,'Original response, receipt, tariff bindings and five historical failures remain byte-identical');
+    equal((await c.ledger()).map(row=>row.amount),[-94],'Original planning charge settles once');
+    check((await f.db.prepare("SELECT COUNT(*) AS n FROM canvas_agent_steps WHERE run_id=? AND kind='plan'").bind(c.ids.runId).first()).n===1,'No correction or replacement planning identity exists');
+    check(f.unexpected.length===0,'Normalization and graph application perform no new inference');
+    return {case:name,planningCalls:0,debits:1,continued:true};
+}
+
+async function seedSettledMusicHold(base,scope,changePlan=null) {
+    const f=await canvasAgentBudgetFixture(base,scope),plan=inertMusicPlan();f.env.ENABLE_GROK_4_6='false';
+    if(changePlan)changePlan(plan);
+    const c=await seedCanvasPlanningSettlement(f,{scope,plan});
+    const recovered=await c.apply();check(recovered.reviewState==='completed','Historical settlement already completed before preflight hold');
+    const run=await c.run(),step=await f.db.prepare('SELECT * FROM canvas_agent_steps WHERE id=?').bind(c.ids.stepId).first();
+    // Reconstruct the historical validator boundary with its unchanged strict
+    // node validator. Only preflight now recognizes the exact inert field.
+    let issue;const node=plan.nodes.at(-1),model=getCanvasModelForRole(node.modelId,'member');
+    try{validateCanvasAgentNodeConfig(model,node.config,node.prompt);}catch(error){issue=canvasAgentValidationIssue(error,node,model);}
+    check(issue?.code==='canvas_agent_parameter_unsupported','Historical failure is the actual strict node-validation error');
+    await persistCanvasAgentProposal(f.env,run,step,{...plan,updates:[]});
+    await markCanvasAgentProposal(f.env,step.id,'invalid',{issues:[issue],repairs:[],costs:null});
+    await f.db.prepare("UPDATE canvas_agent_runs SET status='review_required',phase='planning',error_code='canvas_agent_recovered_plan_requires_review',cause_json=?,lease_token=NULL,lease_until=NULL WHERE id=?")
+        .bind(JSON.stringify({code:'canvas_agent_recovered_plan_requires_review',step:'planning',recovery:'manual',issues:[issue]}),run.id).run();
+    const service=await import('../../workers/auth/src/lib/canvas-agent-settlement-review.js');
+    const input={...c.ids,reviewDigest:recovered.reviewDigest,authorizationRef:'synthetic-owner-approval',actor:'synthetic-operator'};
+    const preview=()=>service.previewCanvasPlanningSettlementContinuation(f.env,input);
+    const apply=async(options={})=>service.applyCanvasPlanningSettlementContinuation(f.env,{...input,continuationDigest:(await preview()).continuationDigest,...options});
+    return {...c,f,previewContinuation:preview,applyContinuation:apply,continuationInput:input,continuationService:service};
+}
+
+async function continuationRevalidationCase(base) {
+    const invalid=await seedSettledMusicHold(base,'settlement-other-parameter',plan=>{plan.nodes[0].config.duration=3;});
+    await rejected(invalid.previewContinuation,'canvas_agent_settlement_continuation_preflight_blocked');
+    check((await invalid.run()).status==='review_required','The narrow repair cannot conceal another invalid parameter');
+    for(const action of ['price','capability','cap','headroom','atomic-edit']){
+        const c=await seedSettledMusicHold(base,`settlement-revalidate-${action}`),{f}=c;
+        const prepared=await c.previewContinuation(),input={...c.continuationInput,continuationDigest:prepared.continuationDigest};
+        const price=(await f.db.prepare('SELECT revision FROM model_pricing_state WHERE id=1').first()).revision;
+        if(action==='price')await f.db.prepare('UPDATE model_pricing_state SET revision=revision+1 WHERE id=1').run();
+        else if(action==='capability')f.env.ENABLE_GROK_4_6='true';
+        else if(action==='cap')await f.db.prepare('UPDATE canvas_agent_runs SET budget_credits=budget_credits-1 WHERE id=?').bind(c.ids.runId).run();
+        else if(action==='headroom'){
+            // A separately accepted briefing allocation shares the real project
+            // cap. It is not another production or a fabricated ledger debit.
+            const id=(await sha256Hex(f.owner+':accepted-briefing')).slice(0,32),now=new Date().toISOString();
+            await f.db.prepare(`INSERT INTO canvas_agent_conversations(project_id,user_id,brief_json,allowance_credits,allowance_tariff,created_at,updated_at)
+                VALUES(?,?,'{}',3893,?,?,?)`).bind(f.project,f.owner,price,now,now).run();
+            await f.db.prepare(`INSERT INTO canvas_agent_runs(id,project_id,user_id,request_key,input_json,status,expected_revision,budget_credits,
+                tariff_revision,next_attempt_at,created_at,updated_at,expires_at,purpose)
+                SELECT ?,project_id,user_id,?,'{}','planning',expected_revision,3893,tariff_revision,?,?,?,expires_at,'briefing'
+                FROM canvas_agent_runs WHERE id=?`).bind(id,'synthetic-other-briefing',now,now,now,c.ids.runId).run();
+            await f.allocate({id},'accepted-briefing',3770);
+        }
+        const before=await c.run();let env=f.env,raced=false;
+        if(action==='atomic-edit')env={...f.env,DB:new Proxy(f.db,{get(target,key){
+            if(key==='batch')return async statements=>{
+                check(!raced,'Only one guarded continuation transaction is attempted');raced=true;
+                await f.db.prepare('UPDATE canvas_projects SET revision=revision+1 WHERE id=?').bind(f.project).run();
+                return target.batch(statements);
+            };
+            const value=target[key];return typeof value==='function'?value.bind(target):value;
+        }})};
+        try{
+            if(action==='atomic-edit'){
+                let error;try{await c.continuationService.applyCanvasPlanningSettlementContinuation(env,input);}catch(caught){error=caught;}
+                check(raced&&/malformed JSON|JSON path error/.test(String(error?.message||error)),'The actual D1 atomic guard rejects a revision race after successful revalidation');
+            }else await rejected(()=>c.continuationService.applyCanvasPlanningSettlementContinuation(env,input),
+                action==='cap'?'canvas_agent_settlement_continuation_state_changed':action==='headroom'?'canvas_agent_settlement_continuation_preflight_blocked':'canvas_agent_settlement_continuation_prices_changed');
+        }finally{
+            if(action==='price')await f.db.prepare('UPDATE model_pricing_state SET revision=? WHERE id=1').bind(price).run();
+        }
+        equal(await c.run(),before,'Changed price, capabilities, money or revision never releases the production hold');
+        check((await f.db.prepare("SELECT COUNT(*) AS n FROM canvas_agent_events WHERE run_id=? AND event_key LIKE 'settlement-plan-continuation:%'").bind(c.ids.runId).first()).n===0,'Rejected or rolled-back continuation writes no acceptance event');
+        equal((await c.ledger()).map(row=>row.amount),[-94],'Revalidation never changes the original settled cost');
+        check((await f.db.prepare('SELECT COUNT(*) AS n FROM canvas_nodes WHERE project_id=?').bind(f.project).first()).n===0,'No graph mutation escapes a failed final guard');
+        check(f.unexpected.length===0,'Revalidation never calls a provider');
+    }
+    return {case:'continuation-revalidation',planningCalls:0,debits:6};
+}
+
+async function settledContinuationCase(base,name) {
+    if(name==='continuation-revalidation')return continuationRevalidationCase(base);
+    if(name==='continuation-authority'){
+        for(const action of ['cancel','takeover','expired','edited','disabled']){
+            const c=await seedSettledMusicHold(base,`settlement-authority-${action}`),{f}=c;
+            const prepared=await c.previewContinuation();check(prepared.continuationAllowed,'Exact original authority permits the dry run');
+            if(['cancel','takeover'].includes(action)){
+                const response=await f.request(`${f.route}/${c.ids.runId}/control`,'POST',{action},{'Idempotency-Key':'synthetic-continuation-stop'});
+                check(response.ok,'Normal user control stops the original production');
+            }else if(action==='expired')await f.db.prepare("UPDATE canvas_agent_runs SET expires_at='2000-01-01T00:00:00.000Z' WHERE id=?").bind(c.ids.runId).run();
+            else if(action==='edited')await f.db.prepare('UPDATE canvas_projects SET revision=revision+1 WHERE id=?').bind(f.project).run();
+            else f.env.CANVAS_AGENT_ENABLED='false';
+            const stopped=await c.run();
+            await rejected(()=>c.continuationService.applyCanvasPlanningSettlementContinuation(f.env,{...c.continuationInput,continuationDigest:prepared.continuationDigest}),
+                action==='disabled'?'canvas_agent_settlement_runtime_unavailable':'canvas_agent_settlement_continuation_state_changed');
+            equal(await c.run(),stopped,'A stale continuation approval cannot change stopped, expired or edited authority');
+            equal((await c.ledger()).map(row=>row.amount),[-94],'Previously committed planning cost is retained exactly once');
+            check((await f.db.prepare('SELECT COUNT(*) AS n FROM canvas_nodes WHERE project_id=?').bind(f.project).first()).n===0,'Invalid authority never reaches graph application');
+            check(f.unexpected.length===0,'Authority revalidation performs no provider work');
+        }
+        return {case:name,planningCalls:0,debits:5};
+    }
+    const c=await seedSettledMusicHold(base,'settlement-'+name),{f}=c;
+    const original=await c.operation(),historical=await f.db.prepare('SELECT * FROM canvas_agent_settlement_reviews WHERE operation_id=?').bind(c.ids.operationId).first();
+    const before=await c.run(),quote=await c.previewContinuation();
+    check(quote.continuationAllowed&&quote.continuationStatus==='ready','Read-only continuation dry run establishes exact feasible recovery');
+    equal(quote.preflight.repairs,[inertMusicRepair],'Operator review exposes only the deterministic inert repair');
+    equal(await c.run(),before,'Continuation dry run leaves the held run untouched');
+    equal((await c.ledger()).map(row=>row.amount),[-94],'Dry run never repeats settlement');
+    const input={...c.continuationInput,continuationDigest:quote.continuationDigest};
+    if(name==='continuation-evidence'){
+        for(const change of [{continuationDigest:'f'.repeat(64)},{actor:'different-operator'},{authorizationRef:'unrelated-approval'}])
+            await rejected(()=>c.continuationService.applyCanvasPlanningSettlementContinuation(f.env,{...input,...change}),'canvas_agent_settlement_continuation_approval_invalid');
+        await rejected(()=>c.continuationService.previewCanvasPlanningSettlementContinuation(f.env,{...c.continuationInput,userId:f.foreign}),'canvas_agent_settlement_evidence_invalid');
+        const proposal=await f.db.prepare('SELECT validation_json FROM canvas_agent_proposals WHERE step_id=?').bind(c.ids.stepId).first();
+        const validation=JSON.parse(proposal.validation_json);validation.issues.push({...validation.issues[0],nodeKey:'another-node'});
+        await f.db.prepare('UPDATE canvas_agent_proposals SET validation_json=? WHERE step_id=?').bind(JSON.stringify(validation),c.ids.stepId).run();
+        await rejected(()=>c.continuationService.applyCanvasPlanningSettlementContinuation(f.env,input),'canvas_agent_settlement_continuation_issue_changed');
+        equal(await c.run(),before,'Forged approval or changed validation does not release the hold');
+    } else {
+        let result;
+        if(name==='continuation-crash'){
+            const fault=failOnce(f.db,{afterBatch:async()=>Boolean(await f.db.prepare("SELECT id FROM canvas_agent_events WHERE run_id=? AND event_key LIKE 'settlement-plan-continuation:%'").bind(c.ids.runId).first())});
+            await rejected(()=>c.continuationService.applyCanvasPlanningSettlementContinuation({...f.env,DB:fault.db},input),'synthetic-process-loss-after-commit');
+            check(fault.fired&&(await c.run()).status==='planning','Response loss occurs after the atomic continuation was committed');
+            result=await c.continuationService.applyCanvasPlanningSettlementContinuation(f.env,input);
+        }else{
+            const results=await Promise.all([c.continuationService.applyCanvasPlanningSettlementContinuation(f.env,input),c.continuationService.applyCanvasPlanningSettlementContinuation(f.env,input)]);
+            check(results.every(value=>value.replay),'Concurrent duplicate requests observe the same committed continuation');result=results[0];
+        }
+        check(result.replay&&result.continuationStatus==='already_resumed','Committed continuation is replay-safe');
+        await deliver(f.env,c.ids.runId);
+        const applied=await c.run();check(applied.status==='running'&&applied.rounds===1,'Original stored plan applies to the ordinary graph after guarded continuation');
+        const graph=await canvasAgentProject(f.env,f.owner,f.project),music=graph.nodes.find(node=>node.model_id==='elevenlabs/music-v2');
+        check(graph.nodes.filter(node=>node.type==='video_generation').length===3&&music,'The retained plan creates ordinary video and music nodes once');
+        check(!Object.hasOwn(JSON.parse(music.config_json),'originalAudio'),'Only the effective node loses the inert unsupported field');
+        const proposal=await f.db.prepare('SELECT * FROM canvas_agent_proposals WHERE step_id=?').bind(c.ids.stepId).first();
+        equal(JSON.parse(proposal.plan_json),{...c.plan,updates:[]},'Raw stored proposal remains unchanged after continuation');
+        equal(JSON.parse(proposal.validation_json).repairs,[inertMusicRepair],'Applied proposal retains the exact normalization evidence');
+        const graphIds=graph.nodes.map(node=>node.id);await c.continuationService.applyCanvasPlanningSettlementContinuation(f.env,input);
+        equal((await canvasAgentProject(f.env,f.owner,f.project)).nodes.map(node=>node.id),graphIds,'Replay after graph application cannot duplicate nodes');
+        const cancelled=await f.request(`${f.route}/${c.ids.runId}/control`,'POST',{action:'cancel'},{'Idempotency-Key':'synthetic-stop-after-continuation'});
+        check(cancelled.ok,'User retains ordinary stop control after continuation');
+        const stopped=await c.run();await c.continuationService.applyCanvasPlanningSettlementContinuation(f.env,input);
+        equal(await c.run(),stopped,'A later operator replay cannot undo the user cancellation');
+        check((await f.db.prepare("SELECT COUNT(*) AS n FROM canvas_agent_events WHERE run_id=? AND event_key LIKE 'settlement-plan-continuation:%'").bind(c.ids.runId).first()).n===1,'One durable continuation event covers concurrent and interrupted delivery');
+    }
+    equal(await c.operation(),original,'Continuation preserves every byte of original provider evidence and failure history');
+    equal(await f.db.prepare('SELECT * FROM canvas_agent_settlement_reviews WHERE operation_id=?').bind(c.ids.operationId).first(),historical,'Continuation never rewrites the original financial review');
+    equal((await c.ledger()).map(row=>row.amount),[-94],'Continuation never repeats the original planning debit');
+    check((await f.db.prepare("SELECT COUNT(*) AS n FROM canvas_agent_steps WHERE run_id=? AND kind='plan'").bind(c.ids.runId).first()).n===1,'No new paid planning identity exists');
+    check(f.unexpected.length===0,'No new reasoning, provider request or diagnostic generation is used');
+    return {case:name,planningCalls:0,debits:1};
+}
+
 export async function canvasPlanningSettlementCase(base,name) {
     check(CANVAS_SETTLEMENT_CASES.includes(name),'Known settlement control');
+    if(name.startsWith('inert-music-'))return inertMusicCase(base,name);
+    if(name.startsWith('continuation'))return settledContinuationCase(base,name);
     if(name==='raw-usage-contract'){
         // Each synthetic provider envelope is persisted once, preserving the
         // real immutable-receipt trigger. Its historical normalized receipt

@@ -4,18 +4,38 @@
 const fail=code=>{throw Object.assign(new Error(code),{code});};
 const id=value=>typeof value==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(value);
 const uuid=value=>typeof value==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(value);
-export function validateCanvasSettlementOperatorInput(input,{execute=false}={}) {
+export function validateCanvasSettlementOperatorInput(input,{execute=false,continuePlan=false}={}) {
     const identities=['userId','projectId','runId','stepId','operationId','usageAttemptId'];
-    const allowed=[...identities,'expectedSource','expectedSchema','originalReservationCredits','projectCapCredits','reviewDigest','actor','authorizationRef'];
+    const allowed=[...identities,'expectedSource','expectedAiSource','expectedSchema','originalReservationCredits','projectCapCredits','reviewDigest','actor','authorizationRef',...(continuePlan?['continuationDigest']:[])];
     if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(key=>!allowed.includes(key))
         ||identities.some(key=>!id(input[key]))||!/^[a-f0-9]{40}$/.test(input.expectedSource||'')
+        ||input.expectedAiSource!==undefined&&!/^[a-f0-9]{40}$/.test(input.expectedAiSource)
         ||!/^[0-9]{4}_canvas_agent_settlement_reviews\.sql$/.test(input.expectedSchema||'')
         ||!Number.isSafeInteger(input.originalReservationCredits)||input.originalReservationCredits<1
         ||!Number.isSafeInteger(input.projectCapCredits)||input.projectCapCredits<input.originalReservationCredits||input.projectCapCredits>100000
+        ||continuePlan&&!/^[a-f0-9]{64}$/.test(input.reviewDigest||'')
+        ||continuePlan&&execute&&!/^[a-f0-9]{64}$/.test(input.continuationDigest||'')
         ||execute&&(!/^[a-f0-9]{64}$/.test(input.reviewDigest||'')
           ||!/^[a-zA-Z0-9_.:/-]{1,160}$/.test(input.authorizationRef||'')||!/^[a-zA-Z0-9_.:@/-]{1,100}$/.test(input.actor||'')))
         fail('canvas_settlement_operator_input_invalid');
     return {...input};
+}
+
+// A retained AI version is valid only when all of its source/build inputs are
+// byte-identical in the candidate. This deliberately checks a conservative
+// superset, rather than trusting an operator-supplied annotation alone.
+export function verifyCanvasSettlementSource(input,git) {
+    if(git(['rev-parse','HEAD']).trim()!==input.expectedSource)fail('canvas_settlement_source_not_current');
+    const aiSource=input.expectedAiSource||input.expectedSource;
+    if(aiSource!==input.expectedSource){
+        try {
+            git(['merge-base','--is-ancestor',aiSource,input.expectedSource]);
+            for(const file of ['workers/ai','workers/shared','js/shared','package.json','package-lock.json','config/release-compat.json'])
+                if(git(['rev-parse',`${aiSource}:${file}`]).trim()!==git(['rev-parse',`${input.expectedSource}:${file}`]).trim())
+                    fail('canvas_settlement_ai_source_changed');
+        } catch {fail('canvas_settlement_ai_source_changed');}
+    }
+    return {auth:input.expectedSource,ai:aiSource};
 }
 
 export function createCanvasSettlementCloudflareClient({accountId,databaseId,token,fetcher=fetch}) {
@@ -78,19 +98,31 @@ export function createCanvasSettlementD1Binding(client,{readOnly=true}={}) {
 }
 
 export async function verifyCanvasSettlementRuntime(client,DB,input) {
-    const components={};
+    const components={},canvasFlags={};
     for(const worker of ['auth','ai']) {
         const deployments=await client.readWorker(worker),deployment=deployments?.deployments?.[0];
         if(deployment?.versions?.length!==1||deployment.versions[0].percentage!==100||!uuid(deployment.versions[0].version_id))
             fail('canvas_settlement_runtime_not_current');
         const version=await client.readWorker(worker,deployment.versions[0].version_id);
-        if(version?.id!==deployment.versions[0].version_id||version.annotations?.['workers/message']!==`bitbi-${worker}:${input.expectedSource}`)
+        const source=worker==='ai'?(input.expectedAiSource||input.expectedSource):input.expectedSource;
+        if(version?.id!==deployment.versions[0].version_id||version.annotations?.['workers/message']!==`bitbi-${worker}:${source}`)
             fail('canvas_settlement_runtime_not_current');
-        components[worker]={versionId:version.id,deploymentId:deployment.id,source:input.expectedSource,activatedAt:deployment.created_on};
+        components[worker]={versionId:version.id,deploymentId:deployment.id,source,activatedAt:deployment.created_on};
+        if(worker==='auth')for(const name of ['ENABLE_GROK_4_6','ENABLE_GROK_4_7','CANVAS_AGENT_ENABLED']){
+            const bindings=(version.resources?.bindings||[]).filter(binding=>binding.name===name&&binding.type==='plain_text');
+            if(bindings.length===1&&['true','false'].includes(bindings[0].text))canvasFlags[name]=bindings[0].text;
+        }
     }
     const migration=await DB.prepare('SELECT name FROM d1_migrations ORDER BY id DESC LIMIT 1').first();
     if(migration?.name!==input.expectedSchema)fail('canvas_settlement_schema_not_current');
-    return {components,schema:migration.name,verifiedAt:new Date().toISOString()};
+    return {components,schema:migration.name,canvasFlags,verifiedAt:new Date().toISOString()};
+}
+
+export function canvasSettlementRuntimeEnvironment(runtime,DB) {
+    const flags=runtime.canvasFlags;
+    if(!flags||!['true','false'].includes(flags.ENABLE_GROK_4_6)||flags.ENABLE_GROK_4_7!=='true'||flags.CANVAS_AGENT_ENABLED!=='true')
+        fail('canvas_settlement_runtime_flags_unavailable');
+    return {DB,...flags};
 }
 
 export function verifyCanvasSettlementOperatorQuote(input,preview) {
@@ -98,5 +130,6 @@ export function verifyCanvasSettlementOperatorQuote(input,preview) {
         ||preview.settlementCredits>input.originalReservationCredits||preview.budget.committedCredits>input.projectCapCredits)
         fail('canvas_settlement_operator_scope_changed');
     if(input.reviewDigest&&input.reviewDigest!==preview.reviewDigest)fail('canvas_settlement_operator_review_changed');
+    if(input.continuationDigest&&input.continuationDigest!==preview.continuationDigest)fail('canvas_settlement_operator_continuation_changed');
     return preview;
 }

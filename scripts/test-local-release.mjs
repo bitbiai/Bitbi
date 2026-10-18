@@ -21,6 +21,11 @@ import { LOCAL_IMPORT_REPAIR, assertImportRepairWorkflow, localRepairCommand, ve
 import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,assertPermissionContinuationTree,permissionContinuationPrefix,CANVAS_STAGE_CASES,canvasStageContinuation} from './lib/local-release-evidence.mjs';
 import {testLocalMediaProcess} from './test-local-media-process.mjs';
 
+if(process.argv.includes('--stored-plan-only')) {
+  assert.deepEqual(process.argv.slice(2),['--stored-plan-only']);
+  await testStoredPlanContinuation();process.exit(0);
+}
+
 if(process.argv.includes('--settlement-browser-only')) {
   assert.deepEqual(process.argv.slice(2),['--settlement-browser-only']);
   await testSettlementBrowserContinuation();process.exit(0);
@@ -2159,3 +2164,61 @@ async function testSettlementBrowserContinuation() {
  console.log('Settlement browser continuation:634-case discovery,630 retained outcomes,4 required corrections,25 Auth overlaps and385 native passes remain bound to original evidence.');
 }
 await testSettlementBrowserContinuation();
+
+async function testStoredPlanContinuation() {
+ const {STORED_PLAN_CONTINUATION:p,assertStoredPlanTree,verifyModelBrowserReport}=await import('./lib/local-release-browser.mjs');
+ const {storedPlanPrefix,storedPlanCommand,storedPlanWorkerNames,verifyStoredPlanWorkerUnion,verifyStoredPlanNative,verifyStoredPlanOrigin,workerDiscovery}=await import('./lib/local-release-evidence.mjs');
+ const {parseRuntimeArgs}=await import('../tests/helpers/q2-runtime/linux-hosted.mjs');
+ const {selectedRuntimeSuites,runtimeSuites}=await import('../tests/helpers/q2-runtime/runner.mjs');
+ const {canvasSettlementContinuationInventory,runCanvasSettlementContinuationTests}=await import('../tests/helpers/q2-runtime/canvas-policy-tail.mjs');
+ assert.equal(parseRuntimeArgs(['--suite','canvas-settlement-continuation'],{}).suite,'canvas-settlement-continuation');
+ assert.throws(()=>parseRuntimeArgs(['--suite','canvas-settlement-continuation-other'],{}));assert.throws(()=>parseRuntimeArgs(['--suite','canvas-settlement-continuation','--suite','canvas'],{}));
+ assert.equal(selectedRuntimeSuites('canvas-settlement-continuation')[0][1],runCanvasSettlementContinuationTests);assert(!runtimeSuites.some(([,run])=>run===runCanvasSettlementContinuationTests));assert.deepEqual(selectedRuntimeSuites(),runtimeSuites);
+ assert.equal(storedPlanCommand({name:'Test local release evidence and orchestration',run:'npm run test:local-release'}),'npm run test:local-release -- --stored-plan-only');
+ const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-stored-plan-')),bare=path.join(temporary,'git'),previousGitDir=process.env.GIT_DIR;
+ try {
+  execFileSync('git',['init','--bare',bare],{stdio:'pipe'});fs.writeFileSync(path.join(bare,'objects/info/alternates'),path.resolve(execFileSync('git',['rev-parse','--git-path','objects'],{encoding:'utf8'}).trim())+'\n');
+  const env={...process.env,GIT_AUTHOR_NAME:'Synthetic',GIT_AUTHOR_EMAIL:'synthetic@example.invalid',GIT_COMMITTER_NAME:'Synthetic',GIT_COMMITTER_EMAIL:'synthetic@example.invalid'},read=(args,input)=>execFileSync('git',['--git-dir',bare,...args],{env,input,stdio:['pipe','pipe','pipe'],maxBuffer:64*1024*1024});
+  const tooling=['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/lib/local-release-browser.mjs','scripts/test-local-release.mjs'];
+  const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),reviewed=read(['rev-list','--ancestry-path','--reverse',`${p.source}..${head}`]).toString().trim().split('\n')[0];
+  const fixes=Object.fromEntries([...Object.keys(p.specs),...tooling].map(file=>[file,reviewed?read(['show',`${reviewed}:${file}`]):fs.readFileSync(file)]));
+  const commit=(changes,parent=p.source)=>{read(['read-tree',p.source]);for(const[file,value]of Object.entries(changes)){
+   if(value===null){read(['update-index','--index-info'],Buffer.from(`0 ${'0'.repeat(40)}\t${file}\n`));continue;}
+   const blob=read(['hash-object','-w','--stdin'],value.content??value).toString().trim();read(['update-index','--add','--cacheinfo',`${value.mode||'100644'},${blob},${file}`]);
+  }return read(['commit-tree',read(['write-tree']).toString().trim(),'-p',parent],Buffer.from('Synthetic stored-plan continuation\n')).toString().trim();};
+  const accepted=commit(fixes);assertStoredPlanTree(accepted,read);
+  for(const file of Object.keys(p.specs))for(const value of [null,Buffer.from('Unreviewed input'),{mode:'120000',content:Buffer.from('outside')}])assert.throws(()=>assertStoredPlanTree(commit({...fixes,[file]:value}),read));
+  for(const file of ['workers/ai/src/lib/canvas-agent-plan.js','js/pages/canvas/agent.js','package-lock.json','config/release-validation.yml','tests/canvas.spec.js'])assert.throws(()=>assertStoredPlanTree(commit({...fixes,[file]:Buffer.from('Changed retained input')}),read));
+  assert.throws(()=>assertStoredPlanTree(commit(fixes,accepted),read));assert.throws(()=>assertStoredPlanTree(commit({...fixes,'scripts/test-local-release.mjs':Buffer.from('Removed previous assertions')}),read));
+  const root='.local-release',origin=path.join(root,'reuse/stored-plan-origin');
+  if(!fs.existsSync(path.join(origin,'evidence.json'))){assert(!process.argv.includes('--stored-plan-only'),'The continuation verifier requires actual preserved source evidence');return;}
+  process.env.GIT_DIR=bare;
+  const original=JSON.parse(fs.readFileSync(path.join(origin,'evidence.json'))),selection=gitSelection(p.source,accepted),commands=selectedCommands(selection,{GITHUB_SHA:accepted,CANDIDATE_BASE:p.source});
+  const context={sha:accepted,base:p.source,planHash:validationPlan().digest,environment:original.environment,nativeBrowsers:original.nativeBrowsers,commands,selection};
+  assert.equal(storedPlanPrefix(fs.readFileSync(path.join(origin,'evidence.json')),context).sha,p.source);
+  for(const patch of [{base:original.base},{environment:{...original.environment,image:'sha256:'+'0'.repeat(64)}},{commands:commands.slice(1)},{selection:{...selection,full:true}}])assert.throws(()=>storedPlanPrefix(fs.readFileSync(path.join(origin,'evidence.json')),{...context,...patch}));
+  verifyStoredPlanOrigin(root,accepted);
+  const old=workerDiscovery(JSON.parse(fs.readFileSync(path.join(origin,'test-results/settlement-worker-discovery.json'))));
+  const fresh=storedPlanWorkerNames.map((title,i)=>({id:'synthetic-'+i,file:title.startsWith('Canvas settled-plan')?'q2-canvas-settlement-operator.spec.js':'q2-canvas-agent-settlement-review.spec.js',title,results:[{status:'passed',retry:0}]}));
+  const discovery=[...old,...fresh];assert.deepEqual(verifyStoredPlanWorkerUnion(old,discovery,fresh),{retained:1574,executed:9,required:1583});
+  for(const broken of [fresh.slice(1),[...fresh,fresh[0]],fresh.map((r,i)=>i? r:{...r,results:[{status:'failed',retry:0}]}),fresh.map((r,i)=>i? r:{...r,results:[{status:'passed',retry:1}]}),[...fresh,{...old[0],results:[{status:'passed',retry:0}]}]])assert.throws(()=>verifyStoredPlanWorkerUnion(old,discovery,broken));
+  assert.throws(()=>verifyStoredPlanWorkerUnion(old,discovery.slice(1),fresh));assert.throws(()=>verifyStoredPlanWorkerUnion(old,[...discovery,{...fresh[0],id:'foreign',title:'Unknown new case'}],fresh));
+  const priorNative=JSON.parse(fs.readFileSync(path.join(origin,'runtime/q2-runtime-evidence/native-Dvjqr1/reports/bitbi-q2-runtime-gLE6HW__result.json'))),oldNames=priorNative.reports.find(s=>s.suite==='canvas').records.map(r=>r.name);
+  const insert=oldNames.indexOf('canvas_planning_settlement_identity')+1;assert(insert>0);const names=[...oldNames.slice(0,insert),...canvasSettlementContinuationInventory,...oldNames.slice(insert)];
+  const result={passed:7,failedSuites:0,reports:[{suite:'canvas',records:canvasSettlementContinuationInventory.map(name=>({name,status:'PASS'})),metrics:[{settlementContinuation:{retained:oldNames,discovery:names,fresh:[...canvasSettlementContinuationInventory]}}],failure:null}]};
+  assert.deepEqual(verifyStoredPlanNative(priorNative,result),{retained:385,executed:7,required:392});
+  for(const mutate of [r=>r.reports[0].records.pop(),r=>r.reports[0].records[0].status='FAIL',r=>r.reports[0].metrics[0].settlementContinuation.retained.pop(),r=>r.reports[0].metrics[0].settlementContinuation.discovery.pop(),r=>r.reports[0].records.push(r.reports[0].records[0])]){const bad=structuredClone(result);mutate(bad);assert.throws(()=>verifyStoredPlanNative(priorNative,bad));}
+  // Exercise the actual scope adapter with a known callback inventory and broken
+  // providers; synthetic callbacks are never written into acceptance evidence.
+  const source=fs.readFileSync('tests/helpers/q2-runtime/canvas-policy-tail.mjs','utf8'),asUrl=code=>'data:text/javascript;base64,'+Buffer.from(code).toString('base64');
+  const adapter=async inventory=>import(asUrl(source.replace("'./canvas.mjs'",JSON.stringify(asUrl('export async function runCanvasTests(f){for(const name of '+JSON.stringify(inventory)+')await f.test(name,async()=>f.calls.push(name));}')))));
+  const f={calls:[],metrics:[],test:async(name,operation)=>operation()};await(await adapter(names)).runCanvasSettlementContinuationTests(f);assert.deepEqual(f.calls,canvasSettlementContinuationInventory);
+  for(const invalid of [names.slice(1),[...names,names[0]],names.filter(name=>name!==canvasSettlementContinuationInventory[0]),[...names,'new-unreviewed-native-case']])await assert.rejects(() => adapter(invalid).then(module=>module.runCanvasSettlementContinuationTests({calls:[],metrics:[],test:async(name,operation)=>operation()})));
+  const worker=commands.find(row=>row.name==='Run worker route tests'),actual=storedPlanCommand(worker);assert(actual.includes('--retries=0'));assert(actual.includes('--suite canvas-settlement-continuation'));assert(actual.includes('--list --reporter=json'));assert(!actual.includes('npm run test:workers'));
+  for(const scope of ['auth','homepage']){const oldReport=JSON.parse(fs.readFileSync(path.join(origin,`test-results/candidate-${scope}.json`))),report={...oldReport,sha:accepted,retainedSource:p.source};verifyModelBrowserReport(report,accepted);for(const mutate of [r=>r.fresh.pop(),r=>r.discovery.pop(),r=>r.retainedSource='a'.repeat(40),r=>r.previous[0].title='forged']){const bad=structuredClone(report);mutate(bad);assert.throws(()=>verifyModelBrowserReport(bad,accepted));}}
+  const snapshot=path.join(temporary,'proof');fs.cpSync(root,snapshot,{recursive:true});const proofOrigin=path.join(snapshot,'reuse/stored-plan-origin');
+  for(const file of ['evidence.json','candidate/site/index.html','logs/41.log','test-results/candidate-auth.json','runtime/q2-runtime-evidence/native-Dvjqr1/reports/bitbi-q2-runtime-gLE6HW__result.json']){const target=path.join(proofOrigin,file),bytes=fs.readFileSync(target);fs.writeFileSync(target,'forged');assert.throws(()=>verifyStoredPlanOrigin(snapshot,accepted));fs.writeFileSync(target,bytes);}
+ }finally{if(previousGitDir===undefined)delete process.env.GIT_DIR;else process.env.GIT_DIR=previousGitDir;fs.rmSync(temporary,{recursive:true,force:true});}
+ console.log('Stored-plan continuation: actual accepted evidence calibrated;1574 Worker/385 native/browser outcomes retained;9 new Worker and7 new native identities mandatory; missing, forged, failed, duplicate and unrelated-source controls rejected.');
+}
+await testStoredPlanContinuation();

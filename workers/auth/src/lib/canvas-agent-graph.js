@@ -83,6 +83,15 @@ async function calculateCanvasAgentGraph(env,run,view,inventory,rawPlan,repairNo
         const available=inventory.models.find(m=>m.id===node.modelId);
         try {
         if(!model||!available||!model.runnable||model.capability!==TYPE_KIND[node.type])agentFail('canvas_agent_model_ineligible');
+        // This video-only field has no effect on ElevenLabs requests, pricing
+        // or background-music mixing. Normalize only the exact inert value on
+        // a new proposed music node; the raw provider proposal stays intact.
+        const audio=node.config.originalAudio;
+        if(!node.update&&node.type==='music_generation'&&model.id==='elevenlabs/music-v2'
+            &&audio&&Object.keys(audio).sort().join(',')==='enabled,gain'&&audio.enabled===false&&audio.gain===0){
+            delete node.config.originalAudio;
+            repairs.push({code:'canvas_agent_music_original_audio_noop',nodeKey:node.key,field:'config.originalAudio',from:audio,to:null});
+        }
         validateConfig(model,node.config,node.prompt);
         const references=node.dependencies.map(dep=>({dep,source:specs.get(dep.key)}));
         if(model.id===H3_MODEL&&node.config.aspectRatio===undefined){

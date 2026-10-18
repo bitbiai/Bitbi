@@ -109,7 +109,7 @@ async function evidence(env,input) {
     if(project.deleted_at||project.user_status!=='active')continuationBlock='canvas_agent_authority_revoked';
     if(project.revision!==run.expected_revision)continuationBlock='canvas_agent_project_changed';
     if(run.brief_revision!==null&&(conversation?.brief_revision!==run.brief_revision||conversation?.state==='cancelled'))continuationBlock='canvas_agent_conversation_changed';
-    return {ids,run,step,operation,usage,project,metadata,receipt,request,calculation,approval,reviewDigest,budget,previous,ledger,continuationBlock};
+    return {ids,run,step,operation,usage,project,metadata,receipt,request,plan,calculation,approval,reviewDigest,budget,previous,ledger,continuationBlock};
 }
 
 function report(value,review=value.previous) {
@@ -218,4 +218,127 @@ export async function applyCanvasPlanningSettlementReview(env,input) {
             .bind(code,nowIso(),id,token).run();
         throw error;
     }
+}
+
+// This single continuation resolves an inert unsupported music setting after
+// settlement. It never alters the accepted proposal or financial review, and
+// never calls inference, billing, graph mutation or queue dispatch itself.
+const CONTINUATION='canvas-agent-settled-music-noop-v1';
+const continuationKey=id=>`settlement-plan-continuation:${id}`;
+const settingsSql="SELECT json_group_array(json_object('key',key,'value_json',value_json)) AS snapshot FROM (SELECT key,value_json FROM app_settings WHERE key LIKE 'model_area:%' OR key='model_readiness:google/gemini-omni-flash' ORDER BY key)";
+async function continuationEvidence(env,input) {
+    const value=await evidence(env,input),{run,step,previous:review}=value;
+    if(!review||review.state!=='completed'||!review.settled_at||review.allow_new_reasoning!==0
+        ||input.reviewDigest!==value.reviewDigest||step.status!=='completed'||value.usage.billing_status!=='finalized'
+        ||value.ledger.length!==1)fail('canvas_agent_settlement_continuation_invalid');
+    const old=await env.DB.prepare('SELECT payload_json,created_at FROM canvas_agent_events WHERE run_id=? AND event_key=?')
+        .bind(run.id,continuationKey(review.id)).first();
+    if(old){
+        const saved=parse(old.payload_json);
+        if(saved.policy!==CONTINUATION||saved.approval?.reviewDigest!==value.reviewDigest
+            ||saved.continuationDigest!==await digest(saved.approval))fail('canvas_agent_settlement_continuation_conflict');
+        return {value,saved,replay:true};
+    }
+    if(run.status!=='review_required'||run.error_code!=='canvas_agent_recovered_plan_requires_review'
+        ||run.expected_revision!==review.project_revision||run.budget_credits!==review.project_cap_credits
+        ||(run.budget_revision||0)!==review.budget_revision||run.brief_revision!==review.brief_revision
+        ||value.continuationBlock!=='canvas_agent_settlement_run_not_resumable'
+        ||run.lease_until&&run.lease_until>nowIso())fail('canvas_agent_settlement_continuation_state_changed');
+    if(String(env.CANVAS_AGENT_ENABLED)!=='true'||String(env.ENABLE_GROK_4_7)!=='true'
+        ||!['true','false'].includes(String(env.ENABLE_GROK_4_6)))fail('canvas_agent_settlement_runtime_unavailable');
+    const newer=await env.DB.prepare(`SELECT id FROM canvas_agent_runs WHERE project_id=? AND id!=? AND purpose='production'
+        AND (created_at>=? OR status IN ('queued','planning','applying','running','exporting')) LIMIT 1`)
+        .bind(run.project_id,run.id,run.created_at).first();
+    const otherStep=await env.DB.prepare('SELECT id FROM canvas_agent_steps WHERE run_id=? AND id!=? LIMIT 1').bind(run.id,step.id).first();
+    if(newer||otherStep)fail('canvas_agent_settlement_continuation_state_changed');
+    const proposal=await env.DB.prepare('SELECT * FROM canvas_agent_proposals WHERE step_id=? AND run_id=?').bind(step.id,run.id).first();
+    const validation=parse(proposal?.validation_json||'null'),issues=validation?.issues;
+    if(proposal?.status!=='invalid'||stablePricingJson(parse(proposal.plan_json))!==stablePricingJson(value.plan)
+        ||!Array.isArray(issues)||issues.length!==1||issues[0].code!=='canvas_agent_parameter_unsupported'
+        ||issues[0].modelId!=='elevenlabs/music-v2'||issues[0].field!=='config')fail('canvas_agent_settlement_continuation_issue_changed');
+    const node=value.plan.nodes.find(node=>node.key===issues[0].nodeKey),audio=node?.config?.originalAudio;
+    if(node?.type!=='music_generation'||node.modelId!=='elevenlabs/music-v2'||!audio||audio.enabled!==false||audio.gain!==0
+        ||Object.keys(audio).sort().join(',')!=='enabled,gain')fail('canvas_agent_settlement_continuation_issue_changed');
+    const settings=(await env.DB.prepare(settingsSql).first()).snapshot;
+    const pricing=await env.DB.prepare('SELECT revision,factory_version,rules_json FROM model_pricing_state WHERE id=1').first();
+    const {canvasAgentProject}=await import('../routes/canvas-agent.js');
+    const {canvasAgentCapabilities}=await import('./canvas-agent-capabilities.js');
+    const {preflightCanvasAgentGraph}=await import('./canvas-agent-graph.js');
+    const view=await canvasAgentProject(env,run.user_id,run.project_id),inventory=await canvasAgentCapabilities(env);
+    if(inventory.revision!==run.capability_revision||inventory.tariffRevision!==run.tariff_revision
+        ||pricing?.revision!==run.tariff_revision)fail('canvas_agent_settlement_continuation_prices_changed');
+    const preflight=await preflightCanvasAgentGraph(env,run,view,inventory,value.plan);
+    const required={code:'canvas_agent_music_original_audio_noop',nodeKey:node.key,field:'config.originalAudio',from:{enabled:false,gain:0},to:null};
+    if(!preflight.ok||stablePricingJson(preflight.repairs)!==stablePricingJson([required])
+        ||!Number.isSafeInteger(preflight.estimatedCredits)||preflight.estimatedCredits>preflight.budget.remainingCredits)
+        fail('canvas_agent_settlement_continuation_preflight_blocked');
+    const approval={version:1,policy:CONTINUATION,reviewDigest:value.reviewDigest,...value.ids,
+        receiptDigest:value.approval.receiptDigest,responseDigest:value.approval.responseDigest,inputDigest:value.approval.inputDigest,
+        proposalDigest:await digest(proposal.plan_json),validationDigest:await digest(proposal.validation_json),
+        derivedPlanDigest:await digest(preflight.plan),repairs:preflight.repairs,costs:preflight.costs,
+        projectRevision:run.expected_revision,briefRevision:run.brief_revision,projectCapCredits:run.budget_credits,
+        budgetRevision:run.budget_revision,tariffRevision:run.tariff_revision,capabilityRevision:inventory.revision,
+        settingsDigest:await digest(settings),pricingDigest:await digest(pricing),committedCredits:preflight.budget.committedCredits,
+        expiresAt:run.expires_at};
+    return {value,proposal,settings,pricing,preflight,approval,continuationDigest:await digest(approval),replay:false};
+}
+function continuationReport(result) {
+    const {value,saved,replay}=result;
+    return {...report(value),continuationPolicy:CONTINUATION,continuationDigest:saved?.continuationDigest||result.continuationDigest,
+        continuationAllowed:!replay,continuationBlock:null,continuationStatus:replay?'already_resumed':'ready',replay,
+        preflight:{repairs:(saved?.approval||result.approval).repairs,costs:(saved?.approval||result.approval).costs},
+        ...(saved?{continuedAt:saved.continuedAt}:{})};
+}
+export async function previewCanvasPlanningSettlementContinuation(env,input) {
+    return continuationReport(await continuationEvidence(env,input));
+}
+export async function applyCanvasPlanningSettlementContinuation(env,input) {
+    const result=await continuationEvidence(env,input),{value}=result,{run,step,previous:review}=value;
+    const expected=result.saved?.continuationDigest||result.continuationDigest;
+    if(input.continuationDigest!==expected||input.actor!==review.actor||input.authorizationRef!==review.authorization_ref)
+        fail('canvas_agent_settlement_continuation_approval_invalid');
+    if(result.replay)return continuationReport(result);
+    const now=nowIso(),key=continuationKey(review.id),payload=JSON.stringify({policy:CONTINUATION,
+        code:'canvas_agent_settled_plan_continued',phase:'planning',continuationDigest:expected,approval:result.approval,
+        actor:input.actor,authorizationRef:input.authorizationRef,continuedAt:now});
+    if(new TextEncoder().encode(payload).byteLength>12000)fail('canvas_agent_settlement_continuation_evidence_limit');
+    const unchanged=`EXISTS(SELECT 1 FROM canvas_agent_runs r JOIN canvas_projects p ON p.id=r.project_id JOIN users u ON u.id=r.user_id
+        JOIN canvas_agent_steps s ON s.run_id=r.id JOIN canvas_agent_model_operations o ON o.step_id=s.id
+        JOIN member_ai_usage_attempts_v2 a ON a.id=s.usage_attempt_id JOIN canvas_agent_settlement_reviews v ON v.operation_id=o.id
+        JOIN canvas_agent_proposals q ON q.step_id=s.id
+        WHERE r.id=? AND r.user_id=? AND r.project_id=? AND r.status='review_required' AND r.error_code='canvas_agent_recovered_plan_requires_review'
+        AND r.expected_revision=? AND r.brief_revision IS ? AND r.budget_credits=? AND r.budget_revision=? AND r.tariff_revision=?
+        AND r.capability_revision=? AND r.expires_at=? AND r.expires_at>? AND (r.lease_until IS NULL OR r.lease_until<=?)
+        AND p.revision=r.expected_revision AND p.deleted_at IS NULL AND p.user_id=r.user_id AND u.status='active'
+        AND (r.brief_revision IS NULL OR EXISTS(SELECT 1 FROM canvas_agent_conversations c WHERE c.project_id=r.project_id
+            AND c.user_id=r.user_id AND c.brief_revision=r.brief_revision AND c.state!='cancelled'))
+        AND NOT EXISTS(SELECT 1 FROM canvas_agent_controls c WHERE c.run_id=r.id AND c.action IN ('pause','cancel','takeover'))
+        AND NOT EXISTS(SELECT 1 FROM canvas_agent_runs n WHERE n.project_id=r.project_id AND n.id!=r.id AND n.purpose='production'
+            AND (n.created_at>=r.created_at OR n.status IN ('queued','planning','applying','running','exporting')))
+        AND s.id=? AND s.status='completed' AND s.receipt_json=? AND NOT EXISTS(SELECT 1 FROM canvas_agent_steps extra WHERE extra.run_id=r.id AND extra.id!=s.id)
+        AND o.id=? AND o.state='completed' AND o.receipt_json=? AND o.response_json=? AND o.reconcile_attempts=5
+        AND a.id=? AND a.billing_status='finalized' AND a.provider_outcome='succeeded' AND a.reservation_released_at IS NULL
+        AND a.metadata_json=? AND v.id=? AND v.state='completed' AND v.allow_new_reasoning=0 AND v.review_digest=?
+        AND q.status='invalid' AND q.plan_json=? AND q.validation_json=?
+        AND EXISTS(SELECT 1 FROM model_pricing_state WHERE id=1 AND revision=? AND factory_version=? AND rules_json=?)
+        AND (SELECT COALESCE(SUM(committed),0) FROM canvas_agent_step_costs WHERE project_id=r.project_id)=?
+        AND (${settingsSql.replace(' AS snapshot','')})=?)`;
+    const bindings=[run.id,run.user_id,run.project_id,run.expected_revision,run.brief_revision,run.budget_credits,run.budget_revision,
+        run.tariff_revision,run.capability_revision,run.expires_at,now,now,step.id,step.receipt_json,value.operation.id,
+        value.operation.receipt_json,value.operation.response_json,value.usage.id,value.usage.metadata_json,review.id,review.review_digest,
+        result.proposal.plan_json,result.proposal.validation_json,result.pricing.revision,result.pricing.factory_version,result.pricing.rules_json,
+        result.approval.committedCredits,result.settings];
+    // A duplicate already committed event wins without touching the run again.
+    // A failing guard aborts both event and status write in the D1 transaction.
+    await env.DB.batch([
+        env.DB.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM canvas_agent_events WHERE run_id=? AND event_key=? AND json_extract(payload_json,'$.continuationDigest')=?)
+            OR ${unchanged} THEN 1 ELSE json_extract('[]','$[') END`).bind(run.id,key,expected,...bindings),
+        env.DB.prepare(`UPDATE canvas_agent_runs SET status='planning',phase='planning',error_code=NULL,cause_json=NULL,
+            next_attempt_at=?,updated_at=?,lease_token=NULL,lease_until=NULL WHERE id=?
+            AND NOT EXISTS(SELECT 1 FROM canvas_agent_events WHERE run_id=? AND event_key=?) AND ${unchanged}`)
+            .bind(now,now,run.id,run.id,key,...bindings),
+        env.DB.prepare(`INSERT INTO canvas_agent_events(run_id,event_key,type,payload_json,created_at)
+            VALUES(?,?,'decision_summary',?,?) ON CONFLICT(run_id,event_key) DO NOTHING`).bind(run.id,key,payload,now),
+    ]);
+    return continuationReport(await continuationEvidence(env,input));
 }

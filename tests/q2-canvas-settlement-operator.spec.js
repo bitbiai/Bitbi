@@ -87,3 +87,46 @@ test('Canvas settlement operator requires actual deployed Auth and AI source plu
     await expect(m.verifyCanvasSettlementRuntime(client,{prepare:()=>({first:async()=>({name:'0110_previous.sql'})})},input()))
         .rejects.toThrow('canvas_settlement_schema_not_current');
 });
+
+test('Canvas settled-plan continuation requires its own digest and verified runtime flags',async()=>{
+    const m=await load(),value={...input(),reviewDigest:'c'.repeat(64),actor:'fixture-operator',authorizationRef:'fixture-owner-approval'};
+    expect(m.validateCanvasSettlementOperatorInput(value,{continuePlan:true})).toEqual(value);
+    expect(()=>m.validateCanvasSettlementOperatorInput(value,{continuePlan:true,execute:true})).toThrow();
+    const approved={...value,continuationDigest:'d'.repeat(64),expectedAiSource:'e'.repeat(40)};
+    expect(m.validateCanvasSettlementOperatorInput(approved,{continuePlan:true,execute:true})).toEqual(approved);
+    expect(()=>m.validateCanvasSettlementOperatorInput(approved,{execute:true})).toThrow();
+    expect(()=>m.validateCanvasSettlementOperatorInput({...approved,expectedAiSource:'main'},{continuePlan:true})).toThrow();
+    const preview={reservationCredits:146,settlementCredits:94,budget:{capCredits:3893,committedCredits:116},
+        reviewDigest:approved.reviewDigest,continuationDigest:approved.continuationDigest};
+    expect(m.verifyCanvasSettlementOperatorQuote(approved,preview)).toBe(preview);
+    expect(()=>m.verifyCanvasSettlementOperatorQuote(approved,{...preview,continuationDigest:'f'.repeat(64)})).toThrow('canvas_settlement_operator_continuation_changed');
+    const DB={},flags={ENABLE_GROK_4_6:'false',ENABLE_GROK_4_7:'true',CANVAS_AGENT_ENABLED:'true'};
+    expect(m.canvasSettlementRuntimeEnvironment({canvasFlags:flags},DB)).toEqual({DB,...flags});
+    for(const changed of [{},{...flags,CANVAS_AGENT_ENABLED:'false'},{...flags,ENABLE_GROK_4_6:undefined}])
+        expect(()=>m.canvasSettlementRuntimeEnvironment({canvasFlags:changed},DB)).toThrow('canvas_settlement_runtime_flags_unavailable');
+    const client={readWorker:async(worker,v)=>v?{id:version,annotations:{'workers/message':`bitbi-${worker}:${worker==='ai'?approved.expectedAiSource:source}`},
+        resources:{bindings:[...Object.entries(flags).map(([name,text])=>({name,type:'plain_text',text})),{name:'PRIVATE_SECRET',type:'secret_text',text:'must-not-escape'}]}}:
+        {deployments:[{id:'fixture-deploy',versions:[{version_id:version,percentage:100}]}]} };
+    const proof=await m.verifyCanvasSettlementRuntime(client,{prepare:()=>({first:async()=>({name:schema})})},approved);
+    expect(proof.components.ai.source).toBe(approved.expectedAiSource);expect(proof.canvasFlags).toEqual(flags);
+    expect(JSON.stringify(proof)).not.toContain('must-not-escape');expect(JSON.stringify(proof)).not.toContain('PRIVATE_SECRET');
+});
+
+test('Canvas settled-plan retained AI source requires real Git ancestry and unchanged complete build inputs',async()=>{
+    const m=await load(),fs=require('node:fs'),path=require('node:path'),os=require('node:os'),{execFileSync}=require('node:child_process');
+    const directory=fs.mkdtempSync(path.join(os.tmpdir(),'canvas-settlement-ai-source-'));
+    const git=args=>execFileSync('git',args,{cwd:directory,encoding:'utf8',stdio:['ignore','pipe','pipe']});
+    const write=(file,value)=>{fs.mkdirSync(path.dirname(path.join(directory,file)),{recursive:true});fs.writeFileSync(path.join(directory,file),value);};
+    const commit=()=>{git(['add','.']);git(['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','fixture']);return git(['rev-parse','HEAD']).trim();};
+    try {
+        git(['init','-q']);
+        for(const file of ['workers/ai/index.js','workers/shared/contract.mjs','js/shared/contract.mjs','package.json','package-lock.json','config/release-compat.json'])write(file,'original\n');
+        const first=commit();write('workers/auth/recovery.js','auth-only\n');const second=commit();
+        const scoped={...input(),expectedSource:second,expectedAiSource:first};
+        expect(m.verifyCanvasSettlementSource(scoped,git)).toEqual({auth:second,ai:first});
+        write('workers/shared/contract.mjs','changed shared runtime\n');const third=commit();
+        expect(()=>m.verifyCanvasSettlementSource({...scoped,expectedSource:third},git)).toThrow('canvas_settlement_ai_source_changed');
+        expect(()=>m.verifyCanvasSettlementSource(scoped,git)).toThrow('canvas_settlement_source_not_current');
+        expect(()=>m.verifyCanvasSettlementSource({...scoped,expectedSource:third,expectedAiSource:'f'.repeat(40)},git)).toThrow('canvas_settlement_ai_source_changed');
+    }finally{fs.rmSync(directory,{recursive:true,force:true});}
+});

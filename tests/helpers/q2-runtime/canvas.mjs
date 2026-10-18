@@ -596,7 +596,7 @@ export async function runCanvasTests(f) {
     const result=await response.json();assert.equal(result.case,name);f.metrics.push(result);
     assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
   });
-  for(const name of ['exact','unrelated','concurrent','debit-crash','graph-crash','cancelled','expired','taken-over','edited','invalid-plan','usage-invalid','raw-usage-contract','over-reservation','identity']) await f.test(`canvas_planning_settlement_${name.replaceAll('-','_')}`,async()=>{
+  for(const name of ['exact','unrelated','concurrent','debit-crash','graph-crash','cancelled','expired','taken-over','edited','invalid-plan','usage-invalid','raw-usage-contract','over-reservation','identity','inert-music-normalization','inert-music-boundary','continuation','continuation-crash','continuation-authority','continuation-evidence','continuation-revalidation']) await f.test(`canvas_planning_settlement_${name.replaceAll('-','_')}`,async()=>{
     const response=await f.control('/canvas-agent-settlement-review',{name});
     assert.equal(response.status,200,await response.clone().text());
     const result=await response.json();assert.equal(result.case,name);assert.equal(result.planningCalls,0);

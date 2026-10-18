@@ -2470,6 +2470,26 @@ EN/DE browser status coverage distinguishes stored success awaiting accounting
 from provider waiting. Synthetic acceptance does not establish live continuation;
 deployment versions and private before/dry-run/after receipts are required.
 
+Protected release `976310e5`, Actions `39153374344/1`, passed and activated the
+repair with schema 0111. Private before/after evidence confirmed one 94-credit
+debit, 52 released, unchanged original receipt/digests and five historical
+failures. The existing cron consumed the stored plan, then independently rejected
+an ElevenLabs music node carrying `originalAudio:{enabled:false,gain:0}`.
+That video-only control is absent from the allowlisted music request, its pricing
+and music export path; billing success alone did not establish graph application.
+The bounded observation ended at this evidenced preflight boundary, without a
+second planning request or media generation.
+
+Normalize only that exact inert field on newly proposed ElevenLabs music nodes
+in a cloned executable plan, retain the raw proposal/receipt and record the repair.
+Any meaningful/other unsupported control still fails. A separately audited,
+idempotent continuation must validate the complete effective plan and current
+ownership, capability, price, budget, brief/project revisions and unrenewed expiry
+before resuming that exact settled review. It may neither reopen accounting nor
+permit new reasoning. Node/native counterchecks must exercise the original stored
+answer, retained historical bytes, provider-body/price equivalence, other invalid
+settings, duplicate/crash recovery and changed authorization.
+
 The first repair candidate `c9d5be52` stopped at local release command 18
 (`test:local-release`), after 17 completed commands: a new current native case
 had been appended to a closed historical continuation inventory. The historical

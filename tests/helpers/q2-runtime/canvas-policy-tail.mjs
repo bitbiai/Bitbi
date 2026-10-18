@@ -106,3 +106,24 @@ export async function runCanvasActionsTailTests(f) {
   await runCanvasTests(scoped);
   assert.equal(position, inventory.length, 'Canvas action continuation omitted required callbacks');
 }
+
+// Closed follow-up to the fully accepted 976310e5 Canvas inventory. The ordinary
+// suite still runs every callback; this release scope executes only new cases.
+export const canvasSettlementContinuationCases = Object.freeze([
+  'inert-music-normalization', 'inert-music-boundary', 'continuation', 'continuation-crash', 'continuation-authority', 'continuation-evidence', 'continuation-revalidation',
+]);
+export const canvasSettlementContinuationInventory = Object.freeze(canvasSettlementContinuationCases.map(name=>'canvas_planning_settlement_'+name.replaceAll('-', '_')));
+export async function runCanvasSettlementContinuationTests(f) {
+  const {createHash}=await import('node:crypto');
+  const seen=[], fresh=[]; const scoped=Object.create(f);
+  scoped.test=async(name,operation)=>{
+    assert(!seen.includes(name),'Duplicate native continuation callback');seen.push(name);
+    if(canvasSettlementContinuationInventory.includes(name)){fresh.push(name);await f.test(name,operation);}
+  };
+  await runCanvasTests(scoped);
+  assert.deepEqual(fresh,canvasSettlementContinuationInventory,'Missing or reordered fresh native callbacks');
+  const retained=seen.filter(name=>!canvasSettlementContinuationInventory.includes(name));
+  assert.equal(retained.length,202,'Retained native inventory changed');
+  assert.equal(createHash('sha256').update(JSON.stringify(retained)).digest('hex'),'c290462654cea41829df297fa023cfe646942878d90fc6f6a397d43265deada5','Retained native membership/order changed');
+  f.metrics.push({settlementContinuation:{retained,discovery:seen,fresh}});
+}

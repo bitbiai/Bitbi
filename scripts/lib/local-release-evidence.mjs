@@ -1,3 +1,5 @@
+import {STORED_PLAN_CONTINUATION,assertStoredPlanTree} from './local-release-browser.mjs';
+import {canvasSettlementContinuationInventory} from '../../tests/helpers/q2-runtime/canvas-policy-tail.mjs';
 import {canvasPolicyPrefix,canvasPolicyTailInventory} from '../../tests/helpers/q2-runtime/canvas-policy-tail.mjs';
 // Local execution is trusted only through authenticated repository-writer
 // transport, exact committed inputs and complete command/report/candidate hashes.
@@ -503,7 +505,8 @@ export function verifyLocalEvidence(directory, expected, { now = Date.now(), sel
   assert.equal(evidence.ci, true); assert.equal(evidence.origin, 'development-mac');
   const env = { GITHUB_SHA: expected.sha, CANDIDATE_BASE: expected.base };
   const commands = selectedCommands(selection, env);
-  if(evidence.preflightContinuation)verifyCanvasPreflight(directory,evidence,commands);
+  if(evidence.storedPlanContinuation)verifyStoredPlanContinuation(directory,evidence,commands);
+  else if(evidence.preflightContinuation)verifyCanvasPreflight(directory,evidence,commands);
   else if(evidence.permissionContinuation)verifyPermissionContinuation(directory,evidence,commands);
   else if(evidence.repair)verifyLocalReuse(directory,evidence);
   else assert(evidence.commands.every(row=>!row.reusedFrom&&!row.continuation),'Unverified local evidence reuse');
@@ -518,7 +521,7 @@ export function verifyLocalEvidence(directory, expected, { now = Date.now(), sel
     if(runtimes.includes('native-browser-v1'))assert.deepEqual(result.runtimes,runtimes,'Missing/mismatched browser execution environment');
     if(evidence.repair&&['Run selected auth and admin tests','Run selected homepage core tests'].includes(command.name))assert.equal(result.browserContinuation,LOCAL_BROWSER_POLICY);
     else if(evidence.preflightContinuation?.source===AUTONOMY_BROWSER_PREFLIGHT.source&&['Run selected homepage core tests','Run selected auth and admin tests'].includes(command.name))assert.equal(result.browserContinuation,AUTONOMY_BROWSER_POLICY);
-    else if([SETTLEMENT_BROWSER_PREFLIGHT.source,MODEL_BROWSER_PREFLIGHT.source].includes(evidence.preflightContinuation?.source)&&['Run selected homepage core tests','Run selected auth and admin tests'].includes(command.name))assert.equal(result.browserContinuation,MODEL_BROWSER_POLICY);
+    else if((evidence.storedPlanContinuation||[SETTLEMENT_BROWSER_PREFLIGHT.source,MODEL_BROWSER_PREFLIGHT.source].includes(evidence.preflightContinuation?.source))&&['Run selected homepage core tests','Run selected auth and admin tests'].includes(command.name))assert.equal(result.browserContinuation,MODEL_BROWSER_POLICY);
     else if(isSmoothContinuation(evidence.permissionContinuation?.source)&&command.name==='Run selected auth and admin tests')assert.equal(result.browserContinuation,SMOOTH_BROWSER_POLICY);
     else assert(!result.browserContinuation,'Unreviewed browser continuation');
     assert(result.durationMs >= 0 && Number.isFinite(result.durationMs));
@@ -1779,4 +1782,128 @@ export function verifyCanvasPreflight(directory,evidence,commands){
       assert.deepEqual(tapResults(fs.readFileSync(path.join(directory,row.log),'utf8')),[],'Passed native guards must not execute again');
     }else assert(!row.reusedFrom&&!row.continuation,'Affected or unexecuted check cannot inherit preflight success');
   }
+}
+
+export const STORED_PLAN_REFRESH=new Set([
+  'Preflight complete static release plan','Run quality gate tests','Check committed secrets',
+  'Check operational readiness docs','Check targeted JavaScript syntax','Test local release evidence and orchestration',
+  'Check documentation currentness','Record candidate build','Validate static website references','Validate JS import paths',
+  'Check target="_blank" links have rel="noopener"','Validate page metadata',
+  'Verify native Linux isolation before Worker tests','Run worker route tests',
+  'Restore exact candidate static site','Confirm tested browser candidate bytes',
+]);
+const storedPlanKey=command=>command.job+':'+command.name;
+export function storedPlanPrefix(bytes,{sha,base,planHash,environment,nativeBrowsers,commands,selection},read=gitBytes){
+  const p=STORED_PLAN_CONTINUATION;assertStoredPlanTree(sha,read);assert.equal(sha256(bytes),p.checkpoint,'Changed completed release checkpoint');
+  const original=JSON.parse(bytes);assert.equal(original.sha,p.source);assert.equal(original.status,'passed');assert.equal(base,p.source,'Continuation must use the currently published source');
+  assert.equal(original.planHash,planHash);assert.equal(original.environment.key,environment.key);assert.equal(original.environment.image,environment.image);assert.deepEqual(original.environment.inputs,environment.inputs);assert.equal(original.nativeBrowsers.key,nativeBrowsers?.key);verifyNativeBrowserEnvironment(nativeBrowsers);
+  assert.equal(original.commands.length,52);assert(original.commands.every(row=>row.exitCode===0));
+  assert.equal(selection.full,false);assert.equal(selection.workers,true);assert.equal(selection.auth,true);assert.equal(selection.homepage,false);
+  assert.equal(commands.length,46,'Changed scoped release command closure');
+  const prior=new Map(original.commands.map(row=>[storedPlanKey(row.command),row]));
+  for(const command of commands){assert(prior.has(storedPlanKey(command)),'New release command requires explicit evidence');if(!STORED_PLAN_REFRESH.has(command.name))assert.deepEqual(command,prior.get(storedPlanKey(command)).command,'Changed retained command');}
+  return original;
+}
+export function verifyStoredPlanOrigin(directory,head){
+  assertStoredPlanTree(head);const origin=path.join(directory,'reuse/stored-plan-origin');
+  const bytes=fs.readFileSync(path.join(origin,'evidence.json'));assert.equal(sha256(bytes),STORED_PLAN_CONTINUATION.checkpoint);
+  const original=JSON.parse(bytes);verifyLocalEvidence(origin,{sha:original.sha,base:original.base});return {origin,original};
+}
+export function restoreStoredPlanProofs(directory,head,{browser=false,verifyOnly=false}={}){
+  const {origin}=verifyStoredPlanOrigin(directory,head),read=file=>JSON.parse(fs.readFileSync(path.join(origin,file)));
+  const original=read('candidate/manifest.json'),manifest=JSON.parse(fs.readFileSync(path.join(directory,'candidate/manifest.json')));
+  assert.equal(manifest.sha,head);verifyMigrationCandidateBytes(directory,original,manifest,{allowLabGuard:false});assert.deepEqual(manifest.hosting,original.hosting);
+  const old=read('candidate/proof-frontend-runtime.json'),proof={...old,manifestHash:sha256(JSON.stringify(manifest)),reusedFrom:{sha:original.sha,manifestHash:old.manifestHash}};
+  if(verifyOnly)assert.deepEqual(JSON.parse(fs.readFileSync(path.join(directory,'candidate/proof-frontend-runtime.json'))),proof);
+  else fs.writeFileSync(path.join(directory,'candidate/proof-frontend-runtime.json'),JSON.stringify(proof));
+  if(browser){
+    const current=browserRows(parseDiscovery(fs.readFileSync(path.join(directory,'test-results/stored-plan-auth-discovery.json'),'utf8')),{discovery:true});
+    const oldReport=read('test-results/candidate-auth.json');assert.deepEqual(current,oldReport.discovery,'Current Auth discovery changed');
+    const report={...oldReport,sha:head,retainedSource:original.sha};verifyModelBrowserReport(report,head);
+    if(verifyOnly)assert.deepEqual(JSON.parse(fs.readFileSync(path.join(directory,'test-results/candidate-auth.json'))),report);
+    else fs.writeFileSync(path.join(directory,'test-results/candidate-auth.json'),JSON.stringify(report));
+  }
+}
+export const storedPlanWorkerNames=Object.freeze([
+  ...['inert-music-normalization','inert-music-boundary','continuation','continuation-crash','continuation-authority','continuation-evidence','continuation-revalidation'].map(name=>'Canvas stored planning settlement '+name),
+  'Canvas settled-plan continuation requires its own digest and verified runtime flags',
+  'Canvas settled-plan retained AI source requires real Git ancestry and unchanged complete build inputs',
+]);
+export function verifyStoredPlanWorkerUnion(previous,discovery,fresh){
+  const key=row=>row.file+':'+row.title,keys=rows=>rows.map(key).sort();
+  for(const rows of [previous,discovery,fresh])assert.equal(new Set(keys(rows)).size,rows.length,'Duplicate continuation Worker identity');
+  assert.equal(previous.length,1574);
+  const old=new Set(keys(previous)),added=discovery.filter(row=>!old.has(key(row)));
+  assert.deepEqual(discovery.filter(row=>old.has(key(row))).map(row=>[row.id,key(row)]).sort(),previous.map(row=>[row.id,key(row)]).sort(),'Retained Worker discovery changed');
+  assert.deepEqual(added.map(row=>row.title).sort(),[...storedPlanWorkerNames].sort(),'Unreviewed/missing new Worker case');
+  assert(added.every(row=>['q2-canvas-agent-settlement-review.spec.js','q2-canvas-settlement-operator.spec.js'].includes(row.file)));
+  assert.deepEqual(keys(fresh),keys(added),'Only new Worker cases may execute');assert(fresh.every(passedOnce),'New Worker case failed/skipped/retried');
+  for(const row of fresh)assert.equal(row.id,added.find(other=>key(other)===key(row)).id);
+  return {retained:previous.length,executed:fresh.length,required:discovery.length};
+}
+export function verifyStoredPlanWorkers(directory,head,{pending=false}={}){
+  const {origin}=verifyStoredPlanOrigin(directory,head);
+  const previous=workerDiscovery(parseDiscovery(fs.readFileSync(path.join(origin,'test-results/settlement-worker-discovery.json'),'utf8')));
+  const read=name=>parseDiscovery(fs.readFileSync(path.join(directory,'test-results',name),'utf8'));
+  const full=read('stored-plan-worker-discovery.json'),selected=read('stored-plan-selected-discovery.json');assert.deepEqual(full.errors,[]);assert.deepEqual(selected.errors,[]);
+  const discovery=workerDiscovery(full),chosen=workerDiscovery(selected);
+  // The selection guard uses disposable synthetic outcomes only to validate the
+  // exact query identities before any execution; these are never saved as passes.
+  verifyStoredPlanWorkerUnion(previous,discovery,chosen.map(row=>({...row,results:[{status:'passed',retry:0}]})));
+  if(pending)return {retained:previous.length,pending:chosen.length};
+  const raw=read('stored-plan-worker-fresh.json');assert.deepEqual(raw.errors,[]);assert.equal(raw.config.workers,1);assert.equal(raw.stats.unexpected,0);assert.equal(raw.stats.flaky,0);assert.equal(raw.stats.skipped,0);
+  const counts=verifyStoredPlanWorkerUnion(previous,discovery,executedWorkers(raw));assert.equal(raw.stats.expected,counts.executed);return counts;
+}
+export function verifyStoredPlanNative(previous,result){
+  assert.equal(previous.failedSuites,0);assert.equal(previous.passed,385);assert.equal(result.failedSuites,0);assert.equal(result.reports.length,1);
+  const fresh=result.reports[0];assert.equal(fresh.suite,'canvas');assert(!fresh.failure);assert.deepEqual(fresh.records,canvasSettlementContinuationInventory.map(name=>({name,status:'PASS'})));assert.equal(result.passed,fresh.records.length);
+  const metrics=fresh.metrics.filter(row=>row.settlementContinuation);assert.equal(metrics.length,1);
+  const old=previous.reports.find(row=>row.suite==='canvas').records.map(row=>row.name),actual=metrics[0].settlementContinuation;
+  assert.deepEqual(actual.retained,old);assert.deepEqual(actual.fresh,canvasSettlementContinuationInventory);assert.equal(new Set(actual.discovery).size,actual.discovery.length);
+  assert.deepEqual(actual.discovery.filter(name=>!canvasSettlementContinuationInventory.includes(name)),old);assert.deepEqual(actual.discovery.filter(name=>canvasSettlementContinuationInventory.includes(name)),canvasSettlementContinuationInventory);
+  return {retained:385,executed:fresh.records.length,required:385+fresh.records.length};
+}
+export function storedPlanWorkerCommand(command){
+  assert(command.endsWith('else\n  npm run test:workers\nfi\n'));assert.equal(command.split('  npm run test:workers').length,2);
+  const pattern='(?:'+storedPlanWorkerNames.map(name=>name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|')+')$';
+  const args='npx playwright test -c playwright.workers.config.js tests/q2-canvas-agent-settlement-review.spec.js tests/q2-canvas-settlement-operator.spec.js --grep '+JSON.stringify(pattern)+' --workers=1 --retries=0';
+  return command.replace('  npm run test:workers',()=>[
+    'mkdir -p test-results',
+    'PLAYWRIGHT_JSON_OUTPUT_NAME= npx playwright test -c playwright.workers.config.js --list --reporter=json > test-results/stored-plan-worker-discovery.json',
+    'PLAYWRIGHT_JSON_OUTPUT_NAME= '+args+' --list --reporter=json > test-results/stored-plan-selected-discovery.json',
+    'node scripts/local-release.mjs verify-stored-plan-workers .local-release pending',
+    'if [ ! -f test-results/stored-plan-worker-fresh.json ]; then PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/stored-plan-worker-fresh.json '+args+' --reporter=list,json; fi',
+    'node scripts/local-release.mjs verify-stored-plan-workers .local-release',
+    'if [ ! -f test-results/stored-plan-native.log ]; then node scripts/test-q2-runtime.mjs --suite canvas-settlement-continuation > test-results/stored-plan-native.log 2>&1 || { status=$?; cat test-results/stored-plan-native.log; exit "$status"; }; fi',
+    'node scripts/local-release.mjs verify-stored-plan-native .local-release',
+    'cat test-results/stored-plan-native.log',
+    'PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/stored-plan-auth-discovery.json npm run test:auth -- --list --reporter=json',
+  ].map(line=>'  '+line).join('\n'));
+}
+export function storedPlanCommand(command){
+  if(command.name==='Test local release evidence and orchestration'){assert.equal(command.run,'npm run test:local-release');return command.run+' -- --stored-plan-only';}
+  if(command.name==='Run worker route tests')return storedPlanWorkerCommand(command.run);
+  return command.run;
+}
+export function verifyStoredPlanContinuation(directory,evidence,commands){
+  const p=STORED_PLAN_CONTINUATION;assert.deepEqual(evidence.storedPlanContinuation,{source:p.source,checkpoint:p.checkpoint});
+  const {origin,original}=verifyStoredPlanOrigin(directory,evidence.sha);
+  storedPlanPrefix(fs.readFileSync(path.join(origin,'evidence.json')),{...evidence,commands});
+  const old=new Map(original.commands.map(row=>[storedPlanKey(row.command),row]));
+  for(const[i,command]of commands.entries()){
+    const row=evidence.commands[i],before=old.get(storedPlanKey(command));
+    if(STORED_PLAN_REFRESH.has(command.name)){assert(!row.reusedFrom);const effective=storedPlanCommand(command);if(effective!==command.run)assert.equal(row.continuation,effective);else assert(!row.continuation);}
+    else assert.deepEqual(row,{...before,command,log:`logs/${i}.log`,reusedFrom:p.source},'Changed retained command receipt');
+  }
+  restoreStoredPlanProofs(directory,evidence.sha,{browser:true,verifyOnly:true});verifyStoredPlanWorkers(directory,evidence.sha);
+  const worker=commands.findIndex(row=>row.name==='Run worker route tests'),log=fs.readFileSync(path.join(directory,evidence.commands[worker].log),'utf8');
+  verifyStoredPlanNativeReceipt(directory,evidence.sha,log);
+}
+export function verifyStoredPlanNativeReceipt(directory,head,log){
+  const {origin}=verifyStoredPlanOrigin(directory,head);
+  const native=JSON.parse(fs.readFileSync(path.join(origin,'runtime/q2-runtime-evidence/native-Dvjqr1/reports/bitbi-q2-runtime-gLE6HW__result.json')));
+  verifyNativeLocalReports(directory,log);
+  const refs=log.split('\n').flatMap(line=>{try{const r=JSON.parse(line);return r.q2LinuxEvidence?[r.q2LinuxEvidence]:[];}catch{return [];}});assert.equal(refs.length,1,'Fresh native scope must execute once');
+  const reports=path.join(directory,'runtime',refs[0].slice('/tmp/bitbi-release/'.length),'reports'),files=fs.readdirSync(reports).filter(file=>file==='result.json'||file.endsWith('__result.json'));assert.equal(files.length,1);
+  return verifyStoredPlanNative(native,JSON.parse(fs.readFileSync(path.join(reports,files[0]))));
 }

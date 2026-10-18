@@ -137,7 +137,51 @@ export const SETTLEMENT_BROWSER_PREFLIGHT=Object.freeze({
   specs:Object.freeze({'tests/helpers/canvas-agent-ui.cjs':'d1d82b1a8b01d4faa68623998238b67c2884894e4f16350ecbaa01b4ffea2056','docs/runbooks/REGRESSION_REGISTER.md':'f0809a8f01b3a906e289739f93b6ffed241cf6f1dd1c120acae2118c5239f0bb'}),
   retain:[1,4,5,6,7,8,9,10,11,13,16,18,19,20,21,22,23,24,25,26,27,28,30,31,32,33,35,36,37,38,39,40,41,42,43,45,46],
 });
+// Closed continuation of the completed original planning-settlement release.
+export const STORED_PLAN_CONTINUATION=Object.freeze({
+  source:'976310e5bb02dd3bd317a1964bd90320f78db3d7',
+  run:'976310e5bb02dd3bd317a1964bd90320f78db3d7-5bc79b8e-08f9-44fc-a595-a4ec869b099c',
+  checkpoint:'1fd347b91a4b2c3fdff267f8a8f06844555d571d36b7ec16ac50478242969ea9',
+  reports:Object.freeze({
+    homepage:'0fae2aba1a188087902d3bd2e82f5503008586b4a54019e5783c0fe378548b18',
+    auth:'33165cccd272f1dcc78408ffeaea11a2fb4b66557c50fe123edcdabf718ac523',
+  }),
+  specs:Object.freeze({
+    "docs/production-readiness/CANVAS_AGENT.md": "894002e5031185c5691faf2061df375f0444609451411e38fab37fc3035860f5",
+    "docs/runbooks/REGRESSION_REGISTER.md": "266b0984c2e9447b4daa901da8139fdec41d093c3bf13027bbac93aa044c6355",
+    "scripts/canvas-planning-settlement-review.mjs": "90ea2384ec0b9224373a67690ab191e5d8e6051c2c540249e90399e8ea41741e",
+    "scripts/lib/canvas-settlement-operator.mjs": "31f42edbcdd4c71c8bc273e71c2bd8fdebef27432f310072866d1bb5369f8daa",
+    "tests/helpers/canvas-agent-settlement-review-control.mjs": "1d3ad3b76365fcf8293eae0b1c1af4269849dec62a532e300b4087a7add446c6",
+    "tests/helpers/q2-runtime/canvas-policy-tail.mjs": "653b5e6d88f7169cf632f88fd2853ca9847ba55bf6a84e3b42612579ea42ff3f",
+    "tests/helpers/q2-runtime/canvas.mjs": "5ebbbecd334f464b4b004c46fed3ae84650d1d909964bbf5db3ae05ad6bd23ee",
+    "tests/helpers/q2-runtime/linux-bootstrap.py": "e6cbce75e52736d35bde09503edc8b785505ef2a1bb6cf83620d016f93038b00",
+    "tests/helpers/q2-runtime/linux-hosted.mjs": "2dbaa1a6a8172c816b7413b5290a3fe262157893977c3b58d1f9c4f66d9b7004",
+    "tests/helpers/q2-runtime/linux-runtime-child.mjs": "afd9c1ef4c45c9dc23d6b8c0cf8a387e42f09c0be708c963b11da0cd183b0a1d",
+    "tests/helpers/q2-runtime/runner.mjs": "399d87427b14957dcff5bed83f5a889b1c2d24334e6cac85bb7a886d6d128c7f",
+    "tests/q2-canvas-agent-settlement-review.spec.js": "48590ea14af761f928258861bfa9c94c3e8772d21c78a400c610195d6aaac464",
+    "tests/q2-canvas-settlement-operator.spec.js": "3a6da85ee131681868d09cec422afc8792034b9fd32e89d63b92982c6a8f18bd",
+    "workers/auth/src/lib/canvas-agent-graph.js": "30a5c4e38fed4c0df532f6530a4b5f59de4f6887f4f2b8adef71493ba60a0420",
+    "workers/auth/src/lib/canvas-agent-settlement-review.js": "667e584fe38e5d916ee1f4adf4fa95bb81a0d992112f79fe2992d02b5a805bc2"
+}),
+});
+export function assertStoredPlanTree(head,read=args=>execFileSync('git',args,{maxBuffer:64*1024*1024})) {
+  const p=STORED_PLAN_CONTINUATION;
+  assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,p.source],'Stored-plan continuation must be the direct accepted-source successor');
+  const tooling=['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/lib/local-release-browser.mjs','scripts/test-local-release.mjs'];
+  const files=read(['diff','--name-only',p.source,head]).toString().trim().split('\n').filter(Boolean);
+  assert(files.length&&files.every(file=>tooling.includes(file)||Object.hasOwn(p.specs,file)),'Unreviewed runtime, test, policy, dependency or frontend change');
+  for(const[file,hash]of Object.entries(p.specs)){assert(files.includes(file),`Missing reviewed change: ${file}`);assert.equal(sha256(read(['show',`${head}:${file}`])),hash,`Changed reviewed input: ${file}`);}
+  for(const file of files)assert.match(read(['ls-tree',head,'--',file]).toString(),/^100644 blob /,'Continuation must contain ordinary committed files');
+  const before=read(['show',`${p.source}:scripts/test-local-release.mjs`]).toString(),after=read(['show',`${head}:scripts/test-local-release.mjs`]).toString();
+  const entry="if(process.argv.includes('--stored-plan-only')) {\n  assert.deepEqual(process.argv.slice(2),['--stored-plan-only']);\n  await testStoredPlanContinuation();process.exit(0);\n}\n\n",tail='\nasync function testStoredPlanContinuation() {';
+  assert.equal(after.split(tail).length,2,'Missing unique continuation countercheck');assert.equal(after.split(tail)[0].replace(entry,''),before,'Existing release assertions changed');assert(after.endsWith('\nawait testStoredPlanContinuation();\n'));
+}
 export function verifyModelBrowserReport(report,sha) {
+  if(report.retainedSource){
+    assert.equal(report.retainedSource,STORED_PLAN_CONTINUATION.source);assertStoredPlanTree(sha);
+    const {retainedSource,...original}=report;original.sha=retainedSource;
+    assert.equal(sha256(JSON.stringify(original)),STORED_PLAN_CONTINUATION.reports[report.scope],'Retained complete browser evidence changed');
+  }
   const p=report.source===SETTLEMENT_BROWSER_PREFLIGHT.source?SETTLEMENT_BROWSER_PREFLIGHT:MODEL_BROWSER_PREFLIGHT;
   assert.equal(report.policy,MODEL_BROWSER_POLICY);assert.equal(report.sha,sha);assert.equal(report.source,p.source);assert(['homepage','auth'].includes(report.scope));
   const auth=report.scope==='auth';

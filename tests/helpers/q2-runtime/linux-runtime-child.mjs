@@ -5,6 +5,6 @@ assert.equal(process.getuid(), 65534);
 assert.equal(process.getgid(), 65534);
 const {readFileSync} = await import('node:fs');
 const {suite} = JSON.parse(readFileSync('/runtime/boundary.json'));
-assert.ok(suite == null || ['member-generation', 'model-status', 'model-pricing', 'appearance', 'canvas', 'canvas-policy-tail','canvas-actions-tail', 'canvas-completion','canvas-audio','canvas-audio-fit','canvas-transitions','canvas-retention', 'q4-stream', 'website-assistant'].includes(suite), 'Unknown runtime suite');
+assert.ok(suite == null || ['member-generation', 'model-status', 'model-pricing', 'appearance', 'canvas', 'canvas-settlement-continuation','canvas-policy-tail','canvas-actions-tail', 'canvas-completion','canvas-audio','canvas-audio-fit','canvas-transitions','canvas-retention', 'q4-stream', 'website-assistant'].includes(suite), 'Unknown runtime suite');
 const { runQ2Runtime } = await import('./runner.mjs');
 await runQ2Runtime(['--artifacts', '/artifacts'], suite);

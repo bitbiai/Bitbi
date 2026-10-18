@@ -289,6 +289,24 @@ that is not permission to renew, edit, restart or increase the budget. The servi
 leaves wake-up to existing scheduled processing and prohibits new paid planning
 for the reviewed run. It has no browser or agent-tool endpoint.
 
+If the normal preflight subsequently blocks only a newly proposed ElevenLabs music
+node's inert `originalAudio:{enabled:false,gain:0}`, use the same entrypoint with
+`--continue-plan`. Its dry run verifies the settled review, original receipt and
+proposal, current full preflight, pricing/capability revisions and unrenewed
+project authority. Execution additionally binds `continuationDigest` from that
+preview and the original review/actor/authorization reference. The guarded service
+records one append-only continuation event and resumes only that exact boundary.
+It performs no accounting operation and permits no new planning inference.
+
+The derived executable plan omits only that exact video-only setting; the original
+provider response, receipt and proposal remain unchanged. Other unsupported values
+still fail. Generation and music mixing use the existing ordinary node and assembly
+settings. Replays cannot duplicate the resume or replace a later manual decision.
+Where the AI Worker is unchanged by this release, `expectedAiSource` may identify
+its serving ancestor only after exact equality of its build-input trees is proven;
+Auth must still serve the current candidate. Never redeploy unchanged AI merely
+to replace its source annotation.
+
 [`canvas-agent-metering.mjs`](../../workers/shared/canvas-agent-metering.mjs)
 validates the original usage components before settlement. Cloudflare's
 [Grok 4.7 examples](https://developers.cloudflare.com/ai/models/xai/grok-4.7/)

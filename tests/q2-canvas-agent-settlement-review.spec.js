@@ -2,7 +2,7 @@ const {test,expect}=require('@playwright/test');
 const {SqliteD1Database,applyAuthMigrations}=require('./helpers/sqlite-d1.js');
 const {createAuthTestEnv}=require('./helpers/auth-worker-harness.js');
 
-for(const name of ['exact','unrelated','concurrent','debit-crash','graph-crash','cancelled','expired','taken-over','edited','invalid-plan','usage-invalid','raw-usage-contract','over-reservation','identity'])test(`Canvas stored planning settlement ${name}`,async()=>{
+for(const name of ['exact','unrelated','concurrent','debit-crash','graph-crash','cancelled','expired','taken-over','edited','invalid-plan','usage-invalid','raw-usage-contract','over-reservation','identity','inert-music-normalization','inert-music-boundary','continuation','continuation-crash','continuation-authority','continuation-evidence','continuation-revalidation'])test(`Canvas stored planning settlement ${name}`,async()=>{
     const DB=new SqliteD1Database();applyAuthMigrations(DB);
     try{
         const {canvasPlanningSettlementCase}=await import('./helpers/canvas-agent-settlement-review-control.mjs');

@@ -4,8 +4,9 @@ import path from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {validateCanvasSettlementOperatorInput,createCanvasSettlementCloudflareClient,createCanvasSettlementD1Binding,
-    verifyCanvasSettlementRuntime,verifyCanvasSettlementOperatorQuote} from './lib/canvas-settlement-operator.mjs';
-import {previewCanvasPlanningSettlementReview,applyCanvasPlanningSettlementReview} from '../workers/auth/src/lib/canvas-agent-settlement-review.js';
+    verifyCanvasSettlementRuntime,verifyCanvasSettlementOperatorQuote,verifyCanvasSettlementSource,canvasSettlementRuntimeEnvironment} from './lib/canvas-settlement-operator.mjs';
+import {previewCanvasPlanningSettlementReview,applyCanvasPlanningSettlementReview,
+    previewCanvasPlanningSettlementContinuation,applyCanvasPlanningSettlementContinuation} from '../workers/auth/src/lib/canvas-agent-settlement-review.js';
 
 const root=fs.realpathSync(fileURLToPath(new URL('../',import.meta.url)));
 const fail=code=>{throw Object.assign(new Error(code),{code});};
@@ -22,9 +23,10 @@ const save=(file,value)=>fs.writeFileSync(file,JSON.stringify(value,null,2)+'\n'
 const command=(program,args)=>execFileSync(program,args,{cwd:root,encoding:'utf8',stdio:['ignore','pipe','pipe'],
     env:{...process.env,WRANGLER_SEND_METRICS:'false'},maxBuffer:1024*1024});
 try {
-    const args=process.argv.slice(2),options={execute:false};
+    const args=process.argv.slice(2),options={execute:false,continuePlan:false};
     for(let i=0;i<args.length;i++){
         if(args[i]==='--execute'&&!options.execute)options.execute=true;
+        else if(args[i]==='--continue-plan'&&!options.continuePlan)options.continuePlan=true;
         else if(['--input','--output'].includes(args[i])&&!options[args[i].slice(2)]&&args[i+1])options[args[i].slice(2)]=args[++i];
         else fail('canvas_settlement_operator_arguments_invalid');
     }
@@ -34,7 +36,7 @@ try {
     const input=validateCanvasSettlementOperatorInput(JSON.parse(fs.readFileSync(inputPath,'utf8')),options);
     const contract=JSON.parse(fs.readFileSync(path.join(root,'config/release-compat.json'),'utf8'));
     if(input.expectedSchema!==contract.release.schemaCheckpoints.auth.latest)fail('canvas_settlement_schema_not_current');
-    if(command('git',['rev-parse','HEAD']).trim()!==input.expectedSource)fail('canvas_settlement_source_not_current');
+    verifyCanvasSettlementSource(input,args=>command('git',args));
     const codePaths=['workers/auth/src','workers/auth/migrations','workers/auth/wrangler.jsonc','workers/ai/src','workers/ai/wrangler.jsonc',
         'workers/shared','js/shared','config/release-compat.json','scripts/canvas-planning-settlement-review.mjs','scripts/lib/canvas-settlement-operator.mjs'];
     if(command('git',['status','--porcelain','--untracked-files=all','--',...codePaths]).trim())fail('canvas_settlement_runtime_source_dirty');
@@ -46,15 +48,18 @@ try {
     const client=createCanvasSettlementCloudflareClient({accountId,databaseId,token:credential.token});
     const readEnv={DB:createCanvasSettlementD1Binding(client)};
     const runtime=await verifyCanvasSettlementRuntime(client,readEnv.DB,input);
-    const before=verifyCanvasSettlementOperatorQuote(input,await previewCanvasPlanningSettlementReview(readEnv,input));
-    record={mode:options.execute?'execute':'dry_run',source:input.expectedSource,schema:input.expectedSchema,runtime,before,startedAt:new Date().toISOString()};
+    const preview=options.continuePlan?previewCanvasPlanningSettlementContinuation:previewCanvasPlanningSettlementReview;
+    const apply=options.continuePlan?applyCanvasPlanningSettlementContinuation:applyCanvasPlanningSettlementReview;
+    const before=verifyCanvasSettlementOperatorQuote(input,await preview(options.continuePlan?canvasSettlementRuntimeEnvironment(runtime,readEnv.DB):readEnv,input));
+    record={mode:options.execute?'execute':'dry_run',operation:options.continuePlan?'continue_stored_plan':'settle_stored_plan',source:input.expectedSource,schema:input.expectedSchema,runtime,before,startedAt:new Date().toISOString()};
     if(!options.execute){save(outputPath,{...record,completedAt:new Date().toISOString()});}
     else {
         save(beforePath,record);
         // Recheck serving identities immediately before enabling mutations. The
         // service separately guards the exact project/receipt/accounting state.
-        await verifyCanvasSettlementRuntime(client,readEnv.DB,input);
-        const after=await applyCanvasPlanningSettlementReview({DB:createCanvasSettlementD1Binding(client,{readOnly:false})},input);
+        const currentRuntime=await verifyCanvasSettlementRuntime(client,readEnv.DB,input);
+        const DB=createCanvasSettlementD1Binding(client,{readOnly:false});
+        const after=await apply(options.continuePlan?canvasSettlementRuntimeEnvironment(currentRuntime,DB):{DB},input);
         save(outputPath,{...record,after,completedAt:new Date().toISOString()});
     }
     console.log(JSON.stringify({ok:true,mode:record.mode,evidence:outputPath}));
