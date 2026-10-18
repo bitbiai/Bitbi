@@ -2469,3 +2469,12 @@ reruns one node/removes/reorders/transitions/mixes and preserves the old export.
 EN/DE browser status coverage distinguishes stored success awaiting accounting
 from provider waiting. Synthetic acceptance does not establish live continuation;
 deployment versions and private before/dry-run/after receipts are required.
+
+The first repair candidate `c9d5be52` stopped at local release command 18
+(`test:local-release`), after 17 completed commands: a new current native case
+had been appended to a closed historical continuation inventory. The historical
+183-case tail and its 168/15 cut must remain frozen. Historical continuation
+verifiers must read their pinned caller, while ordinary current native discovery
+continues to include every new recovery case. Preserve the failed checkpoint and
+reuse only exact unchanged command inputs; refresh affected verifiers and execute
+the outstanding Worker, native, media and browser acceptance before publication.

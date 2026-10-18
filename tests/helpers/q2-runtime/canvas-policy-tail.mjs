@@ -47,7 +47,7 @@ export const canvasPolicyTailInventory = Object.freeze([
   'canvas_agent_native_duration_clarification_explicit_delegation_historical_replay_and_takeover',
   ...['briefing','isolation','recovery','unknown','revocation','concurrency','status-pending','paused-cap'].map(name=>'canvas_conversation_native_'+name),
   ...['queued-observation','snail','prepare','rejected','rejected-tail','malformed','invalid-tail','lost-acceptance','ack-error','normalization','storage','completed-tail','failed-projection','expired-projection','historical','stale-policy','isolation'].map(name=>'canvas_conversation_recovery_native_'+name),
-  ...['immediate','delegation','waiting','unknown-waiting','cancel-waiting','stale-project','stale-brief','stale-price','consent-isolation','concurrent-approval','natural-start','button-chat-race','emergency','saved-brief','clear-intent','quote-evaluation','stale-metering-quote'].map(name=>'canvas_natural_chat_native_'+name),
+  ...['immediate','delegation','waiting','unknown-waiting','cancel-waiting','stale-project','stale-brief','stale-price','consent-isolation','concurrent-approval','natural-start','button-chat-race','emergency','saved-brief','clear-intent','quote-evaluation'].map(name=>'canvas_natural_chat_native_'+name),
   ...['assembly','node-settings','regenerate','consent','foreign-target','stale-target','production-controls','assembly-extended','budget-controls'].map(name=>'canvas_conversational_actions_native_'+name),
   ...['late-stop','confirmation-replay','claim-race','dependent-failure','immediate-scope','immediate-duration-current'].map(name=>'canvas_conversational_action_recovery_native_'+name),
 ]);

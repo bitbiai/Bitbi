@@ -768,6 +768,32 @@ test('focused native scopes dispatch through the actual child and preserve bound
 
 });
 
+// Historical retention verifies its original callback body, not today's larger
+// Canvas suite. The actual current caller is independently discovered below.
+async function historicalCanvasContinuations(readGit=()=>{
+  const result=spawnSync('git',['show','100645a3a501d98aff50e6235fbeaf4844016790:tests/helpers/q2-runtime/canvas.mjs'],{cwd:root});
+  assert.equal(result.status,0,'Pinned historical Canvas caller is unavailable');return result.stdout;
+}) {
+  const bytes=readGit();
+  assert.equal(createHash('sha256').update(bytes).digest('hex'),'e957a81095b0d5ac5484f2de724833abd0f9b871ef56705aeff08974da06ad6b','Historical Canvas callback body changed');
+  const original=bytes.toString(),relative="'../../../scripts/lib/canvas-export-readiness.mjs'";
+  assert.equal(original.split(relative).length,2);
+  const url=source=>'data:text/javascript;base64,'+Buffer.from(source).toString('base64');
+  const fullUrl=url(original.replace(relative,JSON.stringify(pathToFileURL(path.join(root,'scripts/lib/canvas-export-readiness.mjs')).href)));
+  const tail=read('tests/helpers/q2-runtime/canvas-policy-tail.mjs'),binding="'./canvas.mjs'";
+  assert.equal(tail.split(binding).length,2);
+  return {full:await import(fullUrl),tail:await import(url(tail.replace(binding,JSON.stringify(fullUrl))))};
+}
+function assertCurrentCanvasDiscovery(names,historical) {
+  assert.equal(new Set(names).size,names.length,'Current Canvas discovery contains duplicate callbacks');
+  const retained=new Set(historical);
+  assert.deepEqual(names.filter(name=>retained.has(name)),historical,'Current Canvas must preserve the historical callbacks and order');
+  for(const name of [
+    ...['exact','unrelated','concurrent','debit-crash','graph-crash','cancelled','expired','taken-over','edited','invalid-plan','usage-invalid','raw-usage-contract','over-reservation','identity'].map(name=>'canvas_planning_settlement_'+name.replaceAll('-','_')),
+    'canvas_natural_chat_native_stale-metering-quote',
+  ])assert.equal(names.filter(value=>value===name).length,1,`Current Canvas omitted required ${name}`);
+}
+
 test('Canvas policy tail fixes the complete actual inventory and never repeats retained callbacks', async () => {
   const {runCanvasTests}=await import('../tests/helpers/q2-runtime/canvas.mjs');
   const {canvasPolicyPrefix,canvasPolicyTailInventory,runCanvasPolicyTailTests}=await import('../tests/helpers/q2-runtime/canvas-policy-tail.mjs');
@@ -801,7 +827,13 @@ test('Canvas policy tail fixes the complete actual inventory and never repeats r
     };
     await run(f);return {names,setup};
   };
-  const full=await discover(runCanvasTests),tail=await discover(runCanvasPolicyTailTests);
+  const historical=await historicalCanvasContinuations();
+  await assert.rejects(()=>historicalCanvasContinuations(()=>Buffer.from('Unreviewed historical caller')),/Historical Canvas callback body changed/);
+  const current=await discover(runCanvasTests);assertCurrentCanvasDiscovery(current.names,inventory);
+  for(const missing of [inventory[0],'canvas_planning_settlement_exact','canvas_natural_chat_native_stale-metering-quote'])
+    assert.throws(()=>assertCurrentCanvasDiscovery(current.names.filter(name=>name!==missing),inventory));
+  assert.throws(()=>assertCurrentCanvasDiscovery([...current.names,current.names[0]],inventory));
+  const full=await discover(historical.full.runCanvasTests),tail=await discover(historical.tail.runCanvasPolicyTailTests);
   assert.deepEqual(full.names,inventory);assert.deepEqual(tail.names,canvasPolicyTailInventory);
   assert.deepEqual(tail.setup,full.setup,'The continuation must preserve all outside-callback migration and seed setup');
   assert(tail.setup.includes('/canvas-natural-migration-seed'));
@@ -878,7 +910,9 @@ test('Canvas action tail preserves all setup and executes only the final fifteen
     };
     await run(f);return {names,setup};
   };
-  const full=await discover(runCanvasTests),tail=await discover(runCanvasActionsTailTests);
+  const historical=await historicalCanvasContinuations();
+  assertCurrentCanvasDiscovery((await discover(runCanvasTests)).names,inventory);
+  const full=await discover(historical.full.runCanvasTests),tail=await discover(historical.tail.runCanvasActionsTailTests);
   assert.deepEqual(full.names,inventory);assert.deepEqual(tail.names,canvasActionsTailInventory);
   assert.deepEqual(tail.setup,full.setup,'The action continuation preserves all outside-callback initialization');
   assert(tail.setup.includes('/canvas-natural-migration-seed'));
