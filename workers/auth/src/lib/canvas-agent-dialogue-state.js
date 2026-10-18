@@ -2,7 +2,7 @@ import { logDiagnostic } from '../../../../js/shared/worker-observability.mjs';
 
 const safeCode = value => typeof value === 'string' && /^[a-z0-9_]{1,90}$/.test(value) ? value : null;
 const safeId = value => typeof value === 'string' && /^[A-Za-z0-9_.:-]{1,180}$/.test(value) ? value : null;
-const stages=new Set(['queued','consumer_received','preparing','preparation_failed','dispatching','dispatch_unknown','provider_pending','rejected','response_invalid','receipt_pending','completed','cancelled','callback_observed']);
+const stages=new Set(['queued','consumer_received','preparing','prepared','preparation_failed','dispatching','dispatch_unknown','provider_pending','rejected','response_invalid','receipt_pending','completed','cancelled','callback_observed']);
 export function logCanvasDialogueStage(stage, data = {}) {
     // Never spread errors, requests, provider bodies or callback URLs into logs.
     logDiagnostic({service:'bitbi-auth',component:'canvas-agent-dialogue',event:'canvas_dialogue_stage',
@@ -13,13 +13,15 @@ export function logCanvasDialogueStage(stage, data = {}) {
         dispatch_state:safeCode(data.dispatchState),receipt_state:safeCode(data.receiptState)});
 }
 const evidenceSql=`SELECT r.id AS run_id,r.status AS run_status,r.error_code AS run_error,r.expires_at,
+    r.created_at AS queued_at,r.updated_at AS run_updated_at,
     json_extract(r.cause_json,'$.storageAttempts') AS storage_attempts,
     t.id AS turn_id,t.state AS turn_state,s.id AS step_id,s.status AS step_status,s.receipt_json IS NOT NULL AS step_receipt,
     COALESCE(json_extract(o.receipt_json,'$.ok'),json_extract(s.receipt_json,'$.ok')) AS receipt_ok,
     COALESCE(json_extract(o.receipt_json,'$.outcome'),json_extract(s.receipt_json,'$.outcome')) AS receipt_outcome,
     a.provider_outcome,a.billing_status,a.reservation_released_at,
     o.id AS operation_id,o.state AS operation_state,o.error_code AS operation_error,
-    o.response_json IS NOT NULL AS response_stored,o.reconcile_attempts
+    o.response_json IS NOT NULL AS response_stored,o.reconcile_attempts,
+    o.dispatched_at,o.response_at,o.completed_at AS receipt_at,t.updated_at AS turn_updated_at
     FROM canvas_agent_runs r LEFT JOIN canvas_agent_turns t ON t.run_id=r.id
     LEFT JOIN canvas_agent_steps s ON s.run_id=r.id AND s.step_key='dialogue'
     LEFT JOIN canvas_agent_model_operations o ON o.step_id=s.id
@@ -50,10 +52,18 @@ export function canvasDialogueDelivery(row) {
         stage='receipt_pending';blocking=true;
     } else if(stopped)stage='cancelled';
     else if(['queued','planning','running'].includes(row.run_status)){
-        stage='queued';blocking=true;
+        stage=row.run_status==='queued'?'queued':'preparing';blocking=true;
     } else stage='preparation_failed';
     const exhausted=row.reconcile_attempts>=5||row.storage_attempts>=3;
-    return {stage,blocking,diagnosticReference:row.run_id,canObserve:!exhausted&&Boolean(row.operation_id||row.step_receipt),
+    // Watching an accepted turn is not authority to retry work. In particular,
+    // queued work has no provider operation yet and still needs automatic reads.
+    // Exhausted reconciliation remains actionable; a later external receipt may
+    // still resolve it without another inference or another normalization retry.
+    return {stage,blocking,diagnosticReference:row.run_id,canObserve:blocking,
+        canReconcile:!exhausted&&Boolean(row.operation_id||row.step_receipt),
+        acceptedAt:row.queued_at||null,updatedAt:row.turn_updated_at||row.run_updated_at||null,
+        timings:{queuedAt:row.queued_at||null,dispatchedAt:row.dispatched_at||null,
+            responseAt:row.response_at||null,receiptAt:row.receipt_at||null,deliveredAt:stage==='completed'?row.turn_updated_at:null},
         recovery:exhausted||stage==='dispatch_unknown'||stage==='response_invalid'&&blocking?'operator':stage==='receipt_pending'?'observe':stage==='preparation_failed'?'correct_request':null,
         source:stage==='completed'?'provider':'system',code:stage==='completed'?null:safeCode(row.operation_error)||safeCode(row.run_error)};
 }

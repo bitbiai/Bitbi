@@ -2012,6 +2012,35 @@ contract to accommodate an incorrectly assembled artifact.
 
 ### Canvas conversational briefing and duration admission — 2026-10-18
 
+The automatic-delivery follow-up was reproduced on published source `ee5eb71f`
+(run `39117449171/1`): the real message endpoint acknowledged a queued turn with
+no model-operation ID or step receipt, and projected `canObserve:false`. The
+actual Chromium observer therefore stopped, although queue processing, signed
+callback, settlement and reply storage completed. Its failing baseline is kept
+privately under `bitbi-natural-chat/2026-10-18/queued-first-baseline`. The correct
+invariant is observation of an accepted logical turn, independent of permission
+to submit/reconcile paid work. Bound individual reads and back off/reconnect;
+do not stop observing because there is no operation yet or five minutes elapsed.
+
+Read-only checks of the same live source found five later briefing replies with
+validated receipts, single finalized usage identities and zero held reservations.
+They establish backend completion, not delivery to the owner's browser; no exact
+new screenshot reference was supplied. Do not reuse the earlier incident below
+as proof of this user's new attempt. Live user payloads and identifiers remain
+outside public fixtures.
+
+New actual-caller controls combine the browser observer with the authenticated
+Worker and native D1 projection, including a genuinely queued first snapshot,
+late receipt, failed read, visibility and BFCache restoration. Immediate-start
+controls exercise the same production admission with the current brief, explicit
+delegation/cap, pending dialogue and duplicate/concurrent consent. Typed action
+receipts bind source turn, project revision and the last stop decision; late
+proposals cannot undo a pause/takeover. Original generation identities and normal
+manual assembly/export behavior remain independent. Callers are the existing
+conversation Worker/native suites and `tests/canvas.spec.js`; the real FFmpeg
+editable-film case starts from this conversational handoff. Synthetic acceptance
+is not a new paid live film or evidence of later publication.
+
 The subsequent chat incident was verified read-only against deployed source
 `12372329`, publication run `39110238039/1`, matching Auth/AI/frontend versions
 and schema 0109. Operation `5280d26a2cd07bdb152d6980ee557dc4` received HTTP 202

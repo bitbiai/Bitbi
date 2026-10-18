@@ -1,7 +1,9 @@
 import { canvasRequest } from './api.js?v=__ASSET_VERSION__';
 import { createCanvasTranscript } from './agent-transcript.js?v=__ASSET_VERSION__';
+import { createCanvasConversationActions } from './agent-conversation-actions.js?v=__ASSET_VERSION__';
 import { canvasConversationCopy } from './agent-conversation-copy.js?v=__ASSET_VERSION__';
 import { CANVAS_AGENT_LIMITS } from '../../shared/canvas-agent-contract.mjs?v=__ASSET_VERSION__';
+import { detectCanvasDirectControl, canvasImmediateStartRequested } from '../../shared/canvas-agent-control-intent.mjs?v=__ASSET_VERSION__';
 
 const create = (tag, className = '', text = '') => { const node = document.createElement(tag); node.className = className; node.textContent = text; return node; };
 const button = (text, action, primary = false) => { const node = create('button', `canvas-button${primary ? ' canvas-button--primary' : ''}`, text); node.type = 'button'; node.addEventListener('click', action); return node; };
@@ -14,11 +16,11 @@ const displayValue = value => Array.isArray(value) ? value.filter(item => typeof
 // This view sends member input and explicit decisions only. The server supplies
 // every accepted message, creative brief and allowance; no transcript is trusted
 // from the browser or production events.
-export function createCanvasAgentConversation({ root, german, flush, getRun, canProduce, onRun }) {
+export function createCanvasAgentConversation({ root, german, flush, getRun, canProduce, onRun, canControl=()=>false, onControl=()=>{}, onEffect=()=>{} }) {
     const copy = canvasConversationCopy(german);
     let projectId = null, epoch = 0, visible = false, busy = false, snapshot = null, availability = null;
     let pending = null, timer = null, controller = null, closed = false, briefKey = '', draftDirty = false, activeTab = 'chat';
-    let observationIdentity = null, observationStarted = 0, observationCount = 0;
+    let observationIdentity = null, observationStarted = 0, observationCount = 0, observationFailures = 0, reading = null, disconnected = false, catchUpRequested = false;
     let feedbackText = copy.loading;
     const section = create('section', 'canvas-agent__conversation'); section.setAttribute('aria-label', copy.conversation);
     const tabs = create('div', 'canvas-agent__tabs'); tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', copy.workspace);
@@ -38,6 +40,8 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
     const projectNotice = create('p','canvas-agent__notice'); projectNotice.setAttribute('role','status');projectNotice.hidden=true;
     const recovery = button(copy.check, () => void replay());
     const reload = button(copy.reconnect, () => void observe());
+    const makeNow=button(copy.makeNow,()=>void immediateStart(),true);makeNow.classList.add('canvas-agent__make-now');
+    const makeHint=create('p','canvas-agent__start-hint',copy.makeNowHint);makeHint.id='canvasAgentStartHint';makeNow.setAttribute('aria-describedby',makeHint.id);
     const composer = create('form', 'canvas-agent__composer');
     const input = create('textarea', 'canvas-textarea'); input.name = 'message'; input.rows = 1; input.maxLength = 6000; input.placeholder = copy.placeholder;
     const send = create('button', 'canvas-button canvas-button--primary', copy.send); send.type = 'submit';
@@ -61,7 +65,8 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
     const briefContent = create('dl', 'canvas-agent__brief-fields'), questions = create('ul', 'canvas-agent__questions');
     const revision = create('p', 'canvas-muted');
     const correct = button(copy.correct, () => { selectTab('chat'); notify(copy.correctHint); input.focus({preventScroll:true}); });
-    brief.append(create('h4', '', copy.briefTitle), briefContent, questions, revision, correct);
+    const briefOverview=create('p','canvas-agent__brief-overview'),creativeDetails=create('details','canvas-disclosure');creativeDetails.append(create('summary','',copy.briefDetails),briefContent,questions,revision);
+    brief.append(create('h4', '', copy.briefTitle),briefOverview,correct,creativeDetails);
     const production = create('form', 'canvas-agent__production-approval'); production.noValidate = true;
     const cap = create('input', 'canvas-input'); cap.type = 'number'; cap.name = 'budget'; cap.min = '1'; cap.max = String(CANVAS_AGENT_LIMITS.maxBudgetCredits); cap.step = '1'; cap.inputMode = 'numeric';
     const approval = create('input'); approval.type = 'checkbox'; approval.name = 'authorize';
@@ -76,14 +81,26 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
     const clearBack = button(copy.clearBack, () => { confirmation.hidden = true; clear.focus(); });
     confirmation.append(create('p', '', copy.clearHint), clearConfirm, clearBack); privacy.append(clear, confirmation);
     const options=create('details','canvas-disclosure canvas-agent__briefing-options'); options.append(create('summary','',copy.briefingOptions),shortcuts);
-    const budgetPrompt=button(copy.allowanceApprove,()=>{selectTab('project');allowanceCap.focus();}); budgetPrompt.classList.add('canvas-agent__approval-prompt');
-    const messageActions=create('div','canvas-agent__message-actions'); messageActions.append(recovery,reload);
-    const feedback=create('div','canvas-agent__chat-feedback'); feedback.append(notice,messageActions,budgetPrompt);
-    const footer=create('div','canvas-agent__chat-footer'); footer.append(feedback,composer);
-    viewport.append(welcome,transcript); chatPane.append(viewport,newest,footer);
-    projectPane.append(projectNotice,allowance,allowanceLedger,brief,production,options,privacy);
+    const budgetPrompt=button(copy.allowanceApprove,()=>{showAllowance();}); budgetPrompt.classList.add('canvas-agent__approval-prompt');
+    const runBar=create('div','canvas-agent__chat-run'),runText=create('span');
+    const runControls=Object.fromEntries([['pause',copy.runPause],['resume',copy.runResume],['cancel',copy.runCancel]].map(([action,label])=>[action,button(label,()=>{if(canControl(action))void onControl(action);})]));
+    const runView=button(copy.runView,()=>{selectTab('project');productionArea.scrollTop=0;});runBar.append(runText,...Object.values(runControls),runView);
+    const messageActions=create('div','canvas-agent__message-actions'); messageActions.append(makeNow,reload,recovery);
+    const feedback=create('div','canvas-agent__chat-feedback'); feedback.append(notice,budgetPrompt);
+    const footer=create('div','canvas-agent__chat-footer'); footer.append(runBar,feedback,composer,messageActions,makeHint);
+    const content=create('div','canvas-agent__conversation-content'),decisions=create('div','canvas-agent__decisions'),immediateCard=create('section','canvas-agent__immediate');immediateCard.hidden=true;immediateCard.setAttribute('aria-label',copy.immediateTitle);
+    const immediateTitle=create('h4'),immediateText=create('p'),immediateQuote=create('dl','canvas-agent__summary'),immediateHint=create('p','canvas-muted',copy.quoteHint);
+    const immediateScope=create('details','canvas-disclosure canvas-agent__immediate-scope'),scopeTitle=create('summary'),scopeText=create('p');immediateScope.append(scopeTitle,scopeText);
+    const approveImmediate=button(copy.approveFilm,()=>void immediateApprove(),true),cancelImmediate=button(copy.cancelIntent,()=>void immediateCancel());
+    immediateCard.append(immediateTitle,immediateText,immediateScope,immediateQuote,immediateHint,approveImmediate,cancelImmediate);decisions.append(immediateCard);
+    content.append(welcome,transcript,decisions);viewport.append(content);chatPane.append(viewport,newest,footer);
+    const productionArea=create('div','canvas-agent__production-area'),manualProduction=create('details','canvas-disclosure canvas-agent__manual-production');manualProduction.append(create('summary','',copy.productionOptions),production);
+    const advanced=create('details','canvas-disclosure canvas-agent__advanced'),finance=create('details','canvas-disclosure canvas-agent__finance');finance.append(create('summary','',copy.briefingFinance),allowance,allowanceLedger);
+    advanced.append(create('summary','',copy.advanced),finance,options,privacy);projectPane.append(projectNotice,brief,productionArea,manualProduction,advanced);
     section.append(tabs,chatPane,projectPane); root.append(section);
-    const transcriptView=createCanvasTranscript({viewport,list:transcript,welcome,newest,copy});
+    const transcriptView=createCanvasTranscript({viewport,list:transcript,welcome,newest,copy,content});
+    const footerObserver=new ResizeObserver(()=>chatPane.style.setProperty('--canvas-chat-footer-height',`${footer.getBoundingClientRect().height}px`));footerObserver.observe(footer);
+    const actionView=createCanvasConversationActions({parent:decisions,copy,confirm:confirmAction,effect:onEffect,changed:()=>transcriptView.changed()});
     function selectTab(name) { activeTab=name; chatPane.hidden=name!=='chat';projectPane.hidden=name!=='project'; for(const [key,tab] of [['chat',chatTab],['project',projectTab]]){tab.setAttribute('aria-selected',String(key===name));tab.tabIndex=key===name?0:-1;} notify(feedbackText);if(name==='chat')transcriptView.show(); }
     selectTab('chat');
 
@@ -103,6 +120,7 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
         if (!valid(next) || (snapshot && next.revision < snapshot.revision)) return false;
         if (snapshot && next.briefRevision !== snapshot.briefRevision) approval.checked = false;
         snapshot = next;
+        if(data?.run?.projectId===projectId&&/^[a-f0-9]{32}$/.test(data.run.id||''))onRun(data.run);
         if (!draftDirty && !pending) { input.value = string(snapshot.draft); sizeComposer(); }
         const suggested = snapshot.allowance?.suggestedAllowanceCredits || snapshot.suggestedAllowanceCredits || data.suggestedAllowanceCredits;
         if (!allowanceCap.value && count(suggested)) allowanceCap.value = String(suggested);
@@ -113,6 +131,7 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
         const value = snapshot?.brief, key = JSON.stringify(value || null);
         if (key === briefKey) return;
         briefKey = key; briefContent.replaceChildren(); questions.replaceChildren();
+        briefOverview.textContent=[displayValue(value?.fields?.story?.value),value?.fields?.latestInstruction?.value?`${copy.fields.latestInstruction}: ${displayValue(value.fields.latestInstruction.value)}`:'',value?.duration?.targetDurationSeconds>0?`${value.duration.targetDurationSeconds} s`:'',displayValue(value?.fields?.style?.value),displayValue(value?.fields?.audio?.value)].filter(Boolean).join(' · ')||copy.briefEmpty;
         for (const [name, entry] of Object.entries(value?.fields || {})) {
             if (!copy.fields[name] && name !== 'delegatedChoices') continue;
             const raw = displayValue(entry?.value); if (!raw) continue;
@@ -137,7 +156,7 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
         const blocked = busy || Boolean(pending) || !snapshot;
         composer.setAttribute('aria-busy', String(busy));
         input.disabled = !snapshot || busy; input.readOnly = false;
-        send.disabled = blocked || paused || waiting || review || availability?.available !== true;
+        updateSendAdmission();
         send.textContent = busy ? copy.sending : copy.send;
         recovery.hidden = !pending; recovery.disabled = busy;
         reload.hidden = !snapshot; reload.disabled = busy;
@@ -163,21 +182,49 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
             item(allowanceLedger, copy.allowanceRemaining, a.remainingCredits);
         }
         const active = getRun() && !terminal.has(getRun().status), duration = snapshot?.brief?.duration;
+        makeNow.disabled=blocked||Boolean(active)||availability?.available!==true;
+        runBar.hidden=!getRun();runText.textContent=active?copy.productionBusy:copy.runOverview;
+        for(const [action,node]of Object.entries(runControls)){node.hidden=!canControl(action);node.disabled=!canControl(action);}
         const ready = Boolean(snapshot?.brief?.fields?.story?.value) && (duration?.choice === 'delegated' || duration?.targetDurationSeconds > 0);
         production.hidden = !snapshot || !Object.keys(snapshot.brief.fields || {}).length;
+        manualProduction.hidden=production.hidden;
         cap.disabled = approval.disabled = produce.disabled = blocked || waiting || review || paused || active || !canProduce() || !ready || availability?.available !== true;
         productionNote.textContent = !canProduce() ? copy.unknown : active ? copy.productionBusy : ready ? '' : copy.productionMissing;
         const messages=[...(snapshot?.messages||[])], held=snapshot?.blockingOperation;
         if(held&&!messages.some(message=>message.delivery?.diagnosticReference===held.diagnosticReference))messages.push({id:`held:${held.diagnosticReference||held.turnId||'request'}`,role:'system',status:'review_required',delivery:{...held,source:'system'}});
-        transcriptView.render(messages); renderBrief();
+        if (busy && pending?.suffix === '/messages') messages.push({id:'local:sending',role:'system',status:'pending',delivery:{stage:'sending',source:'system'}});
+        section.dataset.motion = visible && !closed && document.visibilityState !== 'hidden' ? 'active' : 'paused';
+        transcriptView.render(messages, {offline:disconnected,delayed:observationStarted>0&&Date.now()-observationStarted>45000}); renderBrief();renderImmediate();if(snapshot)actionView.render(snapshot.actions,{busy:blocked});
     }
+    function updateSendAdmission(){
+        const text=input.value.trim(),direct=detectCanvasDirectControl(text),immediate=canvasImmediateStartRequested(text);
+        const held=typeof snapshot?.canSend==='boolean'?!snapshot.canSend:snapshot?.messages.some(message=>message.status==='review_required');
+        const blocked=busy||Boolean(pending)||!snapshot;
+        send.disabled=blocked||(!direct&&(immediate?Boolean(getRun()&&!terminal.has(getRun().status))||availability?.available!==true:snapshot?.state!=='active'||Boolean(snapshot?.pendingTurnId)||held||availability?.available!==true));
+    }
+    let immediateKey='';
+    function renderImmediate(){
+        const intent=snapshot?.immediateIntent,key=JSON.stringify(intent||null),changed=key!==immediateKey;immediateKey=key;
+        immediateCard.hidden=!intent;
+        if(!intent)return;
+        immediateCard.dataset.state=intent.state;
+        immediateTitle.textContent=copy.immediateTitle;
+        immediateText.textContent=({waiting:copy.immediateWaiting,approval_required:copy.quoteReview,authorized:copy.immediateAuthorized,started:copy.immediateStarted,blocked:copy.immediateBlocked,cancelled:copy.immediateCancelled})[intent.state]||copy.immediateBlocked;
+        const quote=intent.quote,validQuote=quote&&count(quote.proposedCapCredits)&&quote.proposedCapCredits>0&&count(quote.expectedRevision)&&count(quote.expectedBriefRevision)&&count(quote.tariffRevision);
+        immediateQuote.hidden=!quote;immediateHint.hidden=!quote;
+        if(changed){immediateQuote.replaceChildren();immediateScope.hidden=!quote;scopeText.textContent=typeof quote?.scope==='string'?quote.scope:string(quote?.scope?.brief);scopeTitle.textContent=copy.quoteScope+(quote?.scope?.targetDurationSeconds>0?` · ${quote.scope.targetDurationSeconds} s`:quote?.scope?.estimatedSeconds>0?` · ${copy.quoteDelegated}: ${quote.scope.estimatedSeconds} s`:'');
+            if(quote){for(const [name,label]of [['proposedCapCredits',copy.productionBudget],['planningCredits',copy.quotePlanning],['estimatedMediaCredits',copy.quoteMedia],['evaluationCredits',copy.quoteEvaluation],['committedCredits',copy.quoteCommitted]])if(count(quote[name]))item(immediateQuote,label,name==='planningCredits'?quote[name]*Math.max(1,Math.min(3,Number(quote.scope?.includesPlanningAttempts)||1)):quote[name]);}transcriptView.changed();}
+        approveImmediate.hidden=intent.state!=='approval_required';approveImmediate.disabled=busy||Boolean(pending)||!validQuote;
+        cancelImmediate.hidden=['started','cancelled'].includes(intent.state);cancelImmediate.disabled=busy||Boolean(pending);
+    }
+    function showAllowance(){selectTab('chat');decisions.prepend(allowance);allowance.hidden=false;transcriptView.bottom();allowanceCap.focus({preventScroll:true});}
     function failure(response) {
         const stage=response.data?.delivery?.stage;
         if(copy.delivery[stage])notify(copy.delivery[stage]);
         else if (response.code === 'model_pricing_stale') { approval.checked = false; notify(copy.allowanceStale); }
         else if (/revision|changed|stale/.test(response.code || '')) { approval.checked = false; notify(copy.stale); }
         else if (response.code === 'canvas_agent_budget_exceeded') notify(copy.projectBudgetBlocked);
-        else if (/allowance|briefing_budget/.test(response.code || '')) { snapshot.allowanceRequired = true; notify(copy.allowanceRequired); }
+        else if (/allowance|briefing_budget/.test(response.code || '')) { snapshot.allowanceRequired = true; notify(copy.allowanceRequired);showAllowance(); }
         else if (/duration/.test(response.code || '')) notify(copy.durationNeeded);
         else if (/pending|unknown|review/.test(response.code || '')) notify(copy.review);
         else notify(copy.unavailable);
@@ -207,6 +254,8 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
                 } else if (!accept(response.data)) { notify(copy.unsent); return; }
                 pending = null; remember();
                 if (request.suffix === '/messages') { input.value = ''; draftDirty = false; sizeComposer();notify(''); }
+                else if(request.suffix==='/immediate'){input.value='';draftDirty=false;sizeComposer();notify('');selectTab('chat');transcriptView.bottom();}
+                else if(request.suffix.startsWith('/immediate/')){notify('');selectTab('chat');}
                 else if (request.suffix === '/allowance') {selectTab('chat');notify(copy.allowanceAccepted);}
                 else if (request.body.action === 'save') { draftDirty = false; notify(copy.saved); }
                 else if (request.body.action === 'clear') { input.value = ''; draftDirty = false; confirmation.hidden = true; notify(copy.cleared); }
@@ -219,7 +268,10 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
     async function sendMessage(event) {
         event.preventDefault(); if (send.disabled || !snapshot) return;
         const text = input.value.trim(); if (!text) { input.focus(); return; }
-        if (!(snapshot.allowance?.remainingCredits > 0)) { notify(copy.allowanceRequired); allowance.hidden = false; selectTab('project'); allowanceCap.focus(); return; }
+        if(canvasImmediateStartRequested(text)){await immediateStart();return;}
+        const direct=detectCanvasDirectControl(text);
+        if (!direct&&!(snapshot.allowance?.remainingCredits > 0)) { notify(copy.allowanceRequired);showAllowance();return; }
+        if(!direct){const current=epoch;busy=true;render();try{if(!await flush()||current!==epoch)return;}finally{if(current===epoch){busy=false;render();}}}
         await sendRequest('/messages', { text, locale: german ? 'de' : 'en', expectedConversationRevision: snapshot.revision, expectedBriefRevision: snapshot.briefRevision }, snapshot.allowance?.tariffRevision);
     }
     async function authorizeAllowance() {
@@ -231,6 +283,32 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
     async function control(action, extra = {}) {
         if (!snapshot) return;
         await sendRequest('/control', { action, expectedConversationRevision: snapshot.revision, locale:german?'de':'en', ...extra });
+    }
+    async function immediateStart(){
+        if(makeNow.disabled||!snapshot)return;
+        const text=input.value.trim(),current=epoch;busy=true;render();let body;
+        try{
+            if(!await flush()||current!==epoch)return;
+            const response=await canvasRequest(`/projects/${encodeURIComponent(projectId)}`,{timeoutMs:15000});
+            if(current!==epoch)return;
+            if(!response.ok||!count(response.data?.project?.revision)){notify(copy.unavailable);return;}
+            body={text,locale:german?'de':'en',expectedConversationRevision:snapshot.revision,expectedBriefRevision:snapshot.briefRevision,expectedRevision:response.data.project.revision,delegateCreative:true};
+        }finally{if(current===epoch){busy=false;render();}}
+        if(body&&current===epoch)await sendRequest('/immediate',body,snapshot.allowance?.tariffRevision);
+    }
+    async function immediateApprove(){
+        const intent=snapshot?.immediateIntent,quote=intent?.quote;
+        if(approveImmediate.disabled||!quote)return;
+        if(!await flush())return;
+        await sendRequest('/immediate/approve',{intentId:intent.id,intentRevision:intent.revision,capCredits:quote.proposedCapCredits,authorized:true,expectedRevision:quote.expectedRevision,expectedBriefRevision:quote.expectedBriefRevision},quote.tariffRevision);
+    }
+    async function immediateCancel(){const intent=snapshot?.immediateIntent;if(!intent||cancelImmediate.disabled)return;await sendRequest('/immediate/control',{intentId:intent.id,intentRevision:intent.revision,action:'cancel'});}
+    async function confirmAction(action,decision){
+        const value=action.confirmation;if(!value||busy||pending||!['accept','decline'].includes(decision))return;
+        if(!await flush())return;
+        const body={decision,expectedRevision:value.expectedRevision,expectedBriefRevision:value.expectedBriefRevision};
+        for(const key of ['capCredits','tariffRevision','credits'])if(count(value[key]))body[key]=value[key];
+        await sendRequest(`/actions/${encodeURIComponent(action.id)}/confirm`,body,value.tariffRevision);
     }
     async function start(event) {
         event.preventDefault(); if (produce.disabled || !snapshot) return;
@@ -255,45 +333,61 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
         const observed=snapshot?.messages.find(message=>message.delivery?.canObserve&&message.delivery.stage!=='completed');
         const legacyReview=snapshot?.messages.find(message=>message.status==='review_required'&&!message.delivery);
         const pendingReply=snapshot?.messages.find(message=>message.id===`${snapshot?.pendingTurnId}:reply`);
-        const pendingTurn=snapshot?.pendingTurnId&&pendingReply?.delivery?.canObserve!==false?snapshot.pendingTurnId:null;
-        const identity=pending?.key||pendingTurn||(held?.canObserve?held.diagnosticReference:null)||observed?.id||legacyReview?.id;
-        if(!visible||closed||!projectId||!identity)return;
+        // A saved turn is observable before a provider operation exists. Only
+        // an explicit terminal/operator boundary ends normal pending activity.
+        const pendingTurn=snapshot?.pendingTurnId&&!(pendingReply?.delivery?.recovery==='operator'&&pendingReply.delivery.canObserve===false)?snapshot.pendingTurnId:null;
+        const intent=snapshot?.immediateIntent;
+        const action=snapshot?.actions?.find(value=>['proposed','executing','pending'].includes(value.state));
+        const identity=pending?.key||pendingTurn||(intent?.canObserve?intent.id:null)||(held?.canObserve?held.diagnosticReference:null)||observed?.id||action?.id||legacyReview?.id;
+        if(!visible||closed||document.visibilityState==='hidden'||!projectId||(!identity&&!observationFailures))return;
         if(identity!==observationIdentity){observationIdentity=identity;observationStarted=Date.now();observationCount=0;}
-        // Read-only observations survive late callbacks and storage recovery.
-        // Bound each visible session; a member can always check again manually.
-        if(Date.now()-observationStarted>=5*60*1000){if(!pending)notify(copy.manualCheck);return;}
-        timer=setTimeout(()=>void observe(),Math.min(15000,4000+observationCount++*1000));
+        // Bound each HTTP read, not the logical turn. Late callbacks still arrive
+        // after five minutes, and outages back off without abandoning the turn.
+        const delay=observationFailures?Math.min(30000,2000*2**Math.min(observationFailures,4)):Math.min(10000,1200+observationCount++*600);
+        timer=setTimeout(()=>void observe(),delay);
     }
     async function observe(force = false) {
-        if (!projectId || closed || (busy && !force)) return;
-        controller?.abort(); const observation = new AbortController(), current = epoch; controller = observation;
-        const response = await canvasRequest(path(), { signal: observation.signal, timeoutMs: 15000 });
-        if (current !== epoch || observation.signal.aborted) return;
-        if (response.ok && accept(response.data)) {
-            if (!pending && !busy) notify(availability?.available!==true ? copy.unavailable : '');
-        } else if (!snapshot) notify(copy.unavailable);
-        render(); schedule();
+        if (!projectId || closed || !visible || document.visibilityState==='hidden') return;
+        if (reading) {catchUpRequested ||= force;return reading;}
+        if (busy && !force) { schedule(); return; }
+        clearTimeout(timer); const observation = new AbortController(), current = epoch; controller = observation;
+        reading=(async()=>{
+            const response = await canvasRequest(path(), { signal: observation.signal, timeoutMs: 15000 });
+            if (current !== epoch || observation.signal.aborted) return;
+            if (response.ok && accept(response.data)) {
+                disconnected=false;observationFailures=0;
+                if (!pending && !busy) notify(availability?.available!==true ? copy.unavailable : '');
+            } else { disconnected=true;observationFailures++;notify(copy.connectionRetry); }
+            render();
+        })();
+        try { await reading; } finally { if (controller===observation) {reading=null;controller=null;const again=catchUpRequested;catchUpRequested=false;if(again)void observe(true);else schedule();} }
     }
     composer.addEventListener('submit', event => void sendMessage(event));
     production.addEventListener('submit', event => void start(event));
-    function sizeComposer(){input.style.height='auto';input.style.height=`${Math.min(96,Math.max(44,input.scrollHeight))}px`;}
+    function sizeComposer(){input.style.height='auto';input.style.height=`${input.value?Math.min(96,Math.max(44,input.scrollHeight)):44}px`;}
     let composing=false;input.addEventListener('compositionstart',()=>{composing=true;});input.addEventListener('compositionend',()=>{composing=false;});
-    input.addEventListener('input', () => { draftDirty = true; sizeComposer(); });
+    input.addEventListener('input', () => { draftDirty = true; sizeComposer();updateSendAdmission(); });
     input.addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && !composing && event.keyCode!==229) { event.preventDefault(); if (!send.disabled) composer.requestSubmit(); } });
     cap.addEventListener('input', () => { approval.checked = false; });
-    window.addEventListener('pagehide', () => { closed = true; clearTimeout(timer); controller?.abort(); transcriptView.stop(); });
+    function catchUp() { if (visible && !closed && document.visibilityState!=='hidden') {transcriptView.show();void observe(true);} render(); }
+    document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'){clearTimeout(timer);controller?.abort();}else catchUp();render();});
+    window.addEventListener('online',()=>{disconnected=false;observationFailures=0;catchUp();});
+    window.addEventListener('offline',()=>{disconnected=true;render();});
+    window.addEventListener('pagehide', () => { closed = true; clearTimeout(timer); controller?.abort(); transcriptView.stop();footerObserver.disconnect(); });
+    window.addEventListener('pageshow',()=>{closed=false;footerObserver.observe(footer);catchUp();});
     render();
     return {
         refresh: render,
         focus() { selectTab('chat');input.focus({preventScroll:true}); },
-        appendDetails(...nodes) { projectPane.append(...nodes); },
-        setVisible(value) { const changed = visible !== value; visible = value; if (visible && changed) { observationIdentity=null;transcriptView.show();void observe(); } else if (!visible) { clearTimeout(timer); controller?.abort(); } },
+        appendProduction(...nodes){productionArea.append(...nodes);},
+        appendDetails(...nodes) { advanced.append(...nodes); },
+        setVisible(value) { const changed = visible !== value; visible = value; if (visible && changed) { observationIdentity=null;transcriptView.show();void observe(true); } else if (!visible) { clearTimeout(timer); controller?.abort(); }render(); },
         projectChanged(id) {
             if (id === projectId) return;
-            epoch++; projectId = id; snapshot = null; availability = null; pending = null; busy = false; briefKey = ''; transcriptView.reset();selectTab('chat'); draftDirty = false;
+            epoch++; projectId = id; snapshot = null; availability = null; pending = null; busy = false; briefKey = '';immediateKey='';actionView.reset();finance.insertBefore(allowance,allowanceLedger); observationIdentity=null;observationStarted=0;observationCount=0;observationFailures=0;disconnected=false;transcriptView.reset();selectTab('chat'); draftDirty = false;
             controller?.abort(); clearTimeout(timer); input.value = ''; allowanceCap.value = ''; cap.value = ''; approval.checked = false; confirmation.hidden = true;
-            try { const saved = JSON.parse(sessionStorage.getItem(storageKey()) || 'null'); if (saved && ['/messages', '/allowance', '/control', '/start'].includes(saved.suffix) && saved.body && typeof saved.key === 'string' && typeof saved.fingerprint === 'string') pending = saved; } catch { /* The server remains authoritative. */ }
-            notify(pending ? copy.unsent : copy.loading); render(); if (visible) void observe();
+            try { const saved = JSON.parse(sessionStorage.getItem(storageKey()) || 'null'); if (saved && (['/messages','/allowance','/control','/start','/immediate','/immediate/approve','/immediate/control'].includes(saved.suffix)||/^\/actions\/[a-f0-9]{32}\/confirm$/.test(saved.suffix)) && saved.body && typeof saved.key === 'string' && typeof saved.fingerprint === 'string') pending = saved; } catch { /* The server remains authoritative. */ }
+            notify(pending ? copy.unsent : copy.loading); render(); if (visible) void observe(true);
         },
     };
 }

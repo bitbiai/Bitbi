@@ -597,7 +597,7 @@ async function createNode(ctx, userId, projectId) {
   return respond(ctx, { ok: true, data: { node: nodeRecord({ id, project_id: projectId, type, title, x, y, width: null, height: null, model_id: modelId, config_json: config.encoded, content_json: content.encoded, output_json: null, asset_id: assetId, created_at: now, updated_at: now }) } }, { status: 201 });
 }
 
-async function updateNode(ctx, userId, projectId, nodeId) {
+async function updateNode(ctx, userId, projectId, nodeId, { expectedRevision = null } = {}) {
   const limited = await enforceWriteLimit(ctx, userId);
   if (limited) return limited;
   const current = await requireNode(ctx.env, userId, projectId, nodeId);
@@ -622,11 +622,13 @@ async function updateNode(ctx, userId, projectId, nodeId) {
   if (current.type === 'asset_reference' && (Object.hasOwn(parsed.body,'content') || Object.hasOwn(parsed.body,'asset_id')))
     content = normalizeJsonObject(assetId ? {asset:await canvasReferenceAsset(ctx.env,userId,assetId)} : {}, {field:'content'});
   const now = nowIso();
-  await ctx.env.DB.prepare(
+  const changed = await ctx.env.DB.prepare(
     `UPDATE canvas_nodes
      SET title = ?, x = ?, y = ?, width = ?, height = ?, model_id = ?, config_json = ?, content_json = ?, asset_id = ?, updated_at = ?
-     WHERE id = ? AND project_id = ? AND user_id = ? AND deleted_at IS NULL`
-  ).bind(title || null, x, y, width, height, modelId, config.encoded, content.encoded, assetId, now, nodeId, projectId, userId).run();
+     WHERE id = ? AND project_id = ? AND user_id = ? AND deleted_at IS NULL
+       AND (? IS NULL OR EXISTS(SELECT 1 FROM canvas_projects p WHERE p.id=canvas_nodes.project_id AND p.revision=? AND p.deleted_at IS NULL))`
+  ).bind(title || null, x, y, width, height, modelId, config.encoded, content.encoded, assetId, now, nodeId, projectId, userId, expectedRevision, expectedRevision).run();
+  if (expectedRevision !== null && changed.meta?.changes !== 1) return respond(ctx, {ok:false,code:'canvas_project_changed'}, {status:409});
   await ctx.env.DB.prepare("UPDATE canvas_projects SET updated_at = ? WHERE id = ? AND user_id = ?").bind(now, projectId, userId).run();
   return respond(ctx, { ok: true, data: { node: nodeRecord({ ...current, title, x, y, width, height, model_id: modelId, config_json: config.encoded, content_json: content.encoded, asset_id: assetId, updated_at: now }) } });
 }
@@ -1445,4 +1447,4 @@ export async function handleCanvas(ctx) {
 }
 
 // Internal coordinator reuses precisely the normal node execution adapters.
-export { runNode as runCanvasNode, buildGenerationBody as buildCanvasGenerationBody, resolveCanvasNodeInputs };
+export { updateNode as updateCanvasNode, runNode as runCanvasNode, buildGenerationBody as buildCanvasGenerationBody, resolveCanvasNodeInputs };

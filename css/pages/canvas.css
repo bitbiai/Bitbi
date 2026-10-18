@@ -61,6 +61,7 @@
   .canvas-agent__production { display: grid; gap: 12px; min-width: 0; }
   .canvas-agent { display: flex; flex-direction: column; overflow: hidden; padding-bottom: max(16px, env(safe-area-inset-bottom)); }
   .canvas-agent > .canvas-panel__head { flex: none; margin-bottom: 6px; }
+  .canvas-agent .help-menu__trigger { position: static; flex: none; inline-size: 36px; block-size: 36px; min-width: 36px; min-height: 36px; font-size: 1.15rem; box-shadow: none; margin-left: auto; }
   .canvas-agent > .canvas-eyebrow { flex: none; margin: 0 0 10px; }
   #canvasAgentBody, .canvas-agent__mount { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; }
   .canvas-agent__conversation { display: grid; flex: 1; grid-template-rows: auto minmax(0,1fr); min-height: 0; min-width: 0; }
@@ -68,7 +69,7 @@
   .canvas-agent__tabs button { flex: 1; min-width: 0; }
   .canvas-agent__tabs [aria-selected="true"] { color: var(--canvas-accent); background: #203439; border-color: #537f7c; }
   .canvas-agent__chat-pane { display: flex; flex-direction: column; position: relative; min-height: 0; min-width: 0; overflow: hidden; }
-  .canvas-agent__project-pane { min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 12px 0 max(70px,env(safe-area-inset-bottom)); }
+  .canvas-agent__project-pane { min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 12px 0 max(16px,env(safe-area-inset-bottom)); }
   .canvas-agent__project-pane > * + * { margin-top: 16px; }
   .canvas-agent__transcript { flex: 1; min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; overflow-anchor: none; scrollbar-width: thin; padding: 14px 3px 14px 0; }
   .canvas-agent__transcript:focus-visible { outline: 2px solid var(--canvas-accent); outline-offset: -2px; }
@@ -81,14 +82,40 @@
   .canvas-agent__system-label { color: #a6b5c4; font-size: .68rem; }
   .canvas-agent__message p { margin: 0; white-space: pre-wrap; }
   .canvas-agent__message--system p { margin-top: 5px; }
-  .canvas-agent__diagnostic { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+  .canvas-agent__diagnostic { margin-top: 8px; font-size: .68rem; }
+  .canvas-agent__diagnostic summary { color: var(--canvas-muted); cursor: pointer; padding-block: 5px; }
+  .canvas-agent__diagnostic[open] { padding-bottom: 6px; }
+  .canvas-agent__diagnostic code { margin-right: 8px; }
   .canvas-agent__diagnostic code { font-size: .65rem; overflow-wrap: anywhere; }
-  .canvas-agent__chat-footer { flex: none; padding-top: 8px; border-top: 1px solid var(--canvas-line); padding-right: 52px; }
+  .canvas-agent__chat-footer { flex: none; padding-top: 8px; border-top: 1px solid var(--canvas-line); }
   .canvas-agent__chat-feedback { max-height: 135px; overflow: auto; scrollbar-width: thin; }
   .canvas-agent__chat-feedback .canvas-agent__notice { margin: 0 0 6px; padding: 6px; font-size: .7rem; }
-  .canvas-agent__message-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 5px; }
-  .canvas-agent__message-actions button { min-height: 32px; padding: 4px 8px; font-size: .67rem; }
-  .canvas-agent__new-messages { position: absolute; right: 10px; bottom: 130px; z-index: 2; box-shadow: 0 3px 12px #0005; background: #28464b; }
+  .canvas-agent__message-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+  .canvas-agent__message-actions button { min-height: 36px; padding: 5px 8px; font-size: .67rem; }
+  .canvas-agent__message-actions .canvas-agent__make-now { flex: 1; font-size: .72rem; }
+  .canvas-agent__new-messages { position: absolute; right: 10px; bottom: calc(var(--canvas-chat-footer-height,180px) + 8px); z-index: 2; box-shadow: 0 3px 12px #0005; background: #28464b; }
+  .canvas-agent p.canvas-agent__start-hint { margin: 6px 0 0; color: var(--canvas-muted); font-size: .62rem; line-height: 1.4; }
+  .canvas-agent__chat-run { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; font-size: .65rem; }
+  .canvas-agent__chat-run > span { flex-basis: 100%; }
+  .canvas-agent__chat-run button { min-height: 32px; padding: 4px 8px; font-size: .65rem; }
+  .canvas-agent__thinking { border: 0; background: transparent; padding: 8px 0; display: grid; grid-template-columns: 40px minmax(0,1fr); align-items: center; gap: 4px 8px; }
+  .canvas-agent__thinking .canvas-agent__diagnostic { grid-column: 2; margin-top: 0; }
+  .canvas-agent__thinking > p { margin: 0; }
+  .canvas-agent__bee { position: relative; width: 34px; height: 30px; animation: canvas-bee-float 2.6s ease-in-out infinite; }
+  .canvas-agent__bee-body { position: absolute; left: 5px; top: 12px; width: 24px; height: 16px; border: 1px solid #302c24; border-radius: 50%; background: repeating-linear-gradient(90deg,#f5d06b 0 5px,#53442f 5px 8px); transform: rotate(-8deg); }
+  .canvas-agent__bee-body::after { content: ''; position: absolute; right: 3px; top: 4px; width: 3px; height: 3px; background: #151d23; border-radius: 50%; }
+  .canvas-agent__bee-wing { position: absolute; left: 7px; top: 2px; width: 12px; height: 16px; border: 1px solid #b9e1e0; border-radius: 70% 70% 30% 70%; background: #d7f4edb3; transform: rotate(-25deg); }
+  .canvas-agent__bee-wing:nth-child(2) { left: 17px; transform: rotate(35deg); }
+  .canvas-agent__conversation[data-motion="paused"] .canvas-agent__bee { animation-play-state: paused; }
+  @keyframes canvas-bee-float { 50% { transform: translateY(-3px) rotate(4deg); } }
+  @media (prefers-reduced-motion: reduce) { .canvas-agent__bee { animation: none; } }
+  .canvas-agent__decisions { display: grid; gap: 12px; margin-top: 14px; }
+  .canvas-agent__immediate, .canvas-agent__action { padding: 12px; border: 1px solid var(--canvas-line); border-radius: 10px; background: var(--canvas-inset); }
+  .canvas-agent__immediate > button { margin: 8px 6px 0 0; }
+  .canvas-agent__immediate .canvas-agent__summary { margin-block: 12px; }
+  .canvas-agent__conversation-actions { display: grid; gap: 10px; }
+  .canvas-agent__advanced > :not(summary) { margin-top: 14px; }
+  .canvas-agent__brief-overview { margin-block: 10px; }
   .canvas-agent__composer { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: end; gap: 8px; min-width: 0; }
   .canvas-agent__composer textarea { resize: none; min-height: 44px; height: 44px; max-height: 96px; padding: 10px; line-height: 1.4; }
   .canvas-agent__composer > button { min-height: 44px; padding-inline: 10px; }
@@ -312,9 +339,13 @@
     .canvas-save-state, .canvas-status-link { font-size: .7rem; padding: 6px; }
     .canvas-project-title { font-size: .9rem; }
   }
+  @media (max-width: 900px) and (max-height: 640px) {
+    .canvas-agent { padding: 10px 12px max(8px,env(safe-area-inset-bottom)); }
+    .canvas-agent > .canvas-panel__head { margin-bottom: 2px; }
+    .canvas-agent > .canvas-eyebrow { margin-bottom: 4px; }
+  }
   /* Let the last panel content scroll completely above the existing Help button. */
   .canvas-inspector, .canvas-history { padding-bottom: max(84px, calc(env(safe-area-inset-bottom) + 72px)); scroll-padding-bottom: 84px; }
-  .canvas-agent { padding-bottom: max(16px,env(safe-area-inset-bottom)); }
   .canvas-sound { margin-block: 12px; border: 1px solid var(--border-color, #3a4b54); border-radius: 10px; padding: 10px; }
   .canvas-sound > summary { cursor: pointer; min-height: 32px; padding-block: 6px; font-weight: 600; }
   .canvas-disclosure { margin-block: 12px; border: 1px solid var(--border-color, #3a4b54); border-radius: 10px; padding: 10px; min-width: 0; }

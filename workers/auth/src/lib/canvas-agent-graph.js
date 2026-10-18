@@ -215,3 +215,5 @@ export async function prepareCanvasAgentGraph(env,run,view,inventory,rawPlan,rep
     await env.DB.batch(statements);
     return {plan,steps,assembly,repairs:checked.repairs,costs:checked.costs,plannedDurationSeconds:checked.plannedDurationSeconds};
 }
+
+export { validateConfig as validateCanvasAgentNodeConfig };

@@ -7,7 +7,7 @@ import {
   CANVAS_AGENT_REASONING_SUMMARY_DELIVERY, canvasAgentReasoningSummary,
   canvasAgentPlanSystem,
 } from '../../../shared/canvas-agent-plan.mjs';
-import { validateCanvasAgentDialogue } from '../../../shared/canvas-agent-dialogue.mjs';
+import { CANVAS_AGENT_DIALOGUE_VERSION, validateCanvasAgentDialogue } from '../../../shared/canvas-agent-dialogue.mjs';
 import { CANVAS_AGENT_POLICY_VERSION, canvasAgentPolicyIdentity, validateCanvasAgentPolicyIdentity } from '../../../shared/canvas-agent/manifest.mjs';
 import { validateCanvasAgentDialogueInput, buildCanvasAgentDialoguePayload, canvasAgentDialogueContext,
   validateCanvasAgentDialogueContext } from './canvas-agent-dialogue.js';
@@ -75,7 +75,7 @@ export function validateCanvasAgentPlanInput(input) {
 export function canvasAgentProviderReadiness(env) {
   const contract = { model: GROK_4_7_MODEL_ID, accountAccess: 'unverified', protocolVersion: CANVAS_AGENT_MODEL_PROTOCOL_VERSION,
     transport: 'cloudflare-background', reasoningSummaryDelivery: CANVAS_AGENT_REASONING_SUMMARY_DELIVERY,
-    dialogueVersion: 1, policyVersion: CANVAS_AGENT_POLICY_VERSION };
+    dialogueVersion: CANVAS_AGENT_DIALOGUE_VERSION, policyVersion: CANVAS_AGENT_POLICY_VERSION };
   if (env?.ENABLE_GROK_4_7 !== 'true') return { available: false, reason: 'canvas_agent_model_disabled', ...contract };
   if (typeof env?.AI?.run !== 'function') return { available: false, reason: 'ai_binding_missing', ...contract };
   return { available: true, reason: null, ...contract };
@@ -136,7 +136,9 @@ export function normalizeCanvasAgentPlanResponse(raw, input) {
 }
 
 async function checkedPolicy(input, phase) {
-  const policy = await canvasAgentPolicyIdentity(phase);
+  const version = phase === 'briefing' ? (input.version === 1 ? 'canvas-policy-1' : CANVAS_AGENT_POLICY_VERSION) : input.policy?.version;
+  let policy;
+  try { policy = await canvasAgentPolicyIdentity(phase, version); } catch { invalid('canvas_agent_policy_changed'); }
   if (input.policy !== undefined && JSON.stringify(input.policy) !== JSON.stringify(policy)) invalid('canvas_agent_policy_changed');
   return policy;
 }
@@ -237,7 +239,7 @@ function validateNormalizationContext(kind, context) {
       if (counts.get(frame.nodeId) > 2) reject();
     }
   } else if (kind === 'dialogue') {
-    try { validateCanvasAgentDialogueContext(context); } catch { reject(); }
+    try { context = validateCanvasAgentDialogueContext(context); } catch { reject(); }
   } else reject();
   return structuredClone({ ...context, ...(policy !== undefined ? { policy } : {}) });
 }

@@ -18,22 +18,26 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 
 {
- const policyFiles=['workers/shared/canvas-agent-dialogue.mjs','workers/shared/canvas-agent/core.mjs','workers/shared/canvas-agent/manifest.mjs',
-  ...['creative-briefing','story-and-continuity','model-selection','canvas-editing','generation-and-recovery','review-and-export'].map(name=>`workers/shared/canvas-agent/skills/${name}.mjs`)];
+ const policyFiles=['workers/shared/canvas-agent-dialogue.mjs','workers/shared/canvas-agent-actions.mjs','js/shared/canvas-agent-control-intent.mjs','workers/shared/canvas-agent/legacy/creative-briefing-v1.mjs','workers/shared/canvas-agent/core.mjs','workers/shared/canvas-agent/manifest.mjs',
+  ...['creative-briefing','conversation-actions','story-and-continuity','model-selection','canvas-editing','generation-and-recovery','review-and-export'].map(name=>`workers/shared/canvas-agent/skills/${name}.mjs`)];
  for(const file of policyFiles) {
   const selected=selectCiTests([file]);
   assert(selected.workers&&selected.auth&&!selected.docsOnly,`${file} is executable policy, not documentation`);
   assert.equal(selected.full,false,'Known runtime inputs retain ordinary affected selection');
  }
- for(const file of ['tests/q2-canvas-agent-conversation.spec.js','tests/q2-canvas-agent-dialogue-provider.spec.js']) {
+ for(const file of ['tests/q2-canvas-agent-conversation.spec.js','tests/q2-canvas-agent-dialogue-provider.spec.js','tests/q2-canvas-agent-action-recovery.spec.js']) {
   const selected=selectCiTests([file]);assert(selected.workers&&!selected.full,'New dialogue regressions use the real Worker test caller');
  }
  const shared=selectCiTests(['tests/helpers/canvas-agent-conversation-control.mjs']);
  assert(shared.workers&&shared.homepage&&!shared.full,'Shared conversation fixture retains native and rendered editable-film acceptance');
  const recovery=selectCiTests(['tests/helpers/canvas-agent-conversation-recovery-control.mjs']);
  assert(recovery.workers&&!recovery.full,'Conversation transport faults use ordinary Worker and native D1 callers');
+ const actions=selectCiTests(['tests/helpers/canvas-agent-natural-control.mjs','tests/helpers/canvas-agent-action-recovery-control.mjs']);
+ assert(actions.workers&&!actions.full,'Natural chat authority/migration cases retain Worker and native D1 acceptance');
  const browser=selectCiTests(['tests/helpers/canvas-conversation-persisted-ui.cjs']);
  assert(browser.homepage&&!browser.full,'Persisted conversation UI uses the existing EN/DE Chromium/WebKit Canvas caller');
+ const observer=selectCiTests(['tests/helpers/canvas-conversation-observer-ui.cjs','tests/helpers/canvas-conversation-natural-ui.cjs']);
+ assert(observer.homepage&&!observer.full,'Automatic reply acceptance uses the actual browser observer and authenticated endpoint projection');
  assert(selectCiTests(['tests/unknown-conversation-regression.fixture']).full,'Unknown test inputs still fail closed to full selection');
 }
 

@@ -1,5 +1,5 @@
 import { CANVAS_AGENT_DIALOGUE_VERSION, CANVAS_AGENT_DIALOGUE_INPUT_MAX_BYTES, CANVAS_AGENT_DIALOGUE_MAX_OUTPUT_TOKENS,
-  CANVAS_AGENT_DIALOGUE_SCHEMA, validateCanvasAgentBrief, canvasAgentDialogueMessages } from '../../../shared/canvas-agent-dialogue.mjs';
+  canvasAgentDialogueSchema, validateCanvasAgentBrief, canvasAgentDialogueMessages } from '../../../shared/canvas-agent-dialogue.mjs';
 import { validateCanvasAgentPolicyIdentity } from '../../../shared/canvas-agent/manifest.mjs';
 
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -11,7 +11,7 @@ const invalid = code => { throw Object.assign(new TypeError(code), { code, statu
 export function validateCanvasAgentDialogueInput(input) {
   if (!object(input) || Object.keys(input).some(key => !['version', 'model', 'requestId', 'locale', 'conversationRevision', 'briefRevision',
     'projectRevision', 'message', 'brief', 'recentMessages', 'capabilities', 'currentProject', 'privacyUser', 'promptCacheKey', 'policy'].includes(key))) invalid('canvas_agent_dialogue_input_invalid');
-  if (input.version !== CANVAS_AGENT_DIALOGUE_VERSION || input.model !== 'xai/grok-4.7') invalid('canvas_agent_model_invalid');
+  if (![1, CANVAS_AGENT_DIALOGUE_VERSION].includes(input.version) || input.model !== 'xai/grok-4.7') invalid('canvas_agent_model_invalid');
   if (!safeId(input.requestId) || !['en', 'de'].includes(input.locale)
     || ![input.conversationRevision, input.briefRevision, input.projectRevision].every(revision)) invalid('canvas_agent_dialogue_identity_invalid');
   if (!/^(?:cau|vau)_[a-f0-9]{64}$/.test(input.privacyUser || '') || !/^(?:cap|gpc)_[a-f0-9]{64}$/.test(input.promptCacheKey || '')) invalid('canvas_agent_privacy_identity_invalid');
@@ -31,16 +31,16 @@ export function validateCanvasAgentDialogueInput(input) {
 }
 export function buildCanvasAgentDialoguePayload(input) {
   return { messages: canvasAgentDialogueMessages(input), reasoning_effort: 'low', max_completion_tokens: CANVAS_AGENT_DIALOGUE_MAX_OUTPUT_TOKENS,
-    response_format: { type: 'json_schema', json_schema: { name: 'bitbi_canvas_dialogue_v1', strict: true, schema: CANVAS_AGENT_DIALOGUE_SCHEMA } },
+    response_format: { type: 'json_schema', json_schema: { name: `bitbi_canvas_dialogue_v${input.version}`, strict: true, schema: canvasAgentDialogueSchema(input.version) } },
     stream: false, user: input.privacyUser, prompt_cache_key: input.promptCacheKey };
 }
 export function canvasAgentDialogueContext(input) {
-  return { dialogue: true, conversationRevision: input.conversationRevision, briefRevision: input.briefRevision,
+  return { dialogue: true, dialogueVersion: input.version, conversationRevision: input.conversationRevision, briefRevision: input.briefRevision,
     projectRevision: input.projectRevision, messageId: input.message.id };
 }
 export function validateCanvasAgentDialogueContext(context) {
-  if (!object(context) || Object.keys(context).some(key => !['dialogue', 'conversationRevision', 'briefRevision', 'projectRevision', 'messageId'].includes(key))
-    || context.dialogue !== true || ![context.conversationRevision, context.briefRevision, context.projectRevision].every(revision)
+  if (!object(context) || Object.keys(context).some(key => !['dialogue', 'dialogueVersion', 'conversationRevision', 'briefRevision', 'projectRevision', 'messageId'].includes(key))
+    || context.dialogue !== true || context.dialogueVersion !== undefined && ![1, 2].includes(context.dialogueVersion) || ![context.conversationRevision, context.briefRevision, context.projectRevision].every(revision)
     || !safeId(context.messageId)) invalid('canvas_agent_normalization_context_invalid');
-  return structuredClone(context);
+  return { ...structuredClone(context), dialogueVersion: context.dialogueVersion ?? 1 };
 }

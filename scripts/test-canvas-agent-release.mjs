@@ -52,8 +52,8 @@ if(process.argv.includes('--documentation-mapping-only')) {
  assert.equal(retention.schemaApplies[0].latestMigration,checkpoint);
  assert.deepEqual(retention.workerDeploys.map(step=>step.worker),['auth']);
  assert(!retention.deploySteps.some(step=>step.type==='service'),'Retention-only schema work must not redeploy the media processor');
- const dialogueFiles=['workers/shared/canvas-agent-dialogue.mjs','workers/shared/canvas-agent/core.mjs','workers/shared/canvas-agent/manifest.mjs',
-  ...['creative-briefing','story-and-continuity','model-selection','canvas-editing','generation-and-recovery','review-and-export'].map(name=>`workers/shared/canvas-agent/skills/${name}.mjs`)];
+ const dialogueFiles=['workers/shared/canvas-agent-dialogue.mjs','workers/shared/canvas-agent-actions.mjs','js/shared/canvas-agent-control-intent.mjs','workers/shared/canvas-agent/legacy/creative-briefing-v1.mjs','workers/shared/canvas-agent/core.mjs','workers/shared/canvas-agent/manifest.mjs',
+  ...['creative-briefing','conversation-actions','story-and-continuity','model-selection','canvas-editing','generation-and-recovery','review-and-export'].map(name=>`workers/shared/canvas-agent/skills/${name}.mjs`)];
  for(const file of dialogueFiles) {
   const policyPlan=createReleasePlan(context,{changedFiles:[file]});
   assert.deepEqual(policyPlan.workerDeploys.map(step=>step.worker),['ai','auth'],`${file} is runtime input to both signed reasoning and accounting`);
@@ -61,8 +61,8 @@ if(process.argv.includes('--documentation-mapping-only')) {
   assert(backendContinuationSupported(policyPlan));
  }
  const dialogue=createReleasePlan(context,{changedFiles:[...dialogueFiles,'workers/ai/src/lib/canvas-agent-dialogue.js',
-  'workers/auth/migrations/0109_canvas_agent_conversations.sql','workers/auth/src/routes/canvas-agent-conversation.js','config/release-compat.json','js/pages/canvas/agent.js']});
- assert(backendContinuationSupported(dialogue));assertSupportedBackendMigrations(['0109_canvas_agent_conversations.sql']);
+  'workers/auth/migrations/0109_canvas_agent_conversations.sql','workers/auth/migrations/0110_canvas_agent_conversation_actions.sql','workers/auth/src/routes/canvas-agent-conversation.js','config/release-compat.json','js/pages/canvas/agent.js']});
+ assert(backendContinuationSupported(dialogue));assertSupportedBackendMigrations(['0109_canvas_agent_conversations.sql','0110_canvas_agent_conversation_actions.sql']);
  assert.deepEqual(dialogue.workerDeploys.map(step=>step.worker),['ai','auth']);
  assert.deepEqual(dialogue.deploySteps.map(step=>step.type),['schema-checkpoint','worker','worker','static']);
  assert.equal(dialogue.schemaApplies[0].latestMigration,checkpoint);

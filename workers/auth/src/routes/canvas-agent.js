@@ -24,7 +24,7 @@ export function plannerProject(view) {
             output:n.output_json?((o)=>({kind:o.kind,assetId:o.assetId||o.asset?.id,sourceVersion:o.sourceVersion,runId:o.runId}))(JSON.parse(n.output_json)):null})),
         edges:view.edges.map(e=>({id:e.id,sourceNodeId:e.source_node_id,targetNodeId:e.target_node_id,config:JSON.parse(e.config_json)}))};
 }
-export async function startCanvasAgent(ctx,session,projectId,{briefRevision=null,guard=[]}={}) {
+export async function startCanvasAgent(ctx,session,projectId,{briefRevision=null,guard=[],afterStart=()=>[]}={}) {
     const {env,request}=ctx,userId=session.user.id,key=keyFor(request);
     const parsed=await readJsonBodyOrResponse(request,{maxBytes:BODY_LIMITS.smallJson});if(parsed.response)return parsed.response;
     const previous=await env.DB.prepare('SELECT * FROM canvas_agent_runs WHERE user_id=? AND request_key=?').bind(userId,key).first();
@@ -57,6 +57,8 @@ export async function startCanvasAgent(ctx,session,projectId,{briefRevision=null
         SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM canvas_projects WHERE id=? AND user_id=? AND revision=? AND deleted_at IS NULL)`)
         .bind(id,projectId,userId,key,stablePricingJson(parsed.body),input.duration?'queued':'clarification_required',view.project.revision,input.duration?.targetDurationSeconds??null,input.budgetCredits,inventory?.tariffRevision??null,inventory?.revision??null,now,now,now,expires,briefRevision,planStep?JSON.stringify(planStep.input.payload.policy):null,projectId,userId,view.project.revision));
     if(planStep)statements.push(env.DB.prepare(`INSERT INTO canvas_agent_steps(id,run_id,step_key,kind,input_json,allocation_credits,created_at,updated_at) VALUES(?,?,'plan','plan',?,?,?,?)`).bind(planStep.id,id,JSON.stringify(planStep.input),planStep.credits,now,now));
+    statements.push(...afterStart(id));
+    statements.push(env.DB.prepare("UPDATE canvas_agent_start_intents SET state='cancelled',revision=revision+1,error_code='canvas_agent_already_active',updated_at=? WHERE project_id=? AND state IN ('waiting','approval_required','authorized')").bind(now,projectId));
     try {const result=await env.DB.batch(statements);if(result[guard.length].meta?.changes!==1)agentFail('canvas_agent_project_changed');}
     catch(error){if(String(error).includes('UNIQUE'))agentFail('canvas_agent_already_active');throw error;}
     const row=await env.DB.prepare('SELECT * FROM canvas_agent_runs WHERE id=?').bind(id).first();
@@ -177,3 +179,6 @@ export async function handleCanvasAgent(ctx,session) {
     if(ctx.method==='POST')return startCanvasAgent(ctx,session,match[1]);
     return null;
 }
+
+// Shared by the ordinary controls and validated conversation action service.
+export { control as controlCanvasAgent, budgetDecision as decideCanvasAgentBudget };

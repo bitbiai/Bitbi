@@ -35,7 +35,7 @@ module.exports = async ({ page, expect, locale, info, mockSharedAuth, createCanv
             await expect(transcript).toContainText(text);
         };
         const allowance = panel.locator('.canvas-agent__allowance');
-        await showProject();await expect(allowance.locator('[name=briefingBudget]')).not.toHaveValue('');
+        await panel.locator('.canvas-agent__approval-prompt').click();await expect(allowance.locator('[name=briefingBudget]')).not.toHaveValue('');
         await allowance.locator('[name=briefingBudget]').fill('500');
         await allowance.getByRole('button', { name: de ? 'Dieses Gesprächsbudget freigeben' : 'Authorize this briefing allowance', exact: true }).click();
         await expect(allowance).toBeHidden();
@@ -64,7 +64,7 @@ module.exports = async ({ page, expect, locale, info, mockSharedAuth, createCanv
         await expect(brief).toContainText('120 s');
         expect((await c.read()).messages.filter(message => message.role === 'assistant' && /how long|Wie lang/.test(message.text))).toHaveLength(1);
         expect(c.calls).toHaveLength(2);
-        await showProject();await form.locator('[name=budget]').fill('5000'); await form.locator('[name=authorize]').check();
+        await showProject();await panel.locator('.canvas-agent__manual-production > summary').click();await form.locator('[name=budget]').fill('5000'); await form.locator('[name=authorize]').check();
         const admitted = page.waitForResponse(response => new URL(response.url()).pathname.endsWith('/conversation/start') && response.request().method() === 'POST');
         await form.locator('button[type=submit]').click();
         expect((await admitted).status()).toBe(202);
@@ -73,7 +73,7 @@ module.exports = async ({ page, expect, locale, info, mockSharedAuth, createCanv
         const currentRun = (await f.data(await f.request(f.route))).run;
         expect(currentRun.status).toBe('queued');
         await submitMessage(de ? 'Wie weit bist du?' : 'How far along are you?', false);
-        await expect(transcript).toContainText(de ? 'In der Warteschlange' : 'Queued');
+        await expect(transcript).toContainText(de ? 'Produktion: vorgemerkt. Projektlimit: 5000' : 'Production: queued. Project limit: 5000');
         expect((await f.data(await f.request(f.route))).run.status).toBe('queued');
         expect((await f.data(await f.request(f.projectPath))).project.revision).toBe(firstRevision);
         expect(c.calls).toHaveLength(2);

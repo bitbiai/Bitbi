@@ -2,7 +2,7 @@ import worker from '../../workers/auth/src/index.js';
 import {canvasAgentConversationFixture} from './canvas-agent-conversation-control.mjs';
 
 const check=(value,message)=>{if(!value)throw new Error(message);};
-export const CANVAS_CONVERSATION_RECOVERY_CASES=['snail','prepare','rejected','rejected-tail','malformed','invalid-tail','lost-acceptance','ack-error','normalization','storage','completed-tail','failed-projection','expired-projection','historical','stale-policy','isolation'];
+export const CANVAS_CONVERSATION_RECOVERY_CASES=['queued-observation','snail','prepare','rejected','rejected-tail','malformed','invalid-tail','lost-acceptance','ack-error','normalization','storage','completed-tail','failed-projection','expired-projection','historical','stale-policy','isolation'];
 // Synthetic regression wording, never a replacement for a member's saved text.
 export const CANVAS_SNAIL_BRIEF='Ein lustiger Clip von ungefähr 45 Sekunden mit Hintergrundmusik: Eine Schnecke sitzt auf einem Blatt, und Ameisen schneiden das Blatt ab.';
 const reply={text:'Die Idee ist gespeichert: Ein humorvoller Film von ungefähr 45 Sekunden über die Schnecke und die Ameisen, mit Hintergrundmusik.',
@@ -53,6 +53,12 @@ export async function canvasConversationRecoveryCase(base,name) {
     const originalTurn=await turn();
     check(originalTurn.user_text===CANVAS_SNAIL_BRIEF,'Admission preserves the exact saved user wording');
     check((await view()).brief.duration.targetDurationSeconds===45,'The supplied 45-second answer resolves duration');
+    if(name==='queued-observation'){
+      const queued=await view(),step=await f.db.prepare('SELECT receipt_json FROM canvas_agent_steps WHERE run_id=?').bind(originalTurn.run_id).first();
+      check(!await operation()&&step.receipt_json===null&&c.calls.length===0,'The admitted first snapshot genuinely precedes dispatch and all provider receipts');
+      check(queued.messages.at(-1).delivery.stage==='queued'&&queued.messages.at(-1).delivery.canObserve===true
+        &&queued.messages.at(-1).delivery.canReconcile===false&&!queued.canSend,'Queued work remains observable without granting paid replay or claiming a receipt to reconcile');
+    }
 
     if(name==='stale-policy') {
       const step=await f.db.prepare('SELECT * FROM canvas_agent_steps WHERE run_id=?').bind(originalTurn.run_id).first();

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {verifyCanvasExportSchema,verifyCanvasAssemblyRetentionSchema} from '../../../scripts/lib/canvas-export-readiness.mjs';
 
 async function migrateCanvasRetention(f) {
-  let snapshot,conversationSnapshot;
+  let snapshot,conversationSnapshot,naturalSnapshot;
   for(const migration of f.migrations) {
     if(migration.path.startsWith('0108')) {
       const response=await f.control('/canvas-retention-migration-seed',{});
@@ -14,10 +14,20 @@ async function migrateCanvasRetention(f) {
       const response=await f.control('/canvas-conversation-migration-seed',{});
       assert.equal(response.status,200,await response.clone().text());conversationSnapshot=await response.json();
     }
+    if(migration.path.startsWith('0110')){
+      const response=await f.control('/canvas-natural-migration-seed',{});
+      assert.equal(response.status,200,await response.clone().text());naturalSnapshot=await response.json();
+    }
     await f.db.batch(migration.statements.map(s=>f.db.prepare(s)));
   }
   assert(snapshot,'The retention migration boundary must be exercised');
   assert(conversationSnapshot,'The conversation migration boundary must be exercised');
+  assert(naturalSnapshot,'The natural-chat authority migration boundary must be exercised');
+  await f.test('canvas_natural_chat_populated_migration_preserves_original_authority',async()=>{
+    const response=await f.control('/canvas-natural-migration-verify',naturalSnapshot);
+    assert.equal(response.status,200,await response.clone().text());
+    assert.deepEqual(await response.json(),{originalDebit:78,originalConversationPreserved:true,newAuthorizations:0});
+  });
   await f.test('canvas_conversation_populated_migration_preserves_historical_identity_without_transcript',async()=>{
     const response=await f.control('/canvas-conversation-migration-verify',conversationSnapshot);
     assert.equal(response.status,200,await response.clone().text());
@@ -607,8 +617,29 @@ export async function runCanvasTests(f) {
     const result=await response.json();assert.equal(result.case,name);f.metrics.push(result);
     assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
   });
-  for(const name of ['snail','prepare','rejected','rejected-tail','malformed','invalid-tail','lost-acceptance','ack-error','normalization','storage','completed-tail','failed-projection','expired-projection','historical','stale-policy','isolation'])await f.test('canvas_conversation_recovery_native_'+name,async()=>{
+  for(const name of ['queued-observation','snail','prepare','rejected','rejected-tail','malformed','invalid-tail','lost-acceptance','ack-error','normalization','storage','completed-tail','failed-projection','expired-projection','historical','stale-policy','isolation'])await f.test('canvas_conversation_recovery_native_'+name,async()=>{
     const response=await f.control('/canvas-conversation-recovery',{name});
+    assert.equal(response.status,200,await response.clone().text());
+    const result=await response.json();assert.equal(result.case,name);f.metrics.push(result);
+    assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
+  });
+  for(const name of ['immediate','delegation','waiting','unknown-waiting','cancel-waiting','stale-project','stale-brief','stale-price','consent-isolation','concurrent-approval','natural-start','button-chat-race','emergency','saved-brief','clear-intent','quote-evaluation'])await f.test('canvas_natural_chat_native_'+name,async()=>{
+    const response=await f.control('/canvas-natural-chat',{name});
+    assert.equal(response.status,200,await response.clone().text());
+    const result=await response.json();assert.equal(result.case,name);f.metrics.push(result);
+    assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
+  });
+  for(const name of ['assembly','node-settings','regenerate','consent','foreign-target','stale-target','production-controls','assembly-extended','budget-controls'])await f.test('canvas_conversational_actions_native_'+name,async()=>{
+    const response=await f.control('/canvas-conversation-actions',{name,
+      videoBase64:fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4',import.meta.url)).toString('base64'),
+      imageBase64:fs.readFileSync(new URL('../../fixtures/media/h3-frame.png',import.meta.url)).toString('base64'),
+      musicBase64:fs.readFileSync(new URL('../../fixtures/media/member-music.mp3',import.meta.url)).toString('base64')});
+    assert.equal(response.status,200,await response.clone().text());
+    const result=await response.json();assert.equal(result.case,name);f.metrics.push(result);
+    assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
+  });
+  for(const name of ['late-stop','confirmation-replay','claim-race','dependent-failure','immediate-scope','immediate-duration-current'])await f.test('canvas_conversational_action_recovery_native_'+name,async()=>{
+    const response=await f.control('/canvas-conversation-action-recovery',{name});
     assert.equal(response.status,200,await response.clone().text());
     const result=await response.json();assert.equal(result.case,name);f.metrics.push(result);
     assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);

@@ -22,7 +22,7 @@ function privateMediaUrl(value) {
     catch { return null; }
 }
 
-export function createCanvasAgentPanel({ root, german, getState, flush, newProject, openProject }) {
+export function createCanvasAgentPanel({ root, german, getState, flush, newProject, openProject, refreshProject=openProject, showResult }) {
     const copy = canvasAgentCopy(german);
     let projectId = null, run = null, availability = null, busy = false, visible = false, stopped = false;
     let epoch = 0, timer = null, controller = null, pendingStart = null;
@@ -53,13 +53,29 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
     const evidence = create('dl', 'canvas-agent__summary'); details.append(evidence);
     const live=create('div','canvas-agent__live');
     const activity=createCanvasAgentActivity({parent:live,copy,privateMediaUrl,decideBudget:(decision,request)=>void decideBudget(decision,request)});
-    status.append(phase, counts, summary, note, connection, media, live, actions, stopHint, details);
+    status.append(phase, counts, media, actions, note, summary, live, stopHint, details);details.append(connection);
     const help = create('details', 'canvas-disclosure'); help.append(create('summary', '', copy.inspect), create('p', 'canvas-muted', copy.editHint));
     const conversationRoot = create('div','canvas-agent__mount');
     root.append(projectHint, conversationRoot);
-    const conversation = createCanvasAgentConversation({root:conversationRoot,german,flush,getRun:()=>run,canProduce:()=>!modelHeld(),onRun:next=>{acceptRun(next);clearStart();message('');render();schedule();}});
+    const conversation = createCanvasAgentConversation({root:conversationRoot,german,flush,getRun:()=>run,canProduce:()=>!modelHeld(),canControl:action=>!busy&&canControl(action),onControl:control,onEffect:applyConversationEffect,onRun:next=>{acceptRun(next);clearStart();message('');render();schedule();}});
 
-    conversation.appendDetails(availabilityNote,availabilityDetails,feedback,status,help);
+    conversation.appendProduction(feedback,status);
+    conversation.appendDetails(availabilityNote,availabilityDetails,help);
+    const panelHead=root.closest('.canvas-agent')?.querySelector('.canvas-panel__head');
+    function placeHelp(){const trigger=document.getElementById('bitbiHelpTrigger'),home=document.getElementById('bitbiHelpMenu');if(!trigger||!home)return;if(visible&&panelHead)panelHead.append(trigger);else if(trigger.parentNode!==home)home.prepend(trigger);}
+    async function applyConversationEffect(effect){
+        const id=projectId,current=epoch;if(!id||!await flush()||current!==epoch)return;
+        // A later manual/chat export belongs to the normal inspector. The
+        // original production result remains an immutable historical version.
+        if(effect.kind==='show_result'){if(effect.targetId&&showResult)await showResult(id,effect.targetId);else message(copy.unavailable);return;}
+        if(effect.kind==='refresh'){await refreshProject(id);if(current===epoch)void observe();return;}
+        await openProject(id);if(current!==epoch)return;
+        if(effect.kind==='show_project'||effect.kind==='focus_node'){
+            const toggle=document.getElementById('canvasAgentToggle');if(toggle?.getAttribute('aria-expanded')==='true')toggle.click();
+            const graph=document.getElementById('canvasGraphToggle');if(graph&&getComputedStyle(graph).display!=='none'&&graph.getAttribute('aria-pressed')!=='true')graph.click();
+            if(effect.kind==='focus_node'){const node=document.querySelector(`[data-node-id="${CSS.escape(effect.targetId)}"]`);node?.click();node?.focus({preventScroll:true});}
+        }
+    }
 
     function message(text) { feedback.textContent = text; feedback.hidden = !text; }
     function validRun(value) { return value && /^[a-f0-9]{32}$/.test(value.id || '') && value.projectId===projectId && typeof value.status==='string'; }
@@ -292,9 +308,10 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
         render(); schedule(response.ok&&response.data?.hasMore?100:4000,Boolean(response.ok&&response.data?.hasMore));
     }
     window.addEventListener('pagehide', () => { stopped = true; clearTimeout(timer); controller?.abort();closeStream(); });
+    window.addEventListener('pageshow',()=>{stopped=false;placeHelp();if(visible)void observe();});
     render();
     return {
-        setVisible(value) { const changed = visible !== value; visible = value; conversation.setVisible(value); if (visible && changed) void observe(); else if (!visible){clearTimeout(timer);closeStream();} },
+        setVisible(value) { const changed = visible !== value; visible = value;placeHelp(); conversation.setVisible(value); if (visible && changed) void observe(); else if (!visible){clearTimeout(timer);closeStream();} },
         projectChanged() {
             const id = getState().project?.id || null; if (id === projectId) return;
             epoch += 1; projectId = id; run = null; pendingStart = null; pendingBudget=null; catchingUp=false; availability = null;eventCursor=0;activity.reset();closeStream();

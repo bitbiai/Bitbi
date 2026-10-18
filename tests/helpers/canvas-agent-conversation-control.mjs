@@ -21,11 +21,13 @@ export async function attachCanvasConversation(f,{locale='en',scope='conversatio
   f.env.__TEST_FETCH=async(url,init)=>{
     const body=isCanvasAgentProviderEndpoint(url,f.env.CLOUDFLARE_ACCOUNT_ID)&&init?.body?JSON.parse(init.body):null;
     if(body?.model!=='xai/grok-4.7')return oldFetch(url,init);
-    check(body.input.response_format.json_schema.name==='bitbi_canvas_dialogue_v1','Briefing cannot silently return structured production plans');
     const headers=new Headers(init.headers);
+    const step=await f.db.prepare('SELECT input_json FROM canvas_agent_steps WHERE id=?').bind(JSON.parse(headers.get('cf-aig-metadata')).canvas_step).first();
+    const version=JSON.parse(step.input_json).payload.version;
+    check([1,2].includes(version)&&body.input.response_format.json_schema.name===`bitbi_canvas_dialogue_v${version}`,'Briefing keeps the exact release-approved dialogue schema for its immutable input');
     check(body.options.background===true&&headers.get('cf-aig-collect-log')==='true'&&headers.get('cf-aig-collect-log-payload')==='false'&&headers.get('cf-aig-max-attempts')==='1','Metadata-only single-dispatch background dialogue');
     check(!body.input.tools&&body.input.messages.length===2,'Dialogue never receives external or private administrator tools');
-    const id=`synthetic-${scope}-${calls.length+1}`;calls.push({id,body});
+    const id=`synthetic-${scope}-${calls.length+1}`;calls.push({id,body,version});
     return Response.json({success:true,result:{id,state:'Queued'},errors:[],messages:[]});
   };
   const route=f.projectPath+'/agent/conversation';
@@ -51,11 +53,11 @@ export async function attachCanvasConversation(f,{locale='en',scope='conversatio
     if(f.atClock)await f.atClock(execute);else await execute();
     return turn;
   };
-  const complete=async({text='I have noted your film idea.',fields={},intent='continue',scope:replyScope='canvas',questions=[],updates,...overrides}={})=>{
+  const complete=async({text='I have noted your film idea.',fields={},intent='continue',scope:replyScope='canvas',questions=[],updates,actions=[],...overrides}={})=>{
     const call=calls.at(-1);check(call,'Only an actually accepted provider request may complete');
     const context=JSON.parse(call.body.input.messages[1].content),messageId=context.message.id;
     const dialogue={text,scope:replyScope,intent,updates:updates||Object.entries(fields).map(([field,value])=>({field,value:typeof value==='string'?value:value.value,
-      provenance:typeof value==='string'?'user_stated':value.provenance,sourceMessageId:messageId})),questions};
+      provenance:typeof value==='string'?'user_stated':value.provenance,sourceMessageId:messageId})),questions,...(call.version>=2?{actions}:{})};
     const body={id:call.id,state:'Completed',model:'xai/grok-4.7',provider:'xai',result:{id:call.id+'-response',object:'chat.completion',model:'grok-4.7',
       choices:[{finish_reason:'stop',message:{role:'assistant',content:JSON.stringify(dialogue)}}],usage:{prompt_tokens:120,completion_tokens:200,total_tokens:320}},...overrides};
     const callback=new URL(call.body.options.webhookUrl);check(callback.origin==='https://bitbi.ai','Callback remains on owned origin');

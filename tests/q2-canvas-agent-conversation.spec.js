@@ -31,7 +31,7 @@ for(const name of ['briefing','isolation','recovery','unknown','revocation','con
   }finally{DB.close();}
 });
 
-for(const name of ['snail','prepare','rejected','rejected-tail','malformed','invalid-tail','lost-acceptance','ack-error','normalization','storage','completed-tail','failed-projection','expired-projection','historical','stale-policy','isolation'])test(`Canvas conversation recovery ${name} through signed transport and persisted receipts`,async()=>{
+for(const name of ['queued-observation','snail','prepare','rejected','rejected-tail','malformed','invalid-tail','lost-acceptance','ack-error','normalization','storage','completed-tail','failed-projection','expired-projection','historical','stale-policy','isolation'])test(`Canvas conversation recovery ${name} through signed transport and persisted receipts`,async()=>{
   const DB=new SqliteD1Database();applyAuthMigrations(DB);
   try {
     const {canvasConversationRecoveryCase}=await import('./helpers/canvas-agent-conversation-recovery-control.mjs');
@@ -48,6 +48,36 @@ test('Canvas conversation migration preserves existing productions without inven
     const env={...createAuthTestEnv(),DB},seed=await seedCanvasConversationMigration(env);
     DB.exec(fs.readFileSync(path.join(process.cwd(),'workers/auth/migrations/0109_canvas_agent_conversations.sql'),'utf8'));
     expect(await verifyCanvasConversationMigration(env,seed)).toEqual({historicalRequestsPreserved:1,fabricatedConversations:0,creativeRevisionUnchanged:true});
+  }finally{DB.close();}
+});
+
+test('Canvas natural-chat migration preserves paid identities and saved conversations without inventing action consent',async()=>{
+  const fs=require('node:fs'),path=require('node:path'),DB=new SqliteD1Database();
+  applyAuthMigrations(DB,{through:'0109_canvas_agent_conversations.sql'});
+  try {
+    const {seedCanvasNaturalChatMigration,verifyCanvasNaturalChatMigration}=await import('./helpers/canvas-agent-natural-control.mjs');
+    const env={...createAuthTestEnv(),DB},seed=await seedCanvasNaturalChatMigration(env);
+    DB.exec(fs.readFileSync(path.join(process.cwd(),'workers/auth/migrations/0110_canvas_agent_conversation_actions.sql'),'utf8'));
+    expect(await verifyCanvasNaturalChatMigration(env,seed)).toEqual({originalDebit:78,originalConversationPreserved:true,newAuthorizations:0});
+  } finally {DB.close();}
+});
+
+for(const name of ['immediate','delegation','waiting','unknown-waiting','cancel-waiting','stale-project','stale-brief','stale-price','consent-isolation','concurrent-approval','natural-start','button-chat-race','emergency','saved-brief','clear-intent','quote-evaluation'])test(`Canvas natural chat ${name} uses the existing durable production authority`,async()=>{
+  const DB=new SqliteD1Database();applyAuthMigrations(DB);
+  try{
+    const {canvasNaturalCase}=await import('./helpers/canvas-agent-natural-control.mjs');
+    expect((await canvasNaturalCase({...createAuthTestEnv(),DB},name)).case).toBe(name);
+    expect((await DB.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);
+  }finally{DB.close();}
+});
+
+for(const name of ['assembly','node-settings','regenerate','consent','foreign-target','stale-target','production-controls','assembly-extended','budget-controls'])test(`Canvas conversational actions ${name} update ordinary owned project services`,async()=>{
+  const fs=require('node:fs'),path=require('node:path'),DB=new SqliteD1Database();applyAuthMigrations(DB);
+  const media=file=>fs.readFileSync(path.join(__dirname,'fixtures/media',file)).toString('base64');
+  try{
+    const {canvasActionCase}=await import('./helpers/canvas-agent-natural-control.mjs');
+    expect((await canvasActionCase({...createAuthTestEnv(),DB},{name,videoBase64:media('canvas-end-frame.mp4'),imageBase64:media('h3-frame.png'),musicBase64:media('member-music.mp3')})).case).toBe(name);
+    expect((await DB.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);
   }finally{DB.close();}
 });
 

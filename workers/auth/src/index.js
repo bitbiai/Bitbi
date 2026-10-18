@@ -1043,7 +1043,9 @@ export default {
 
         try {
           const result = message.body?.type === CANVAS_AGENT_MESSAGE
-            ? await processCanvasAgent(env,message.body.run_id)
+            ? message.body.intent_id
+              ? {status:(await (await import('./lib/canvas-agent-immediate.js')).advanceCanvasImmediateIntent(env,message.body.intent_id))?.state||'ignored'}
+              : await processCanvasAgent(env,message.body.run_id)
             : message.body?.type === PRIVATE_MEDIA_WAKE
             ? await dispatchPrivateMedia(env,message.body.backend)
             : message.body?.type === MEMBER_GENERATION_MESSAGE

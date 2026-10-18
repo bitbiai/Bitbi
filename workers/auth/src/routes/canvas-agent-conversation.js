@@ -7,6 +7,10 @@ import { nowIso,randomTokenHex } from '../lib/tokens.js';
 import { getModelTariff } from '../lib/model-tariffs.js';
 import { emptyBrief,ensureConversation,conversationView,conversationGuard,createConversationTurn,productionBrief,
     pauseForBriefChange,durationQuestion,canvasConversationBlocker } from '../lib/canvas-agent-conversation.js';
+import {createCanvasImmediateIntent,approveCanvasImmediateIntent,controlCanvasImmediateIntent} from '../lib/canvas-agent-immediate.js';
+
+import {confirmCanvasAgentAction} from '../lib/canvas-agent-actions.js';
+import {canvasImmediateStartRequested} from '../../../../js/shared/canvas-agent-control-intent.mjs';
 
 const respond=(data,status=200)=>Response.json({ok:true,data},{status,headers:{'Cache-Control':'private, no-store'}});
 const keyFor=request=>{const key=request.headers.get('Idempotency-Key');if(!/^[A-Za-z0-9._:-]{8,100}$/.test(key||''))agentFail('idempotency_key_required',428);return key;};
@@ -20,7 +24,7 @@ async function actionReplay(env,row,key,input) {
     return Boolean(prior);
 }
 const actionStatement=(env,row,key,input)=>env.DB.prepare('INSERT INTO canvas_agent_conversation_actions(project_id,request_key,input_json,created_at) VALUES(?,?,?,?)').bind(row.project_id,key,input,nowIso());
-async function allowance(ctx,row,body,key) {
+export async function approveCanvasBriefingAllowance(ctx,row,body,key) {
     check(body,['capCredits','expectedConversationRevision']);
     const input=actionInput('allowance',body);
     if(await actionReplay(ctx.env,row,key,input))return;
@@ -32,7 +36,7 @@ async function allowance(ctx,row,body,key) {
         ctx.env.DB.prepare('UPDATE canvas_agent_conversations SET allowance_credits=?,allowance_tariff=?,revision=revision+1,updated_at=? WHERE project_id=?')
             .bind(body.capCredits,tariff.revision,nowIso(),row.project_id)]);
 }
-async function control(ctx,row,body,key,locale) {
+export async function controlCanvasConversation(ctx,row,body,key,locale) {
     check(body,['action','expectedConversationRevision','draft','locale']);
     if(body.locale!==undefined&&!['en','de'].includes(body.locale))agentFail('canvas_agent_conversation_input_invalid',400);
     locale=body.locale||locale;
@@ -67,6 +71,7 @@ async function control(ctx,row,body,key,locale) {
         ctx.env.DB.prepare('UPDATE canvas_agent_conversations SET revision=revision+1,brief_revision=?,brief_json=?,state=?,draft=?,updated_at=? WHERE project_id=?')
             .bind(brief.revision,JSON.stringify(brief),state,body.action==='clear'?'':body.draft??row.draft,now,row.project_id)];
     if(['cancel','clear','save'].includes(body.action)){
+        statements.push(ctx.env.DB.prepare("UPDATE canvas_agent_start_intents SET state='cancelled',revision=revision+1,error_code='canvas_agent_conversation_stopped',updated_at=? WHERE project_id=? AND state IN ('waiting','approval_required','authorized')").bind(now,row.project_id));
         statements.push(ctx.env.DB.prepare(`UPDATE canvas_agent_runs SET status='cancelled',lease_token=NULL,lease_until=NULL,updated_at=?
             WHERE project_id=? AND purpose='briefing' AND status IN ('queued','planning','running','paused','review_required','blocked')`).bind(now,row.project_id));
         statements.push(ctx.env.DB.prepare(`UPDATE canvas_agent_turns SET state=?,user_text=CASE WHEN ?='deleted' THEN '' ELSE user_text END,
@@ -110,7 +115,7 @@ async function start(ctx,session,view,row,body,key) {
         guard:[conversationGuard(ctx.env,row),actionStatement(ctx.env,row,key,action)]});
 }
 export async function handleCanvasAgentConversation(ctx,session) {
-    const match=ctx.pathname.match(/^\/api\/account\/canvas\/projects\/([a-f0-9]{32})\/agent\/conversation(?:\/(messages|allowance|control|start))?$/);
+    const match=ctx.pathname.match(/^\/api\/account\/canvas\/projects\/([a-f0-9]{32})\/agent\/conversation(?:\/(messages|allowance|control|start|immediate(?:\/approve|\/control)?|actions\/([a-f0-9]{32})\/confirm))?$/);
     if(!match)return null;
     const projectId=match[1],view=await canvasAgentProject(ctx.env,session.user.id,projectId);
     if(ctx.method==='GET'&&!match[2])return respond(await conversationView(ctx.env,projectId,session.user.id));
@@ -119,19 +124,47 @@ export async function handleCanvasAgentConversation(ctx,session) {
     const parsed=await readJsonBodyOrResponse(ctx.request,{maxBytes:BODY_LIMITS.smallJson});if(parsed.response)return parsed.response;
     const body=parsed.body,key=keyFor(ctx.request),row=await ensureConversation(ctx.env,projectId,session.user.id);
     try {
+    // route-policy: account.canvas.agent.conversation.action.confirm
+    if(match[3]&&ctx.method==='POST'){
+        await confirmCanvasAgentAction(ctx,session,projectId,match[3],body);
+        return respond(await conversationView(ctx.env,projectId,session.user.id));
+    }
+    // route-policy: account.canvas.agent.conversation.immediate
+    if(match[2]==='immediate'&&ctx.method==='POST'){
+        const intent=await createCanvasImmediateIntent(ctx.env,session.user.id,projectId,body,key);
+        const run=intent.existingRun||intent.run_id&&await publicAgentRun(ctx.env,await ctx.env.DB.prepare('SELECT * FROM canvas_agent_runs WHERE id=?').bind(intent.run_id).first());
+        return respond({...await conversationView(ctx.env,projectId,session.user.id),...(run?{run}:{})},202);
+    }
+    // route-policy: account.canvas.agent.conversation.immediate.approve
+    if(match[2]==='immediate/approve'&&ctx.method==='POST'){
+        const intent=await approveCanvasImmediateIntent(ctx.env,session.user.id,projectId,body,ctx.request.headers.get(TARIFF_HEADER));
+        const run=intent.run_id&&await publicAgentRun(ctx.env,await ctx.env.DB.prepare('SELECT * FROM canvas_agent_runs WHERE id=?').bind(intent.run_id).first());
+        return respond({...await conversationView(ctx.env,projectId,session.user.id),...(run?{run}:{})},202);
+    }
+    // route-policy: account.canvas.agent.conversation.immediate.control
+    if(match[2]==='immediate/control'&&ctx.method==='POST'){
+        await controlCanvasImmediateIntent(ctx.env,session.user.id,projectId,body);
+        return respond(await conversationView(ctx.env,projectId,session.user.id));
+    }
     // route-policy: account.canvas.agent.conversation.messages
     if(match[2]==='messages'&&ctx.method==='POST'){
         check(body,['text','locale','expectedConversationRevision','expectedBriefRevision']);
         if(!textOk(body.text)||!body.text.trim()||!['en','de'].includes(body.locale))agentFail('canvas_agent_conversation_input_invalid',400);
+        if(canvasImmediateStartRequested(body.text)){
+            const original=await ctx.env.DB.prepare('SELECT expected_revision FROM canvas_agent_start_intents WHERE project_id=? AND request_key=?').bind(projectId,key).first();
+            const intent=await createCanvasImmediateIntent(ctx.env,session.user.id,projectId,{...body,expectedRevision:original?.expected_revision??view.project.revision,delegateCreative:true},key);
+            const run=intent.existingRun||intent.run_id&&await publicAgentRun(ctx.env,await ctx.env.DB.prepare('SELECT * FROM canvas_agent_runs WHERE id=?').bind(intent.run_id).first());
+            return respond({...await conversationView(ctx.env,projectId,session.user.id),...(run?{run}:{})},202);
+        }
         const prior=await ctx.env.DB.prepare('SELECT input_json FROM canvas_agent_turns WHERE project_id=? AND request_key=?').bind(projectId,key).first();
         if(prior){if(stablePricingJson(JSON.parse(prior.input_json))!==stablePricingJson(body))agentFail('idempotency_conflict');return respond(await conversationView(ctx.env,projectId,session.user.id));}
         revision(body,row);if(body.expectedBriefRevision!==row.brief_revision)agentFail('canvas_agent_conversation_changed');
         await createConversationTurn(ctx.env,view,row,body,key);
     }
     // route-policy: account.canvas.agent.conversation.allowance
-    if(match[2]==='allowance'&&ctx.method==='POST')await allowance(ctx,row,body,key);
+    if(match[2]==='allowance'&&ctx.method==='POST')await approveCanvasBriefingAllowance(ctx,row,body,key);
     // route-policy: account.canvas.agent.conversation.control
-    if(match[2]==='control'&&ctx.method==='POST')await control(ctx,row,body,key,view.project.locale);
+    if(match[2]==='control'&&ctx.method==='POST')await controlCanvasConversation(ctx,row,body,key,view.project.locale);
     // route-policy: account.canvas.agent.conversation.start
     if(match[2]==='start'&&ctx.method==='POST')return start(ctx,session,view,row,body,key);
     return respond(await conversationView(ctx.env,projectId,session.user.id),match[2]==='messages'?202:200);

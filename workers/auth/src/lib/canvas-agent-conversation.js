@@ -1,12 +1,13 @@
 import { resolveCanvasAgentDuration, CANVAS_AGENT_MODEL } from '../../../../js/shared/canvas-agent-contract.mjs';
 import { nowIso,randomTokenHex,sha256Hex } from './tokens.js';
-import { agentFail,agentTransition,wakeCanvasAgent,claimCanvasAgent } from './canvas-agent-store.js';
+import { agentFail,agentTransition,wakeCanvasAgent,claimCanvasAgent,publicAgentRun } from './canvas-agent-store.js';
 import { executeCanvasAgentModel } from './canvas-agent-planning.js';
 import { canvasAgentCapabilities,canvasAgentDialogueAvailability } from './canvas-agent-capabilities.js';
 import { quoteModelTariff,getModelTariff } from './model-tariffs.js';
-import { dialoguePriceInput,validateCanvasAgentDialogueReply,CANVAS_AGENT_BRIEF_FIELDS,CANVAS_AGENT_DIALOGUE_INPUT_MAX_BYTES,CANVAS_AGENT_DIALOGUE_SYSTEM,CANVAS_AGENT_DIALOGUE_SCHEMA,CANVAS_AGENT_DIALOGUE_MAX_OUTPUT_TOKENS } from '../../../shared/canvas-agent-dialogue.mjs';
+import { dialoguePriceInput,validateCanvasAgentDialogueReply,CANVAS_AGENT_BRIEF_FIELDS,CANVAS_AGENT_DIALOGUE_VERSION,CANVAS_AGENT_DIALOGUE_INPUT_MAX_BYTES,CANVAS_AGENT_DIALOGUE_SYSTEM,CANVAS_AGENT_DIALOGUE_SCHEMA,CANVAS_AGENT_DIALOGUE_MAX_OUTPUT_TOKENS } from '../../../shared/canvas-agent-dialogue.mjs';
 import { canvasAgentPolicyIdentity } from '../../../shared/canvas-agent/manifest.mjs';
-import { plannerProject } from '../routes/canvas-agent.js';
+import { detectCanvasDirectControl } from '../../../../js/shared/canvas-agent-control-intent.mjs';
+import {canvasAgentActionContext,prepareCanvasAgentActionStatements,executeCanvasAgentActions,publicCanvasAgentActions,recoverCanvasAgentActions} from './canvas-agent-actions.js';
 import { canvasDialogueProjectEvidence,canvasDialogueDelivery,canvasDialogueFailure,logCanvasDialogueStage } from './canvas-agent-dialogue-state.js';
 
 export const BRIEF_FIELDS=CANVAS_AGENT_BRIEF_FIELDS;
@@ -36,6 +37,8 @@ export async function conversationCosts(env,projectId) {
 export async function conversationView(env,projectId,userId) {
     if(!await ensureConversation(env,projectId,userId))agentFail('canvas_project_not_found',404);
     await observeCanvasConversationReceipts(env,projectId,userId);
+    await recoverCanvasAgentActions(env,{projectId,userId});
+    const actions=await publicCanvasAgentActions(env,projectId,userId);
     const row=await conversationRow(env,projectId,userId);
     // Operation receipts are authoritative. Projection repairs never dispatch.
     await env.DB.prepare(`UPDATE canvas_agent_turns SET state=CASE WHEN (SELECT status FROM canvas_agent_runs WHERE id=run_id)='review_required' THEN 'review_required'
@@ -47,7 +50,7 @@ export async function conversationView(env,projectId,userId) {
     const blockers=evidence.map(item=>({...canvasDialogueDelivery(item),turnId:item.turn_state==='deleted'?null:item.turn_id})).filter(item=>item.blocking);
     const messages=turns.flatMap(t=>[{id:t.id,role:'user',text:t.user_text,status:'completed'},...(t.assistant_text?[{id:`${t.id}:reply`,role:'assistant',text:t.assistant_text,status:'completed'}]
         :[{id:`${t.id}:reply`,role:'assistant',text:'',status:t.state,code:t.error_code||null}])].map(message=>message.role==='assistant'
-            ?{...message,delivery:canvasDialogueDelivery(byTurn.get(t.id))}:message));
+            ?{...message,...(actions.some(action=>action.turnId===t.id)?{text:actions.filter(action=>action.turnId===t.id).map(action=>action.text).join('\n')}:{}),delivery:canvasDialogueDelivery(byTurn.get(t.id))}:message));
     const costs=await conversationCosts(env,projectId),tariff=await getModelTariff(env);
     let suggestedAllowanceCredits=null;
     try {
@@ -55,9 +58,11 @@ export async function conversationView(env,projectId,userId) {
             system:CANVAS_AGENT_DIALOGUE_SYSTEM+JSON.stringify(CANVAS_AGENT_DIALOGUE_SCHEMA),maxTokens:CANVAS_AGENT_DIALOGUE_MAX_OUTPUT_TOKENS}});
         suggestedAllowanceCredits=Math.min(100000,costs.committed+ceiling.credits);
     } catch { /* Unpriced inference stays unavailable; no fabricated tariff. */ }
-    return {conversation:{revision:row.revision,briefRevision:row.brief_revision,state:row.state,draft:row.draft,
-        messages,brief:JSON.parse(row.brief_json),pendingTurnId:turns.find(t=>t.state==='pending')?.id||null,
+    const production=await env.DB.prepare("SELECT * FROM canvas_agent_runs WHERE project_id=? AND user_id=? AND purpose='production' ORDER BY rowid DESC LIMIT 1").bind(projectId,userId).first();
+    return {...(production?{run:await publicAgentRun(env,production)}:{}),conversation:{revision:row.revision,briefRevision:row.brief_revision,state:row.state,draft:row.draft,
+        messages,actions,brief:JSON.parse(row.brief_json),pendingTurnId:turns.find(t=>t.state==='pending')?.id||null,
         canSend:row.state==='active'&&blockers.length===0,blockingOperation:blockers[0]||null,
+        immediateIntent:await (await import('./canvas-agent-immediate.js')).publicCanvasImmediateIntent(env,projectId),
         allowance:{capCredits:row.allowance_credits,committedCredits:costs.committed,chargedCredits:costs.charged,
             reservedCredits:costs.reserved,pendingOutcomeCredits:costs.pending,
             remainingCredits:Math.max(0,row.allowance_credits-costs.committed),tariffRevision:tariff.revision,suggestedAllowanceCredits}},
@@ -69,7 +74,7 @@ export async function canvasConversationBlocker(env,projectId) {
 }
 // Observation can normalize/settle an existing receipt and project its saved
 // dialogue. It cannot call executeCanvasAgentModel or start any ready request.
-async function observeCanvasConversationReceipts(env,projectId,userId) {
+export async function observeCanvasConversationReceipts(env,projectId,userId) {
     const evidence=await canvasDialogueProjectEvidence(env,projectId);
     const {reconcileCanvasAgentModelOperations}=await import('./canvas-agent-model-operations.js');
     const actionable=evidence.filter(item=>{
@@ -140,21 +145,21 @@ export function pauseForBriefChange(env,projectId) {
         WHERE project_id=? AND purpose='production' AND status IN ('queued','planning','running','exporting')`).bind(nowIso(),projectId);
 }
 export function conversationLocale(view) { return view.project?.locale==='de'?'de':'en'; }
-async function localStatusTurn(env,row,input,key) {
-    if(!/^(?:how (?:far along are you|is (?:it|the (?:film|video|production)) going)|what(?:'s| is) the (?:status|progress)|status|progress|wie (?:weit bist du|ist der (?:stand|status))|was macht (?:der film|das video|die produktion))\s*[?.!]?$/i.test(input.text.trim()))return false;
-    const run=await env.DB.prepare("SELECT status,phase FROM canvas_agent_runs WHERE project_id=? AND purpose='production' ORDER BY rowid DESC LIMIT 1").bind(row.project_id).first();
-    const states={queued:['Queued','In der Warteschlange'],planning:['Planning','Planung'],running:['Producing','Produktion'],exporting:['Exporting','Export'],completed:['Completed','Abgeschlossen'],paused:['Paused','Pausiert'],cancelled:['Stopped','Gestoppt'],taken_over:['Manual editing','Manuelle Bearbeitung'],blocked:['Blocked — see production details','Blockiert – siehe Produktionsdetails'],review_required:['Needs review — see production details','Prüfung erforderlich – siehe Produktionsdetails']};
-    const text=run?(states[run.status]||['See production details','Siehe Produktionsdetails'])[input.locale==='de'?1:0]:(input.locale==='de'?'Noch keine Produktion gestartet. Deine Projektidee bleibt gespeichert.':'No production has started. Your project brief stays saved.');
+async function localControlTurn(env,view,row,input,key) {
+    const type=detectCanvasDirectControl(input.text);if(!type)return false;
     const id=randomTokenHex(16),now=nowIso();
+    const actions=[{type,targetId:null,value:null,number:null,secondaryNumber:null,ids:[],revision:view.project.revision}];
+    const receipts=await prepareCanvasAgentActionStatements(env,{userId:row.user_id,projectId:row.project_id,turnId:id,actions,expectedRevision:view.project.revision,locale:input.locale});
     await env.DB.batch([conversationGuard(env,row),env.DB.prepare('UPDATE canvas_agent_conversations SET revision=revision+1,updated_at=? WHERE project_id=?').bind(now,row.project_id),
         env.DB.prepare("INSERT INTO canvas_agent_turns(id,project_id,request_key,input_json,conversation_revision,brief_revision,user_text,assistant_text,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,'completed',?,?)")
-          .bind(id,row.project_id,key,JSON.stringify(input),row.revision+1,row.brief_revision,input.text,text,now,now)]);
+          .bind(id,row.project_id,key,JSON.stringify(input),row.revision+1,row.brief_revision,input.text,input.locale==='de'?'Dein Auftrag ist gespeichert.':'Your request is saved.',now,now),...receipts]);
+    await executeCanvasAgentActions(env,{userId:row.user_id,projectId:row.project_id,turnId:id});
     return true;
 }
 export async function createConversationTurn(env,view,row,input,key) {
     const count=await env.DB.prepare("SELECT COUNT(*) AS n FROM canvas_agent_turns WHERE project_id=? AND state!='deleted'").bind(row.project_id).first();
     if(count.n>=80)agentFail('canvas_agent_conversation_limit');
-    if(await localStatusTurn(env,row,input,key))return;
+    if(await localControlTurn(env,view,row,input,key))return;
     const available=await canvasAgentDialogueAvailability(env);if(!available.available)agentFail(available.code,503);
     const inventory=await canvasAgentCapabilities(env),costs=await conversationCosts(env,row.project_id);
     if(row.state!=='active')agentFail('canvas_agent_conversation_saved');
@@ -175,16 +180,13 @@ export async function createConversationTurn(env,view,row,input,key) {
     const askDuration=!brief.duration.choice&&!brief.duration.asked;
     if(askDuration)brief.duration.asked=true;
     const recent=(await env.DB.prepare("SELECT id,user_text,assistant_text FROM canvas_agent_turns WHERE project_id=? AND state='completed' ORDER BY rowid DESC LIMIT 6").bind(row.project_id).all()).results.reverse();
-    const project=plannerProject(view);
-    // Creative graph is current; bounded selected facts do not copy asset bytes.
-    project.nodes=project.nodes.slice(0,60).map(n=>({id:n.id,type:n.type,title:n.title,modelId:n.modelId,output:n.output}));
-    const production=await env.DB.prepare("SELECT id,status,phase,error_code,result_json FROM canvas_agent_runs WHERE project_id=? AND purpose='production' ORDER BY rowid DESC LIMIT 1").bind(row.project_id).first();
+    const project=await canvasAgentActionContext(env,row.user_id,row.project_id);
     brief.revision=row.brief_revision+(duration||delegateOptional?1:0);
     const policy=await canvasAgentPolicyIdentity('briefing');
-    const payload={version:1,model:CANVAS_AGENT_MODEL,requestId:runId,locale:input.locale,
+    const payload={version:CANVAS_AGENT_DIALOGUE_VERSION,model:CANVAS_AGENT_MODEL,requestId:runId,locale:input.locale,
         conversationRevision:row.revision+1,briefRevision:row.brief_revision+(duration||delegateOptional?1:0),projectRevision:view.project.revision,
         message:{id,text:input.text},brief,recentMessages:recent.flatMap(t=>[{id:t.id,role:'user',text:t.user_text},...(t.assistant_text?[{id:`${t.id}_reply`,role:'assistant',text:t.assistant_text.slice(0,6000)}]:[])]),
-        capabilities:inventory,currentProject:{...project,production:production?{id:production.id,status:production.status,phase:production.phase,errorCode:production.error_code,hasSavedExport:Boolean(production.result_json)}:null},policy,
+        capabilities:inventory,currentProject:project,policy,
         privacyUser:`cau_${await sha256Hex(`canvas-agent-user:${row.user_id}`)}`,promptCacheKey:`cap_${await sha256Hex(`canvas-agent-project:${row.user_id}:${row.project_id}`)}`};
     while(payload.recentMessages.length&&new TextEncoder().encode(JSON.stringify(payload)).byteLength>CANVAS_AGENT_DIALOGUE_INPUT_MAX_BYTES)payload.recentMessages.splice(0,2);
     const quote=await quoteModelTariff(env,{modelId:CANVAS_AGENT_MODEL,input:dialoguePriceInput(payload)});
@@ -214,7 +216,8 @@ export async function processCanvasAgentConversation(env,run,user,storageAttempt
     if(receiptOnly&&step.status!=='completed')return;
     const receipt=step.status==='completed'?JSON.parse(step.receipt_json):await executeCanvasAgentModel(env,run,step,user);
     if(!receipt)return;
-    const dialogue=validateCanvasAgentDialogueReply(receipt.dialogue||receipt.data?.dialogue,{messageId:turn.id});
+    const acceptedInput=JSON.parse(step.input_json);
+    const dialogue=validateCanvasAgentDialogueReply(receipt.dialogue||receipt.data?.dialogue,{messageId:turn.id,dialogueVersion:acceptedInput.payload.version,projectRevision:acceptedInput.payload.projectRevision});
     if(!dialogue||typeof dialogue.text!=='string'||!Array.isArray(dialogue.updates))agentFail('canvas_agent_dialogue_invalid');
     // A delayed accepted response is retained operationally, but never restores
     // deleted context or overwrites a newer brief. Status-only turns and
@@ -234,7 +237,7 @@ export async function processCanvasAgentConversation(env,run,user,storageAttempt
     const changed=old!==JSON.stringify(brief.fields);
     brief.openQuestions=Array.isArray(dialogue.questions)?dialogue.questions.slice(0,2):[];
     if(brief.duration.choice)brief.openQuestions=brief.openQuestions.filter(q=>!/(?:duration|how long|wie lang|dauer)/i.test(q));
-    let text=dialogue.text;
+    let text=dialogue.actions?.length?(acceptedInput.payload.locale==='de'?'Dein Auftrag ist gespeichert. Die Ergebnisse erscheinen hier.':'Your request is saved. Its results will appear here.'):dialogue.text;
     if(JSON.parse(step.input_json).askDuration){
         const question=durationQuestion(JSON.parse(step.input_json).payload.locale);
         if(!/(?:duration|how long|wie lang|dauer)/i.test(text))text=`${text}\n\n${question}`;
@@ -244,6 +247,7 @@ export async function processCanvasAgentConversation(env,run,user,storageAttempt
     const statements=[conversationGuard(env,current),env.DB.prepare('UPDATE canvas_agent_conversations SET revision=revision+1,brief_revision=?,brief_json=?,updated_at=? WHERE project_id=?')
         .bind(brief.revision,JSON.stringify(brief),nowIso(),run.project_id),
         env.DB.prepare("UPDATE canvas_agent_turns SET state='completed',assistant_text=?,error_code=NULL,updated_at=? WHERE id=? AND state IN ('pending','review_required','failed')").bind(text.slice(0,8000),nowIso(),turn.id)];
+    statements.push(...await prepareCanvasAgentActionStatements(env,{userId:run.user_id,projectId:run.project_id,turnId:turn.id,actions:dialogue.actions||[],expectedRevision:acceptedInput.payload.projectRevision,expectedControlId:acceptedInput.payload.currentProject.lastControlId,locale:acceptedInput.payload.locale}));
     if(changed&&dialogue.updates.some(u=>['user_stated','corrected'].includes(u.provenance)))statements.push(pauseForBriefChange(env,run.project_id));
     try {await env.DB.batch(statements);} catch(error) {
         const latest=await conversationRow(env,run.project_id,run.user_id);
@@ -252,6 +256,7 @@ export async function processCanvasAgentConversation(env,run,user,storageAttempt
         throw error;
     }
     await agentTransition(env,run,{status:'completed',phase:'briefing',error_code:null,cause_json:null});
+    await executeCanvasAgentActions(env,{userId:run.user_id,projectId:run.project_id,turnId:turn.id});
     logCanvasDialogueStage('completed',{runId:run.id,stepId:step.id,turnId:turn.id,dispatchState:'succeeded',receiptState:'completed'});
 }
 export function productionBrief(row) {

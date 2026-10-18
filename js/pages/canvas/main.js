@@ -139,6 +139,9 @@ function bindPanels() {
         button.addEventListener('click', () => showPanel(name, true));
         panel.addEventListener('keydown', (event) => {
             if (event.key !== 'Escape' || name === 'graph' || event.defaultPrevented) return;
+            // Help may still be moving focus from its relocated trigger. Its
+            // own document handler must close that dialog before this panel.
+            if (document.getElementById('bitbiHelpTrigger')?.getAttribute('aria-expanded') === 'true') return;
             event.stopPropagation();
             showPanel(name, true);
             button.focus({ preventScroll: true });
@@ -894,7 +897,8 @@ function openProject(projectId) {
     return withProjectTransition(() => loadProject(projectId));
 }
 
-async function loadProject(projectId) {
+async function loadProject(projectId, { preserveSelection = false } = {}) {
+    const selected=preserveSelection&&store.state.project?.id===projectId?store.state.selected:null;
     videoObservation.abort(); videoObservation = new AbortController();
     const result = await canvasApi.getProject(projectId);
     if (!result.ok) return showToast(errorMessage(result));
@@ -902,7 +906,7 @@ async function loadProject(projectId) {
     store.state.nodes = result.data.nodes || [];
     store.state.edges = result.data.edges || [];
     store.state.runs = result.data.runs || [];
-    store.state.selected = null; store.state.connecting = false; store.state.connectionSourceId = null;
+    store.state.selected = selected&&(selected.kind==='node'?store.state.nodes:store.state.edges).some(item=>item.id===selected.id)?selected:null; store.state.connecting = false; store.state.connectionSourceId = null;
     dom.title.value = result.data.project.title;
     renderAll();
     workspaceView.refresh();
@@ -1161,7 +1165,8 @@ async function loadCredits() {
 
 function bindEvents() {
     agentPanel = createCanvasAgentPanel({root:document.getElementById('canvasAgentBody'),german:isGerman,getState:()=>store.state,flush:flushSaves,
-        newProject:()=>void createProject(),openProject:async projectId=>{await openProject(projectId);showPanel(compactWorkspace.matches?'graph':'inspector');}});
+        newProject:()=>void createProject(),refreshProject:projectId=>withProjectTransition(()=>loadProject(projectId,{preserveSelection:true})),openProject:async projectId=>{await openProject(projectId);showPanel(compactWorkspace.matches?'graph':'inspector');},
+        showResult:async(projectId,nodeId)=>{await openProject(projectId);if(store.state.project?.id!==projectId||!store.state.nodes.some(node=>node.id===nodeId))return;store.state.selected={kind:'node',id:nodeId};renderGraph();renderInspector();showPanel('inspector');const output=dom.inspector.querySelector('.canvas-output');if(output){output.tabIndex=-1;output.focus({preventScroll:true});output.scrollIntoView({block:'start'});}}});
     bindPanels();
     document.getElementById('canvasReload').addEventListener('click', () => window.location.reload());
     dom.newProject.addEventListener('click', () => void createProject());

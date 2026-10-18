@@ -95,6 +95,8 @@ export function stageInputPlan() {
     'tests/helpers/canvas-agent-control.mjs',
     'tests/helpers/canvas-agent-conversation-control.mjs',
     'tests/helpers/canvas-agent-conversation-recovery-control.mjs',
+    'tests/helpers/canvas-agent-natural-control.mjs',
+    'tests/helpers/canvas-agent-action-recovery-control.mjs',
     'tests/helpers/canvas-agent-preflight-control.mjs',
     'tests/helpers/canvas-agent-autonomy-control.mjs',
     'tests/helpers/canvas-agent-model-operation-control.mjs',

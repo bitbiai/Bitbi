@@ -33,14 +33,14 @@ preflight corrections are admitted within the same authorized ceiling.
 
 The release-controlled instruction package is
 [`workers/shared/canvas-agent/manifest.mjs`](../../workers/shared/canvas-agent/manifest.mjs),
-with a compact core/personality and six platform-specific skill modules. Static
+with a compact core/personality and seven platform-specific skill modules. Static
 imports select briefing, planning, correction or evaluation instructions; project
 text cannot select files, publish rules or grant tools. These are Worker build
 inputs, excluded from the frontend website/import graph. The repository is
 public: policy is nonsecret source, and security does not depend on hiding it.
 Package version, selected skill versions and content hash are pinned on accepted
 operations. Existing accepted receipts normalize under their stored context;
-undispatched old-policy steps require review before another paid operation.
+accepted v1 dialogue inputs retain their release-controlled original policy/schema; unknown policy identities require review before another paid operation.
 
 [`canvas-agent-conversation.js`](../../workers/auth/src/lib/canvas-agent-conversation.js)
 keeps conversation and brief revisions distinct from creative graph revision.
@@ -56,7 +56,7 @@ selected current-project node facts and current production state. Older messages
 are omitted first to stay within 64 KiB; incomplete replies never update the brief.
 An 80-turn bound and a 4,096-token output ceiling constrain inference. Prompt,
 schema and selected instructions are shared between quoting and actual dispatch.
-The typed response permits text and creative proposals only. Duration is admitted
+The versioned typed response permits text, creative proposals and up to four narrowly typed action proposals. Proposals do not grant execution or spending authority. Duration is admitted
 from user input or an explicit control, not a model-proposed memory field.
 User content, summaries and proposed memories remain untrusted data. Ownership,
 CSRF, tariff, allowance, resource and operation checks are enforced by code.
@@ -74,7 +74,7 @@ client responses. Unconfirmed request identity/body may survive in sessionStorag
 only for exact replay, then is removed on acknowledgement.
 
 Dialogue uses the existing leased Canvas queue and background reasoning receipt
-path with a restricted `briefing` purpose. It cannot run generation/export tools.
+path with a restricted `briefing` purpose. Inference itself cannot execute tools. Validated action receipts call existing Canvas services with the project owner, current revisions and any separately required confirmation.
 Status-only messages do not alter creative revisions or pause production. Genuine
 creative brief corrections pause active production and require a new authorized
 handoff from the current project. Late dialogue replies bind to their source
@@ -101,7 +101,19 @@ failure and unsettled stored result are different stages. The delivery view
 derives these stages from the original operation, usage attempt and saved result;
 an old generic error label alone cannot lock a completed conversation.
 
-**Reload conversation / Gespräch neu laden** observes the original request and safely
+The frontend observes every accepted pending turn, including the first queued
+snapshot with no provider operation or receipt. Non-overlapping bounded GETs use
+backoff and catch up after online, visibility and BFCache/pageshow restoration;
+five minutes is not a logical-turn deadline. Reconnection never dispatches
+inference. The small local CSS bee uses truthful waiting text, a static
+reduced-motion state and a separate diagnostic disclosure. Terminal/review and
+connection states replace ordinary waiting. Help moves to the panel header so
+it cannot cover the composer. The existing cron also projects finalized replies
+without a browser; callback receipt readiness avoids the media polling delay.
+Queue-to-first-consumer, preparation, background acknowledgement and stored
+callback/settlement/delivery timestamps remain distinct diagnostics.
+
+**Reload conversation / Gespräch neu laden** is a secondary recovery control. It observes the original request and safely
 reconciles a stored result. It never starts inference. Ambiguous dispatch remains
 held; only matched evidence allows settlement or release. The original request
 identity, accepted policy context, user wording and first terminal receipt remain
@@ -120,6 +132,68 @@ carry safe correlation instead. See the official [background REST contract](http
 and [Gateway logging controls](https://developers.cloudflare.com/ai-gateway/observability/logging/).
 Gateway logs, Worker logs and D1 receipts are separate evidence: missing logs do
 not establish that a request was never accepted.
+
+## Immediate production and conversational actions
+
+**Make my film now! / Mach mir den Film jetzt!** remains in the chat footer.
+It saves an explicit immediate-production intention using the current brief,
+current graph and deliberately submitted composer text. Its nearby explanation
+delegates unspecified creative details, including duration only if absent.
+Ordinary dialogue and **Prepare brief** still do not silently delegate duration.
+A pending reply is resolved under its original identity before handoff. The
+latest supplied wording (for example a 45-second bee/factory film) is retained.
+A later direct creative correction is visible as Latest instruction alongside
+the original story and constraints; subsequent starts read that saved context.
+
+One compact in-chat decision displays the proposed total cap, planning ceiling,
+media estimate, one bounded sampled-frame evaluation ceiling, tariff and bound brief/project revisions. The estimate uses
+eligible integrated model request builders and real tariffs; it is not a promise
+of the final model selection or cost. A delegated duration uses a visible
+60-second estimate until planning chooses the target. Approval calls the existing
+production start route automatically. An already authorized identical intention
+or running production is reused. Briefing allowance is never production approval.
+The normal atomic project commitment limits remain authoritative.
+
+Migration 0110 adds start intentions and narrow action receipts, not another
+billing or production ledger. Immutable request inputs, guarded D1 batches,
+project revisions, original generation/export keys and bounded recovery make
+repeated delivery safe. Manual edits, cancellation and takeover fence pending
+intentions. Unknown paid outcomes are observed and never retried as new variants.
+
+The model proposes the strict actions from
+[`canvas-agent-actions.mjs`](../../workers/shared/canvas-agent-actions.mjs).
+[`canvas-agent-actions.js`](../../workers/auth/src/lib/canvas-agent-actions.js)
+resolves ownership and current targets, calls the same ordinary services, and
+returns persisted effects or explicit failures. Chat displays these authoritative
+results rather than an unchecked claim in model text. Straightforward known
+status, pause, stop, resume and takeover commands use free deterministic handling;
+other natural phrasing uses the bounded dialogue allowance and typed proposals.
+A delayed chat reply cannot prevent an emergency production pause. No new
+privileged tools, arbitrary URLs or model-authored command execution are added.
+
+| Project/production operation | Conversational action and existing boundary |
+| --- | --- |
+| Brief, status, limits and costs | Current brief/execution context; `brief_summary`, `status`; read-only status does not revise creative state |
+| Story, style, sound and duration corrections | Validated brief updates with source/provenance; duration from the actual user message or explicit delegation |
+| Finish optional questions / delegate duration | `skip_questions`, `delegate_duration`; existing conversation controls |
+| Save, continue or end briefing | `brief_save`, `brief_resume`, `brief_cancel`; current conversation revision and retained draft |
+| Start production | `start_now` or footer; same persisted intention, quote and explicit cap approval |
+| Pause, resume, cancel, manual takeover | Existing production controls; original accepted jobs/receipts retained |
+| Briefing allowance / production budget | `allowance_propose`, `budget_accept`, `budget_decline`; exact displayed monetary confirmation, tariff and revision guards |
+| Clear conversation and brief | `conversation_clear`; explicit destructive confirmation before existing tombstone operation |
+| Show project, node or saved result | `show_project`, `focus_node`, `show_result`; owned targets and saved export evidence |
+| Clip selection and playback order | `clip_remove`, `clip_order`, `clip_add`, `clip_replace`, `clip_trim`; normal persisted assembly, retained sources |
+| Transitions and smoothing | `transition`, `transition_strength`, `smooth_joins`; shared transition/assembly validation |
+| Music and original audio | Source selection, enable, gain and fades through normal assembly/node audio settings |
+| Prompt, model and supported numeric parameters | `node_prompt`, `node_model`, `node_parameter`; ordinary node validation; pixels unchanged until regeneration |
+| Targeted regeneration | `regenerate`; explicit exact quote/input confirmation and one existing node-run identity |
+| Export and save | `export`, `save_result`; current assembly, private processor/storage and preserved old exports |
+
+Node positions, file picking, references and detailed unsupported parameter
+combinations retain the ordinary Canvas controls. An action cannot invent a
+provider capability or bypass those controls' validation. Reversible settings do
+not generate media by themselves. A subsequent export reflects the saved
+assembly and settings, and manual editing remains independent of the assistant.
 
 ## Editable deliverables
 
@@ -267,7 +341,7 @@ Gateway and Unified Billing. No new credential or provider route is provisioned.
 lists text/image input, structured output, 500,000 context tokens and the two
 token-price tiers. [xAI's guide](https://docs.x.ai/developers/grok-4-7) documents
 the provider identifier `grok-4.7`. The private transport disables gateway cache
-and log collection, validates the actual returned model/envelope, and has no
+and payload logging, validates the actual returned model/envelope, and has no
 automatic inference retries. Existing Grok 4.6/Fable chat and one-shot Canvas text
 remain independent. No private administrator history or tools enter a member run.
 
@@ -290,9 +364,12 @@ cap. Credentials remain in existing secret mechanisms, never in chat or logs.
 ## Executable acceptance
 
 - [`tests/q2-canvas-agent-conversation.spec.js`](../../tests/q2-canvas-agent-conversation.spec.js)
-  covers authenticated briefing, explicit duration/delegation, replay, isolation,
+  covers authenticated briefing, queued-first automatic delivery, durable immediate intentions, typed action effects/confirmations, stop fences, explicit duration/delegation, replay, isolation,
   hostile memory, allowance revocation and unknown outcomes. Shared cases are
   included in native D1 Canvas acceptance; populated migration preserves old runs.
+- [`tests/q2-canvas-agent-action-recovery.spec.js`](../../tests/q2-canvas-agent-action-recovery.spec.js)
+  covers late stop fences, exact confirmations, concurrent recovery claims and
+  failed action dependencies; the same cases execute with native D1.
 - [`tests/q2-canvas-agent-dialogue-provider.spec.js`](../../tests/q2-canvas-agent-dialogue-provider.spec.js)
   checks real policy composition, strict signed dialogue normalization and exact
   prompt/quote alignment. Existing release/build checks reject policy leakage.
@@ -322,6 +399,10 @@ cap. Credentials remain in existing secret mechanisms, never in chat or logs.
   Grok behavior. [`tests/canvas-assembly.test.mjs`](../../tests/canvas-assembly.test.mjs)
   and the real processor fixtures check overlap math, output duration, decoded
   sequence, single-clip export and meaningful broken controls.
+
+The observer browser cases dispatch persisted `pagehide`/`pageshow` events to
+exercise restoration handlers; they do not prove that a browser history navigation
+actually entered BFCache. Reload/edit persistence uses real navigation.
 
 Synthetic provider acceptance, native runtime acceptance, a pushed candidate,
 protected deployment and paid live-provider verification are distinct evidence.

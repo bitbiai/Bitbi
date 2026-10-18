@@ -1,3 +1,4 @@
+import { CANVAS_AGENT_DIALOGUE_VERSION } from '../../../shared/canvas-agent-dialogue.mjs';
 import { dialoguePriceInput } from '../../../shared/canvas-agent-dialogue.mjs';
 import { CANVAS_AGENT_POLICY_VERSION, canvasAgentPolicyIdentity } from '../../../shared/canvas-agent/manifest.mjs';
 import { AI_USAGE_OPERATIONS, prepareAiUsagePolicy } from './ai-usage-policy.js';
@@ -30,7 +31,7 @@ export async function readCanvasAgentProviderReadiness(env,{dialogue=false}={}) 
         const response=await fetchWithGenerationTimeout(env.AI_LAB.fetch.bind(env.AI_LAB),new Request(`https://bitbi-ai.internal${path}`,{headers}),undefined,
             {timeoutMs:5000,consumeResponse:async(response,signal)=>{payload=await readGenerationResponseJson(response,signal);return response;}});
         if(!response.ok||!payload?.ok||payload.protocolVersion!==1||payload.transport!=='cloudflare-background'||payload.model!==CANVAS_AGENT_MODEL||typeof payload.available!=='boolean'||payload.accountAccess!=='unverified')return unavailable;
-        if(dialogue&&(payload.dialogueVersion!==1||payload.policyVersion!==CANVAS_AGENT_POLICY_VERSION))
+        if(dialogue&&(payload.dialogueVersion!==CANVAS_AGENT_DIALOGUE_VERSION||payload.policyVersion!==CANVAS_AGENT_POLICY_VERSION))
             return {...unavailable,reason:'canvas_agent_dialogue_unavailable'};
         return {available:payload.available,reason:payload.available?null:/^[a-z0-9_]{1,80}$/.test(payload.reason||'')?payload.reason:unavailable.reason,
             model:CANVAS_AGENT_MODEL,accountAccess:'unverified',...(dialogue?{dialogueVersion:payload.dialogueVersion,policyVersion:payload.policyVersion}:{})};
@@ -154,7 +155,9 @@ export async function executeCanvasAgentModel(env,run,step,user,suppliedPayload)
     };
     if(operation)return observe();
     if(step.status!=='ready')fail('canvas_agent_planning_review_required');
-    const effectivePolicy=await canvasAgentPolicyIdentity(kind==='dialogue'?'briefing':step.kind==='evaluate'?'evaluation':payload.repair?'correction':'planning');
+    const phase=kind==='dialogue'?'briefing':step.kind==='evaluate'?'evaluation':payload.repair?'correction':'planning';
+    const version=kind==='dialogue'?(payload.version===1?'canvas-policy-1':CANVAS_AGENT_POLICY_VERSION):payload.policy?.version;
+    let effectivePolicy;try { effectivePolicy=await canvasAgentPolicyIdentity(phase,version); } catch { fail('canvas_agent_policy_review_required'); }
     if(!payload.policy||JSON.stringify(payload.policy)!==JSON.stringify(effectivePolicy))fail('canvas_agent_policy_review_required');
     if(!canvasModelTransportReady(env)||typeof env.AI_LAB?.fetch!=='function'||String(env.AI_SERVICE_AUTH_SECRET||'').trim().length<16)fail('canvas_agent_provider_unavailable');
     const policy=await prepareAiUsagePolicy({env:scoped,request,user,body:pricingInput,
@@ -184,6 +187,7 @@ export async function executeCanvasAgentModel(env,run,step,user,suppliedPayload)
         await policy.markProviderFailed({definitelyNotDispatched:true,code});
         throw Object.assign(new Error(code),{code,status:error?.status||502,stage:'preparation_failed',outcome:'not_submitted'});
     }
+    if(kind==='dialogue')logCanvasDialogueStage('prepared',{runId:run.id,stepId:step.id,durationMs:Date.now()-prepareStarted,dispatchState:'not_dispatched',receiptState:'none'});
     const token=await policy.markProviderRunning();
     await appendCanvasAgentEvent(env,run,`model-dispatch:${step.id}`,'action',{code:'planning',phase:step.kind,model:CANVAS_AGENT_MODEL,tool:'model.background',stepId:step.id});
     operation=await dispatchCanvasModelOperation(env,run,step,prepared,callerPolicy,token,snapshot);

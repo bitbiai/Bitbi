@@ -39,9 +39,15 @@ module.exports=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock
     brief=await conversation.exchange(locale==='de'?'Der Film soll 16 Sekunden dauern.':'The film should be 16 seconds long.',{
         text:locale==='de'?'Die Projektidee ist für ungefähr 16 Sekunden bereit.':'The project brief is ready for about 16 seconds.',intent:'ready'});
     expect(brief.brief.duration.targetDurationSeconds).toBe(16);
-    const authorized=await conversation.start({budgetCredits:5000}),admitted=await conversation.data(authorized.response);
+    const immediate=await conversation.data(await conversation.post('/immediate',{text:locale==='de'?'Mach mir den Film jetzt, keine weiteren Fragen.':'Make my film now, no more questions.',locale,delegateCreative:true,
+        expectedConversationRevision:brief.revision,expectedBriefRevision:brief.briefRevision,expectedRevision:(await f.readProject()).project.revision}));
+    const intent=immediate.conversation.immediateIntent;
+    expect(intent.state).toBe('approval_required');expect(intent.quote.scope.targetDurationSeconds).toBe(16);
+    const admitted=await conversation.data(await conversation.post('/immediate/approve',{intentId:intent.id,intentRevision:intent.revision,
+        capCredits:intent.quote.proposedCapCredits,authorized:true,expectedRevision:intent.expectedRevision,expectedBriefRevision:intent.expectedBriefRevision}));
+    expect(admitted.conversation.immediateIntent.state).toBe('started');
     expect(conversation.calls).toHaveLength(2);conversation.restore();
-    const production=await finishCanvasAgentFixture({f,processor,targetSeconds:16,order:f.order,generate:true,admittedRunId:admitted.run.id});
+    const production=await finishCanvasAgentFixture({f,processor,targetSeconds:16,order:f.order,generate:true,admittedRunId:admitted.run.id,budgetCredits:intent.quote.proposedCapCredits});
     const initialProject=await f.readProject(),original=production.output;
     const providerBaseline=f.calls.length;expect(providerBaseline).toBe(1);
     expect(production.evaluationCalls).toBe(1);
@@ -155,6 +161,27 @@ module.exports=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock
         await page.reload();await open();await expect(editor.locator('ol > li')).toHaveCount(3);
         const final=await f.readProject();expect(final.project.assembly.clips.map(clip=>clip.nodeId)).toEqual([f.first.id,f.nodes[0],f.last.id]);expect(final.project.assembly.backgroundMusic.gain).toBe(.25);
         expect(f.calls).toHaveLength(providerBaseline+1);expect(requests.filter(request=>request.path.includes('/agent'))).toEqual([]);expect(errors).toEqual([]);
-        await info.attach('editable-production-real-media',{contentType:'application/json',body:JSON.stringify({initialProduction:'persisted conversation, duration clarification, explicit cap, existing queue/planner/generation/frame-extraction/export with owned references',provider:'synthetic',conversationTurns:conversation.calls.length,briefRevision:brief.briefRevision,agentRun:production.runId,plannerCalls:production.plannerCalls,evaluationCalls:production.evaluationCalls,agentGenerations:providerBaseline,manualGenerations:1,original:original.id,revised:current.id,duration:current.duration,order:current.recipe.assembly.clips.map(clip=>clip.nodeId),originalPreserved:true,played:true,saved:true})});
+        await info.attach('editable-production-real-media',{contentType:'application/json',body:JSON.stringify({initialProduction:'persisted conversation, duration clarification, immediate-start intent, explicit quoted cap, existing queue/planner/generation/frame-extraction/export with owned references',provider:'synthetic',conversationTurns:conversation.calls.length,briefRevision:brief.briefRevision,agentRun:production.runId,plannerCalls:production.plannerCalls,evaluationCalls:production.evaluationCalls,agentGenerations:providerBaseline,manualGenerations:1,original:original.id,revised:current.id,duration:current.duration,order:current.recipe.assembly.clips.map(clip=>clip.nodeId),originalPreserved:true,played:true,saved:true})});
+        // Only after proving the entire revision works without the assistant,
+        // ask it to locate the current manually exported film. The historical
+        // agent result remains immutable and must not become this navigation's
+        // stale source of truth.
+        const followup=await attachCanvasConversation(f,{scope:'edited-film-result-'+locale,locale});
+        try{
+            await followup.approve(2000);await select(f.nodes[0]);
+            await page.locator('#canvasAgentToggle').click();
+            const panel=page.locator('#canvasAgentPanel'),composer=panel.locator('.canvas-agent__composer');
+            await composer.locator('textarea').fill(de?'Zeig mir bitte das fertige Video dieses aktuell bearbeiteten Projekts.':'Please show the finished video of this currently edited project.');
+            const acknowledged=page.waitForResponse(response=>new URL(response.url()).pathname.endsWith('/conversation/messages')&&response.request().method()==='POST');
+            await composer.locator('button[type=submit]').click();expect((await acknowledged).status()).toBe(202);
+            await followup.deliver();
+            await followup.complete({text:de?'Ich öffne den aktuellen Export.':'I will open the current export.',actions:[{type:'show_result',targetId:null,value:null,number:null,secondaryNumber:null,ids:[],revision:(await f.readProject()).project.revision}]});
+            await followup.deliver();
+            await expect(panel).toBeHidden({timeout:12000});
+            await expect(oldIdentity).toHaveAttribute('data-export-id',current.id);
+            await expect(inspector.locator('.canvas-full-video > div:last-child > video')).toHaveAttribute('src',current.asset.file_url);
+            expect(followup.calls).toHaveLength(1);expect(f.calls).toHaveLength(providerBaseline+1);
+            expect(Buffer.from(await(await f.request(original.asset.file_url)).arrayBuffer()).equals(originalBytes)).toBe(true);
+        }finally{followup.restore();}
     }finally{await rendering;await page.unrouteAll({behavior:'wait'});DB.close();fs.rmSync(dir,{recursive:true,force:true});}
 };

@@ -66,6 +66,16 @@ export async function wakeCanvasAgent(env,id,delaySeconds=0) {
 export async function requeueCanvasAgents(env) {
     const {reconcileCanvasAgentModelOperations}=await import('./canvas-agent-model-operations.js');
     await reconcileCanvasAgentModelOperations(env);
+    const {observeCanvasConversationReceipts}=await import('./canvas-agent-conversation.js');
+    const recoverable=(await env.DB.prepare(`SELECT DISTINCT r.project_id,r.user_id FROM canvas_agent_runs r
+        JOIN canvas_agent_turns t ON t.run_id=r.id JOIN canvas_agent_steps s ON s.run_id=r.id AND s.step_key='dialogue'
+        JOIN canvas_projects p ON p.id=r.project_id JOIN users u ON u.id=r.user_id
+        WHERE r.purpose='briefing' AND p.deleted_at IS NULL AND u.status='active'
+        AND s.status IN ('completed','rejected') AND t.state IN ('pending','review_required','failed')
+        AND r.next_attempt_at<=? ORDER BY r.updated_at LIMIT 20`).bind(nowIso()).all()).results;
+    for(const row of recoverable)await observeCanvasConversationReceipts(env,row.project_id,row.user_id);
+    await (await import('./canvas-agent-immediate.js')).recoverCanvasImmediateIntents(env);
+    await (await import('./canvas-agent-actions.js')).recoverCanvasAgentActions(env);
     const now=nowIso();
     await env.DB.prepare(`UPDATE canvas_agent_runs SET status='blocked',error_code='canvas_agent_authorization_expired',lease_token=NULL,lease_until=NULL,updated_at=?
         WHERE status IN ('queued','planning','running','exporting') AND expires_at<=?`).bind(now,now).run();

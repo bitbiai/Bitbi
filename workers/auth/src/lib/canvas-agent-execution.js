@@ -139,7 +139,7 @@ export async function processCanvasAgent(env,id) {
     const {reconcileCanvasAgentModelOperations}=await import('./canvas-agent-model-operations.js');
     await reconcileCanvasAgentModelOperations(env,{runId:id});
     let run=await claimCanvasAgent(env,id);if(!run)return {status:'ignored'};
-    if(run.purpose==='briefing')logCanvasDialogueStage('consumer_received',{runId:id});
+    if(run.purpose==='briefing'&&run.status==='queued')logCanvasDialogueStage('consumer_received',{runId:id,durationMs:Date.now()-Date.parse(run.created_at)});
     try {
         const {user,view}=await checkAuthority(env,run);
         if(run.purpose==='briefing'){
@@ -211,5 +211,6 @@ export async function processCanvasAgent(env,id) {
         run=await readAgentRun(env,id);
         if(ACTIVE_AGENT_STATES.includes(run.status))await wakeCanvasAgent(env,id,Math.min(43200,Math.max(10,Math.ceil((Date.parse(next)-Date.now())/1000))));
     }
+    if(run.purpose==='briefing')await (await import('./canvas-agent-immediate.js')).recoverCanvasImmediateIntents(env,{projectId:run.project_id});
     return {status:run.status};
 }

@@ -190,6 +190,11 @@ export async function handleCanvasAgentModelCallback({env,request},token) {
         const stored=await readOperation(env,op.id);
         logCanvasDialogueStage('callback_observed',{runId:op.run_id,operationId:op.id,stepId:op.step_id,
             dispatchState:stored.state==='completed'?'succeeded':'dispatched',receiptState:stored.state});
+        // A stored chat receipt is ready now. Do not make it wait for the
+        // media-oriented next-poll delay; keep any active execution lease fenced.
+        await env.DB.prepare(`UPDATE canvas_agent_runs SET next_attempt_at=? WHERE id=? AND purpose='briefing'
+            AND status IN ('queued','planning','running') AND (lease_until IS NULL OR lease_until<=?)`)
+            .bind(nowIso(),op.run_id,nowIso()).run();
         // Successful persistence is acknowledged even if the wake fails. Cron
         // observes received operations, including cancelled/historical runs.
         await wakeCanvasAgent(env,op.run_id);
