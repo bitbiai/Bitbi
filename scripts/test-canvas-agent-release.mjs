@@ -10,6 +10,26 @@ import {activateAuthVersion,verifyAiActivation,assertSupportedBackendMigrations}
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const load=worker=>JSON.parse(fs.readFileSync(path.join(root,`workers/${worker}/wrangler.jsonc`)));
 {
+ const context={...loadReleaseCompatibilityContext(root),repoRoot:root};
+ const readme='workers/shared/canvas-agent/README.md',runtime='workers/shared/canvas-agent/core.mjs';
+ const documentation=createReleasePlan(context,{changedFiles:[readme]});
+ assert.deepEqual(documentation.impacts.validationOnlyFiles,[readme]);
+ assert.deepEqual(documentation.impacts.uncategorizedFiles,[]);
+ assert.deepEqual(documentation.deploySteps,[],'Policy documentation alone must not deploy runtime units');
+ const combined=createReleasePlan(context,{changedFiles:[readme,runtime]});
+ assert.deepEqual(combined.workerDeploys.map(step=>step.worker),['ai','auth']);
+ assert(backendContinuationSupported(combined),'Documentation must not block reviewed runtime changes');
+ for(const unknown of ['workers/shared/canvas-agent/unreviewed-runtime.mjs','workers/shared/canvas-agent/skills/unreviewed.md']) {
+  const rejected=createReleasePlan(context,{changedFiles:[readme,runtime,unknown]});
+  assert.deepEqual(rejected.impacts.uncategorizedFiles,[unknown],'Only the exact approved README gains documentation classification');
+  assert(!backendContinuationSupported(rejected),'Unknown policy inputs must still block automatic backend continuation');
+ }
+}
+if(process.argv.includes('--documentation-mapping-only')) {
+ console.log('Canvas agent policy README mapping: documentation-only, reviewed runtime continuation and unknown runtime/policy rejection passed.');
+ process.exit(0);
+}
+{
  const migration='0107_canvas_agent_autonomy.sql';
  const changedFiles=[`workers/auth/migrations/${migration}`,'config/release-compat.json',
   'workers/ai/src/index.js','workers/ai/src/routes/canvas-agent-plan.js','workers/ai/src/lib/canvas-agent-plan.js','workers/ai/src/lib/caller-policy.js',

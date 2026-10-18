@@ -231,6 +231,7 @@ function isValidationOnlyPath(relativePath) {
     || normalized === ".gitignore"
     || normalized === ".githooks/pre-push"
     || normalized === "README.md"
+    || normalized === "workers/shared/canvas-agent/README.md"
     || /^ALPHA_AUDIT_[0-9_]+\.md$/.test(normalized)
     || /^AUDIT_[A-Z0-9_]+\.md$/.test(normalized)
     || /^CURRENT_[A-Z0-9_]+\.md$/.test(normalized)

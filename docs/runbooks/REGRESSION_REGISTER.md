@@ -2040,6 +2040,13 @@ the exact-source `release:local` checkpoint. Synthetic success is not live-provi
 acceptance. Use that release entrypoint to create/import evidence before foreground
 push; direct push alone cannot supply the protected publication evidence bundle.
 
+The first canonical preflight for `f09d4564` stopped before suites because the
+new policy README had no release-plan classification. Map that exact documentation
+path as validation-only, retain deployment impacts for all imported runtime
+modules, and reject unknown neighboring modules. The Canvas release regression
+and full unpublished-range preflight exercise this boundary; do not bypass the
+backend dependency gate to compensate for an unclassified file.
+
 ### Canvas reasoning deadline and durable receipt recovery — 2026-10-16
 
 Source `770c595a` imposed a separate 180-second planning/evaluation timeout. An
