@@ -2,6 +2,7 @@ import { runAppearanceTests } from '../../appearance-runtime.mjs';
 import { runWebsiteAssistantTests } from '../../website-assistant-runtime.mjs';
 import { runModelPricingTests } from '../../model-pricing-runtime.mjs';
 import { runCanvasTests, runCanvasCompletionTests, runCanvasAudioTests, runCanvasAudioFitTests, runCanvasTransitionTests, runCanvasRetentionTests } from './canvas.mjs';
+import { runCanvasPolicyTailTests } from './canvas-policy-tail.mjs';
 import { runModelStatusTests } from '../../admin-model-status-runtime.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -38,6 +39,8 @@ export const runtimeSuites = Object.freeze([
 // Miniflare outbound denial and sanitized bindings are defense in depth, not an
 // invented attestation of that external OS boundary.
 export function selectedRuntimeSuites(suite) {
+  // Preserve the normal Canvas D1/Images/AI bindings and result identity.
+  if(suite==='canvas-policy-tail')return [['canvas',runCanvasPolicyTailTests,{}]];
   // Focused entry into the existing Canvas suite; Full still executes it once.
   if(suite==='canvas-retention')return [['canvas-retention',runCanvasRetentionTests,{}]];
   if(suite==='canvas-transitions')return [['canvas-transitions',runCanvasTransitionTests,{}]];

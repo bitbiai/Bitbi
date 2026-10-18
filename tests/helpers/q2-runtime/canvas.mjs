@@ -178,6 +178,13 @@ export async function runCanvasTests(f) {
       await f.sql('INSERT INTO ai_images(id,user_id,r2_key,prompt,model,size_bytes,created_at) VALUES(?,?,?,?,?,?,?)', id, memberId, key, 'Synthetic reference', 'uploaded', bytes.length, now).run();
       sources.push({ source_type: 'saved_asset', asset_id: id });
     }
+    // Populated migration checks intentionally retain an earlier paid attempt.
+    // Rejections must leave every durable receipt/debit intact, not require an
+    // empty database or merely keep a count that could hide changed history.
+    const attemptsBefore = await f.rows('SELECT * FROM member_ai_usage_attempts_v2 ORDER BY id');
+    const ledgerBefore = await f.rows('SELECT * FROM member_credit_ledger ORDER BY id');
+    assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM member_ai_usage_attempts_v2 WHERE user_id IN (?,?)', adminId, memberId), 0);
+    assert.equal(f.canvasProvider.requests.length, 0, 'Reference rejection fixture starts without provider dispatch');
     for (const model of ['openai/gpt-image-2.5-sunburst', 'openai/gpt-image-2.5-flare']) {
       const body = { model, prompt: 'x'.repeat(1001), quality: 'max', size: 'auto', background: 'transparent', outputFormat: 'png', source_images: sources };
       const valid = await request('/api/ai/generate-image', body, `image25-${model}`, member);
@@ -190,8 +197,10 @@ export async function runCanvasTests(f) {
     const body = { model: 'openai/gpt-image-2.5-flare', prompt: 'Synthetic reference', source_images: [sources[0]] };
     await f.bucket.put(`users/${memberId}/image25-0.png`, 'not-an-image', { httpMetadata: { contentType: 'image/png' } });
     assert.equal((await request('/api/ai/generate-image', body, 'image25-invalid-mime', member)).status, 400);
-    assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM member_ai_usage_attempts_v2'), 0);
-    assert.equal(f.canvasProvider.requests.length, 0);
+    assert.deepEqual(await f.rows('SELECT * FROM member_ai_usage_attempts_v2 ORDER BY id'), attemptsBefore, 'Rejected references cannot create or mutate usage attempts');
+    assert.deepEqual(await f.rows('SELECT * FROM member_credit_ledger ORDER BY id'), ledgerBefore, 'Rejected references cannot create or mutate credit entries');
+    assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM member_ai_usage_attempts_v2 WHERE user_id IN (?,?)', adminId, memberId), 0);
+    assert.equal(f.canvasProvider.requests.length, 0, 'Rejected references cannot dispatch a provider');
   });
   await f.test('canvas_native_MFA_and_ownership_deny_before_provider', async () => {
     assert.equal((await request(route, {})).status, 403);
@@ -221,11 +230,13 @@ export async function runCanvasTests(f) {
   });
   for (const window of ['daily', 'monthly']) await f.sql("INSERT INTO platform_budget_limits(id,budget_scope,window_type,limit_units,created_at,updated_at) VALUES(?,'platform_admin_lab_budget',?,1000000,?,?)", window, window, now, now).run();
   await f.test('canvas_native_text_platform_budget_without_member_credit_and_exact_replay', async () => {
+    const memberLedgerBefore = await f.rows('SELECT * FROM member_credit_ledger ORDER BY id');
     const result = await ok(await request(route, {})); assert.equal(result.run.output.text, 'Native Canvas answer');
     assert.equal(result.run.input.execution_mode, 'admin_platform_text');
     assert.equal((await ok(await request(route, {}))).idempotent_replay, true);
     assert.equal(f.canvasProvider.requests.length, 1);
-    assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM member_credit_ledger'), 0);
+    assert.deepEqual(await f.rows('SELECT * FROM member_credit_ledger ORDER BY id'), memberLedgerBefore, 'Platform text cannot create or mutate member credit entries');
+    assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM member_credit_ledger WHERE user_id IN (?,?)', adminId, memberId), 0);
     assert.equal(await f.scalar("SELECT COUNT(*) AS value FROM admin_ai_usage_attempts_v2 WHERE status='succeeded'"), 1);
   });
   for (const id of [org, other]) await f.sql('INSERT INTO organizations(id,name,slug,created_by_user_id,created_at,updated_at) VALUES(?,?,?,?,?,?)', id, 'Synthetic', id, adminId, now, now).run();
@@ -239,6 +250,7 @@ export async function runCanvasTests(f) {
   });
   await f.sql("INSERT INTO credit_ledger(id,organization_id,amount,balance_after,entry_type,source,created_by_user_id,created_at) VALUES(?,?,100,100,'grant','synthetic',?,?)", 'credit', org, adminId, now).run();
   await f.test('canvas_native_paid_image_checkpoint_retry_no_regeneration_and_owner_asset_reload', async () => {
+    const memberLedgerBefore = await f.rows('SELECT * FROM member_credit_ledger ORDER BY id');
     // Native DB failure after reference checkpoint; no production failpoint.
     await f.db.exec("CREATE TRIGGER canvas_test_save_failure BEFORE INSERT ON ai_images BEGIN SELECT RAISE(ABORT, 'synthetic save interruption'); END;");
     const first = await request(route, { organization_id: org }, 'save-key');
@@ -250,7 +262,8 @@ export async function runCanvasTests(f) {
     const result = await ok(saved); const image = result.run.asset_id;
     assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM ai_images WHERE id=? AND user_id=?', image, adminId), 1);
     assert.equal(await f.scalar("SELECT COUNT(*) AS value FROM credit_ledger WHERE entry_type='consume'"), 1);
-    assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM member_credit_ledger'), 0);
+    assert.deepEqual(await f.rows('SELECT * FROM member_credit_ledger ORDER BY id'), memberLedgerBefore, 'Organization image billing cannot create or mutate member credit entries');
+    assert.equal(await f.scalar('SELECT COUNT(*) AS value FROM member_credit_ledger WHERE user_id IN (?,?)', adminId, memberId), 0);
     assert.equal(f.canvasProvider.requests.length, 2);
     const reloaded = await ok(await request(`/api/account/canvas/projects/${project}`));
     assert.equal(reloaded.nodes[0].output.assetId, image);

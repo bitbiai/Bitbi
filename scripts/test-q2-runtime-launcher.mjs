@@ -472,6 +472,59 @@ test('default native runtime plan stages every actual suite and control input', 
 });
 
 
+test('Canvas rejected reference verifier preserves populated receipts and catches new or changed usage, charges and dispatch', async () => {
+  const {runCanvasTests}=await import('../tests/helpers/q2-runtime/canvas.mjs');
+  const target='image25_native_owned_reference_boundary_and_unverified_tariff_blocks_dispatch';
+  const completed=new Error('Reference rejection boundary finished');
+  const exercise=async broken=>{
+    const attempts=[{id:'historical-attempt',user_id:'historical-owner',status:'succeeded'}];
+    const ledger=[{id:'historical-debit',user_id:'historical-owner',amount:-78}];
+    let requests=0,verified=false;
+    const f={
+      migrations:['0108','0109','0110'].map(path=>({path,statements:[]})),
+      db:{batch:async()=>{}},sql:()=>({run:async()=>{}}),
+      control:async()=>Response.json({cookie:'synthetic'}),bucket:{put:async()=>{}},canvasProvider:{requests:[]},
+      rows:async sql=>{
+        if(sql==='SELECT * FROM member_ai_usage_attempts_v2 ORDER BY id')return structuredClone(attempts);
+        if(sql==='SELECT * FROM member_credit_ledger ORDER BY id')return structuredClone(ledger);
+        if(sql.includes('sqlite_schema'))return [{sql:'synthetic pre-migration trigger'}]; // Pre-migration verifier rejects the obsolete trigger.
+        throw Error('Unexpected fixture query: '+sql);
+      },
+      scalar:async(sql,...args)=>{
+        if(sql==='SELECT revision AS value FROM model_pricing_state WHERE id=1')return 7;
+        assert.equal(sql,'SELECT COUNT(*) AS value FROM member_ai_usage_attempts_v2 WHERE user_id IN (?,?)');
+        return attempts.filter(row=>args.includes(row.user_id)).length;
+      },
+      test:async(name,operation)=>{if(name===target){await operation();verified=true;throw completed;}},
+      mf:{dispatchFetch:async(url,init)=>{
+        assert.equal(url,'https://bitbi.ai/api/ai/generate-image');
+        requests++;const key=init.headers['Idempotency-Key'];
+        if(key==='image25-invalid-mime'){
+          if(broken==='new-attempt')attempts.push({id:'unexpected-attempt',user_id:'q2-workerd-member',status:'pending'});
+          if(broken==='changed-attempt')attempts[0].status='unknown';
+          if(broken==='changed-debit')ledger[0].amount=-79;
+          if(broken==='dispatch')f.canvasProvider.requests.push({path:'/ai/run'});
+          return Response.json({ok:false},{status:400});
+        }
+        if(key==='image25-too-many')return Response.json({ok:false},{status:400});
+        if(key==='image25-foreign')return Response.json({ok:false},{status:404});
+        assert.match(key,/^image25-openai\/gpt-image-2\.5-(?:sunburst|flare)$/);
+        return Response.json({code:'gpt_image_25_reference_pricing_unavailable'},{status:503});
+      }},
+    };
+    try{await runCanvasTests(f);}catch(error){
+      assert.equal(requests,7,'The actual rejection verifier reaches every request before its durable checks');
+      if(broken){assert.equal(verified,false);assert.notEqual(error,completed);assert.match(error.message,
+        broken==='changed-debit'?/cannot create or mutate credit entries/:broken==='dispatch'?/cannot dispatch a provider/:/cannot create or mutate usage attempts/);}
+      else{assert.equal(error,completed);assert.equal(verified,true);}
+      return;
+    }
+    assert.fail('The selected actual verifier must finish or reject the broken boundary');
+  };
+  await exercise(null);
+  for(const broken of ['new-attempt','changed-attempt','changed-debit','dispatch'])await exercise(broken);
+});
+
 test('Canvas reference fixture reads the staged bytes from a non-repository cwd', t => {
   const f = fixture(t);
   const moduleName = 'tests/helpers/q2-runtime/canvas.mjs';
@@ -713,6 +766,82 @@ test('focused native scopes dispatch through the actual child and preserve bound
   `], {cwd:root,encoding:'utf8',timeout:15000});
   assert.equal(child.status,0,child.stderr);
 
+});
+
+test('Canvas policy tail fixes the complete actual inventory and never repeats retained callbacks', async () => {
+  const {runCanvasTests}=await import('../tests/helpers/q2-runtime/canvas.mjs');
+  const {canvasPolicyPrefix,canvasPolicyTailInventory,runCanvasPolicyTailTests}=await import('../tests/helpers/q2-runtime/canvas-policy-tail.mjs');
+  const {selectedRuntimeSuites,runtimeSuites}=await import('../tests/helpers/q2-runtime/runner.mjs');
+  assert.equal(parseRuntimeArgs(['--suite','canvas-policy-tail'],{}).suite,'canvas-policy-tail');
+  assert.throws(()=>parseRuntimeArgs(['--suite','canvas-policy-tail','--suite','canvas'],{}));
+  assert.throws(()=>parseRuntimeArgs(['--suite','canvas-policy-tail-other'],{}));
+  assert.deepEqual(selectedRuntimeSuites('canvas-policy-tail').map(([name])=>name),['canvas']);
+  assert.equal(selectedRuntimeSuites('canvas-policy-tail')[0][1],runCanvasPolicyTailTests);
+  assert.equal(selectedRuntimeSuites('canvas')[0][1],runCanvasTests);
+  assert.deepEqual(selectedRuntimeSuites(),runtimeSuites);
+  assert(!runtimeSuites.some(([,run])=>run===runCanvasPolicyTailTests),'Ordinary full acceptance must not select the retained-prefix continuation');
+  assert.match(read('tests/helpers/q2-runtime/linux-bootstrap.py'),/"website-assistant"\] \+ \["canvas-policy-tail"\]/);
+  const inventory=[...canvasPolicyPrefix,...canvasPolicyTailInventory];
+  assert.equal(canvasPolicyPrefix.length,4);assert.equal(canvasPolicyTailInventory.length,183);
+  assert.equal(new Set(inventory).size,187);
+  assert.equal(canvasPolicyTailInventory[0],'image25_native_owned_reference_boundary_and_unverified_tariff_blocks_dispatch');
+  assert.equal(canvasPolicyTailInventory.at(-1),'canvas_conversational_action_recovery_native_immediate-duration-current');
+  // Callback-name discovery only. No product callback, Miniflare, native binding
+  // or provider executes; ordinary setup uses explicit synthetic boundaries.
+  const discover=async run=>{
+    const names=[],setup=[];
+    const headers=new Headers();headers.append('set-cookie','__Host-bitbi_session=synthetic; Secure');headers.append('set-cookie','__Host-bitbi_admin_mfa=synthetic; Secure');
+    const f={migrations:['0108','0109','0110'].map(path=>({path,statements:[]})),
+      db:{batch:async()=>{setup.push('migration');}},sql:()=>({run:async()=>{setup.push('sql');}}),
+      rows:async()=>[{sql:'synthetic pre-migration schema'}],scalar:async()=>1,
+      control:async route=>{setup.push(route);return Response.json({cookie:'synthetic',code:'synthetic'});},
+      mf:{dispatchFetch:async()=>Response.json({setup:{secret:'synthetic'}},{headers})},
+      canvasProvider:{requests:[]},counters:{outboundDenied:0},metrics:[],
+      test:async name=>{names.push(name);},
+    };
+    await run(f);return {names,setup};
+  };
+  const full=await discover(runCanvasTests),tail=await discover(runCanvasPolicyTailTests);
+  assert.deepEqual(full.names,inventory);assert.deepEqual(tail.names,canvasPolicyTailInventory);
+  assert.deepEqual(tail.setup,full.setup,'The continuation must preserve all outside-callback migration and seed setup');
+  assert(tail.setup.includes('/canvas-natural-migration-seed'));
+  const child=spawnSync(process.execPath,['--experimental-vm-modules','--input-type=module','-e',`
+    import assert from 'node:assert/strict';
+    import {readFileSync} from 'node:fs';
+    import {SourceTextModule,SyntheticModule,createContext} from 'node:vm';
+    const source=readFileSync('tests/helpers/q2-runtime/canvas-policy-tail.mjs','utf8');
+    const expected=${JSON.stringify(inventory)},tail=${JSON.stringify(canvasPolicyTailInventory)};
+    for(const fault of [null,'prefix-missing','prefix-order','tail-missing','tail-duplicate','foreign','extra','operation-failed']){
+      const names=[...expected],executed=[],markers=[],context=createContext({});
+      if(fault==='prefix-missing')names.shift();
+      if(fault==='prefix-order')[names[0],names[1]]=[names[1],names[0]];
+      if(fault==='tail-missing')names.pop();
+      if(fault==='tail-duplicate')names.splice(5,0,names[4]);
+      if(fault==='foreign')names[4]='foreign-case';
+      if(fault==='extra')names.push('extra-case');
+      const modules={'node:assert/strict':{default:assert},'./canvas.mjs':{runCanvasTests:async f=>{
+        markers.push('setup');for(const name of names)await f.test(name,async()=>{
+          executed.push(name);if(fault==='operation-failed')throw Error('Synthetic required callback failure');
+        });markers.push('finished');
+      }}};
+      const load=async name=>{assert(modules[name]);const m=new SyntheticModule(Object.keys(modules[name]),function(){for(const [key,value]of Object.entries(modules[name]))this.setExport(key,value);},{context});await m.link(()=>{});await m.evaluate();return m;};
+      const module=new SourceTextModule(source,{context});await module.link(load);await module.evaluate();
+      const run=()=>module.namespace.runCanvasPolicyTailTests({test:async(name,operation)=>{await operation();}});
+      if(fault)await assert.rejects(run);else{await run();assert.deepEqual(executed,tail);assert.deepEqual(markers,['setup','finished']);}
+      assert(!executed.some(name=>expected.slice(0,4).includes(name)),'Retained callbacks must never execute');
+      if(fault==='operation-failed'){assert.deepEqual(executed,[tail[0]]);assert.deepEqual(markers,['setup']);}
+    }
+    const childSource=readFileSync('tests/helpers/q2-runtime/linux-runtime-child.mjs','utf8');
+    for(const suite of ['canvas-policy-tail','canvas-policy-tail-other'])for(const fault of [null,'platform','uid','gid']){
+      const calls=[],context=createContext({process:{platform:fault==='platform'?'darwin':'linux',getuid:()=>fault==='uid'?0:65534,getgid:()=>fault==='gid'?0:65534}});
+      const modules={'node:assert/strict':{default:assert},'node:fs':{readFileSync:file=>{assert.equal(file,'/runtime/boundary.json');calls.push('boundary');return JSON.stringify({suite});}},'./runner.mjs':{runQ2Runtime:async(args,selected)=>{assert.deepEqual(Array.from(args),['--artifacts','/artifacts']);assert.equal(selected,suite);calls.push('run');}}};
+      const load=async name=>{assert(modules[name]);calls.push(name);const m=new SyntheticModule(Object.keys(modules[name]),function(){for(const [key,value]of Object.entries(modules[name]))this.setExport(key,value);},{context});await m.link(()=>{});await m.evaluate();return m;};
+      const module=new SourceTextModule(childSource,{context,importModuleDynamically:load});await module.link(load);
+      if(!fault&&suite==='canvas-policy-tail'){await module.evaluate();assert.deepEqual(calls,['node:assert/strict','node:fs','boundary','./runner.mjs','run']);}
+      else{await assert.rejects(module.evaluate());assert(!calls.includes('./runner.mjs'));if(fault)assert(!calls.includes('boundary'));}
+    }
+  `],{cwd:root,encoding:'utf8',timeout:15000});
+  assert.equal(child.status,0,child.stderr);
 });
 
 test('actual selected Worker shell stops before downstream work on every failure', t => {

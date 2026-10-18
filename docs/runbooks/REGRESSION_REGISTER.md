@@ -2041,6 +2041,17 @@ conversation Worker/native suites and `tests/canvas.spec.js`; the real FFmpeg
 editable-film case starts from this conversational handoff. Synthetic acceptance
 is not a new paid live film or evidence of later publication.
 
+Local release `61109a35` retained 1,545 Worker passes and corrected two stale
+policy-version expectations; `f58a9e5d` then retained 187 native passes before
+an older global-empty billing assertion encountered the deliberately saved
+historical migration debit. Populated-fixture checks must compare complete
+before/after receipts and ledgers plus the current callers, not assume empty
+tables. The actual release reader also needs to recognize a complete test record
+followed by a validated concurrent JSON log, while rejecting missing, malformed
+or duplicate records. Controls belong in `test:local-release` and the native
+launcher/Canvas callers; immutable failed logs and runtime reports remain in the
+private `bitbi-local-release/runs/<source>-<id>` evidence directories.
+
 The subsequent chat incident was verified read-only against deployed source
 `12372329`, publication run `39110238039/1`, matching Auth/AI/frontend versions
 and schema 0109. Operation `5280d26a2cd07bdb152d6980ee557dc4` received HTTP 202
