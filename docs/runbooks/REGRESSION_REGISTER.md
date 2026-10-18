@@ -2052,6 +2052,13 @@ or duplicate records. Controls belong in `test:local-release` and the native
 launcher/Canvas callers; immutable failed logs and runtime reports remain in the
 private `bitbi-local-release/runs/<source>-<id>` evidence directories.
 
+The native action path also exposed a D1/Node adapter difference: D1 `meta.changes`
+includes trigger writes, while the Node SQLite fixture reported the directly
+updated row. A guarded node update must identify its returned row, not require
+exactly one total change; retain the same owner/project/revision predicates.
+Countercheck successful trigger-bearing writes and stale writes through native
+D1 and the real node route before crediting action-chain completion.
+
 The subsequent chat incident was verified read-only against deployed source
 `12372329`, publication run `39110238039/1`, matching Auth/AI/frontend versions
 and schema 0109. Operation `5280d26a2cd07bdb152d6980ee557dc4` received HTTP 202

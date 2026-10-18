@@ -626,9 +626,12 @@ async function updateNode(ctx, userId, projectId, nodeId, { expectedRevision = n
     `UPDATE canvas_nodes
      SET title = ?, x = ?, y = ?, width = ?, height = ?, model_id = ?, config_json = ?, content_json = ?, asset_id = ?, updated_at = ?
      WHERE id = ? AND project_id = ? AND user_id = ? AND deleted_at IS NULL
-       AND (? IS NULL OR EXISTS(SELECT 1 FROM canvas_projects p WHERE p.id=canvas_nodes.project_id AND p.revision=? AND p.deleted_at IS NULL))`
-  ).bind(title || null, x, y, width, height, modelId, config.encoded, content.encoded, assetId, now, nodeId, projectId, userId, expectedRevision, expectedRevision).run();
-  if (expectedRevision !== null && changed.meta?.changes !== 1) return respond(ctx, {ok:false,code:'canvas_project_changed'}, {status:409});
+       AND (? IS NULL OR EXISTS(SELECT 1 FROM canvas_projects p WHERE p.id=canvas_nodes.project_id AND p.revision=? AND p.deleted_at IS NULL))
+     RETURNING id`
+  ).bind(title || null, x, y, width, height, modelId, config.encoded, content.encoded, assetId, now, nodeId, projectId, userId, expectedRevision, expectedRevision).first();
+  // D1 meta.changes includes the node/project revision trigger writes. The
+  // returned target proves this guarded mutation, independent of that total.
+  if (expectedRevision !== null && changed?.id !== nodeId) return respond(ctx, {ok:false,code:'canvas_project_changed'}, {status:409});
   await ctx.env.DB.prepare("UPDATE canvas_projects SET updated_at = ? WHERE id = ? AND user_id = ?").bind(now, projectId, userId).run();
   return respond(ctx, { ok: true, data: { node: nodeRecord({ ...current, title, x, y, width, height, model_id: modelId, config_json: config.encoded, content_json: content.encoded, asset_id: assetId, updated_at: now }) } });
 }

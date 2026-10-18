@@ -712,6 +712,62 @@ export const CANVAS_POLICY_NATIVE_PREFLIGHT=Object.freeze({
   }),
   retain:[1,4,5,6,7,8,9,10,11,12,13,14,15,16,18,19,20,21,22,23,24,25,26,27,28,30,31,32,33,36,40],
 });
+export const CANVAS_POLICY_NATIVE_PROGRESS=Object.freeze({
+  source:'100645a3a501d98aff50e6235fbeaf4844016790',
+  run:'100645a3a501d98aff50e6235fbeaf4844016790-ecbda8cf-b05e-4af3-9b1a-02d9aa46a8e1',
+  baseRun:'f58a9e5d87069df43e2094511b6e1376e5c252ab-5ee9481b-6705-41e6-a6a1-c74f652e4709',
+  checkpoint:'4c72145d129a77f26d55354bd238d4ce5dd8c0d73c14c29066cb09817a5ee977',
+  failedLog:'856b883d3abe7ded5aa83cb6e87788d05f0328afb45c3b56b2ef741be01009ba',
+  guardTap:'ee0f09f85d4b5b6af9477493f637e465dfcfeaa230ee85cd287b92efb97fdd55',
+  originalGuardLog:'8a727ff452296bdf8663a28dba675f675dac4357493322618cf013571fe8c44f',
+  nativeProof:Object.freeze({
+    'launcher-result.json':'cd53d33a5e6802dfe79b74ec58323a06a121990458148b6efa574e243906ebea',
+    'reports/isolation-result.json':'c609013b5a939b464aaa1834e97286e6ec5c0f4eb4c069f1af40770a6527b11e',
+    'reports/isolation-final.json':'3722a729b374515d022042aa6df90f8f984b91c3086a0a52d42884219ce98055',
+    'reports/bitbi-q2-runtime-OBO7jU__result.json':'166a3189cabfd6f9eec2b61f5dd26cf329b9af44af45e83aef42120a4e579a87',
+  }),
+  specs:Object.freeze({
+    'workers/auth/src/routes/canvas.js':'22eb4f32d7401dfaf355115bdd04bd2d5a117fdb6be30ab4c3212f3f3ed62411',
+    'tests/helpers/canvas-agent-natural-control.mjs':'807e3fa413a3398659859644a1437577e05661d2c4b03697d2df5ec23e09fd28',
+    'tests/helpers/q2-runtime/canvas-policy-tail.mjs':'101ca8ffc0b8eea21cb2079a0ac5556a962a11f6fb986520dfe31b868773cffb',
+    'tests/helpers/q2-runtime/runner.mjs':'3b827ebaebbb3f286cdecc9ca690e38ac535044fe6288f21647fd960ac457593',
+    'tests/helpers/q2-runtime/linux-hosted.mjs':'7b1c56d995269f7d08b02859ebfe1c35e26fee8e93ce2debb5c0e160af91e33a',
+    'tests/helpers/q2-runtime/linux-runtime-child.mjs':'ff434eec0adb1306a5fddc0e6ea6a1dab1fa12d2a0c0f9f3c516582604f50d13',
+    'tests/helpers/q2-runtime/linux-bootstrap.py':'6317cd37939f4cac12253f3f92631c8e3577228853632e23e28a999a30365cf8',
+    'scripts/test-q2-runtime-launcher.mjs':'f8d433e91cedc25bb55b628e2ac83838cb6b156d6204bf7213062e789dd7b35c',
+    'docs/runbooks/REGRESSION_REGISTER.md':'c8cf68133dcee96f40b8ef50d53669299af6912173d36f146c2759adda374cc4',
+  }),
+  retain:CANVAS_POLICY_NATIVE_PREFLIGHT.retain,
+});
+export const isCanvasPolicyNativeProgress=(head,read=gitBytes)=>read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/)[1]===CANVAS_POLICY_NATIVE_PROGRESS.source;
+export function verifyCanvasPolicyNativeProgress(directory,head){
+  const p=CANVAS_POLICY_NATIVE_PROGRESS;assert(isCanvasPolicyNativeProgress(head),'Not the closed native action successor');assertCanvasPreflightTree(head,gitBytes,CANVAS_POLICY_NATIVE_PREFLIGHT);
+  const root=path.join(directory,'reuse/canvas-policy-native-progress');
+  const pinned=(file,hash)=>{const bytes=fs.readFileSync(path.join(root,file));assert.equal(sha256(bytes),hash,`Changed native progress evidence: ${file}`);return bytes;};
+  const original=JSON.parse(pinned('checkpoint.json',p.checkpoint));
+  assert.equal(original.sha,p.source);assert.equal(original.status,'failed');assert.equal(original.commands.length,42);assert(original.commands.slice(0,41).every(row=>row.exitCode===0));assert.equal(original.commands[41].exitCode,1);
+  assert.deepEqual(original.preflightContinuation,{source:CANVAS_POLICY_NATIVE_PREFLIGHT.source,checkpoint:CANVAS_POLICY_NATIVE_PREFLIGHT.checkpoint});assert(!original.preflightProgress);
+  const base=JSON.parse(fs.readFileSync(path.join(directory,'reuse/preflight-checkpoint.json')));
+  for(const key of ['base','planHash'])assert.equal(original[key],base[key]);assert.equal(original.environment.key,base.environment.key);assert.equal(original.nativeBrowsers.key,base.nativeBrowsers.key);
+  pinned('failed.log',p.failedLog);pinned('guard-command.log',p.originalGuardLog);assert.equal(original.commands[17].logHash,p.originalGuardLog);
+  assert.deepEqual(tapResults(pinned('guard.tap',p.guardTap).toString()).filter(row=>row.status!=='skipped'),[{title:'Canvas policy tail fixes the complete actual inventory and never repeats retained callbacks',status:'passed'}]);
+  const records=Object.fromEntries(Object.entries(p.nativeProof).map(([file,hash])=>[file,JSON.parse(pinned('native/'+file,hash))]));
+  const entry=records['launcher-result.json'];assert.equal(entry.status,1);assert.equal(entry.childBoundaryVerified,false);assert.equal(entry.mode,'runtime');assert.equal(entry.origin,LOCAL_POLICY);assert.equal(entry.hostInterfacesUnchanged,true);assert.equal(entry.hostRoutesUnchanged,true);assert.deepEqual(entry.postcheckFailures,[]);
+  for(const file of ['reports/isolation-result.json','reports/isolation-final.json'])assert.equal(records[file].passed,true);
+  const result=records['reports/bitbi-q2-runtime-OBO7jU__result.json'];assert.equal(result.passed,168);assert.equal(result.failedSuites,1);assert.deepEqual(result.reports.map(row=>row.suite),['canvas']);
+  assert.deepEqual(result.reports[0].records,canvasPolicyTailInventory.slice(0,168).map(name=>({name,status:'PASS'})));
+  assert.deepEqual(result.reports[0].failure,{stage:canvasPolicyTailInventory[168],name:'Error',message:'Real actions must finish: music_source:completed/canvas_agent_action_completed,music_fade_out:completed/canvas_agent_action_completed,original_audio_volume:failed/canvas_project_changed,music_enabled:failed/canvas_agent_action_dependency_failed'});
+  return {original,previous:result.reports[0].records,retained:p.retain};
+}
+export function verifyCanvasPolicyNativeProgressUnion(previous,progress,fresh){
+  assert.deepEqual(progress,canvasPolicyTailInventory.slice(0,168).map(name=>({name,status:'PASS'})),'Changed retained native progress');
+  assert.deepEqual(fresh.map(row=>row.name),canvasPolicyTailInventory.slice(168),'Missing or repeated remaining action case');
+  verifyCanvasPolicyNativeUnion(previous,[...progress,...fresh]);
+  return {nativeRetained:355,nativeFresh:15,nativeTotal:370,processorRetained:true,launcherRetained:28};
+}
+export function canvasPolicyNativeGuardContinuation(command){
+  assert.equal(command,'npm run test:local-release');return command+' -- --canvas-policy-native-progress-only';
+}
 export function verifyCanvasPolicyNativeUnion(previous,fresh){
   assert.equal(previous.length,187,'Missing retained native case');
   assert(previous.every(row=>typeof row.suite==='string'&&row.suite&&typeof row.name==='string'&&row.status==='PASS'));
@@ -751,26 +807,29 @@ export function verifyCanvasPolicyNativeRepair(directory,head,{allowPending=fals
   assert.equal(unitProvenance.headObservedAfterExecution,p.source);assert.equal(unitProvenance.runtimeObservedAfterExecution.node,'v22.23.1');assert.equal(unitProvenance.runtimeObservedAfterExecution.platform,'darwin');
   assert.deepEqual(tapResults(unit),[{title:'Canvas rejected reference verifier preserves populated receipts and catches new or changed usage, charges and dispatch',status:'passed'}]);
   assert.match(unit,/# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0/);
-  if(allowPending)return {original,previous,result:null};
+  const progress=isCanvasPolicyNativeProgress(head)?verifyCanvasPolicyNativeProgress(directory,head):null;
+  const allPrevious=progress?[...previous,...progress.previous.map(row=>({suite:'canvas',...row}))]:previous;
+  if(allowPending)return {original,previous:allPrevious,result:null};
   const guard=fs.readFileSync(path.join(directory,'test-results/canvas-policy-native-launcher.tap'),'utf8'),guardRows=tapResults(guard);
-  assert.deepEqual(guardRows.filter(row=>row.status!=='skipped'),[{title:'Canvas policy tail fixes the complete actual inventory and never repeats retained callbacks',status:'passed'}]);
+  const title=progress?'Canvas action tail preserves all setup and executes only the final fifteen required callbacks':'Canvas policy tail fixes the complete actual inventory and never repeats retained callbacks';
+  assert.deepEqual(guardRows.filter(row=>row.status!=='skipped'),[{title,status:'passed'}]);
   assert.equal(new Set(guardRows.map(row=>row.title)).size,guardRows.length);
-  const allowed=new Set([...launcher.map(row=>row.title),...tapResults(unit).map(row=>row.title),'Canvas policy tail fixes the complete actual inventory and never repeats retained callbacks']);
+  const allowed=new Set([...launcher.map(row=>row.title),...tapResults(unit).map(row=>row.title),'Canvas policy tail fixes the complete actual inventory and never repeats retained callbacks',title]);
   assert(guardRows.every(row=>allowed.has(row.title)),'Foreign launcher result');assert.match(guard,/# pass 1\n# fail 0\n# cancelled 0\n# skipped \d+\n# todo 0/);
   const freshLog=fs.readFileSync(path.join(directory,'test-results/canvas-policy-native.log'),'utf8');
   const fresh=autonomyNativeRecords(directory,freshLog,{suite:'canvas'});
-  return {original,previous,result:verifyCanvasPolicyNativeUnion(previous,fresh)};
+  return {original,previous:allPrevious,result:progress?verifyCanvasPolicyNativeProgressUnion(previous,progress.previous,fresh):verifyCanvasPolicyNativeUnion(previous,fresh)};
 }
-export function canvasPolicyNativeContinuation(command){
+export function canvasPolicyNativeContinuation(command,{progress=false}={}){
   const original=modelWorkerContinuation(command,CANVAS_POLICY_WORKER_PREFLIGHT);
   assert(original.includes('npm run test:homepage-ffmpeg-processor')&&original.includes('npm run test:q2-runtime'));
   const fresh=[
     'set -o pipefail',
     'mkdir -p .local-release/test-results',
     'node scripts/local-release.mjs verify-canvas-policy-native-pending .local-release',
-    "node --test --test-name-pattern='^Canvas policy tail fixes the complete actual inventory and never repeats retained callbacks$' scripts/test-q2-runtime-launcher.mjs > .local-release/test-results/canvas-policy-native-launcher.tap 2>&1 || { status=$?; cat .local-release/test-results/canvas-policy-native-launcher.tap; exit \"$status\"; }",
+    `node --test --test-name-pattern='^${progress?'Canvas action tail preserves all setup and executes only the final fifteen required callbacks':'Canvas policy tail fixes the complete actual inventory and never repeats retained callbacks'}$' scripts/test-q2-runtime-launcher.mjs > .local-release/test-results/canvas-policy-native-launcher.tap 2>&1 || { status=$?; cat .local-release/test-results/canvas-policy-native-launcher.tap; exit "$status"; }`,
     'cat .local-release/test-results/canvas-policy-native-launcher.tap',
-    'node scripts/test-q2-runtime.mjs --suite canvas-policy-tail 2>&1 | tee .local-release/test-results/canvas-policy-native.log',
+    `node scripts/test-q2-runtime.mjs --suite ${progress?'canvas-actions-tail':'canvas-policy-tail'} 2>&1 | tee .local-release/test-results/canvas-policy-native.log`,
     'mkdir -p .local-release/runtime',
     'cp -a /tmp/bitbi-release/q2-runtime-evidence .local-release/runtime/',
     'node scripts/local-release.mjs verify-canvas-policy-native-repair .local-release',
@@ -1145,6 +1204,15 @@ export function canvasExampleBrowserContinuation(command){
 }
 export const canvasPreflightProfile=source=>[CANVAS_POLICY_NATIVE_PREFLIGHT,CANVAS_POLICY_WORKER_PREFLIGHT,AUTONOMY_BROWSER_PREFLIGHT,AUTONOMY_NATIVE_PREFLIGHT,CANVAS_PREFLIGHT,EXPORT_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,EXAMPLE_PREFLIGHT,EXAMPLE_BROWSER_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].find(p=>p.source===source)||null;
 export function assertCanvasPreflightTree(head,read=gitBytes,profile=CANVAS_PREFLIGHT){
+  if(profile===CANVAS_POLICY_NATIVE_PREFLIGHT&&isCanvasPolicyNativeProgress(head,read)){
+    const p=CANVAS_POLICY_NATIVE_PROGRESS;assertCanvasPreflightTree(p.source,read,profile);
+    assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,p.source]);
+    const files=read(['diff','--name-only',p.source,head]).toString().trim().split('\n').filter(Boolean);
+    assert(files.every(file=>[...Object.keys(p.specs),'scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs'].includes(file)),'Native progress changed unreviewed product, tests, selection or environment');
+    for(const[file,hash]of Object.entries(p.specs)){assert(files.includes(file),'Missing reviewed native action correction');assert.equal(sha256(read(['show',`${head}:${file}`])),hash,'Unreviewed native action correction');}
+    for(const file of files)assert(/^100644 blob [0-9a-f]{40}\t/.test(read(['ls-tree',head,'--',file]).toString()),'Continuation input must remain an ordinary file');
+    return;
+  }
   if(profile===AUTONOMY_BROWSER_PREFLIGHT){assertCanvasPreflightTree(profile.source,read,AUTONOMY_NATIVE_PREFLIGHT);return assertAutonomyBrowserTree(head,read);}
   if(profile===AUTONOMY_NATIVE_PREFLIGHT){
     assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,profile.source],'Autonomy native continuation requires the direct source successor');
@@ -1356,14 +1424,17 @@ export function verifyCanvasPreflight(directory,evidence,commands){
   }
   const workerProgress=profile===AUTONOMY_BROWSER_PREFLIGHT&&isAutonomyBrowserWorkerProgress(evidence.sha);
   const docProgress=profile===AUTONOMY_BROWSER_PREFLIGHT&&isAutonomyBrowserDocProgress(evidence.sha);
-  const progress=workerProgress?verifyAutonomyBrowserWorkerProgress(directory,evidence.sha):docProgress?verifyAutonomyBrowserDocProgress(directory,evidence.sha):profile===AUTONOMY_BROWSER_PREFLIGHT&&isAutonomyBrowserProgress(evidence.sha)?verifyAutonomyBrowserProgress(directory,evidence.sha):null;
-  const progressProfile=workerProgress?AUTONOMY_BROWSER_WORKER_PROGRESS:docProgress?AUTONOMY_BROWSER_DOC_PROGRESS:AUTONOMY_BROWSER_PROGRESS;
+  const nativeProgress=profile===CANVAS_POLICY_NATIVE_PREFLIGHT&&isCanvasPolicyNativeProgress(evidence.sha);
+  const progress=nativeProgress?verifyCanvasPolicyNativeProgress(directory,evidence.sha):workerProgress?verifyAutonomyBrowserWorkerProgress(directory,evidence.sha):docProgress?verifyAutonomyBrowserDocProgress(directory,evidence.sha):profile===AUTONOMY_BROWSER_PREFLIGHT&&isAutonomyBrowserProgress(evidence.sha)?verifyAutonomyBrowserProgress(directory,evidence.sha):null;
+  const progressProfile=nativeProgress?CANVAS_POLICY_NATIVE_PROGRESS:workerProgress?AUTONOMY_BROWSER_WORKER_PROGRESS:docProgress?AUTONOMY_BROWSER_DOC_PROGRESS:AUTONOMY_BROWSER_PROGRESS;
   if(progress)assert.deepEqual(evidence.preflightProgress,{source:progressProfile.source,checkpoint:progressProfile.checkpoint});
   else assert(!evidence.preflightProgress,'Unexpected planner progress receipt');
   for(const [i,row]of evidence.commands.entries()){
     if(progress&&progress.retained.includes(i)){
       assert.deepEqual(row,{...progress.original.commands[i],reusedFrom:progress.original.commands[i].reusedFrom||progress.original.sha});
       assert.equal(sha256(fs.readFileSync(path.join(directory,row.log))),row.logHash);
+    }else if(nativeProgress&&i===17){
+      assert(!row.reusedFrom);assert.equal(row.continuation,canvasPolicyNativeGuardContinuation(commands[i].run));
     }else if(workerProgress&&i===17){
       assert(!row.reusedFrom);assert.equal(row.continuation,autonomyWorkerGuardContinuation(commands[i].run));
     }else if(docProgress&&i===28){
@@ -1390,7 +1461,7 @@ export function verifyCanvasPreflight(directory,evidence,commands){
     }else if(i===41&&profile===AUTONOMY_NATIVE_PREFLIGHT){
       assert(!row.reusedFrom);assert.equal(row.continuation,autonomyNativeContinuation(commands[i].run));
     }else if(i===41&&profile===CANVAS_POLICY_NATIVE_PREFLIGHT){
-      assert(!row.reusedFrom);assert.equal(row.continuation,canvasPolicyNativeContinuation(commands[i].run));
+      assert(!row.reusedFrom);assert.equal(row.continuation,canvasPolicyNativeContinuation(commands[i].run,{progress:nativeProgress}));
     }else if(i===41&&profile===CANVAS_POLICY_WORKER_PREFLIGHT){
       assert(!row.reusedFrom);assert.equal(row.continuation,canvasPolicyWorkerContinuation(commands[i].run));
     }else if(i===41&&profile===MODEL_WORKER_PREFLIGHT){

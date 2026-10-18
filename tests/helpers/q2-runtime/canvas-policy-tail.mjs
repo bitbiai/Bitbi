@@ -66,3 +66,43 @@ export async function runCanvasPolicyTailTests(f) {
   await runCanvasTests(scoped);
   assert.equal(position, inventory.length, 'Canvas continuation omitted required callbacks');
 }
+
+// Closed continuation after the first 168 policy-tail callbacks passed. Keep
+// this explicit list separate so a changed source cannot silently move its cut.
+export const canvasActionsTailInventory = Object.freeze([
+  'canvas_conversational_actions_native_assembly',
+  'canvas_conversational_actions_native_node-settings',
+  'canvas_conversational_actions_native_regenerate',
+  'canvas_conversational_actions_native_consent',
+  'canvas_conversational_actions_native_foreign-target',
+  'canvas_conversational_actions_native_stale-target',
+  'canvas_conversational_actions_native_production-controls',
+  'canvas_conversational_actions_native_assembly-extended',
+  'canvas_conversational_actions_native_budget-controls',
+  'canvas_conversational_action_recovery_native_late-stop',
+  'canvas_conversational_action_recovery_native_confirmation-replay',
+  'canvas_conversational_action_recovery_native_claim-race',
+  'canvas_conversational_action_recovery_native_dependent-failure',
+  'canvas_conversational_action_recovery_native_immediate-scope',
+  'canvas_conversational_action_recovery_native_immediate-duration-current',
+]);
+export const canvasActionsRetainedInventory = Object.freeze([
+  ...canvasPolicyPrefix, ...canvasPolicyTailInventory.slice(0, 168),
+]);
+
+export async function runCanvasActionsTailTests(f) {
+  const inventory = [...canvasActionsRetainedInventory, ...canvasActionsTailInventory];
+  assert.equal(canvasActionsRetainedInventory.length, 172, 'Canvas action continuation retained boundary changed');
+  assert.deepEqual(inventory, [...canvasPolicyPrefix, ...canvasPolicyTailInventory], 'Canvas action continuation inventory changed');
+  let position = 0;
+  const scoped = Object.create(f);
+  scoped.test = async (name, operation) => {
+    assert.equal(name, inventory[position], 'Canvas action continuation callback order or membership changed');
+    const retained = position++ < canvasActionsRetainedInventory.length;
+    if (!retained) await f.test(name, operation);
+  };
+  // The final action/recovery helpers create their own scoped projects, billing
+  // and media. Outside-callback migrations and seeds still initialize fresh D1.
+  await runCanvasTests(scoped);
+  assert.equal(position, inventory.length, 'Canvas action continuation omitted required callbacks');
+}

@@ -257,11 +257,19 @@ export async function canvasActionCase(base,{name,...media}){
    requireCompleted(await perform('Restore the removed clip at the start, trim it and enable gentle joins.',[
     await action('clip_add',{targetId:f.first.id,number:0}),await action('clip_trim',{targetId:f.first.id,number:.5,secondaryNumber:3}),
     await action('smooth_joins',{value:'on'}),await action('music_fade_in',{number:.3})]));
+   const beforeAudioRevision=await revision(),beforeAudioNode=await f.db.prepare('SELECT creative_revision FROM canvas_nodes WHERE id=?').bind(f.last.id).first();
    requireCompleted(await perform('Use this music reference, fade it out and retain original audio quietly.',[
     await action('music_source',{targetId:f.music.id}),await action('music_fade_out',{number:.4}),
     await action('original_audio_volume',{targetId:f.last.id,number:.2}),await action('music_enabled',{value:'on'})]));
    project=await f.readProject();check(project.project.assembly.clips[0].trim.start===.5&&project.project.assembly.smoothJoins,'Trim and smooth-join settings use the existing editor format');
    check(project.nodes.find(n=>n.id===f.last.id).config.originalAudio.gain===.2,'Original audio stays an ordinary node setting');
+   const audioSnapshot=await f.db.prepare('SELECT config_json,creative_revision FROM canvas_nodes WHERE id=?').bind(f.last.id).first(),audioProjectRevision=await revision();
+   check(audioSnapshot.creative_revision===beforeAudioNode.creative_revision+1,'The successful guarded audio edit commits one node revision despite multiple D1 trigger writes');
+   const {updateCanvasNode}=await import('../../workers/auth/src/routes/canvas.js');
+   const staleConfig=JSON.parse(audioSnapshot.config_json);staleConfig.originalAudio.gain=.9;
+   const stale=await updateCanvasNode({env:f.env,isSecure:true,request:new Request('https://bitbi.ai'+f.projectPath+'/nodes/'+f.last.id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({config:staleConfig})})},f.owner,f.project,f.last.id,{expectedRevision:beforeAudioRevision});
+   await expected(stale,409,'canvas_project_changed');
+   check(JSON.stringify(await f.db.prepare('SELECT config_json,creative_revision FROM canvas_nodes WHERE id=?').bind(f.last.id).first())===JSON.stringify(audioSnapshot)&&await revision()===audioProjectRevision,'A stale exact-revision guard returns no row and preserves the accepted node settings and project revision');
    const exports=await perform('Export this revised film now.',[await action('export')]);
    check(exports[0]?.state==='pending','An accepted export remains pending until real media completion');
    const jobs=(await f.db.prepare('SELECT * FROM canvas_video_processing WHERE project_id=? AND kind=\'concat\'').bind(f.project).all()).results;

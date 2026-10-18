@@ -844,6 +844,83 @@ test('Canvas policy tail fixes the complete actual inventory and never repeats r
   assert.equal(child.status,0,child.stderr);
 });
 
+test('Canvas action tail preserves all setup and executes only the final fifteen required callbacks', async () => {
+  const {runCanvasTests}=await import('../tests/helpers/q2-runtime/canvas.mjs');
+  const {canvasPolicyPrefix,canvasPolicyTailInventory,canvasActionsRetainedInventory,canvasActionsTailInventory,runCanvasActionsTailTests}=await import('../tests/helpers/q2-runtime/canvas-policy-tail.mjs');
+  const {selectedRuntimeSuites,runtimeSuites}=await import('../tests/helpers/q2-runtime/runner.mjs');
+  assert.equal(parseRuntimeArgs(['--suite','canvas-actions-tail'],{}).suite,'canvas-actions-tail');
+  assert.throws(()=>parseRuntimeArgs(['--suite','canvas-actions-tail','--suite','canvas'],{}));
+  assert.throws(()=>parseRuntimeArgs(['--suite','canvas-actions-tail-other'],{}));
+  assert.deepEqual(selectedRuntimeSuites('canvas-actions-tail').map(([name])=>name),['canvas']);
+  assert.equal(selectedRuntimeSuites('canvas-actions-tail')[0][1],runCanvasActionsTailTests);
+  assert.equal(selectedRuntimeSuites('canvas')[0][1],runCanvasTests);
+  assert.deepEqual(selectedRuntimeSuites(),runtimeSuites);
+  assert(!runtimeSuites.some(([,run])=>run===runCanvasActionsTailTests),'Full acceptance must not skip retained callbacks');
+  assert.match(read('tests/helpers/q2-runtime/linux-bootstrap.py'),/\["canvas-policy-tail"\] \+ \["canvas-actions-tail"\]/);
+  const inventory=[...canvasPolicyPrefix,...canvasPolicyTailInventory];
+  assert.equal(canvasActionsRetainedInventory.length,172);assert.equal(canvasActionsTailInventory.length,15);
+  assert.equal(new Set(inventory).size,187);
+  assert.deepEqual([...canvasActionsRetainedInventory,...canvasActionsTailInventory],inventory);
+  assert.equal(canvasActionsTailInventory[0],'canvas_conversational_actions_native_assembly');
+  assert.equal(canvasActionsTailInventory.at(-1),'canvas_conversational_action_recovery_native_immediate-duration-current');
+  // Discover the actual full function's names and outside-callback setup only;
+  // no product callback, binding, provider or retained test executes here.
+  const discover=async run=>{
+    const names=[],setup=[];
+    const headers=new Headers();headers.append('set-cookie','__Host-bitbi_session=synthetic; Secure');headers.append('set-cookie','__Host-bitbi_admin_mfa=synthetic; Secure');
+    const f={migrations:['0108','0109','0110'].map(path=>({path,statements:[]})),
+      db:{batch:async()=>{setup.push('migration');}},sql:()=>({run:async()=>{setup.push('sql');}}),
+      rows:async()=>[{sql:'synthetic pre-migration schema'}],scalar:async()=>1,
+      control:async route=>{setup.push(route);return Response.json({cookie:'synthetic',code:'synthetic'});},
+      mf:{dispatchFetch:async()=>Response.json({setup:{secret:'synthetic'}},{headers})},
+      canvasProvider:{requests:[]},counters:{outboundDenied:0},metrics:[],
+      test:async name=>{names.push(name);},
+    };
+    await run(f);return {names,setup};
+  };
+  const full=await discover(runCanvasTests),tail=await discover(runCanvasActionsTailTests);
+  assert.deepEqual(full.names,inventory);assert.deepEqual(tail.names,canvasActionsTailInventory);
+  assert.deepEqual(tail.setup,full.setup,'The action continuation preserves all outside-callback initialization');
+  assert(tail.setup.includes('/canvas-natural-migration-seed'));
+  const child=spawnSync(process.execPath,['--experimental-vm-modules','--input-type=module','-e',`
+    import assert from 'node:assert/strict';
+    import {readFileSync} from 'node:fs';
+    import {SourceTextModule,SyntheticModule,createContext} from 'node:vm';
+    const source=readFileSync('tests/helpers/q2-runtime/canvas-policy-tail.mjs','utf8');
+    const expected=${JSON.stringify(inventory)},tail=${JSON.stringify(canvasActionsTailInventory)};
+    for(const fault of [null,'retained-missing','retained-order','tail-missing','tail-duplicate','foreign','extra','operation-failed']){
+      const names=[...expected],executed=[],markers=[],context=createContext({});
+      if(fault==='retained-missing')names.splice(50,1);
+      if(fault==='retained-order')[names[50],names[51]]=[names[51],names[50]];
+      if(fault==='tail-missing')names.pop();
+      if(fault==='tail-duplicate')names.splice(173,0,names[172]);
+      if(fault==='foreign')names[172]='foreign-case';
+      if(fault==='extra')names.push('extra-case');
+      const modules={'node:assert/strict':{default:assert},'./canvas.mjs':{runCanvasTests:async f=>{
+        markers.push('setup');for(const name of names)await f.test(name,async()=>{
+          executed.push(name);if(fault==='operation-failed')throw Error('Synthetic required callback failure');
+        });markers.push('finished');
+      }}};
+      const load=async name=>{assert(modules[name]);const m=new SyntheticModule(Object.keys(modules[name]),function(){for(const [key,value]of Object.entries(modules[name]))this.setExport(key,value);},{context});await m.link(()=>{});await m.evaluate();return m;};
+      const module=new SourceTextModule(source,{context});await module.link(load);await module.evaluate();
+      const run=()=>module.namespace.runCanvasActionsTailTests({test:async(name,operation)=>{await operation();}});
+      if(fault)await assert.rejects(run);else{await run();assert.deepEqual(executed,tail);assert.deepEqual(markers,['setup','finished']);}
+      assert(!executed.some(name=>expected.slice(0,172).includes(name)),'Previously passed callbacks must never execute');
+      if(fault==='operation-failed'){assert.deepEqual(executed,[tail[0]]);assert.deepEqual(markers,['setup']);}
+    }
+    const childSource=readFileSync('tests/helpers/q2-runtime/linux-runtime-child.mjs','utf8');
+    for(const suite of ['canvas-actions-tail','canvas-actions-tail-other'])for(const fault of [null,'platform','uid','gid']){
+      const calls=[],context=createContext({process:{platform:fault==='platform'?'darwin':'linux',getuid:()=>fault==='uid'?0:65534,getgid:()=>fault==='gid'?0:65534}});
+      const modules={'node:assert/strict':{default:assert},'node:fs':{readFileSync:file=>{assert.equal(file,'/runtime/boundary.json');calls.push('boundary');return JSON.stringify({suite});}},'./runner.mjs':{runQ2Runtime:async(args,selected)=>{assert.deepEqual(Array.from(args),['--artifacts','/artifacts']);assert.equal(selected,suite);calls.push('run');}}};
+      const load=async name=>{assert(modules[name]);calls.push(name);const m=new SyntheticModule(Object.keys(modules[name]),function(){for(const [key,value]of Object.entries(modules[name]))this.setExport(key,value);},{context});await m.link(()=>{});await m.evaluate();return m;};
+      const module=new SourceTextModule(childSource,{context,importModuleDynamically:load});await module.link(load);
+      if(!fault&&suite==='canvas-actions-tail'){await module.evaluate();assert.deepEqual(calls,['node:assert/strict','node:fs','boundary','./runner.mjs','run']);}
+      else{await assert.rejects(module.evaluate());assert(!calls.includes('./runner.mjs'));if(fault)assert(!calls.includes('boundary'));}
+    }
+  `],{cwd:root,encoding:'utf8',timeout:15000});
+  assert.equal(child.status,0,child.stderr);
+});
+
 test('actual selected Worker shell stops before downstream work on every failure', t => {
   const f=fixture(t),bin=path.join(f.base,'bin'),trace=path.join(f.base,'trace');fs.mkdirSync(bin);
   for(const name of ['node','npx','npm'])fs.writeFileSync(path.join(bin,name),'#!/bin/sh\ncommand="${0##*/} $*"\nprintf "%s\\n" "$command" >> "$TRACE"\n[ "$command" != "$FAIL_COMMAND" ] || exit 37\n',{mode:0o700});

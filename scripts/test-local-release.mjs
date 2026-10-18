@@ -21,6 +21,11 @@ import { LOCAL_IMPORT_REPAIR, assertImportRepairWorkflow, localRepairCommand, ve
 import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,assertPermissionContinuationTree,permissionContinuationPrefix,CANVAS_STAGE_CASES,canvasStageContinuation} from './lib/local-release-evidence.mjs';
 import {testLocalMediaProcess} from './test-local-media-process.mjs';
 
+if(process.argv.includes('--canvas-policy-native-progress-only')) {
+  assert.deepEqual(process.argv.slice(2),['--canvas-policy-native-progress-only']);
+  await testCanvasPolicyNativeProgress();process.exit(0);
+}
+
 if(process.argv.includes('--canvas-policy-worker-only')) {
   assert(process.argv.length===3||process.argv.length===4);
   await testCanvasPolicyWorkerContinuation(process.argv[3]||null);process.exit(0);
@@ -1742,3 +1747,100 @@ async function testCanvasPolicyNativeContinuation() {
  console.log('Canvas native continuation: exact source/artifact boundaries and187 retained+183 required native cases verified; failed originals remain failed and unchanged product checks never repeat. Synthetic counterchecks execute no product cases.');
 }
 await testCanvasPolicyNativeContinuation();
+
+async function testCanvasPolicyNativeProgress() {
+ const {CANVAS_POLICY_NATIVE_PREFLIGHT:base,CANVAS_POLICY_NATIVE_PROGRESS:p,isCanvasPolicyNativeProgress,
+  assertCanvasPreflightTree,verifyCanvasPolicyNativeProgress,verifyCanvasPolicyNativeProgressUnion,
+  verifyCanvasPolicyNativeRepair,canvasPolicyNativeContinuation,canvasPolicyNativeGuardContinuation,
+  verifyCanvasPreflight,restoreCanvasHostingProof}=await import('./lib/local-release-evidence.mjs');
+ const {canvasPolicyPrefix,canvasPolicyTailInventory}=await import('../tests/helpers/q2-runtime/canvas-policy-tail.mjs');
+ const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+ if(!isCanvasPolicyNativeProgress(head)){
+  assert(!process.argv.includes('--canvas-policy-native-progress-only'),'The closed continuation requires its reviewed source successor');
+  return; // Historical continuation; ordinary future releases retain their full checks.
+ }
+ const entry="if(process.argv.includes('--canvas-policy-native-progress-only')) {\n  assert.deepEqual(process.argv.slice(2),['--canvas-policy-native-progress-only']);\n  await testCanvasPolicyNativeProgress();process.exit(0);\n}\n\n";
+ const current=fs.readFileSync('scripts/test-local-release.mjs','utf8');
+ assert.equal(current.slice(0,current.indexOf('\nasync function testCanvasPolicyNativeProgress() {')).replace(entry,''),execFileSync('git',['show',`${p.source}:scripts/test-local-release.mjs`]).toString(),'Completed verifier groups must remain byte-identical');
+ assert.equal(canvasPolicyNativeGuardContinuation('npm run test:local-release'),'npm run test:local-release -- --canvas-policy-native-progress-only');
+ for(const command of ['echo skipped','npm run test:local-release -- --unreviewed','npm run test:local-release\nnpm run test:local-release'])assert.throws(()=>canvasPolicyNativeGuardContinuation(command));
+ const expected={nativeRetained:355,nativeFresh:15,nativeTotal:370,processorRetained:true,launcherRetained:28};
+ const previous=[...canvasPolicyPrefix.map(name=>({suite:'canvas',name,status:'PASS'})),...Array.from({length:183},(_,i)=>({suite:'synthetic-other',name:'retained-'+i,status:'PASS'}))];
+ const progress=canvasPolicyTailInventory.slice(0,168).map(name=>({name,status:'PASS'}));
+ const fresh=canvasPolicyTailInventory.slice(168).map(name=>({name,status:'PASS'}));
+ assert.equal(fresh[0].name,'canvas_conversational_actions_native_assembly');
+ assert.deepEqual(verifyCanvasPolicyNativeProgressUnion(previous,progress,fresh),expected);
+ for(const mutate of [r=>r.previous.pop(),r=>r.progress.pop(),r=>r.progress.push(r.progress[0]),r=>r.progress[0].status='FAIL',r=>r.progress[0].name='foreign',r=>r.fresh.pop(),r=>r.fresh.push(r.fresh[0]),r=>r.fresh[0]=r.progress[0],r=>r.fresh[0].status='SKIP',r=>r.fresh[0].status='FAIL',r=>r.fresh[0].name='foreign',r=>[r.fresh[0],r.fresh[1]]=[r.fresh[1],r.fresh[0]]]){
+  const bad=structuredClone({previous,progress,fresh});mutate(bad);assert.throws(()=>verifyCanvasPolicyNativeProgressUnion(bad.previous,bad.progress,bad.fresh));
+ }
+ const command='if false; then\n  exit 99\nelse\n  npm run test:workers\nfi\n',shell=canvasPolicyNativeContinuation(command,{progress:true});
+ assert(shell.includes('set -o pipefail')&&shell.includes('--suite canvas-actions-tail'));
+ assert(shell.indexOf('cp -a /tmp/bitbi-release/q2-runtime-evidence .local-release/runtime/')<shell.indexOf('verify-canvas-policy-native-repair'));
+ for(const repeat of ['npm run test:workers','npm run test:homepage-ffmpeg-processor','npm run test:q2-runtime','--suite canvas-policy-tail','--suite canvas\n'])assert(!shell.includes(repeat),'Completed cases must not repeat');
+ for(const bad of ['echo skipped',command+'  npm run test:workers'])assert.throws(()=>canvasPolicyNativeContinuation(bad,{progress:true}));
+ const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-canvas-native-progress-')),bare=path.join(temporary,'git');
+ try {
+  assert(isCanvasPolicyNativeProgress(head));assertCanvasPreflightTree(head,undefined,base);
+  execFileSync('git',['init','--bare',bare],{stdio:'pipe'});
+  fs.writeFileSync(path.join(bare,'objects/info/alternates'),path.resolve(execFileSync('git',['rev-parse','--git-path','objects'],{encoding:'utf8'}).trim())+'\n');
+  const env={...process.env,GIT_AUTHOR_NAME:'Synthetic',GIT_AUTHOR_EMAIL:'synthetic@example.invalid',GIT_COMMITTER_NAME:'Synthetic',GIT_COMMITTER_EMAIL:'synthetic@example.invalid'};
+  const read=(args,input)=>execFileSync('git',['--git-dir',bare,...args],{env,input,stdio:['pipe','pipe','pipe']});
+  const fixes=Object.fromEntries(Object.entries(p.specs).map(([file,hash])=>{const bytes=read(['show',`${head}:${file}`]);assert.equal(sha256(bytes),hash);return [file,bytes];}));
+  const commit=(changes,parent=p.source)=>{
+   read(['read-tree',p.source]);for(const [file,value]of Object.entries(changes)){
+    if(value===null){read(['update-index','--index-info'],Buffer.from(`0 ${'0'.repeat(40)}\t${file}\n`));continue;}
+    const blob=read(['hash-object','-w','--stdin'],value.content??value).toString().trim();read(['update-index','--add','--cacheinfo',`${value.mode||'100644'},${blob},${file}`]);
+   }
+   return read(['commit-tree',read(['write-tree']).toString().trim(),'-p',parent],Buffer.from('Synthetic closed D1 action continuation\n')).toString().trim();
+  };
+  const accepted=commit(fixes);assertCanvasPreflightTree(accepted,read,base);
+  for(const file of Object.keys(fixes))for(const value of [null,Buffer.from('Unreviewed correction'),{mode:'120000',content:Buffer.from('outside')}])assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,[file]:value}),read,base));
+  for(const file of ['workers/auth/src/lib/canvas-agent-actions.js','workers/auth/migrations/0110_canvas_agent_conversation_actions.sql','tests/helpers/q2-runtime/environment.mjs','tests/canvas.spec.js','package-lock.json','.github/workflows/static.yml','config/release-validation.yml'])assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,[file]:Buffer.from('Unrelated change')}),read,base));
+  assert.throws(()=>assertCanvasPreflightTree(commit(fixes,accepted),read,base));
+  const root='.local-release',proof=path.join(temporary,'proof');fs.mkdirSync(proof);
+  for(const name of ['reuse','candidate','test-results'])fs.cpSync(path.join(root,name),path.join(proof,name),{recursive:true});
+  fs.mkdirSync(path.join(proof,'logs'));
+  const verifyProgress=()=>verifyCanvasPolicyNativeProgress(proof,head),actual=verifyProgress();
+  assert.equal(actual.original.sha,p.source);assert.equal(actual.original.status,'failed');assert.equal(actual.original.commands[41].exitCode,1);assert.equal(actual.previous.length,168);
+  const pending=verifyCanvasPolicyNativeRepair(proof,head,{allowPending:true});assert.equal(pending.previous.length,355);assert.equal(pending.result,null);
+  const verify=()=>verifyCanvasPolicyNativeRepair(proof,head);assert.throws(verify,'The failed action tail is not a completed native run');
+  for(const file of ['checkpoint.json','failed.log','guard.tap','guard-command.log',...Object.keys(p.nativeProof).map(file=>'native/'+file)]){
+   const target=path.join(proof,'reuse/canvas-policy-native-progress',file),saved=fs.readFileSync(target);
+   fs.unlinkSync(target);assert.throws(verifyProgress);fs.writeFileSync(target,'{}');assert.throws(verifyProgress);fs.writeFileSync(target,saved);
+  }
+  const title='Canvas action tail preserves all setup and executes only the final fifteen required callbacks';
+  const guard=['TAP version 13',`# Subtest: ${title}`,`ok 1 - ${title}`,'1..1','# tests 1','# suites 0','# pass 1','# fail 0','# cancelled 0','# skipped 0','# todo 0',''].join('\n');
+  const guardFile=path.join(proof,'test-results/canvas-policy-native-launcher.tap');fs.writeFileSync(guardFile,guard);
+  // Disposable synthetic reports exercise validation only; they never enter
+  // release evidence or claim that workerd executed a product case.
+  const relative='q2-runtime-evidence/synthetic-actions-tail',runtime=path.join(proof,'runtime',relative);fs.mkdirSync(path.join(runtime,'reports'),{recursive:true});
+  const write=(file,value)=>fs.writeFileSync(path.join(runtime,file),JSON.stringify(value));
+  const launcher={origin:JSON.parse(fs.readFileSync(path.join(proof,'reuse/canvas-native-original/launcher-result.json'))).origin,status:0,failure:null,childBoundaryVerified:true,postcheckFailures:[],mode:'runtime'};
+  write('launcher-result.json',launcher);write('reports/isolation-result.json',{passed:true});write('reports/isolation-final.json',{passed:true});
+  const result={failedSuites:0,passed:15,reports:[{suite:'canvas',records:fresh,failure:null}]};write('reports/result.json',result);
+  const logFile=path.join(proof,'test-results/canvas-policy-native.log');fs.writeFileSync(logFile,JSON.stringify({q2LinuxEvidence:'/tmp/bitbi-release/'+relative})+'\n');
+  assert.deepEqual(verify().result,expected);
+  for(const mutate of [r=>r.failedSuites=1,r=>r.passed=14,r=>r.reports[0].failure={stage:'failed'},r=>r.reports[0].suite='foreign',r=>r.reports.push(structuredClone(r.reports[0])),r=>r.reports[0].records.pop(),r=>r.reports[0].records.push(r.reports[0].records[0]),r=>r.reports[0].records[0]=progress[0],r=>r.reports[0].records[0].status='FAIL']){const bad=structuredClone(result);mutate(bad);write('reports/result.json',bad);assert.throws(verify);}write('reports/result.json',result);
+  for(const mutate of [r=>r.status=1,r=>r.childBoundaryVerified=false,r=>r.postcheckFailures=['lost isolation'],r=>r.mode='preflight']){const bad=structuredClone(launcher);mutate(bad);write('launcher-result.json',bad);assert.throws(verify);}write('launcher-result.json',launcher);
+  for(const file of ['reports/isolation-result.json','reports/isolation-final.json']){write(file,{passed:false});assert.throws(verify);write(file,{passed:true});}
+  write('reports/duplicate__result.json',result);assert.throws(verify);fs.unlinkSync(path.join(runtime,'reports/duplicate__result.json'));
+  for(const content of ['',guard.replace('ok 1 -','not ok 1 -'),guard.replaceAll(title,'Foreign guard'),guard+`ok 2 - ${title}\n`]){fs.writeFileSync(guardFile,content);assert.throws(verify);}fs.writeFileSync(guardFile,guard);
+  const log=fs.readFileSync(logFile);for(const content of ['',log.toString()+log.toString()]){fs.writeFileSync(logFile,content);assert.throws(verify);}fs.writeFileSync(logFile,log);
+  const original=JSON.parse(fs.readFileSync(path.join(proof,'reuse/preflight-checkpoint.json')));
+  const selection=gitSelection(original.base,head),commands=selectedCommands(selection,{GITHUB_SHA:head,CANDIDATE_BASE:original.base});
+  const context={sha:head,base:original.base,planHash:validationPlan().digest,selection,environment:original.environment,nativeBrowsers:original.nativeBrowsers,commands};
+  const rows=commands.map((command,i)=>{if(base.retain.includes(i)){const row={...original.commands[i],reusedFrom:original.commands[i].reusedFrom||base.source};fs.copyFileSync(path.join(root,row.log),path.join(proof,row.log));return row;}return {command,exitCode:0,log:`logs/${i}.log`,durationMs:1,logHash:sha256('Synthetic verifier command row')};});
+  const evidence={...context,commands:rows,preflightContinuation:{source:base.source,checkpoint:base.checkpoint},preflightProgress:{source:p.source,checkpoint:p.checkpoint}};
+  rows[17].continuation=canvasPolicyNativeGuardContinuation(commands[17].run);rows[41].continuation=canvasPolicyNativeContinuation(commands[41].run,{progress:true});
+  restoreCanvasHostingProof(proof);verifyCanvasPreflight(proof,evidence,commands);
+  for(const i of [17,29,34,41,42,48,51]){const bad=structuredClone(evidence);bad.commands[i].reusedFrom=p.source;assert.throws(()=>verifyCanvasPreflight(proof,bad,commands));}
+  for(const mutate of [r=>delete r.preflightProgress,r=>r.preflightProgress.source='f'.repeat(40),r=>r.commands[17].continuation='npm run test:local-release',r=>r.commands[41].continuation=canvasPolicyNativeContinuation(commands[41].run)]){const bad=structuredClone(evidence);mutate(bad);assert.throws(()=>verifyCanvasPreflight(proof,bad,commands));}
+  assert.deepEqual(verify().result,expected);
+  const flow=path.join(temporary,'flow');fs.mkdirSync(flow);
+  const stub=`set -e\nnode() { case "$*" in *verify-canvas-policy-native-pending*) stage=pending;; *--test*) stage=guard;; *test-q2-runtime.mjs*) stage=native;; *verify-canvas-policy-native-repair*) stage=final;; *) return 98;; esac; printf '%s\\n' "$stage" >> "$TRACE"; [ "$FAIL_STAGE" != "$stage" ]; }\ncp() { printf 'copy\\n' >> "$TRACE"; [ "$FAIL_STAGE" != copy ]; }\n`;
+  const stages=['pending','guard','native','copy','final'];
+  for(const failed of ['',...stages]){const trace=path.join(flow,'trace');fs.rmSync(trace,{force:true});const result=spawnSync('/bin/bash',['-c',stub+shell],{cwd:flow,env:{...process.env,TRACE:trace,FAIL_STAGE:failed},encoding:'utf8'});assert.equal(result.status,failed?1:0,result.stderr);assert.deepEqual(fs.readFileSync(trace,'utf8').trim().split('\n'),failed?stages.slice(0,stages.indexOf(failed)+1):stages);}
+ } finally {fs.rmSync(temporary,{recursive:true,force:true});}
+ console.log('Canvas D1 continuation: exact failed progress and355 retained+15 required native cases verified; original failures, source scope, isolation, inventory and fresh action acceptance remain enforced. No product cases executed.');
+}
+await testCanvasPolicyNativeProgress();
