@@ -2484,3 +2484,10 @@ validation: its isolated CLI fixture omitted the transitive Canvas inventory and
 caller modules imported by the evidence verifier. Copy the real import closure;
 calibrate each missing dependency and the complete fixture before provenance
 assertions. Keep earlier successful receipts and run the remaining acceptance.
+
+Candidate `cf8553cf` then passed all 1,574 Worker cases and real FFmpeg checks.
+The native launcher correctly rejected an unstaged new settlement control helper
+before running D1. Add each new native helper to the existing staging allowlist
+and retain the real import-graph and removal counterchecks. Preserve those Worker,
+media and 29 successful launcher results; execute the repaired launcher case and
+the outstanding actual native runtime and browser acceptance.

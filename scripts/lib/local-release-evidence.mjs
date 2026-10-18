@@ -259,7 +259,7 @@ export function restoreCanvasHostingProof(directory,{verifyOnly=false}={}) {
   const permission=path.join(directory,'reuse/test-results/permission-checkpoint.json');
   const checkpoint=fs.existsSync(permission)?permission:preflight;
   const source=fs.existsSync(checkpoint)?JSON.parse(fs.readFileSync(checkpoint)).sha:null;
-  const p=source===CANVAS_POLICY_NATIVE_PREFLIGHT.source?{...CANVAS_POLICY_NATIVE_PREFLIGHT,tail:source}:source===CANVAS_POLICY_WORKER_PREFLIGHT.source?{...CANVAS_POLICY_WORKER_PREFLIGHT,tail:source}:source===AUTONOMY_BROWSER_PREFLIGHT.source?{...AUTONOMY_BROWSER_PREFLIGHT,tail:source}:source===AUTONOMY_NATIVE_PREFLIGHT.source?{...AUTONOMY_NATIVE_PREFLIGHT,tail:source}:source===MODEL_BROWSER_PREFLIGHT.source?{...MODEL_BROWSER_PREFLIGHT,tail:source}:source===EXAMPLE_BROWSER_PREFLIGHT.source?{...EXAMPLE_BROWSER_PREFLIGHT,tail:source}:[EXAMPLE_CACHE_CONTINUATION.source,EXPORT_BROWSER_CONTINUATION.source,WORKSPACE_CONTINUATION.source,AUDIO_FIT_CONTINUATION.source,INSPECTOR_CONTINUATION.source].includes(source)?{...smoothProfile(source),tail:source}:PERMISSION_CONTINUATION,read=(file,hash)=>{const bytes=fs.readFileSync(path.join(directory,'reuse',file));assert.equal(sha256(bytes),hash);return JSON.parse(bytes);};
+  const p=source===SETTLEMENT_NATIVE_PREFLIGHT.source?{...SETTLEMENT_NATIVE_PREFLIGHT,tail:source}:source===CANVAS_POLICY_NATIVE_PREFLIGHT.source?{...CANVAS_POLICY_NATIVE_PREFLIGHT,tail:source}:source===CANVAS_POLICY_WORKER_PREFLIGHT.source?{...CANVAS_POLICY_WORKER_PREFLIGHT,tail:source}:source===AUTONOMY_BROWSER_PREFLIGHT.source?{...AUTONOMY_BROWSER_PREFLIGHT,tail:source}:source===AUTONOMY_NATIVE_PREFLIGHT.source?{...AUTONOMY_NATIVE_PREFLIGHT,tail:source}:source===MODEL_BROWSER_PREFLIGHT.source?{...MODEL_BROWSER_PREFLIGHT,tail:source}:source===EXAMPLE_BROWSER_PREFLIGHT.source?{...EXAMPLE_BROWSER_PREFLIGHT,tail:source}:[EXAMPLE_CACHE_CONTINUATION.source,EXPORT_BROWSER_CONTINUATION.source,WORKSPACE_CONTINUATION.source,AUDIO_FIT_CONTINUATION.source,INSPECTOR_CONTINUATION.source].includes(source)?{...smoothProfile(source),tail:source}:PERMISSION_CONTINUATION,read=(file,hash)=>{const bytes=fs.readFileSync(path.join(directory,'reuse',file));assert.equal(sha256(bytes),hash);return JSON.parse(bytes);};
   const original=read('hosting-manifest.json',p.manifest),oldProof=read('hosting-proof.json',p.proof);
   const manifest=JSON.parse(fs.readFileSync(path.join(directory,'candidate/manifest.json')));
   verifyMigrationCandidateBytes(directory,original,manifest,{allowLabGuard:false,workspaceRepair:source===WORKSPACE_CONTINUATION.source});assert.deepEqual(manifest.hosting,original.hosting);
@@ -686,6 +686,68 @@ export const SETTLEMENT_HOSTING_PREFLIGHT=Object.freeze({
 export function settlementHostingGuardContinuation(command){
   assert.equal(command,'npm run test:local-release','Unexpected settlement hosting guard caller');
   return command+' -- --settlement-hosting-only';
+}
+export const SETTLEMENT_NATIVE_PREFLIGHT=Object.freeze({
+  source:'cf8553cf1293e37be771d8ae23bd14602b427200',
+  checkpoint:'5bcdc8701bb9adf380cfbbd04cd9d67d53d6d17374d2f1c8b4b27cc501ae6043',
+  failedLog:'224f61db4126178ce2633a1f755a3c3b8f696179ca16ba5df8fcedbfd4287171',
+  manifest:'2e5402d8205cb5efc258bd9a2b3dd6548a9afe7c847cf72194f81abb0ba2805d',
+  proof:'5ce8590a2af4c2e08e08e2d5c12574ece67e2ce21517f59705aee0997d97e379',
+  hostingLog:'b698c4e579b3498a6f1f6f913928bd3b333c296d2c7bc6c26d19a113a203c843',
+  workerLast:'91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903',
+  specs:Object.freeze({
+    'tests/helpers/q2-runtime/linux-hosted.mjs':'6bfe75f5cf39e077fd378eb032df813ec5498f69ab4629492ab008e5503045f4',
+    'scripts/test-q2-runtime-launcher.mjs':'8c51bded1e1f5ac19b0229359eccee69e3f2d058191bfa3bf6227547f1676811',
+    'docs/runbooks/REGRESSION_REGISTER.md':'e1f5f6b39503374bad02c990e2f784cda7066ae1ae9993cff9e9e57cb1a66a93',
+  }),
+  retain:[1,4,5,6,7,8,9,10,11,13,16,18,19,20,21,22,23,24,25,26,27,28,30,31,32,33,35,36,37,38,39],
+});
+export function settlementNativeGuardContinuation(command){
+  assert.equal(command,'npm run test:local-release','Unexpected settlement native guard caller');return command+' -- --settlement-native-only';
+}
+export const settlementLauncherCase='default native runtime plan stages every actual suite and control input';
+export function verifySettlementNativeRepair(directory,head,{allowPending=false}={}){
+  const p=SETTLEMENT_NATIVE_PREFLIGHT;assertCanvasPreflightTree(head,gitBytes,p);
+  const pinned=(file,hash)=>{const bytes=fs.readFileSync(path.join(directory,'reuse',file));assert.equal(sha256(bytes),hash,`Changed original settlement evidence: ${file}`);return bytes;};
+  const original=JSON.parse(pinned('preflight-checkpoint.json',p.checkpoint));
+  assert.equal(original.sha,p.source);assert.equal(original.status,'failed');assert.equal(original.commands.length,42);assert(original.commands.slice(0,41).every(row=>row.exitCode===0));assert.equal(original.commands[41].exitCode,1);
+  const log=pinned('preflight-failed.log',p.failedLog).toString();
+  const prefix=log.split('Running 1574 tests using 1 worker')[0];assert.notEqual(prefix,log);
+  assert.match(prefix,/# tests 61\n# suites 0\n# pass 61\n# fail 0\n# cancelled 0\n# skipped 0/);assert(prefix.includes('Q4 normal Worker discovery:'));
+  assert.match(log,/\n\s+1574 passed \(/);
+  const lines=log.split('\n').flatMap(line=>{const m=line.match(/^\s+([✓✘])\s+(\d+)\s+(tests\/.*?)\s+\([\d.]+(?:ms|s|m)\)/);return m?[{status:m[1],number:Number(m[2]),label:m[3]}]:[];});
+  assert.equal(lines.length,1574);assert.equal(new Set(lines.map(row=>row.label)).size,1574);assert.deepEqual(lines.map(row=>row.number),Array.from({length:1574},(_,i)=>i+1));assert(lines.every(row=>row.status==='✓'&&!row.label.includes('(retry #')));
+  assert.deepEqual(JSON.parse(pinned('settlement-worker-last.json',p.workerLast)),{status:'passed',failedTests:[]});
+  const marker='> test:q2-runtime\n> node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs && node scripts/test-q2-runtime.mjs\n';
+  assert.equal(log.split(marker).length,2,'Missing exact unexecuted native boundary');const [prior,launcher]=log.split(marker);
+  assert(prior.includes('> test:homepage-ffmpeg-processor\n'));assert.match(prior,/Private video reference FFmpeg: .*passed\./);assert(prior.includes('Canvas assembly: real 120-second/2880-frame export'));
+  assert.match(launcher,/# tests 30\n# suites 0\n# pass 29\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0/);assert(!launcher.includes('q2LinuxEvidence'));
+  const before=tapResults(launcher);assert.equal(before.length,30);assert.equal(new Set(before.map(row=>row.title)).size,30);assert.deepEqual(before.filter(row=>row.status!=='passed'),[{title:settlementLauncherCase,status:'failed'}]);
+  const discoveryFile=path.join(directory,'test-results/settlement-worker-discovery.json');
+  if(fs.existsSync(discoveryFile)){
+    const report=parseDiscovery(fs.readFileSync(discoveryFile,'utf8'));assert.deepEqual(report.errors,[]);const discovered=workerDiscovery(report);assert.equal(discovered.length,1574);
+    const executed=workerListResults(log,discovered);assert(executed.every(passedOnce),'Changed, missing or repeated Worker acceptance');
+  }else assert(allowPending,'Missing fresh Worker discovery');
+  if(allowPending)return {original,before,result:null};
+  const fresh=fs.readFileSync(path.join(directory,'test-results/settlement-launcher-fresh.tap'),'utf8');assert.match(fresh,/# pass 1\n# fail 0\n# cancelled 0\n# skipped \d+\n# todo 0/);
+  const after=tapResults(fresh);assert.deepEqual(after.filter(row=>row.status!=='skipped'),[{title:settlementLauncherCase,status:'passed'}]);assert.equal(new Set(after.map(row=>row.title)).size,after.length);assert(after.every(row=>before.some(old=>old.title===row.title)));
+  return {original,before,result:{workerPassed:1574,processorPassed:true,launcherRetained:29,launcherFresh:1,launcherTotal:30}};
+}
+export function settlementNativeContinuation(command){
+  const scripts=JSON.parse(fs.readFileSync('package.json')).scripts;
+  assert.equal(scripts['test:workers'],'node scripts/check-media-tools.mjs && npm run test:website-assistant && node scripts/check-q4-selection.mjs && playwright test -c playwright.workers.config.js && npm run test:homepage-ffmpeg-processor && npm run test:q2-runtime');
+  assert.equal(scripts['test:q2-runtime'],'node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs && node scripts/test-q2-runtime.mjs');
+  assert.equal(command.split('  npm run test:workers').length,2);assert(command.endsWith('else\n  npm run test:workers\nfi\n'));
+  const fresh=[
+    'mkdir -p .local-release/test-results',
+    'PLAYWRIGHT_JSON_OUTPUT_NAME= npx playwright test -c playwright.workers.config.js --list --reporter=json > .local-release/test-results/settlement-worker-discovery.json',
+    'node scripts/local-release.mjs verify-settlement-native-pending .local-release',
+    `node --test --test-name-pattern='^${settlementLauncherCase}$' tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs > .local-release/test-results/settlement-launcher-fresh.tap 2>&1 || { status=$?; cat .local-release/test-results/settlement-launcher-fresh.tap; exit "$status"; }`,
+    'cat .local-release/test-results/settlement-launcher-fresh.tap',
+    'node scripts/local-release.mjs verify-settlement-native-repair .local-release',
+    'node scripts/test-q2-runtime.mjs',
+  ].map(line=>'  '+line).join('\n');
+  return command.replace('  npm run test:workers',()=>fresh);
 }
 export const MODEL_WORKER_PREFLIGHT=Object.freeze({
   source:'51fb4088d317baea440d037d9301c7f48e07e41e',
@@ -1235,8 +1297,25 @@ export function canvasExampleBrowserContinuation(command){
   assert.equal(command.split(passed).length,2);assert(command.includes("--grep 'Canvas transition examples'"));
   return command.replace(passed,''); // Pinned decoded-asset pass remains in the archived original log.
 }
-export const canvasPreflightProfile=source=>[SETTLEMENT_HOSTING_PREFLIGHT,SETTLEMENT_PREFLIGHT,CANVAS_POLICY_NATIVE_PREFLIGHT,CANVAS_POLICY_WORKER_PREFLIGHT,AUTONOMY_BROWSER_PREFLIGHT,AUTONOMY_NATIVE_PREFLIGHT,CANVAS_PREFLIGHT,EXPORT_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,EXAMPLE_PREFLIGHT,EXAMPLE_BROWSER_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].find(p=>p.source===source)||null;
+export const canvasPreflightProfile=source=>[SETTLEMENT_NATIVE_PREFLIGHT,SETTLEMENT_HOSTING_PREFLIGHT,SETTLEMENT_PREFLIGHT,CANVAS_POLICY_NATIVE_PREFLIGHT,CANVAS_POLICY_WORKER_PREFLIGHT,AUTONOMY_BROWSER_PREFLIGHT,AUTONOMY_NATIVE_PREFLIGHT,CANVAS_PREFLIGHT,EXPORT_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,EXAMPLE_PREFLIGHT,EXAMPLE_BROWSER_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].find(p=>p.source===source)||null;
 export function assertCanvasPreflightTree(head,read=gitBytes,profile=CANVAS_PREFLIGHT){
+  if(profile===SETTLEMENT_NATIVE_PREFLIGHT){
+    assertCanvasPreflightTree(profile.source,read,SETTLEMENT_HOSTING_PREFLIGHT);
+    assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,profile.source],'Native preflight requires the direct reviewed successor');
+    const files=read(['diff','--name-only',profile.source,head]).toString().trim().split('\n').filter(Boolean);
+    assert(files.every(file=>[...Object.keys(profile.specs),'scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs'].includes(file)),'Native continuation changed product, schema, selection or environment');
+    for(const [file,hash]of Object.entries(profile.specs)){
+      assert(files.includes(file),'Missing reviewed native staging correction');assert.equal(sha256(read(['show',`${head}:${file}`])),hash,'Unreviewed native staging correction');
+    }
+    for(const file of files)assert(/^100644 blob [0-9a-f]{40}\t/.test(read(['ls-tree',head,'--',file]).toString()),'Continuation input must remain an ordinary file');
+    const verifier='scripts/test-local-release.mjs',before=read(['show',`${profile.source}:${verifier}`]).toString(),after=read(['show',`${head}:${verifier}`]).toString();
+    const entry="if(process.argv.includes('--settlement-native-only')) {\n  assert.deepEqual(process.argv.slice(2),['--settlement-native-only']);\n  await testSettlementNativeContinuation();process.exit(0);\n}\n\n";
+    const tail='\nasync function testSettlementNativeContinuation() {';
+    assert.equal(after.split(entry).length,2,'Missing exact focused native verifier entry');assert.equal(after.split(tail).length,2,'Missing new native continuation counterchecks');
+    assert.equal(after.slice(0,after.indexOf(tail)).replace(entry,''),before,'Previously completed verifier groups changed');
+    assert(after.endsWith('\nawait testSettlementNativeContinuation();\n'),'New native verifier counterchecks must run in the ordinary entrypoint');
+    return;
+  }
   if(profile===SETTLEMENT_HOSTING_PREFLIGHT){
     assertCanvasPreflightTree(profile.source,read,SETTLEMENT_PREFLIGHT);
     assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,profile.source],'Hosting preflight requires the direct reviewed successor');
@@ -1422,7 +1501,7 @@ export function canvasPreflightPrefix(bytes,{sha,base,planHash,environment,comma
   assertCanvasPreflightTree(sha,read,profile);assert.equal(sha256(bytes),profile.checkpoint,'Changed failed preflight checkpoint');
   assert.equal(original.sha,profile.source);assert.equal(original.status,'failed');
   assert.equal(original.base,base);assert.equal(original.planHash,planHash);assert.equal(original.environment.key,environment.key);
-  assert.equal(original.commands.length,profile===AUTONOMY_BROWSER_PREFLIGHT?51:profile===MODEL_BROWSER_PREFLIGHT?50:profile===MODEL_WORKER_PREFLIGHT?42:profile===SETTLEMENT_HOSTING_PREFLIGHT?37:[SETTLEMENT_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT].includes(profile)?18:profile===MODEL_SELECTION_PREFLIGHT?17:profile===MODEL_OPERATION_PREFLIGHT?14:profile===EXAMPLE_BROWSER_PREFLIGHT?42:profile===EXAMPLE_PREFLIGHT?18:profile===EXPORT_PREFLIGHT?16:profile===EXPORT_MEDIA_PREFLIGHT?43:42);assert.equal(original.commands[profile===AUTONOMY_BROWSER_PREFLIGHT?50:profile===MODEL_BROWSER_PREFLIGHT?49:profile===MODEL_WORKER_PREFLIGHT?41:profile===SETTLEMENT_HOSTING_PREFLIGHT?36:[SETTLEMENT_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT].includes(profile)?17:profile===MODEL_SELECTION_PREFLIGHT?16:profile===MODEL_OPERATION_PREFLIGHT?13:profile===EXAMPLE_BROWSER_PREFLIGHT?41:profile===EXAMPLE_PREFLIGHT?17:profile===EXPORT_PREFLIGHT?15:profile===EXPORT_MEDIA_PREFLIGHT?42:41].exitCode,1);
+  assert.equal(original.commands.length,profile===AUTONOMY_BROWSER_PREFLIGHT?51:profile===MODEL_BROWSER_PREFLIGHT?50:profile===MODEL_WORKER_PREFLIGHT?42:profile===SETTLEMENT_NATIVE_PREFLIGHT?42:profile===SETTLEMENT_HOSTING_PREFLIGHT?37:[SETTLEMENT_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT].includes(profile)?18:profile===MODEL_SELECTION_PREFLIGHT?17:profile===MODEL_OPERATION_PREFLIGHT?14:profile===EXAMPLE_BROWSER_PREFLIGHT?42:profile===EXAMPLE_PREFLIGHT?18:profile===EXPORT_PREFLIGHT?16:profile===EXPORT_MEDIA_PREFLIGHT?43:42);assert.equal(original.commands[profile===AUTONOMY_BROWSER_PREFLIGHT?50:profile===MODEL_BROWSER_PREFLIGHT?49:profile===MODEL_WORKER_PREFLIGHT?41:profile===SETTLEMENT_NATIVE_PREFLIGHT?41:profile===SETTLEMENT_HOSTING_PREFLIGHT?36:[SETTLEMENT_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT].includes(profile)?17:profile===MODEL_SELECTION_PREFLIGHT?16:profile===MODEL_OPERATION_PREFLIGHT?13:profile===EXAMPLE_BROWSER_PREFLIGHT?41:profile===EXAMPLE_PREFLIGHT?17:profile===EXPORT_PREFLIGHT?15:profile===EXPORT_MEDIA_PREFLIGHT?42:41].exitCode,1);
   if(profile===SETTLEMENT_PREFLIGHT){
     assert(!original.preflightContinuation&&!original.preflightProgress&&!original.permissionContinuation&&!original.repair,'Unexpected earlier settlement continuation');
     assert(original.commands.slice(0,17).every(row=>row.exitCode===0&&!row.reusedFrom&&!row.continuation),'Original passing prefix changed');
@@ -1435,16 +1514,21 @@ export function canvasPreflightPrefix(bytes,{sha,base,planHash,environment,comma
     assert(original.commands.slice(0,36).every(row=>row.exitCode===0),'Original passing hosting prefix changed');
     assert.equal(original.commands[36].command.name,'Check frontend hosting package');assert.equal(original.commands[36].logHash,profile.failedLog,'Changed original failed hosting fixture');
   }
+  if(profile===SETTLEMENT_NATIVE_PREFLIGHT){
+    assert.deepEqual(original.preflightContinuation,{source:SETTLEMENT_HOSTING_PREFLIGHT.source,checkpoint:SETTLEMENT_HOSTING_PREFLIGHT.checkpoint});
+    assert(!original.preflightProgress&&!original.permissionContinuation&&!original.repair);assert(original.commands.slice(0,41).every(row=>row.exitCode===0));
+    assert.equal(original.commands[41].command.name,'Run worker route tests');assert.equal(original.commands[41].logHash,profile.failedLog);
+  }
   if(profile===MODEL_SELECTION_PREFLIGHT)assert.deepEqual(original.preflightContinuation,{source:MODEL_OPERATION_PREFLIGHT.source,checkpoint:MODEL_OPERATION_PREFLIGHT.checkpoint},'Missing original preflight chain');
   if(profile===MODEL_WORKFLOW_PREFLIGHT)assert.deepEqual(original.preflightContinuation,{source:MODEL_SELECTION_PREFLIGHT.source,checkpoint:MODEL_SELECTION_PREFLIGHT.checkpoint},'Missing original preflight chain');
   if(profile===MODEL_WORKER_PREFLIGHT)assert.deepEqual(original.preflightContinuation,{source:MODEL_WORKFLOW_PREFLIGHT.source,checkpoint:MODEL_WORKFLOW_PREFLIGHT.checkpoint},'Missing original preflight chain');
   if(profile===AUTONOMY_BROWSER_PREFLIGHT)assert.deepEqual(original.preflightContinuation,{source:AUTONOMY_NATIVE_PREFLIGHT.source,checkpoint:AUTONOMY_NATIVE_PREFLIGHT.checkpoint},'Missing original preflight chain');
   if(profile===MODEL_BROWSER_PREFLIGHT)assert.deepEqual(original.preflightContinuation,{source:MODEL_WORKER_PREFLIGHT.source,checkpoint:MODEL_WORKER_PREFLIGHT.checkpoint},'Missing original preflight chain');
-  if([SETTLEMENT_HOSTING_PREFLIGHT,SETTLEMENT_PREFLIGHT,CANVAS_POLICY_NATIVE_PREFLIGHT,CANVAS_POLICY_WORKER_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].includes(profile)){
+  if([SETTLEMENT_NATIVE_PREFLIGHT,SETTLEMENT_HOSTING_PREFLIGHT,SETTLEMENT_PREFLIGHT,CANVAS_POLICY_NATIVE_PREFLIGHT,CANVAS_POLICY_WORKER_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].includes(profile)){
     const flags=({files,reasons,...metadata})=>metadata;
     assert.deepEqual(flags(selection),flags(original.selection),'Changed selection cannot inherit preflight evidence');
     assert.equal(environment.image,original.environment.image,'Changed execution image');
-    if([SETTLEMENT_HOSTING_PREFLIGHT,SETTLEMENT_PREFLIGHT,CANVAS_POLICY_NATIVE_PREFLIGHT,CANVAS_POLICY_WORKER_PREFLIGHT].includes(profile))assert.deepEqual(environment.inputs,original.environment.inputs,'Changed execution inputs');
+    if([SETTLEMENT_NATIVE_PREFLIGHT,SETTLEMENT_HOSTING_PREFLIGHT,SETTLEMENT_PREFLIGHT,CANVAS_POLICY_NATIVE_PREFLIGHT,CANVAS_POLICY_WORKER_PREFLIGHT].includes(profile))assert.deepEqual(environment.inputs,original.environment.inputs,'Changed execution inputs');
     assert.equal(commands.length,52,'Changed release command closure');
     assert.deepEqual(commands,selectedCommands(original.selection,{GITHUB_SHA:sha,CANDIDATE_BASE:base}),'Changed release command closure');
   }
@@ -1478,7 +1562,12 @@ export function verifyCanvasPreflight(directory,evidence,commands){
   assert.deepEqual(evidence.preflightContinuation,{source:profile.source,checkpoint:profile.checkpoint});
   const original=canvasPreflightPrefix(fs.readFileSync(path.join(directory,'reuse/preflight-checkpoint.json')),{...evidence,commands});
   if(profile===SETTLEMENT_HOSTING_PREFLIGHT)verifyCanvasPreflight(path.join(directory,'reuse/settlement-preflight-origin'),original,selectedCommands(original.selection,{GITHUB_SHA:original.sha,CANDIDATE_BASE:original.base}));
-  if([SETTLEMENT_HOSTING_PREFLIGHT,SETTLEMENT_PREFLIGHT,CANVAS_POLICY_NATIVE_PREFLIGHT,CANVAS_POLICY_WORKER_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].includes(profile))assert.equal(sha256(fs.readFileSync(path.join(directory,'reuse/preflight-failed.log'))),profile.failedLog,'Changed original failed preflight log');
+  if(profile===SETTLEMENT_NATIVE_PREFLIGHT){
+    verifyCanvasPreflight(path.join(directory,'reuse/settlement-hosting-origin'),original,selectedCommands(original.selection,{GITHUB_SHA:original.sha,CANDIDATE_BASE:original.base}));
+    verifySettlementNativeRepair(directory,evidence.sha);restoreCanvasHostingProof(directory,{verifyOnly:true});
+    assert.equal(sha256(fs.readFileSync(path.join(directory,'test-results/frontend-runtime.log'))),profile.hostingLog);
+  }
+  if([SETTLEMENT_NATIVE_PREFLIGHT,SETTLEMENT_HOSTING_PREFLIGHT,SETTLEMENT_PREFLIGHT,CANVAS_POLICY_NATIVE_PREFLIGHT,CANVAS_POLICY_WORKER_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].includes(profile))assert.equal(sha256(fs.readFileSync(path.join(directory,'reuse/preflight-failed.log'))),profile.failedLog,'Changed original failed preflight log');
   if(profile===AUTONOMY_NATIVE_PREFLIGHT){
     verifyAutonomyNativeRepair(directory,evidence.sha);restoreCanvasHostingProof(directory,{verifyOnly:true});
     assert.equal(sha256(fs.readFileSync(path.join(directory,'test-results/frontend-runtime.log'))),profile.hostingLog,'Changed retained hosting log');
@@ -1514,6 +1603,12 @@ export function verifyCanvasPreflight(directory,evidence,commands){
     if(progress&&progress.retained.includes(i)){
       assert.deepEqual(row,{...progress.original.commands[i],reusedFrom:progress.original.commands[i].reusedFrom||progress.original.sha});
       assert.equal(sha256(fs.readFileSync(path.join(directory,row.log))),row.logHash);
+    }else if(profile===SETTLEMENT_NATIVE_PREFLIGHT&&i===17){
+      assert(!row.reusedFrom);assert.equal(row.continuation,settlementNativeGuardContinuation(commands[i].run));
+      const log=fs.readFileSync(path.join(directory,row.log),'utf8');assert(log.includes('Settlement native continuation: immutable1574 Worker and FFmpeg passes,29 retained launcher cases and one required correction verified; full native runtime remains mandatory.'));
+      assert(!log.includes('Settlement hosting continuation:')&&!log.includes('Settlement preflight continuation:')&&!log.includes('Canvas native continuation:'));
+    }else if(profile===SETTLEMENT_NATIVE_PREFLIGHT&&i===41){
+      assert(!row.reusedFrom);assert.equal(row.continuation,settlementNativeContinuation(commands[i].run));
     }else if(profile===SETTLEMENT_HOSTING_PREFLIGHT&&i===17){
       assert(!row.reusedFrom);assert.equal(row.continuation,settlementHostingGuardContinuation(commands[i].run));
       const log=fs.readFileSync(path.join(directory,row.log),'utf8');
