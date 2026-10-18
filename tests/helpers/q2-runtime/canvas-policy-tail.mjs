@@ -127,3 +127,35 @@ export async function runCanvasSettlementContinuationTests(f) {
   assert.equal(createHash('sha256').update(JSON.stringify(retained)).digest('hex'),'c290462654cea41829df297fa023cfe646942878d90fc6f6a397d43265deada5','Retained native membership/order changed');
   f.metrics.push({settlementContinuation:{retained,discovery:seen,fresh}});
 }
+
+// The first two callbacks passed in the native 927 release attempt. Preserve
+// that exact boundary; the remaining callbacks retain their original bodies.
+export const canvasSettlementRecoveryRetainedInventory = Object.freeze([
+  'canvas_planning_settlement_inert_music_normalization',
+  'canvas_planning_settlement_inert_music_boundary',
+]);
+export const canvasSettlementRecoveryInventory = Object.freeze([
+  'canvas_planning_settlement_continuation',
+  'canvas_planning_settlement_continuation_crash',
+  'canvas_planning_settlement_continuation_authority',
+  'canvas_planning_settlement_continuation_evidence',
+  'canvas_planning_settlement_continuation_revalidation',
+]);
+export async function runCanvasSettlementRecoveryTests(f) {
+  const {createHash}=await import('node:crypto');
+  assert.deepEqual([...canvasSettlementRecoveryRetainedInventory,...canvasSettlementRecoveryInventory],canvasSettlementContinuationInventory,'Native settlement recovery boundary changed');
+  const seen=[], continuation=[], fresh=[];const scoped=Object.create(f);
+  scoped.test=async(name,operation)=>{
+    assert(!seen.includes(name),'Duplicate native recovery callback');seen.push(name);
+    if(canvasSettlementContinuationInventory.includes(name))continuation.push(name);
+    if(canvasSettlementRecoveryInventory.includes(name)){fresh.push(name);await f.test(name,operation);}
+  };
+  await runCanvasTests(scoped);
+  assert.deepEqual(continuation,canvasSettlementContinuationInventory,'Missing or reordered complete settlement callbacks');
+  assert.deepEqual(fresh,canvasSettlementRecoveryInventory,'Missing or reordered pending native callbacks');
+  const retained=seen.filter(name=>!canvasSettlementContinuationInventory.includes(name));
+  assert.equal(seen.length,209,'Complete native Canvas inventory changed');
+  assert.equal(retained.length,202,'Original retained native inventory changed');
+  assert.equal(createHash('sha256').update(JSON.stringify(retained)).digest('hex'),'c290462654cea41829df297fa023cfe646942878d90fc6f6a397d43265deada5','Original retained native membership/order changed');
+  f.metrics.push({settlementContinuation:{retained,discovery:seen,inventory:continuation,retainedContinuation:canvasSettlementRecoveryRetainedInventory,fresh}});
+}

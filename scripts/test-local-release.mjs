@@ -2243,14 +2243,14 @@ await testStoredPlanContinuation();
 
 async function testStoredPlanWorkerContinuation() {
  const {STORED_PLAN_CONTINUATION:p,assertStoredPlanTree}=await import('./lib/local-release-browser.mjs');
- const {verifyStoredPlanWorkerProgress,verifyStoredPlanWorkerUnion,storedPlanCommand,workerDiscovery,parseDiscovery,STORED_PLAN_WORKER_REFRESH}=await import('./lib/local-release-evidence.mjs');
+ const {verifyStoredPlanWorkerProgress,verifyStoredPlanWorkerUnion,storedPlanCommand,workerDiscovery,parseDiscovery,verifyStoredPlanNative,storedPlanFreshIndexes,STORED_PLAN_WORKER_REFRESH}=await import('./lib/local-release-evidence.mjs');
  const root='.local-release',relative='reuse/test-results/stored-plan-worker-progress';
  if(!fs.existsSync(path.join(root,relative,'checkpoint.json'))){assert(!process.argv.includes('--stored-plan-worker-only'),'The Worker continuation requires its actual failed-source receipts');return;}
  const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),read=args=>execFileSync('git',args,{maxBuffer:64*1024*1024});
- const {partial,passed,failed,profile}=verifyStoredPlanWorkerProgress(root,head);assert.equal(partial.sha,profile.source);assert([p.worker.source,p.workerRetry.source].includes(profile.source));assert.equal(passed.length,8);assert.equal(failed.length,1);
+ const progress=verifyStoredPlanWorkerProgress(root,head),{partial,passed,failed,profile}=progress;assert.equal(partial.sha,profile.source);assert([p.worker.source,p.workerRetry.source,p.native.source].includes(profile.source));assert.equal(passed.length,8);assert.equal(failed.length,1);
  const helper='tests/helpers/canvas-agent-settlement-review-control.mjs';
  assert.throws(()=>assertStoredPlanTree(head,args=>args[0]==='show'&&args[1]===head+':'+helper?Buffer.from('unreviewed fixture'):read(args)));
- assert.throws(()=>assertStoredPlanTree(head,args=>args[0]==='diff'&&[p.worker.source,p.workerRetry.source].includes(args[2])?Buffer.concat([read(args),Buffer.from('workers/auth/src/lib/canvas-agent-graph.js\n')]):read(args)));
+ assert.throws(()=>assertStoredPlanTree(head,args=>args[0]==='diff'&&[p.worker.source,p.workerRetry.source,p.native.source].includes(args[2])?Buffer.concat([read(args),Buffer.from('workers/auth/src/lib/canvas-agent-graph.js\n')]):read(args)));
  const old=workerDiscovery(parseDiscovery(fs.readFileSync(path.join(root,'reuse/test-results/stored-plan-origin/test-results/settlement-worker-discovery.json'),'utf8')));
  // Disposable verifier calibration only: actual acceptance still requires the
  // separate executed corrected report and complete current --list receipts.
@@ -2259,9 +2259,25 @@ async function testStoredPlanWorkerContinuation() {
  for(const bad of [passed,[...passed,...failed],[...passed,corrected,passed[0]],[...passed,{...corrected,results:[{status:'passed',retry:1}]}], [...passed,{...corrected,id:'unreviewed'}]])assert.throws(()=>verifyStoredPlanWorkerUnion(old,discovery,bad));
  assert.throws(()=>verifyStoredPlanWorkerUnion(old,discovery.slice(1),[...passed,corrected]));
  assert.equal(storedPlanCommand(partial.commands[17].command,{progress:true}),'npm run test:local-release -- --stored-plan-worker-only');
- const command=storedPlanCommand(partial.commands[41].command,{progress:true});
- assert(command.includes('--grep "(?:Canvas stored planning settlement continuation-revalidation)$"'));assert(command.includes('--output=test-results/stored-plan-worker-artifacts'));assert(command.includes('--retries=0'));assert(command.includes('stored-plan-worker-corrected.json'));assert(command.includes('--suite canvas-settlement-continuation'));assert(!command.includes('stored-plan-worker-fresh.json'));assert(!command.includes('npm run test:workers'));
+ const command=storedPlanCommand(partial.commands[41].command,{progress:true,native:!!progress.native});
+ assert(command.includes('--grep "(?:Canvas stored planning settlement continuation-revalidation)$"'));assert(command.includes('--output=test-results/stored-plan-worker-artifacts'));assert(command.includes('--retries=0'));if(!progress.native)assert(command.includes('stored-plan-worker-corrected.json'));assert(command.includes('--suite '+(progress.native?'canvas-settlement-recovery':'canvas-settlement-continuation')));assert(!command.includes('stored-plan-worker-fresh.json'));assert(!command.includes('npm run test:workers'));
  assert.deepEqual([...STORED_PLAN_WORKER_REFRESH],[2,3,12,17,34,41,43,45]);
+ if(progress.native){
+  assert(!command.includes('--reporter=list,json'),'Completed Node cases must not execute again');assert.deepEqual([...storedPlanFreshIndexes(profile)].sort((a,b)=>a-b),[2,3,7,12,17,29,34,40,41,43,45]);
+  const {canvasSettlementContinuationInventory:inventory,canvasSettlementRecoveryInventory:fresh,canvasSettlementRecoveryRetainedInventory:retained,runCanvasSettlementRecoveryTests}=await import('../tests/helpers/q2-runtime/canvas-policy-tail.mjs');
+  const {parseRuntimeArgs}=await import('../tests/helpers/q2-runtime/linux-hosted.mjs'),{selectedRuntimeSuites,runtimeSuites}=await import('../tests/helpers/q2-runtime/runner.mjs');
+  assert.equal(parseRuntimeArgs(['--suite','canvas-settlement-recovery'],{}).suite,'canvas-settlement-recovery');assert.throws(()=>parseRuntimeArgs(['--suite','canvas-settlement-recovery-other'],{}));assert.equal(selectedRuntimeSuites('canvas-settlement-recovery')[0][1],runCanvasSettlementRecoveryTests);assert(!runtimeSuites.some(([,run])=>run===runCanvasSettlementRecoveryTests));
+  const previous=JSON.parse(fs.readFileSync(path.join(root,'reuse/test-results/stored-plan-origin/runtime/q2-runtime-evidence/native-Dvjqr1/reports/bitbi-q2-runtime-gLE6HW__result.json'))),oldNames=previous.reports.find(row=>row.suite==='canvas').records.map(row=>row.name),position=oldNames.indexOf('canvas_planning_settlement_identity')+1;assert(position>0);
+  const names=[...oldNames.slice(0,position),...inventory,...oldNames.slice(position)],metrics={retained:oldNames,discovery:names,inventory:[...inventory],retainedContinuation:[...retained],fresh:[...fresh]};
+  const result={passed:5,failedSuites:0,reports:[{suite:'canvas',records:fresh.map(name=>({name,status:'PASS'})),metrics:[{settlementContinuation:metrics}],failure:null}]};
+  assert.deepEqual(verifyStoredPlanNative(previous,result,progress.native),{retained:387,executed:5,required:392});
+  for(const mutate of [r=>r.reports[0].records.pop(),r=>r.reports[0].records.push(progress.native[0]),r=>r.reports[0].records[0].status='FAIL',r=>r.reports[0].metrics[0].settlementContinuation.discovery.pop(),r=>r.reports[0].metrics[0].settlementContinuation.retainedContinuation.pop()]){const bad=structuredClone(result);mutate(bad);assert.throws(()=>verifyStoredPlanNative(previous,bad,progress.native));}
+  assert.throws(()=>verifyStoredPlanNative(previous,result,progress.native.slice(1)));
+  const source=fs.readFileSync('tests/helpers/q2-runtime/canvas-policy-tail.mjs','utf8'),url=code=>'data:text/javascript;base64,'+Buffer.from(code).toString('base64'),adapter=async names=>import(url(source.replace("'./canvas.mjs'",JSON.stringify(url('export async function runCanvasTests(f){for(const name of '+JSON.stringify(names)+')await f.test(name,async()=>f.calls.push(name));}')))));
+  const fixture=()=>({calls:[],metrics:[],test:async(name,operation)=>operation()}),f=fixture();await(await adapter(names)).runCanvasSettlementRecoveryTests(f);assert.deepEqual(f.calls,fresh);assert.deepEqual(f.metrics,[{settlementContinuation:metrics}]);
+  for(const bad of [names.slice(1),names.filter(name=>name!==retained[0]),names.filter(name=>name!==fresh[0]),[...names,names[0]]])await assert.rejects(()=>adapter(bad).then(module=>module.runCanvasSettlementRecoveryTests(fixture())));
+ }
+
  const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-stored-plan-worker-'));
  try{
   const snapshot=path.join(temporary,'proof');fs.cpSync(root,snapshot,{recursive:true});
@@ -2269,8 +2285,9 @@ async function testStoredPlanWorkerContinuation() {
    const target=path.join(snapshot,relative,file),bytes=fs.readFileSync(target);fs.writeFileSync(target,'forged');assert.throws(()=>verifyStoredPlanWorkerProgress(snapshot,head));fs.writeFileSync(target,bytes);
   }
   if(profile===p.workerRetry)for(const file of ['checkpoint.json','logs/17.log','logs/41.log','test-results/worker-failed.json']){const target=path.join(snapshot,'reuse/test-results/stored-plan-worker-retry',file),bytes=fs.readFileSync(target);fs.writeFileSync(target,'forged');assert.throws(()=>verifyStoredPlanWorkerProgress(snapshot,head));fs.writeFileSync(target,bytes);}
+  if(progress.native)for(const file of ['checkpoint.json','logs/41.log','test-results/worker-completed.json','native.log',...Object.keys(profile.proof).map(file=>'runtime/q2-runtime-evidence/native-Braz4y/'+file)]){const target=path.join(snapshot,'reuse/test-results/stored-plan-native-progress',file),bytes=fs.readFileSync(target);fs.writeFileSync(target,'forged');assert.throws(()=>verifyStoredPlanWorkerProgress(snapshot,head));fs.writeFileSync(target,bytes);}
   assert.equal(verifyStoredPlanWorkerProgress(snapshot,head).passed.length,8);
  }finally{fs.rmSync(temporary,{recursive:true,force:true});}
- console.log('Stored-plan Worker continuation: eight actual Linux passes retained; only failed revalidation selected, seven native cases still mandatory; changed source, omitted/failed/retried/duplicate outcomes and forged receipts rejected.');
+ console.log(progress.native?'Stored-plan native continuation: all nine Node outcomes and two native passes retained under original sources; five fresh native cases mandatory; discovery, isolation, source and forged/missing/duplicate proof counterchecks passed.':'Stored-plan Worker continuation: eight actual Linux passes retained; only failed revalidation selected, seven native cases still mandatory; changed source, omitted/failed/retried/duplicate outcomes and forged receipts rejected.');
 }
 await testStoredPlanWorkerContinuation();

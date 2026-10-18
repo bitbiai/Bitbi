@@ -141,6 +141,7 @@ export const SETTLEMENT_BROWSER_PREFLIGHT=Object.freeze({
 export const STORED_PLAN_CONTINUATION=Object.freeze({
   source:'976310e5bb02dd3bd317a1964bd90320f78db3d7',
   run:'976310e5bb02dd3bd317a1964bd90320f78db3d7-5bc79b8e-08f9-44fc-a595-a4ec869b099c',
+  native:Object.freeze({"source":"927a77911937a601b4fc961e0afa921b6ac1dbc6","checkpoint":"fa932a2163022b4cef1e65bbfe1ed5dfa305b05e6c2f4b9f45fe2af63f4d5ce1","report":"53b79cd99b6120acd9b8112966d09826f7ee484ffa2d1c6fa875775512ba6cba","failed":"138ac934de5096288b5b7e1767ce40959cc485077dbc090d76f3d3cf731aa5e8","nativeLog":"36324cdbf433b01d94ffed084682425f7822219f744b4c7d39a7f4cacde59eb7","test":"65477ea29d643c8f0de50f9a617641ac5639efe6adc44142e5d35446addc7473","specs":{"workers/auth/src/lib/canvas-agent-settlement-review.js":"614a6c99e39bd5632a89eac2e1c42fe8ba357179a44e6ff89937b04301eba69c","docs/runbooks/REGRESSION_REGISTER.md":"06d4ab06a8494379e32dad91a572e911457175094f331645ed0ba87ac3f54ecd","tests/helpers/q2-runtime/canvas-policy-tail.mjs":"1e842d828f12e4564e6adc00f8f8e5cef5aa5229d95c21e3d3b7c76837303d14","tests/helpers/q2-runtime/runner.mjs":"2698a56c5e86d3e065c3cc23d93d9bb8159177d1678c82c2827525e02989ac69","tests/helpers/q2-runtime/linux-hosted.mjs":"7823502f86a81added414c8818fc86faa70456502d200e5cb64e9affcaee6552","tests/helpers/q2-runtime/linux-runtime-child.mjs":"1e3ac70426712b015e9f37d32dc7dd01069bcd920022c0cdaa4178bc1da13081","tests/helpers/q2-runtime/linux-bootstrap.py":"89b4e5dba6d88503eadbad2aad992779001fbc688d03623296abed750bd32edf"},"proof":{"launcher-result.json":"639e3aa350329357865e35285a6803bc0cd38565f1003f6b2214e5416e854dfd","reports/bitbi-q2-runtime-hkzCI4__result.json":"2ef38bb8559331d589cdf918065e013ce39b24817da62b3eb6bb19a42a05c985","reports/isolation-result.json":"c609013b5a939b464aaa1834e97286e6ec5c0f4eb4c069f1af40770a6527b11e","reports/isolation-final.json":"3722a729b374515d022042aa6df90f8f984b91c3086a0a52d42884219ce98055"}}),
   workerRetry:Object.freeze({source:'5d5d6bc62098b342bf5892ba454df39e81c55e77',checkpoint:'b01712671a5e6fd0c99f98315b3517932ed97fb11d322b40869512c704f65efe',report:'750e2ad2fb31b6ada728e3241ef63a7d4d61cd3f2f044ff5a0fd6611f9288530',failed:'41dce8472e188cded50010b2637c3816145da7b35b748c9e709c21431ad327ff',guard:'205c0fc9dc54a69405b5fb0ea18f1274ae16c2bbf1711fa72f06ab77110e26eb',helper:'ecac3ffa6441345892a8822dd499a05c67e85878a3efb554192ce4a63fd4cf76',test:'383366b4fd6d83787aae5333ba79278f824591a34703e7211b8cc04193e0455f'}),
   worker:Object.freeze({source:'aee29a0d536c6ed68673da5ba99dc90eb6a1e522',checkpoint:'b1567bccae2088398bacae57caaf0430a9b8cb2d9f06495f9a682846754105d3',report:'bfcba82a6b5526c028749f8d800c526348f8534948676e91ed1562fdfa68a5c8',failed:'1f4bf5fb0f16168312ae2c11370d705a6a893506e2799fea9384f5cf3f9ac52d',guard:'059202981b0cde5e2115300a0609b5e1ff2783ab86ec7e81472236c86dcb390c',helper:'2cce6ac9c6806f214ad635c96e37537b887a1e8c74f984061366c1dbc091da6e'}),
   placement:Object.freeze({source:'946d32c4cb5d35ab4653ed42a035b82a59b495d5',checkpoint:'7568ac5a524c7e7be11d56103d0afb5dcefc5354f617ea77246c8cfe40261b4a',preflight:'05cb0d53f874b72b53bed175cbd428236700b6ea586fd10cdaf092730e7a2f9e',failed:'4970a6841914aebbca609b757c44476b8c8ffed7deb4bb623ed3ccf4b1edbf86'}),
@@ -171,8 +172,13 @@ export function assertStoredPlanTree(head,read=args=>execFileSync('git',args,{ma
   const p=STORED_PLAN_CONTINUATION;
   const tooling=['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/lib/local-release-browser.mjs','scripts/test-local-release.mjs'];
   const parents=read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/);
-  const retry=parents[1]===p.workerRetry.source,worker=parents[1]===p.worker.source,helper='tests/helpers/canvas-agent-settlement-review-control.mjs';
-  if(retry){
+  const native=parents[1]===p.native.source,retry=parents[1]===p.workerRetry.source,worker=parents[1]===p.worker.source,helper='tests/helpers/canvas-agent-settlement-review-control.mjs';
+  if(native){
+    assert.deepEqual(parents,[head,p.native.source]);assertStoredPlanTree(p.native.source,read);
+    const repair=read(['diff','--name-only',p.native.source,head]).toString().trim().split('\n').filter(Boolean);
+    assert(repair.every(file=>tooling.includes(file)||Object.hasOwn(p.native.specs,file)),'Native continuation changed unrelated accepted input');
+    for(const[file,hash]of Object.entries(p.native.specs)){assert(repair.includes(file));assert.equal(sha256(read(['show',`${head}:${file}`])),hash,'Changed native continuation input');}
+  }else if(retry){
     assert.deepEqual(parents,[head,p.workerRetry.source]);assertStoredPlanTree(p.workerRetry.source,read);
     const repair=read(['diff','--name-only',p.workerRetry.source,head]).toString().trim().split('\n').filter(Boolean);
     assert(repair.includes(helper)&&repair.every(file=>tooling.includes(file)||file===helper),'Worker diagnostic repair changed unrelated accepted input');
@@ -187,8 +193,9 @@ export function assertStoredPlanTree(head,read=args=>execFileSync('git',args,{ma
   }else assert.deepEqual(parents,[head,p.source],'Stored-plan continuation must preserve the exact accepted-source chain');
   const files=read(['diff','--name-only',p.source,head]).toString().trim().split('\n').filter(Boolean);
   assert(files.length&&files.every(file=>tooling.includes(file)||Object.hasOwn(p.specs,file)),'Unreviewed runtime, test, policy, dependency or frontend change');
-  for(const[file,hash]of Object.entries(p.specs)){assert(files.includes(file),`Missing reviewed change: ${file}`);assert.equal(sha256(read(['show',`${head}:${file}`])),file===helper&&retry?p.workerRetry.helper:worker&&file===helper?p.worker.helper:hash,`Changed reviewed input: ${file}`);}
+  for(const[file,hash]of Object.entries(p.specs)){assert(files.includes(file),`Missing reviewed change: ${file}`);assert.equal(sha256(read(['show',`${head}:${file}`])),native?(p.native.specs[file]||(file===helper?p.workerRetry.helper:hash)):file===helper&&retry?p.workerRetry.helper:worker&&file===helper?p.worker.helper:hash,`Changed reviewed input: ${file}`);}
   for(const file of files)assert.match(read(['ls-tree',head,'--',file]).toString(),/^100644 blob /,'Continuation must contain ordinary committed files');
+  if(native){assert.equal(sha256(read(['show',`${head}:scripts/test-local-release.mjs`])),p.native.test,'Changed native continuation verifier');return;}
   if(retry){assert.equal(sha256(read(['show',`${head}:scripts/test-local-release.mjs`])),p.workerRetry.test,'Changed reviewed continuation counterchecks');return;}
   if(worker){
     const before=read(['show',`${p.worker.source}:scripts/test-local-release.mjs`]).toString(),after=read(['show',`${head}:scripts/test-local-release.mjs`]).toString();

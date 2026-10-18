@@ -2490,6 +2490,14 @@ permit new reasoning. Node/native counterchecks must exercise the original store
 answer, retained historical bytes, provider-body/price equivalence, other invalid
 settings, duplicate/crash recovery and changed authorization.
 
+Native D1 limits SQL expression depth to 100. The actual workerd caller at
+`927a7791` rejected the settled-plan continuation before mutation because its
+long conjunction combined nested budget/settings queries. Group equivalent
+conjunctions without changing predicates, bind order or the atomic transaction;
+Node SQLite acceptance alone does not establish D1 compatibility. Retain the two
+completed normalization cases and require the remaining native continuation,
+replay, crash, authority, evidence and final-admission controls before live use.
+
 The first repair candidate `c9d5be52` stopped at local release command 18
 (`test:local-release`), after 17 completed commands: a new current native case
 had been appended to a closed historical continuation inventory. The historical

@@ -302,27 +302,30 @@ export async function applyCanvasPlanningSettlementContinuation(env,input) {
         code:'canvas_agent_settled_plan_continued',phase:'planning',continuationDigest:expected,approval:result.approval,
         actor:input.actor,authorizationRef:input.authorizationRef,continuedAt:now});
     if(new TextEncoder().encode(payload).byteLength>12000)fail('canvas_agent_settlement_continuation_evidence_limit');
+    // Keep each conjunction shallow: D1's expression-depth limit also counts
+    // the expanded budget view and nested ownership/availability subqueries.
+    // These groups preserve every CAS predicate and its original binding order.
     const unchanged=`EXISTS(SELECT 1 FROM canvas_agent_runs r JOIN canvas_projects p ON p.id=r.project_id JOIN users u ON u.id=r.user_id
         JOIN canvas_agent_steps s ON s.run_id=r.id JOIN canvas_agent_model_operations o ON o.step_id=s.id
         JOIN member_ai_usage_attempts_v2 a ON a.id=s.usage_attempt_id JOIN canvas_agent_settlement_reviews v ON v.operation_id=o.id
         JOIN canvas_agent_proposals q ON q.step_id=s.id
-        WHERE r.id=? AND r.user_id=? AND r.project_id=? AND r.status='review_required' AND r.error_code='canvas_agent_recovered_plan_requires_review'
+        WHERE (r.id=? AND r.user_id=? AND r.project_id=? AND r.status='review_required' AND r.error_code='canvas_agent_recovered_plan_requires_review'
         AND r.expected_revision=? AND r.brief_revision IS ? AND r.budget_credits=? AND r.budget_revision=? AND r.tariff_revision=?
-        AND r.capability_revision=? AND r.expires_at=? AND r.expires_at>? AND (r.lease_until IS NULL OR r.lease_until<=?)
-        AND p.revision=r.expected_revision AND p.deleted_at IS NULL AND p.user_id=r.user_id AND u.status='active'
+        AND r.capability_revision=? AND r.expires_at=? AND r.expires_at>? AND (r.lease_until IS NULL OR r.lease_until<=?))
+        AND (p.revision=r.expected_revision AND p.deleted_at IS NULL AND p.user_id=r.user_id AND u.status='active'
         AND (r.brief_revision IS NULL OR EXISTS(SELECT 1 FROM canvas_agent_conversations c WHERE c.project_id=r.project_id
             AND c.user_id=r.user_id AND c.brief_revision=r.brief_revision AND c.state!='cancelled'))
         AND NOT EXISTS(SELECT 1 FROM canvas_agent_controls c WHERE c.run_id=r.id AND c.action IN ('pause','cancel','takeover'))
         AND NOT EXISTS(SELECT 1 FROM canvas_agent_runs n WHERE n.project_id=r.project_id AND n.id!=r.id AND n.purpose='production'
-            AND (n.created_at>=r.created_at OR n.status IN ('queued','planning','applying','running','exporting')))
-        AND s.id=? AND s.status='completed' AND s.receipt_json=? AND NOT EXISTS(SELECT 1 FROM canvas_agent_steps extra WHERE extra.run_id=r.id AND extra.id!=s.id)
-        AND o.id=? AND o.state='completed' AND o.receipt_json=? AND o.response_json=? AND o.reconcile_attempts=5
-        AND a.id=? AND a.billing_status='finalized' AND a.provider_outcome='succeeded' AND a.reservation_released_at IS NULL
+            AND (n.created_at>=r.created_at OR n.status IN ('queued','planning','applying','running','exporting'))))
+        AND (s.id=? AND s.status='completed' AND s.receipt_json=? AND NOT EXISTS(SELECT 1 FROM canvas_agent_steps extra WHERE extra.run_id=r.id AND extra.id!=s.id)
+        AND o.id=? AND o.state='completed' AND o.receipt_json=? AND o.response_json=? AND o.reconcile_attempts=5)
+        AND (a.id=? AND a.billing_status='finalized' AND a.provider_outcome='succeeded' AND a.reservation_released_at IS NULL
         AND a.metadata_json=? AND v.id=? AND v.state='completed' AND v.allow_new_reasoning=0 AND v.review_digest=?
-        AND q.status='invalid' AND q.plan_json=? AND q.validation_json=?
-        AND EXISTS(SELECT 1 FROM model_pricing_state WHERE id=1 AND revision=? AND factory_version=? AND rules_json=?)
+        AND q.status='invalid' AND q.plan_json=? AND q.validation_json=?)
+        AND (EXISTS(SELECT 1 FROM model_pricing_state WHERE id=1 AND revision=? AND factory_version=? AND rules_json=?)
         AND (SELECT COALESCE(SUM(committed),0) FROM canvas_agent_step_costs WHERE project_id=r.project_id)=?
-        AND (${settingsSql.replace(' AS snapshot','')})=?)`;
+        AND (${settingsSql.replace(' AS snapshot','')})=?))`;
     const bindings=[run.id,run.user_id,run.project_id,run.expected_revision,run.brief_revision,run.budget_credits,run.budget_revision,
         run.tariff_revision,run.capability_revision,run.expires_at,now,now,step.id,step.receipt_json,value.operation.id,
         value.operation.receipt_json,value.operation.response_json,value.usage.id,value.usage.metadata_json,review.id,review.review_digest,

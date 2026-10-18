@@ -1,5 +1,5 @@
 import {STORED_PLAN_CONTINUATION,assertStoredPlanTree} from './local-release-browser.mjs';
-import {canvasSettlementContinuationInventory} from '../../tests/helpers/q2-runtime/canvas-policy-tail.mjs';
+import {canvasSettlementContinuationInventory,canvasSettlementRecoveryRetainedInventory,canvasSettlementRecoveryInventory} from '../../tests/helpers/q2-runtime/canvas-policy-tail.mjs';
 import {canvasPolicyPrefix,canvasPolicyTailInventory} from '../../tests/helpers/q2-runtime/canvas-policy-tail.mjs';
 // Local execution is trusted only through authenticated repository-writer
 // transport, exact committed inputs and complete command/report/candidate hashes.
@@ -1822,6 +1822,7 @@ export function verifyStoredPlanPlacement(directory,context,original){
   return partial;
 }
 export const STORED_PLAN_WORKER_REFRESH=new Set([2,3,12,17,34,41,43,45]);
+export const storedPlanFreshIndexes=profile=>profile===STORED_PLAN_CONTINUATION.native?new Set([...STORED_PLAN_WORKER_REFRESH,7,29,40]):STORED_PLAN_WORKER_REFRESH;
 export function verifyStoredPlanWorkerProgress(directory,head){
   const p=STORED_PLAN_CONTINUATION.worker,root=path.join(directory,'reuse/test-results/stored-plan-worker-progress');
   assertStoredPlanTree(head);const bytes=fs.readFileSync(path.join(root,'checkpoint.json'));assert.equal(sha256(bytes),p.checkpoint);
@@ -1847,9 +1848,27 @@ export function verifyStoredPlanWorkerProgress(directory,head){
     const resultBytes=fs.readFileSync(path.join(retryRoot,'test-results/worker-failed.json'));assert.equal(sha256(resultBytes),retry.report);
     const result=JSON.parse(resultBytes),rows=executedWorkers(result);assert.deepEqual(result.errors,[]);assert.equal(result.config.workers,1);assert.equal(result.stats.expected,0);assert.equal(result.stats.unexpected,1);assert.equal(result.stats.flaky,0);assert.equal(result.stats.skipped,0);
     assert.deepEqual(rows.map(row=>[row.file,row.title,row.id]),failed.map(row=>[row.file,row.title,row.id]));assert.equal(rows[0].results.length,1);assert.equal(rows[0].results[0].status,'failed');assert.equal(rows[0].results[0].retry,0);
-    return {partial:next,passed,failed:rows,profile:retry};
+    const progress={partial:next,passed,failed:rows,profile:retry};
+    return fs.existsSync(path.join(directory,'reuse/test-results/stored-plan-native-progress/checkpoint.json'))?verifyStoredPlanNativeProgress(directory,head,progress):progress;
   }
   return {partial,passed,failed,profile:p};
+}
+export function verifyStoredPlanNativeProgress(directory,head,previous){
+  const p=STORED_PLAN_CONTINUATION.native,root=path.join(directory,'reuse/test-results/stored-plan-native-progress');
+  const pinned=(file,hash)=>{const bytes=fs.readFileSync(path.join(root,file));assert.equal(sha256(bytes),hash,'Changed native continuation evidence: '+file);return bytes;};
+  const partial=JSON.parse(pinned('checkpoint.json',p.checkpoint));assert.equal(partial.sha,p.source);assert.equal(partial.status,'failed');assert.equal(partial.commands.length,46);
+  const commands=selectedCommands(partial.selection,{GITHUB_SHA:partial.sha,CANDIDATE_BASE:partial.base});assert.equal(commands.length,46);
+  assert.deepEqual(partial.storedPlanWorkerProgress,{source:previous.profile.source,checkpoint:previous.profile.checkpoint});assert.equal(partial.environment.key,previous.partial.environment.key);assert.equal(partial.environment.image,previous.partial.environment.image);assert.equal(partial.nativeBrowsers.key,previous.partial.nativeBrowsers.key);assert.equal(partial.planHash,previous.partial.planHash);
+  for(let i=0;i<46;i++){const row=partial.commands[i];if([43,45].includes(i)){assert.equal(row,null);continue;}assert.deepEqual(row.command,commands[i]);assert.equal(row.exitCode,i===41?1:0);assert.equal(sha256(fs.readFileSync(path.join(root,row.log))),row.logHash);if(!STORED_PLAN_WORKER_REFRESH.has(i))assert.deepEqual(row,{...previous.partial.commands[i],command:commands[i],reusedFrom:previous.partial.sha});}
+  assert.equal(partial.commands[41].logHash,p.failed);assert.equal(partial.commands[17].logHash,STORED_PLAN_CONTINUATION.workerRetry.guard);
+  const report=JSON.parse(pinned('test-results/worker-completed.json',p.report)),completed=executedWorkers(report);assert.deepEqual(report.errors,[]);assert.equal(report.config.workers,1);assert.equal(report.stats.expected,1);assert.equal(report.stats.unexpected,0);assert.equal(report.stats.flaky,0);assert.equal(report.stats.skipped,0);assert(completed.every(passedOnce));assert.deepEqual(completed.map(row=>[row.file,row.title,row.id]),previous.failed.map(row=>[row.file,row.title,row.id]));
+  const nativeLog=pinned('native.log',p.nativeLog).toString();assert(nativeLog.includes('/tmp/bitbi-release/q2-runtime-evidence/native-Braz4y'));
+  const records=Object.fromEntries(Object.entries(p.proof).map(([file,hash])=>[file,JSON.parse(pinned('runtime/q2-runtime-evidence/native-Braz4y/'+file,hash))]));
+  const launcher=records['launcher-result.json'];assert.equal(launcher.origin,LOCAL_POLICY);assert.equal(launcher.status,1);assert.equal(launcher.mode,'runtime');assert.equal(launcher.childBoundaryVerified,false);assert.equal(launcher.hostInterfacesUnchanged,true);assert.equal(launcher.hostRoutesUnchanged,true);assert.deepEqual(launcher.postcheckFailures,[]);assert.equal(launcher.hostedImage.GITHUB_SHA,p.source);
+  for(const file of ['reports/isolation-result.json','reports/isolation-final.json'])assert.equal(records[file].passed,true);
+  const result=records['reports/bitbi-q2-runtime-hkzCI4__result.json'];assert.equal(result.passed,2);assert.equal(result.failedSuites,1);assert.equal(result.reports.length,1);assert.equal(result.reports[0].suite,'canvas');
+  assert.deepEqual(result.reports[0].records,canvasSettlementRecoveryRetainedInventory.map(name=>({name,status:'PASS'})));assert.deepEqual(result.reports[0].failure,{stage:canvasSettlementRecoveryInventory[0],name:'Error',message:'D1_ERROR: Expression tree is too large (maximum depth 100): SQLITE_ERROR'});
+  return {...previous,partial,profile:p,completed,native:result.reports[0].records};
 }
 export function verifyStoredPlanOrigin(directory,head){
   assertStoredPlanTree(head);const origin=path.join(directory,'reuse/test-results/stored-plan-origin');
@@ -1899,41 +1918,44 @@ export function verifyStoredPlanWorkers(directory,head,{pending=false}={}){
   // The selection guard uses disposable synthetic outcomes only to validate the
   // exact query identities before any execution; these are never saved as passes.
   verifyStoredPlanWorkerUnion(previous,discovery,[...(progress?.passed||[]),...chosen.map(row=>({...row,results:[{status:'passed',retry:0}]}))]);
-  if(pending)return {retained:previous.length,pending:chosen.length};
+  if(pending)return {retained:previous.length,pending:progress?.native?0:chosen.length};
+  if(progress?.native)assert.equal(sha256(fs.readFileSync(path.join(directory,'test-results/stored-plan-worker-corrected.json'))),progress.profile.report,'Retained Node report changed');
   const raw=read(progress?'stored-plan-worker-corrected.json':'stored-plan-worker-fresh.json');assert.deepEqual(raw.errors,[]);assert.equal(raw.config.workers,1);assert.equal(raw.stats.unexpected,0);assert.equal(raw.stats.flaky,0);assert.equal(raw.stats.skipped,0);
   const fresh=executedWorkers(raw);if(progress)assert.deepEqual(fresh.map(row=>[row.file,row.title,row.id]),progress.failed.map(row=>[row.file,row.title,row.id]));
-  const counts=verifyStoredPlanWorkerUnion(previous,discovery,[...(progress?.passed||[]),...fresh]);assert.equal(raw.stats.expected,fresh.length);return {...counts,...(progress?{retainedNew:8,executedNow:1}:{})};
+  const counts=verifyStoredPlanWorkerUnion(previous,discovery,[...(progress?.passed||[]),...fresh]);assert.equal(raw.stats.expected,fresh.length);return {...counts,...(progress?.native?{retainedNew:9,executedNow:0}:progress?{retainedNew:8,executedNow:1}:{})};
 }
-export function verifyStoredPlanNative(previous,result){
+export function verifyStoredPlanNative(previous,result,retained=[]){
   assert.equal(previous.failedSuites,0);assert.equal(previous.passed,385);assert.equal(result.failedSuites,0);assert.equal(result.reports.length,1);
-  const fresh=result.reports[0];assert.equal(fresh.suite,'canvas');assert(!fresh.failure);assert.deepEqual(fresh.records,canvasSettlementContinuationInventory.map(name=>({name,status:'PASS'})));assert.equal(result.passed,fresh.records.length);
+  const expected=retained.length?canvasSettlementRecoveryInventory:canvasSettlementContinuationInventory;if(retained.length)assert.deepEqual(retained,canvasSettlementRecoveryRetainedInventory.map(name=>({name,status:'PASS'})));
+  const fresh=result.reports[0];assert.equal(fresh.suite,'canvas');assert(!fresh.failure);assert.deepEqual(fresh.records,expected.map(name=>({name,status:'PASS'})));assert.equal(result.passed,fresh.records.length);
   const metrics=fresh.metrics.filter(row=>row.settlementContinuation);assert.equal(metrics.length,1);
   const old=previous.reports.find(row=>row.suite==='canvas').records.map(row=>row.name),actual=metrics[0].settlementContinuation;
-  assert.deepEqual(actual.retained,old);assert.deepEqual(actual.fresh,canvasSettlementContinuationInventory);assert.equal(new Set(actual.discovery).size,actual.discovery.length);
+  assert.deepEqual(actual.retained,old);assert.deepEqual(actual.fresh,expected);if(retained.length){assert.deepEqual(actual.inventory,canvasSettlementContinuationInventory);assert.deepEqual(actual.retainedContinuation,retained.map(row=>row.name));}assert.equal(new Set(actual.discovery).size,actual.discovery.length);
   assert.deepEqual(actual.discovery.filter(name=>!canvasSettlementContinuationInventory.includes(name)),old);assert.deepEqual(actual.discovery.filter(name=>canvasSettlementContinuationInventory.includes(name)),canvasSettlementContinuationInventory);
-  return {retained:385,executed:fresh.records.length,required:385+fresh.records.length};
+  return {retained:385+retained.length,executed:fresh.records.length,required:385+retained.length+fresh.records.length};
 }
-export function storedPlanWorkerCommand(command,progress=false){
+export function storedPlanWorkerCommand(command,progress=false,native=false){
   assert(command.endsWith('else\n  npm run test:workers\nfi\n'));assert.equal(command.split('  npm run test:workers').length,2);
   const names=progress?['Canvas stored planning settlement continuation-revalidation']:storedPlanWorkerNames,file=progress?'stored-plan-worker-corrected.json':'stored-plan-worker-fresh.json';
   const pattern='(?:'+names.map(name=>name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|')+')$';
   const args='npx playwright test -c playwright.workers.config.js tests/q2-canvas-agent-settlement-review.spec.js tests/q2-canvas-settlement-operator.spec.js --grep '+JSON.stringify(pattern)+' --workers=1 --retries=0 --output=test-results/stored-plan-worker-artifacts';
+  const nativeFile=native?'stored-plan-native-recovery.log':'stored-plan-native.log',suite=native?'canvas-settlement-recovery':'canvas-settlement-continuation';
   return command.replace('  npm run test:workers',()=>[
     'mkdir -p test-results',
     'PLAYWRIGHT_JSON_OUTPUT_NAME= npx playwright test -c playwright.workers.config.js --list --reporter=json > test-results/stored-plan-worker-discovery.json',
     'PLAYWRIGHT_JSON_OUTPUT_NAME= '+args+' --list --reporter=json > test-results/stored-plan-selected-discovery.json',
     'node scripts/local-release.mjs verify-stored-plan-workers .local-release pending',
-    'if [ ! -f test-results/'+file+' ]; then PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/'+file+' '+args+' --reporter=list,json; fi',
+    ...(native?[]:['if [ ! -f test-results/'+file+' ]; then PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/'+file+' '+args+' --reporter=list,json; fi']),
     'node scripts/local-release.mjs verify-stored-plan-workers .local-release',
-    'if [ ! -f test-results/stored-plan-native.log ]; then node scripts/test-q2-runtime.mjs --suite canvas-settlement-continuation > test-results/stored-plan-native.log 2>&1 || { status=$?; cat test-results/stored-plan-native.log; exit "$status"; }; fi',
+    'if [ ! -f test-results/'+nativeFile+' ]; then node scripts/test-q2-runtime.mjs --suite '+suite+' > test-results/'+nativeFile+' 2>&1 || { status=$?; cat test-results/'+nativeFile+'; exit "$status"; }; fi',
     'node scripts/local-release.mjs verify-stored-plan-native .local-release',
-    'cat test-results/stored-plan-native.log',
+    'cat test-results/'+nativeFile,
     'PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/stored-plan-auth-discovery.json npm run test:auth -- --list --reporter=json',
   ].map(line=>'  '+line).join('\n'));
 }
-export function storedPlanCommand(command,{progress=false}={}){
+export function storedPlanCommand(command,{progress=false,native=false}={}){
   if(command.name==='Test local release evidence and orchestration'){assert.equal(command.run,'npm run test:local-release');return command.run+(progress?' -- --stored-plan-worker-only':' -- --stored-plan-only');}
-  if(command.name==='Run worker route tests')return storedPlanWorkerCommand(command.run,progress);
+  if(command.name==='Run worker route tests')return storedPlanWorkerCommand(command.run,progress,native);
   return command.run;
 }
 export function verifyStoredPlanContinuation(directory,evidence,commands){
@@ -1947,9 +1969,9 @@ export function verifyStoredPlanContinuation(directory,evidence,commands){
   const old=new Map(original.commands.map(row=>[storedPlanKey(row.command),row]));
   for(const[i,command]of commands.entries()){
     const row=evidence.commands[i],before=old.get(storedPlanKey(command));
-    if(progress&&!STORED_PLAN_WORKER_REFRESH.has(i))assert.deepEqual(row,{...progress.partial.commands[i],command,reusedFrom:progress.partial.sha},'Changed retained preflight/Worker-prefix receipt');
+    if(progress&&!storedPlanFreshIndexes(progress.profile).has(i))assert.deepEqual(row,{...progress.partial.commands[i],command,reusedFrom:progress.partial.sha},'Changed retained preflight/Worker-prefix receipt');
     else if(placement&&i===0)assert.deepEqual(row,{...placement.commands[0],command,reusedFrom:placement.sha},'Changed passed preflight receipt');
-    else if(STORED_PLAN_REFRESH.has(command.name)){assert(!row.reusedFrom);const effective=storedPlanCommand(command,{progress:!!progress});if(effective!==command.run)assert.equal(row.continuation,effective);else assert(!row.continuation);}
+    else if(STORED_PLAN_REFRESH.has(command.name)){assert(!row.reusedFrom);const effective=storedPlanCommand(command,{progress:!!progress,native:!!progress?.native});if(effective!==command.run)assert.equal(row.continuation,effective);else assert(!row.continuation);}
     else assert.deepEqual(row,{...before,command,log:`logs/${i}.log`,reusedFrom:p.source},'Changed retained command receipt');
   }
   restoreStoredPlanProofs(directory,evidence.sha,{browser:true,verifyOnly:true});verifyStoredPlanWorkers(directory,evidence.sha);
@@ -1962,5 +1984,7 @@ export function verifyStoredPlanNativeReceipt(directory,head,log){
   verifyNativeLocalReports(directory,log);
   const refs=log.split('\n').flatMap(line=>{try{const r=JSON.parse(line);return r.q2LinuxEvidence?[r.q2LinuxEvidence]:[];}catch{return [];}});assert.equal(refs.length,1,'Fresh native scope must execute once');
   const reports=path.join(directory,'runtime',refs[0].slice('/tmp/bitbi-release/'.length),'reports'),files=fs.readdirSync(reports).filter(file=>file==='result.json'||file.endsWith('__result.json'));assert.equal(files.length,1);
-  return verifyStoredPlanNative(native,JSON.parse(fs.readFileSync(path.join(reports,files[0]))));
+  const progress=fs.existsSync(path.join(directory,'reuse/test-results/stored-plan-native-progress/checkpoint.json'))?verifyStoredPlanWorkerProgress(directory,head):null,result=JSON.parse(fs.readFileSync(path.join(reports,files[0])));
+  if(progress){const launcher=JSON.parse(fs.readFileSync(path.join(reports,'../launcher-result.json')));assert.equal(launcher.hostedImage.GITHUB_SHA,head);assert.equal(result.provenance.sourceLedger.find(row=>row.path==='workers/auth/src/lib/canvas-agent-settlement-review.js')?.sha256,progress.profile.specs['workers/auth/src/lib/canvas-agent-settlement-review.js']);}
+  return verifyStoredPlanNative(native,result,progress?.native||[]);
 }
