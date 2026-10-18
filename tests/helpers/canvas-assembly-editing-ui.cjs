@@ -17,6 +17,7 @@ module.exports=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock
     const {processCanvasInspections}=await import('../../services/homepage-ffmpeg-processor/canvas-media-inspection.mjs');
     const {getModelTariff}=await import('../../workers/auth/src/lib/model-tariffs.js');
     const {finishCanvasAgentFixture}=await import('./canvas-agent-control.mjs');
+    const {attachCanvasConversation}=await import('./canvas-agent-conversation-control.mjs');
     const dir=fs.mkdtempSync(path.join(os.tmpdir(),'canvas-editable-film-')),DB=new SqliteD1Database();applyAuthMigrations(DB);
     const files={};
     for(const [color,hz] of [['red',440],['blue',880],['yellow',660]]){
@@ -30,7 +31,17 @@ module.exports=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock
     const processorOptions={baseUrl:'https://bitbi.ai',limit:1,authHeaders:headers=>({Authorization:'Bearer synthetic-audio-processor',...headers}),
         requestJson:async(url,init={})=>{const response=await f.request(url,init.method||'GET',init.body,{Authorization:'Bearer synthetic-audio-processor',...init.headers});const payload=await response.json();expect(response.ok,JSON.stringify(payload)).toBe(true);return payload;},fetchImpl:(url,init)=>f.request(url.pathname+url.search,'GET',null,init.headers)};
     const processor=async()=>{await processCanvasInspections(processorOptions);await processCanvasExports(processorOptions);};
-    const production=await finishCanvasAgentFixture({f,processor,targetSeconds:16,order:f.order,generate:true});
+    const conversation=await attachCanvasConversation(f,{scope:'editable-film-'+locale,locale});
+    await conversation.approve(200);
+    let brief=await conversation.exchange('Create a warm film about builders finishing a house beside a pool with ducks, then welcoming visitors.',{
+        text:'We can follow the house construction through to the celebration.',fields:{story:'Builders finish the same house beside its duck pool and welcome visitors.',style:'warm realistic film'}});
+    expect(brief.brief.duration.asked).toBe(true);expect(brief.brief.duration.choice).toBeNull();
+    brief=await conversation.exchange(locale==='de'?'Der Film soll 16 Sekunden dauern.':'The film should be 16 seconds long.',{
+        text:locale==='de'?'Die Projektidee ist für ungefähr 16 Sekunden bereit.':'The project brief is ready for about 16 seconds.',intent:'ready'});
+    expect(brief.brief.duration.targetDurationSeconds).toBe(16);
+    const authorized=await conversation.start({budgetCredits:5000}),admitted=await conversation.data(authorized.response);
+    expect(conversation.calls).toHaveLength(2);conversation.restore();
+    const production=await finishCanvasAgentFixture({f,processor,targetSeconds:16,order:f.order,generate:true,admittedRunId:admitted.run.id});
     const initialProject=await f.readProject(),original=production.output;
     const providerBaseline=f.calls.length;expect(providerBaseline).toBe(1);
     expect(production.evaluationCalls).toBe(1);
@@ -144,6 +155,6 @@ module.exports=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock
         await page.reload();await open();await expect(editor.locator('ol > li')).toHaveCount(3);
         const final=await f.readProject();expect(final.project.assembly.clips.map(clip=>clip.nodeId)).toEqual([f.first.id,f.nodes[0],f.last.id]);expect(final.project.assembly.backgroundMusic.gain).toBe(.25);
         expect(f.calls).toHaveLength(providerBaseline+1);expect(requests.filter(request=>request.path.includes('/agent'))).toEqual([]);expect(errors).toEqual([]);
-        await info.attach('editable-production-real-media',{contentType:'application/json',body:JSON.stringify({initialProduction:'actual agent queue/planner/generation/frame-extraction/export with owned fixture references',provider:'synthetic',agentRun:production.runId,plannerCalls:production.plannerCalls,evaluationCalls:production.evaluationCalls,agentGenerations:providerBaseline,manualGenerations:1,original:original.id,revised:current.id,duration:current.duration,order:current.recipe.assembly.clips.map(clip=>clip.nodeId),originalPreserved:true,played:true,saved:true})});
+        await info.attach('editable-production-real-media',{contentType:'application/json',body:JSON.stringify({initialProduction:'persisted conversation, duration clarification, explicit cap, existing queue/planner/generation/frame-extraction/export with owned references',provider:'synthetic',conversationTurns:conversation.calls.length,briefRevision:brief.briefRevision,agentRun:production.runId,plannerCalls:production.plannerCalls,evaluationCalls:production.evaluationCalls,agentGenerations:providerBaseline,manualGenerations:1,original:original.id,revised:current.id,duration:current.duration,order:current.recipe.assembly.clips.map(clip=>clip.nodeId),originalPreserved:true,played:true,saved:true})});
     }finally{await rendering;await page.unrouteAll({behavior:'wait'});DB.close();fs.rmSync(dir,{recursive:true,force:true});}
 };

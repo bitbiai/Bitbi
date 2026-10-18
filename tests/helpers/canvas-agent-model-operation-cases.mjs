@@ -13,7 +13,7 @@ const debits=async f=>(await f.db.prepare("SELECT COUNT(*) AS n FROM member_cred
 const nodes=async f=>(await f.db.prepare('SELECT COUNT(*) AS n FROM canvas_nodes WHERE project_id=?').bind(f.project).first()).n;
 async function control(f,action,key){return f.request(`${f.route}/${f.runId}/control`,'POST',{action},{'Idempotency-Key':key});}
 
-export const CANVAS_MODEL_CASES=['late','evaluate','lease','cancel','manual','newer','failed','rejected','ambiguous','callback-guards','normalization-recovery','bounded-review','legacy'];
+export const CANVAS_MODEL_CASES=['late','evaluate','lease','cancel','manual','newer','failed','rejected','ambiguous','callback-guards','normalization-recovery','bounded-review','legacy','policy-legacy','policy-late'];
 export async function canvasModelOperationCase(base,name) {
     check(CANVAS_MODEL_CASES.includes(name),'Known durable model case');
     const options={scope:'receipt-'+name};
@@ -24,17 +24,54 @@ export async function canvasModelOperationCase(base,name) {
         return Response.json({success:true,result:{id,state:'Queued'}});
     };
     const f=await canvasAgentModelOperationFixture(base,options);
+    if(name==='policy-legacy') {
+        const step=await f.db.prepare("SELECT * FROM canvas_agent_steps WHERE run_id=? AND kind='plan'").bind(f.runId).first();
+        const source=JSON.parse(step.input_json);delete source.payload.policy;
+        // Historical queued work did not have an instruction pin. It has no
+        // provider receipt, so a new release cannot spend under a new prompt.
+        await rejected(()=>f.db.prepare('UPDATE canvas_agent_steps SET input_json=? WHERE id=?').bind(JSON.stringify(source),step.id).run(),'canvas_agent_step_immutable');
+        // Construct historical fixture state before any dispatch; production
+        // mutations remain subject to the immutable-step trigger above.
+        const removed=await f.db.prepare("DELETE FROM canvas_agent_steps WHERE id=? AND status='ready' AND usage_attempt_id IS NULL").bind(step.id).run();
+        check(removed.meta.changes===1,'Only the unstarted fixture step is replaced');
+        await f.db.prepare(`INSERT INTO canvas_agent_steps(id,run_id,step_key,kind,input_json,allocation_credits,created_at,updated_at)
+            VALUES(?,?,?,'plan',?,?,?,?)`).bind(step.id,step.run_id,step.step_key,JSON.stringify(source),step.allocation_credits,step.created_at,step.updated_at).run();
+        await f.deliver();
+        const blocked=await rawRun(f);
+        check(blocked.status==='review_required'&&blocked.error_code==='canvas_agent_policy_review_required','Unpinned old work requires explicit review');
+        check(f.calls.length===0&&!await f.operation()&&await debits(f)===0,'Legacy policy review cannot dispatch or charge');
+        check((await f.db.prepare('SELECT COUNT(*) AS n FROM member_ai_usage_attempts_v2 WHERE user_id=?').bind(f.owner).first()).n===0,'Policy gate precedes even wallet reservation');
+        return {case:name,providerCalls:0,debits:0};
+    }
     await f.deliver();check(f.calls.length===1,'Exactly one initial provider dispatch');
     const original=await f.operation(),initial=await attempt(f);
     check(original.usage_attempt_id===initial.id&&original.dispatch_token===initial.dispatch_token,'Persisted provider identity binds the existing reservation');
     check(await debits(f)===0&&await nodes(f)===0,'An accepted dispatch is neither a charge nor a completed graph');
+    if(name==='policy-late') {
+        const policy=JSON.parse(original.context_json).policy;
+        check(policy.phase==='planning'&&JSON.parse((await rawRun(f)).policy_json).sha256===policy.sha256,'Run and accepted operation retain the same effective policy');
+        const service=f.env.AI_LAB;let preparations=0;
+        f.env.AI_LAB={fetch(request){
+            if(new URL(request.url).pathname.endsWith('/prepare')){preparations++;return Response.json({ok:false,code:'canvas_agent_policy_changed',outcome:'not_submitted'},{status:409});}
+            return service.fetch(request);
+        }};
+        // Calibrate the changed-policy boundary before observing accepted work.
+        check((await f.env.AI_LAB.fetch(new Request('https://bitbi-ai.internal/internal/ai/canvas-agent/prepare'))).status===409,'The replacement release denies old new-preparation requests');
+        check((await f.complete()).status===200,'Original completion survives the changed preparation policy');
+        await f.observe();await f.deliver();
+        check((await f.operation()).context_json===original.context_json,'A release cannot rewrite accepted policy identity');
+        check(preparations===1&&f.calls.length===1&&await debits(f)===1&&await nodes(f)>0,'Reconciliation uses existing receipt, never re-prepares or re-dispatches');
+        check((await f.complete()).status===200,'Duplicate historical completion remains safe');await f.observe();
+        check(await debits(f)===1,'Historical completion settles exactly once');
+        return {case:name,providerCalls:1,debits:1};
+    }
     if(name==='lease')check((await rawRun(f)).lease_token==='replacement-model-lease','A stale consumer cannot clear a newer lease');
     if(name==='evaluate') {
         check((await f.complete()).status===200,'Planning callback precedes evaluation fixture');
         await f.observe();await f.deliver();f.advance(11_000);
         const step=await f.db.prepare("SELECT * FROM canvas_agent_steps WHERE run_id=? AND kind='evaluate'").bind(f.runId).first();
         const input=JSON.parse(step.input_json),sample=input.samples[0];
-        const payload={version:1,model:'xai/grok-4.7',requestId:step.id,brief:input.brief,privacyUser:'cau_'+'a'.repeat(64),promptCacheKey:'cap_'+'b'.repeat(64),
+        const payload={version:1,model:'xai/grok-4.7',requestId:step.id,brief:input.brief,policy:input.policy,privacyUser:'cau_'+'a'.repeat(64),promptCacheKey:'cap_'+'b'.repeat(64),
             frames:[{nodeId:sample.nodeId,timeSeconds:1,requirement:sample.requirement,imageData:'data:image/jpeg;base64,/9j/2Q=='}]};
         await f.atClock(async()=>{const run=await claimCanvasAgent(f.env,f.runId);check(run,'Real durable evaluation lease acquired');
             await agentTransition(f.env,run,{phase:'evaluating'});

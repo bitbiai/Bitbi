@@ -215,7 +215,7 @@ async function lostLeaseCase(base) {
 export async function canvasAgentAutonomyFixture(base,{scope='autonomy-flow',budgetCredits=10000,plan=freshCanvasAgentPlan(),locale='en'}={}) {
     const initial=await canvasAgentModelOperationFixture(base,{scope});
     check((await initial.request(`${initial.route}/${initial.runId}/control`,'POST',{action:'takeover'},{'Idempotency-Key':scope+'-replace-unstarted'})).ok,'Close only the fixture initial unstarted run');
-    const input={brief:'Build a small-town house next to a pool with ducks, then celebrate.',expectedRevision:0,budgetCredits,locale};
+    const input={brief:'Build a small-town house next to a pool with ducks, then celebrate. Choose a suitable duration.',durationChoice:'delegated',expectedRevision:0,budgetCredits,locale};
     const started=await initial.data(await initial.request(initial.route,'POST',input,{'Idempotency-Key':scope+'-autonomous-start'}));
     const runId=started.run.id;
     const deliver=async({duplicates=2}={})=>{
@@ -253,7 +253,7 @@ async function proposalCase(base,name) {
     const plan=incompatiblePlan(),f=await canvasAgentAutonomyFixture(base,{scope:'autonomy-'+name,plan});
     await f.deliver();check(f.calls.length===1&&await nodesOf(f)===0,'Only the first paid planning dispatch exists');
     const paidInput=JSON.parse(f.calls[0].body.input.messages[1].content);
-    check(paidInput.durationMode==='creative'&&paidInput.targetDurationSeconds===null&&paidInput.budget.capCredits===10000,'Actual outgoing provider request carries automatic duration and authorized budget');
+    check(paidInput.durationMode==='creative'&&paidInput.targetDurationSeconds===null&&paidInput.budget.capCredits===10000,'Actual outgoing provider request carries explicitly delegated duration and authorized budget');
     check((await f.complete()).status===200,'Signed original result is retained');
     let view=await f.observe();
     check(view.proposedPlan?.shots.length===1&&view.proposedPlan.nodes.length===3,'The returned plan is visible before graph preflight can succeed');

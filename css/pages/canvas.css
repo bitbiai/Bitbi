@@ -58,8 +58,34 @@
   .canvas-panel { padding: 18px 16px; background: var(--canvas-surface); overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #465665 transparent; }
   .canvas-projects { display: flex; flex-direction: column; border-right: 1px solid var(--canvas-line); }
   .canvas-inspector, .canvas-history, .canvas-agent { border-left: 1px solid var(--canvas-line); }
-  .canvas-agent__form, .canvas-agent__form fieldset, .canvas-agent__production { display: grid; gap: 12px; min-width: 0; }
-  .canvas-agent__form fieldset { margin: 0; padding: 0; border: 0; }
+  .canvas-agent__production { display: grid; gap: 12px; min-width: 0; }
+  #canvasAgentBody { display: grid; gap: 18px; }
+  .canvas-agent__conversation, .canvas-agent__composer, .canvas-agent__production-approval, .canvas-agent__allowance { display: grid; gap: 12px; min-width: 0; }
+  .canvas-agent__conversation h4 { margin: 0; color: #e8eef4; font-size: .88rem; line-height: 1.5; }
+  .canvas-agent__welcome { margin: 0; color: #d5e9e6; }
+  .canvas-agent__messages { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+  .canvas-agent__message { min-width: 0; padding: 12px; border: 1px solid var(--canvas-line); border-radius: 12px 12px 12px 3px; background: var(--canvas-inset); }
+  .canvas-agent__message--user { margin-left: 18px; border-radius: 12px 12px 3px 12px; background: #1c3237; }
+  .canvas-agent__message--system { border-style: dashed; }
+  .canvas-agent__message strong { color: #c2dcd8; font-size: .7rem; }
+  .canvas-agent__message p { margin: 6px 0 0; white-space: pre-wrap; }
+  .canvas-agent__message > span { display: block; margin-top: 8px; }
+  .canvas-agent__composer textarea { resize: vertical; min-height: 100px; max-height: 320px; }
+  .canvas-agent__composer > button { justify-self: end; min-width: 90px; }
+  .canvas-agent__conversation .canvas-button { min-height: 44px; white-space: normal; }
+  .canvas-agent__brief, .canvas-agent__allowance, .canvas-agent__production-approval { padding: 14px; border: 1px solid var(--canvas-line); border-radius: 10px; background: var(--canvas-inset); }
+  .canvas-agent__production-approval { border-color: #537f7c; }
+  .canvas-agent__brief-fields { margin: 12px 0; font-size: .78rem; line-height: 1.6; }
+  .canvas-agent__brief-fields dt { margin-top: 10px; color: #ccdeda; font-weight: 600; }
+  .canvas-agent__brief-fields dd { margin: 3px 0 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+  .canvas-agent__brief-fields small { display: block; font-size: .65rem; }
+  .canvas-agent__questions { padding-left: 20px; font-size: .75rem; line-height: 1.6; overflow-wrap: anywhere; }
+  .canvas-agent__clear { display: flex; flex-wrap: wrap; gap: 8px; }
+  .canvas-agent__clear p { flex-basis: 100%; }
+  @media (min-width: 1201px) {
+    .canvas-app[data-detail="agent"] .canvas-layout { grid-template-columns: 220px minmax(0, 1fr) 390px; }
+    .canvas-app[data-projects="closed"][data-detail="agent"] .canvas-layout { grid-template-columns: minmax(0, 1fr) 390px; }
+  }
   .canvas-agent p { font-size: .78rem; line-height: 1.6; overflow-wrap: anywhere; }
   .canvas-agent h3 { margin: 0; font-size: .92rem; line-height: 1.5; }
   .canvas-agent__notice { padding: 10px; border: 1px solid var(--canvas-line); border-radius: 8px; background: var(--canvas-inset); }

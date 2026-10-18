@@ -2010,6 +2010,36 @@ completes media/Auth/frontend publication. Never loosen the consuming archive
 contract to accommodate an incorrectly assembled artifact.
 
 
+### Canvas conversational briefing and duration admission — 2026-10-18
+
+The pre-conversation source (`6c2d0724`) treated missing duration as a truthy
+`automatic` choice; the start route therefore queued planning rather than its
+intended clarification branch. The new conversation path requires a user-stated
+length or explicit delegation, while accepted historical request replay and
+Creative/Exact export semantics remain unchanged. A structured planner is not a
+dialogue endpoint: the existing signed adapter now uses a separate strict dialogue
+contract and release-controlled runtime policy, with project-owned conversation
+and brief revisions independent of creative graph revision.
+
+Actual callers: `tests/q2-canvas-agent-conversation.spec.js`, the ordinary signed
+provider specs, existing native D1 Canvas controls and `tests/canvas.spec.js` in
+EN/DE Chromium/WebKit. Counterchecks reject implicit/negated delegation, forged
+history/policy/spending authority, foreign projects, stale prices and revoked
+allowances. Concurrent identical sends observe one stored turn; an uncertain
+provider receipt cannot authorize a fresh inference. Status-only observation must
+not discard an accepted reply or pause production, and resumable paused production
+retains its spending ceiling. The existing two-minute real-FFmpeg scenario now
+starts conversationally; browser editability acceptance retains independent
+sequence/audio/deletion/old-export checks. Preserve failed fixture synchronization
+attempts: a disabled button or reused status is not an HTTP acceptance receipt.
+Wait for the actual saved response before reload or queue delivery.
+
+Focused local synthetic-provider and real-media results are retained in the local
+Canvas conversation evidence directory; final native/release evidence belongs in
+the exact-source `release:local` checkpoint. Synthetic success is not live-provider
+acceptance. Use that release entrypoint to create/import evidence before foreground
+push; direct push alone cannot supply the protected publication evidence bundle.
+
 ### Canvas reasoning deadline and durable receipt recovery — 2026-10-16
 
 Source `770c595a` imposed a separate 180-second planning/evaluation timeout. An

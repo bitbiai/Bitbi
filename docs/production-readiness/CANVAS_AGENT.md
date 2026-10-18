@@ -1,10 +1,24 @@
 # Canvas production assistant
 
-The Canvas **Create with AI / Mit KI erstellen** panel accepts a short film brief
-and an explicitly authorized credit ceiling. Duration is optional: the planner
-chooses a suitable creative target within the cap when it is absent. A supplied
-duration is a creative target, not a runtime deadline or an exact success gate.
-Create or open a normal Canvas project, set the ceiling and start once. Revisions
+The Canvas **Create with AI / Mit KI erstellen** panel is a project conversation.
+Describe the film, approve a bounded briefing allowance, and develop a saved
+**Project brief / Projektidee** with Grok 4.7. The allowance uses the existing
+member tariff and credit ledger; the suggested limit covers one maximally bounded
+reply, not a promise of actual spend or a new tariff. Actual usage settles the
+original reservation. Increase the allowance explicitly when necessary.
+
+New productions require a supplied duration or an explicit delegation. A blank
+field and **Prepare brief** do not delegate duration or authorize production.
+The server asks once and waits; a known answer is reused. A supplied duration
+remains a creative target, not an exact success gate. Historical accepted runs
+and Exact export settings retain their original semantics. **Save for later**
+retains the draft; **Cancel briefing** stops further dialogue; production has its
+own pause/cancel/takeover controls. Closing the panel grants no authority.
+
+Review the visible brief, enter the total project credit ceiling, explicitly
+approve production and start once. The server binds the conversation, brief,
+current creative graph and tariff revisions to the normal production route.
+Previous briefing charges count once within that project ceiling. Revisions
 read the currently saved graph and assembly, including manual edits.
 
 The reopenable assistant shows real actions, model/tool identities, a persisted
@@ -14,6 +28,60 @@ The ordinary model adapters validate conditional settings before paid media
 dispatch. Safe defaults may be filled locally; changing an explicit creative
 choice requires a bounded, separately accounted planning correction. At most two
 preflight corrections are admitted within the same authorized ceiling.
+
+## Runtime rules and private project memory
+
+The release-controlled instruction package is
+[`workers/shared/canvas-agent/manifest.mjs`](../../workers/shared/canvas-agent/manifest.mjs),
+with a compact core/personality and six platform-specific skill modules. Static
+imports select briefing, planning, correction or evaluation instructions; project
+text cannot select files, publish rules or grant tools. These are Worker build
+inputs, excluded from the frontend website/import graph. The repository is
+public: policy is nonsecret source, and security does not depend on hiding it.
+Package version, selected skill versions and content hash are pinned on accepted
+operations. Existing accepted receipts normalize under their stored context;
+undispatched old-policy steps require review before another paid operation.
+
+[`canvas-agent-conversation.js`](../../workers/auth/src/lib/canvas-agent-conversation.js)
+keeps conversation and brief revisions distinct from creative graph revision.
+Project-owned D1 tables store ordered turns, delivery state, a bounded structured
+brief with field provenance/source references, draft and explicit allowance.
+Execution facts remain in the existing runs, nodes, assembly and credit records.
+There is no account-wide memory, vector database, privileged Admin-chat import,
+replacement ledger or browser-owned transcript. Existing projects receive an
+empty conversation; old activity is not fabricated into dialogue.
+
+Context contains the current brief, at most six recent completed exchanges,
+selected current-project node facts and current production state. Older messages
+are omitted first to stay within 64 KiB; incomplete replies never update the brief.
+An 80-turn bound and a 4,096-token output ceiling constrain inference. Prompt,
+schema and selected instructions are shared between quoting and actual dispatch.
+The typed response permits text and creative proposals only. Duration is admitted
+from user input or an explicit control, not a model-proposed memory field.
+User content, summaries and proposed memories remain untrusted data. Ownership,
+CSRF, tariff, allowance, resource and operation checks are enforced by code.
+Messages render as plain text; there are no browsing, X, arbitrary URL or Admin
+tools. A Paris/political film setting remains valid Canvas subject matter.
+
+Correct decisions in conversation; provenance distinguishes suggestions from
+user statements and explicit delegation. **Clear conversation and brief** clears
+active context and tombstones messages so late responses cannot restore it.
+Project deletion removes conversational storage through the existing lifecycle.
+Already accepted paid request/usage receipts remain protected recovery evidence;
+clearing memory is not deletion of billing evidence or a refund. Private replies
+use `Cache-Control: private, no-store`; policy and receipt internals are not in
+client responses. Unconfirmed request identity/body may survive in sessionStorage
+only for exact replay, then is removed on acknowledgement.
+
+Dialogue uses the existing leased Canvas queue and background reasoning receipt
+path with a restricted `briefing` purpose. It cannot run generation/export tools.
+Status-only messages do not alter creative revisions or pause production. Genuine
+creative brief corrections pause active production and require a new authorized
+handoff from the current project. Late dialogue replies bind to their source
+revisions; clearing, cancelling or a newer decision prevents stale application.
+Unknown provider acceptance is shown for review and never resubmitted. Duplicate
+requests and callbacks reuse the original identity. Chat/model availability does
+not own an accepted production or normal manual Canvas editing.
 
 ## Editable deliverables
 
@@ -165,8 +233,10 @@ and log collection, validates the actual returned model/envelope, and has no
 automatic inference retries. Existing Grok 4.6/Fable chat and one-shot Canvas text
 remain independent. No private administrator history or tools enter a member run.
 
-The autonomy update requires the additive Auth migration, compatible private
-media processor, AI Worker, dependent Auth Worker and tested frontend. The moving required
+The conversation update requires the additive Auth conversation migration, the
+compatible AI Worker, dependent Auth Worker and tested frontend. Dialogue readiness
+checks the signed dialogue protocol/policy version independently of old production
+readiness. The existing compatible private media processor is reused. The moving required
 schema checkpoint is owned by [`release-compat.json`](../../config/release-compat.json).
 The existing protected release continuation is the only publication path. Config
 and binding readiness are separate from actual account access and film quality.
@@ -180,6 +250,14 @@ acceptance of a later candidate. Any new paid acceptance needs its own explicit
 cap. Credentials remain in existing secret mechanisms, never in chat or logs.
 
 ## Executable acceptance
+
+- [`tests/q2-canvas-agent-conversation.spec.js`](../../tests/q2-canvas-agent-conversation.spec.js)
+  covers authenticated briefing, explicit duration/delegation, replay, isolation,
+  hostile memory, allowance revocation and unknown outcomes. Shared cases are
+  included in native D1 Canvas acceptance; populated migration preserves old runs.
+- [`tests/q2-canvas-agent-dialogue-provider.spec.js`](../../tests/q2-canvas-agent-dialogue-provider.spec.js)
+  checks real policy composition, strict signed dialogue normalization and exact
+  prompt/quote alignment. Existing release/build checks reject policy leakage.
 
 - [`tests/q2-canvas-agent-autonomy.spec.js`](../../tests/q2-canvas-agent-autonomy.spec.js)
   covers actual ledger commitments, atomic project ceilings, exact consent,

@@ -1,0 +1,9 @@
+export default Object.freeze({ id: 'story-and-continuity', version: 1,
+  purpose: 'Turn the brief into coherent scenes with retained visual continuity.',
+  when: 'Production planning and correction.',
+  context: 'Accepted brief, supplied current graph, eligible references and model constraints.',
+  operations: 'Plan ordinary nodes, supported dependency roles and explicit assembly clips.',
+  result: 'A coherent story, shot list, continuity description and explicit audio treatment.',
+  recovery: 'Preserve valid unrelated work; report unsupported constraints through the structured plan and application validation.',
+  text: `Maintain consistent characters, buildings, positions and style with supported reference roles; use last_frame only for genuine continuation. Explain continuity in the continuity field. Do not force unrelated camera cuts into a continuation chain. Dependencies describe generation inputs, not playback order. List playback independently in assembly.clips.
+When durationMode is creative, duration is an approximate creative target, never a deadline or an exact success condition. New conversational productions require a user-stated duration or explicit delegation before admission. A null target in an already admitted historical creative request retains that request's historical contract; choose within its authorized limits. Do not reinterpret old accepted jobs. Preserve the story rather than buying retries to reach an exact second. Record the chosen target in assembly.targetDurationSeconds. For legacy exact mode only, retain the supplied target and tolerance. Total edited duration is the sum of trimmed clip durations minus transition overlaps; allow enough generated footage and trim only supported sections. Do not use frozen frames, repeated clips or black padding to hide shortfalls.` });

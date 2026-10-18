@@ -3,16 +3,26 @@ import assert from 'node:assert/strict';
 import {verifyCanvasExportSchema,verifyCanvasAssemblyRetentionSchema} from '../../../scripts/lib/canvas-export-readiness.mjs';
 
 async function migrateCanvasRetention(f) {
-  let snapshot;
+  let snapshot,conversationSnapshot;
   for(const migration of f.migrations) {
     if(migration.path.startsWith('0108')) {
       const response=await f.control('/canvas-retention-migration-seed',{});
       assert.equal(response.status,200,await response.clone().text());snapshot=await response.json();
       await assert.rejects(()=>verifyCanvasAssemblyRetentionSchema(sql=>f.rows(sql)),/retention must preserve/);
     }
+    if(migration.path.startsWith('0109')) {
+      const response=await f.control('/canvas-conversation-migration-seed',{});
+      assert.equal(response.status,200,await response.clone().text());conversationSnapshot=await response.json();
+    }
     await f.db.batch(migration.statements.map(s=>f.db.prepare(s)));
   }
   assert(snapshot,'The retention migration boundary must be exercised');
+  assert(conversationSnapshot,'The conversation migration boundary must be exercised');
+  await f.test('canvas_conversation_populated_migration_preserves_historical_identity_without_transcript',async()=>{
+    const response=await f.control('/canvas-conversation-migration-verify',conversationSnapshot);
+    assert.equal(response.status,200,await response.clone().text());
+    assert.deepEqual(await response.json(),{historicalRequestsPreserved:1,fabricatedConversations:0,creativeRevisionUnchanged:true});
+  });
   await f.test('canvas_assembly_retention_populated_migration',async()=>{
     const response=await f.control('/canvas-retention-migration-verify',snapshot);
     assert.equal(response.status,200,await response.clone().text());
@@ -551,10 +561,10 @@ export async function runCanvasTests(f) {
   await runCanvasRetentionTests(f,{prepared:true});
   await runCanvasAudioTests(f, { prepared: true });
   await runCanvasTransitionTests(f,{prepared:true});
-  for(const name of ['late','evaluate','lease','cancel','manual','newer','failed','rejected','ambiguous','callback-guards','normalization-recovery','bounded-review','legacy']) await f.test(`canvas_durable_model_operation_${name.replaceAll('-','_')}`,async()=>{
+  for(const name of ['late','evaluate','lease','cancel','manual','newer','failed','rejected','ambiguous','callback-guards','normalization-recovery','bounded-review','legacy','policy-legacy','policy-late']) await f.test(`canvas_durable_model_operation_${name.replaceAll('-','_')}`,async()=>{
     const response=await f.control('/canvas-agent-model-operation',{name});
     assert.equal(response.status,200,await response.clone().text());
-    const result=await response.json();assert.equal(result.case,name);assert.equal(result.providerCalls,name==='evaluate'?2:1);
+    const result=await response.json();assert.equal(result.case,name);assert.equal(result.providerCalls,name==='evaluate'?2:name==='policy-legacy'?0:1);
     f.metrics.push(result);assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
   });
   for(const name of ['ledger','accept','decline','stale','proposal','stopped','missing-plan','summary','budget-stop','lost-lease','late-proposal']) await f.test(`canvas_agent_autonomy_${name.replaceAll('-','_')}`,async()=>{
@@ -586,9 +596,15 @@ export async function runCanvasTests(f) {
     assert.deepEqual(await response.json(), { invalidRequestsReadOnly: true, newRunPaused: true, pendingRecoveryReadOnly: true, completedReplayReadOnly: true, providerCalls: 1 });
     assert.deepEqual(await f.rows('PRAGMA foreign_key_check'), []);
   });
-  await f.test('canvas_agent_native_autonomous_duration_duplicate_starts_controls_and_manual_takeover', async () => {
+  await f.test('canvas_agent_native_duration_clarification_explicit_delegation_historical_replay_and_takeover', async () => {
     const response = await f.control('/canvas-agent-api', {});
     assert.equal(response.status, 200, await response.clone().text());
-    assert.deepEqual(await response.json(), { autonomousDuration: true, starts: 2, duplicateStarts: 1, providerCalls: 0, foreignDenied: true, manualTakeover: true });
+    assert.deepEqual(await response.json(), { missingDurationBlocked:true,explicitDelegation:true,historicalReplayPreserved:true,starts: 2, duplicateStarts: 1, providerCalls: 0, foreignDenied: true, manualTakeover: true });
+  });
+  for(const name of ['briefing','isolation','recovery','unknown','revocation','concurrency','status-pending','paused-cap'])await f.test('canvas_conversation_native_'+name,async()=>{
+    const response=await f.control('/canvas-conversation',{name});
+    assert.equal(response.status,200,await response.clone().text());
+    const result=await response.json();assert.equal(result.case,name);f.metrics.push(result);
+    assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
   });
 }

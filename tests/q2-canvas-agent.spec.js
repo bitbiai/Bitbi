@@ -33,7 +33,7 @@ test('Canvas agent provider fixtures match only the configured HTTPS account end
 
 for (const [name, method, expected] of [
   ['atomic budget and revocable project execution authority', 'canvasAgentAuthorityCase', { atomicAllocations: 1, existingUsageAttempts: 2, providerSubmissions: 0, walletDebits: 0, manualEditPaused: true }],
-  ['automatic duration, explicit credit consent, replay, controls and manual takeover', 'canvasAgentApiCase', { autonomousDuration: true, starts: 2, duplicateStarts: 1, providerCalls: 0, foreignDenied: true, manualTakeover: true }],
+  ['duration clarification, explicit delegation, historical replay, controls and manual takeover', 'canvasAgentApiCase', { missingDurationBlocked:true,explicitDelegation:true,historicalReplayPreserved:true,starts: 2, duplicateStarts: 1, providerCalls: 0, foreignDenied: true, manualTakeover: true }],
   ['comic and realism profiles obey hard capability and pricing gates', 'canvasAgentCapabilityCase', { profiles: 2, unavailableRejected: true, unsupportedRejected: true, paidCalls: 0 }],
 ]) test(`Canvas agent ${name}`, async () => {
   const DB = new SqliteD1Database(); applyAuthMigrations(DB);
@@ -89,7 +89,7 @@ test('Canvas agent creates and durably executes three ordinary generation nodes 
   } finally { DB.close(); }
 });
 
-test('Canvas agent completes a measured two-minute film from thirteen fresh editable shots', async () => {
+test('Canvas conversational briefing completes a measured two-minute film from thirteen fresh editable shots', async () => {
   test.setTimeout(90000);
   const fs = require('node:fs'), os = require('node:os'), path = require('node:path'), { execFileSync } = require('node:child_process');
   const DB = new SqliteD1Database(); applyAuthMigrations(DB); const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'canvas-agent-film-'));
@@ -98,6 +98,7 @@ test('Canvas agent completes a measured two-minute film from thirteen fresh edit
     global.Date=class extends RealDate {constructor(...args){super(...(args.length?args:[clock]));}static now(){return clock;}};
     const { canvasAudioFixture } = await import('./helpers/canvas-audio-control.mjs');
     const { finishCanvasAgentFixture, freshCanvasAgentPlan, isCanvasAgentProviderEndpoint } = await import('./helpers/canvas-agent-control.mjs');
+    const { attachCanvasConversation } = await import('./helpers/canvas-agent-conversation-control.mjs');
     const { processCanvasExports, inspectClip } = await import('../services/homepage-ffmpeg-processor/canvas-full-video.mjs');
     const { processCanvasInspections } = await import('../services/homepage-ffmpeg-processor/canvas-media-inspection.mjs');
     const video = path.join(dir, 'source.mp4');
@@ -126,10 +127,21 @@ test('Canvas agent completes a measured two-minute film from thirteen fresh edit
     // Start at a fixed point INSIDE the limiter's hourly window. Using the
     // current minute could accidentally cross a boundary and conceal the 13th
     // request's real admission limit. Keep existing limits and accepted costs.
+    const conversation=await attachCanvasConversation(f,{scope:'two-minute-briefing'});
+    await conversation.approve(200);
+    let brief=await conversation.exchange('I want a film about Amish people constructing a house in a small town. A neighboring pool has ducks. After the house is complete, visitors arrive to celebrate.',{
+      text:'We can tell that as a construction story ending with a welcoming celebration.',fields:{story:'Amish builders construct a small-town house; ducks swim in the neighboring pool; visitors celebrate after completion.',setting:'A small town, with the same house and pool in fixed positions.',style:'realistic documentary'}});
+    expect(brief.brief.duration.asked).toBe(true);expect(brief.brief.duration.choice).toBeNull();
+    const premature=await conversation.start({budgetCredits:10000});expect(premature.response.status).toBe(400);
+    expect((await premature.response.json()).code).toBe('canvas_agent_duration_required');expect(f.calls).toHaveLength(0);
+    brief=await conversation.exchange('Roughly two minutes, please.',{text:'The film target is about two minutes, with the house, duck pool and visiting guests kept consistent.',intent:'ready'});
+    expect(brief.brief.duration.targetDurationSeconds).toBe(120);
+    const authorized=await conversation.start({budgetCredits:10000}),admitted=await conversation.data(authorized.response);
+    expect(conversation.calls).toHaveLength(2);conversation.restore();
     let finished,waitedRun=null,waits=0;
     const worker=(await import('../workers/auth/src/index.js')).default;
     try {
-      finished = await finishCanvasAgentFixture({ f, processor, targetSeconds: 120, planOverride: plan, budgetCredits: 10000, beforeTurn: async(turn,{runId}) => {
+      finished = await finishCanvasAgentFixture({ f, processor, targetSeconds: 120, planOverride: plan, budgetCredits: 10000, admittedRunId:admitted.run.id,beforeTurn: async(turn,{runId}) => {
         const run=await DB.prepare('SELECT status,phase,next_attempt_at FROM canvas_agent_runs WHERE id=?').bind(runId).first();
         if(run.phase!=='waiting_limit'){clock+=60000;return;}
         waits++;

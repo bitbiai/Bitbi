@@ -1,7 +1,7 @@
 import { canvasRequest } from './api.js?v=__ASSET_VERSION__';
 import { canvasAgentCopy } from './agent-copy.js?v=__ASSET_VERSION__';
 import { createCanvasAgentActivity } from './agent-live.js?v=__ASSET_VERSION__';
-import { CANVAS_AGENT_LIMITS, resolveCanvasAgentDuration } from '../../shared/canvas-agent-contract.mjs?v=__ASSET_VERSION__';
+import { createCanvasAgentConversation } from './agent-conversation.js?v=__ASSET_VERSION__';
 
 const TERMINAL = new Set(['completed', 'cancelled', 'taken_over', 'manual_takeover']);
 const WAITING = new Set(['clarification_required', 'paused', 'blocked', 'failed', 'review_required', 'budget_required']);
@@ -12,7 +12,6 @@ const create = (tag, className = '', text = '') => {
 const button = (text, action) => {
     const node = create('button', 'canvas-button', text); node.type = 'button'; node.addEventListener('click', action); return node;
 };
-const field = (text, input) => { const label = create('label', 'canvas-field'); label.append(create('span', '', text), input); return label; };
 const finite = value => typeof value === 'number' && Number.isFinite(value);
 
 // The final player accepts only the existing same-origin private media routes.
@@ -26,27 +25,14 @@ function privateMediaUrl(value) {
 export function createCanvasAgentPanel({ root, german, getState, flush, newProject, openProject }) {
     const copy = canvasAgentCopy(german);
     let projectId = null, run = null, availability = null, busy = false, visible = false, stopped = false;
-    let epoch = 0, timer = null, controller = null, pendingStart = null, revising = false;
+    let epoch = 0, timer = null, controller = null, pendingStart = null;
     let eventCursor=0,stream=null,streamRun=null,pendingBudget=null,catchingUp=false;
     const controlKeys = new Map();
-    const intro = create('p', 'canvas-muted', copy.intro);
     const projectHint = create('div', 'canvas-agent__project'); projectHint.append(create('p', 'canvas-muted', copy.projectRequired), button(copy.newProject, newProject));
     const availabilityNote = create('p', 'canvas-agent__notice', copy.checking); availabilityNote.setAttribute('role', 'status');
     const availabilityDetails=create('details','canvas-disclosure'),availabilityCode=create('p','canvas-muted');
     availabilityDetails.append(create('summary','',copy.details),availabilityCode);availabilityDetails.hidden=true;
-    const form = create('form', 'canvas-agent__form'); form.noValidate = true;
-    const fields = create('fieldset');
-    const brief = create('textarea', 'canvas-textarea'); brief.name = 'brief'; brief.maxLength = 12000; brief.rows = 5; brief.placeholder = copy.placeholder;
-    const duration = create('input', 'canvas-input'); duration.type = 'number'; duration.name = 'duration'; duration.min = String(CANVAS_AGENT_LIMITS.minDuration); duration.max = String(CANVAS_AGENT_LIMITS.maxDuration); duration.step = '1'; duration.inputMode = 'numeric';
-    const durationHint = create('p', 'canvas-muted', copy.durationHint); durationHint.id = 'canvasAgentDurationHint'; duration.setAttribute('aria-describedby', durationHint.id);
-    const cap = create('input', 'canvas-input'); cap.type = 'number'; cap.name = 'budget'; cap.min = '1'; cap.max = String(CANVAS_AGENT_LIMITS.maxBudgetCredits); cap.step = '1'; cap.inputMode = 'numeric';
-    const capHint = create('p', 'canvas-muted', copy.budgetHint); capHint.id = 'canvasAgentBudgetHint'; cap.setAttribute('aria-describedby', capHint.id);
-    const approval = create('input'); approval.type = 'checkbox'; approval.name = 'authorize';
-    const approvalField = field(copy.approve, approval); approvalField.classList.add('canvas-agent__check');
     const feedback = create('p', 'canvas-agent__notice'); feedback.setAttribute('role', 'status'); feedback.setAttribute('aria-live', 'polite'); feedback.hidden = true;
-    const start = create('button', 'canvas-button canvas-button--primary', copy.start); start.type = 'submit';
-    fields.append(field(copy.brief, brief), field(copy.duration, duration), durationHint, field(copy.budget, cap), capHint, approvalField, start);
-    form.append(fields);
     const status = create('section', 'canvas-agent__production'); status.setAttribute('aria-label', copy.status); status.hidden = true;
     const phase = create('h3'); phase.setAttribute('role', 'status');
     const counts = create('p', 'canvas-agent__counts');
@@ -60,12 +46,7 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
     const refresh = button(copy.check, () => void observe());
     const retryStart = button(copy.retryStart, () => void resendStart());
     const retryBudget=button(copy.budgetRetry,()=>void sendBudget());
-    const revise = button(copy.newBrief, () => {
-        if (!run || !TERMINAL.has(run.status) || modelHeld() || pendingBudget) return;
-        revising = true; brief.value = ''; approval.checked = false; pendingStart = null;
-        duration.value = getState().project?.assembly?.target?.seconds ?? run?.targetDurationSeconds ?? '';
-        duration.disabled = false; render(); brief.focus();
-    });
+    const revise = button(copy.newBrief, () => conversation.focus());
     actions.append(...Object.values(controls), inspect, refresh, retryStart, retryBudget, revise);
     const stopHint = create('p', 'canvas-muted', copy.stopHint);
     const details = create('details', 'canvas-disclosure'); details.append(create('summary', '', copy.details));
@@ -74,7 +55,9 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
     const activity=createCanvasAgentActivity({parent:live,copy,privateMediaUrl,decideBudget:(decision,request)=>void decideBudget(decision,request)});
     status.append(phase, counts, summary, note, connection, media, live, actions, stopHint, details);
     const help = create('details', 'canvas-disclosure'); help.append(create('summary', '', copy.inspect), create('p', 'canvas-muted', copy.editHint));
-    root.append(intro, availabilityNote, availabilityDetails, projectHint, form, feedback, status, help);
+    const conversationRoot = create('div');
+    root.append(availabilityNote, availabilityDetails, projectHint, conversationRoot, feedback, status, help);
+    const conversation = createCanvasAgentConversation({root:conversationRoot,german,flush,getRun:()=>run,canProduce:()=>!modelHeld(),onRun:next=>{acceptRun(next);clearStart();message('');render();schedule();}});
 
     function message(text) { feedback.textContent = text; feedback.hidden = !text; }
     function validRun(value) { return value && /^[a-f0-9]{32}$/.test(value.id || '') && value.projectId===projectId && typeof value.status==='string'; }
@@ -103,9 +86,7 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
         availabilityDetails.hidden=canStart||!availability?.code;
         availabilityCode.textContent=availability?.code ? `${copy.reason}: ${availability.code}` : '';
         projectHint.hidden = Boolean(projectId);
-        form.hidden = !projectId || Boolean(run && !revising && (!['clarification_required', 'budget_required'].includes(run.status)||run.budgetRequest));
-        fields.disabled = busy || !canStart || Boolean(pendingStart?.uncertain);
-        start.textContent = run && revising ? copy.revise : copy.start;
+        conversation.refresh();
         status.hidden = !run && !pendingStart?.uncertain;
         refresh.hidden = !run && !pendingStart?.uncertain;
         retryStart.hidden = !pendingStart?.uncertain || !pendingStart?.body;
@@ -163,7 +144,7 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
             const poster = privateMediaUrl(run.result.previewUrl); if (poster) video.poster = poster; else video.removeAttribute('poster');
         } else media.replaceChildren();
         for (const [action, node] of Object.entries(controls)) node.hidden = !canControl(action);
-        revise.hidden = !terminal || revising || modelHeld();
+        revise.hidden = !terminal || modelHeld();
         stopHint.hidden = terminal;
         details.hidden = false; evidence.replaceChildren();
         if(finite(run.allocatedCredits))summaryItem(evidence,copy.allocated,String(run.allocatedCredits));
@@ -180,8 +161,8 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
         if (run.errorCode) summaryItem(evidence, copy.reason, String(run.errorCode));
     }
     function error(result) {
-        if (['model_pricing_stale', 'canvas_project_revision_conflict', 'project_revision_conflict', 'canvas_agent_project_changed', 'canvas_agent_tariff_changed','canvas_agent_budget_request_stale','canvas_agent_budget_request_conflict','canvas_agent_budget_request_changed','canvas_agent_budget_decision_conflict'].includes(result.code)) { approval.checked = false; message(copy.stale); }
-        else if (result.code==='canvas_agent_budget_exceeded' || result.code==='canvas_agent_budget_required') { approval.checked=false;message(copy.budgetRequired); }
+        if (['model_pricing_stale', 'canvas_project_revision_conflict', 'project_revision_conflict', 'canvas_agent_project_changed', 'canvas_agent_tariff_changed','canvas_agent_budget_request_stale','canvas_agent_budget_request_conflict','canvas_agent_budget_request_changed','canvas_agent_budget_decision_conflict'].includes(result.code)) { message(copy.stale); }
+        else if (result.code==='canvas_agent_budget_exceeded' || result.code==='canvas_agent_budget_required') { message(copy.budgetRequired); }
         else if (result.code==='canvas_agent_duration_invalid') message(copy.invalidDuration);
         else if (result.code==='canvas_agent_review_required') message(copy.blockedProvider);
         else if (['canvas_agent_model_unavailable','canvas_agent_disabled','canvas_agent_infrastructure_unavailable','model_area_disabled'].includes(result.code)) { availability={available:false,code:result.code};message(copy.unavailable); }
@@ -192,9 +173,6 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
         return [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, '0')).join('');
     }
     function storageKey() { return `bitbi:canvas-agent-start:${projectId}`; }
-    function rememberStart() {
-        try { sessionStorage.setItem(storageKey(), JSON.stringify({ key: pendingStart.key, fingerprint: pendingStart.fingerprint, body: pendingStart.body })); } catch { /* Server run remains authoritative. */ }
-    }
     function clearStart() { pendingStart = null; try { sessionStorage.removeItem(storageKey()); } catch { /* No persistence dependency. */ } }
     function budgetStorageKey(){return `bitbi:canvas-agent-budget:${projectId}`;}
     function rememberBudget(){try{if(pendingBudget)sessionStorage.setItem(budgetStorageKey(),JSON.stringify(pendingBudget));else sessionStorage.removeItem(budgetStorageKey());}catch{/* The server owns authorization. */}}
@@ -252,43 +230,6 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
             else{pendingBudget=null;rememberBudget();error(response);}
         }finally{busy=false;render();schedule();}
     }
-    async function submit(event) {
-        event.preventDefault(); if (busy || !projectId || availability?.available !== true || pendingStart?.uncertain) return;
-        if (run && !['clarification_required', 'budget_required'].includes(run.status) && (!revising || modelHeld())) return;
-        const text = brief.value.trim(); if (!text) { message(copy.briefRequired); brief.focus(); return; }
-        const requested = duration.value.trim();
-        if (requested && (!Number.isSafeInteger(Number(requested)) || Number(requested) <= 0)) { message(copy.invalidDuration); duration.focus(); return; }
-        let resolved;
-        try { resolved = resolveCanvasAgentDuration({brief:text,targetDurationSeconds:requested || null,durationChoice:'automatic'}); }
-        catch { message(copy.invalidDuration); duration.focus(); return; }
-        const budget = Number(cap.value);
-        if (!Number.isSafeInteger(budget) || budget < 1 || budget > CANVAS_AGENT_LIMITS.maxBudgetCredits || !approval.checked) { message(copy.budgetRequired); (!cap.value ? cap : approval).focus(); return; }
-        busy = true; controller?.abort(); clearTimeout(timer); message(''); render();
-        const current = epoch;
-        try {
-            if (!await flush()) { message(copy.saving); return; }
-            if (current !== epoch) return;
-            // Manual node/edge saves also advance the server project revision.
-            // Read that revision without replacing any current editor objects.
-            const project = await canvasRequest(`/projects/${identifier(projectId)}`, { timeoutMs:15000 });
-            if (current !== epoch) return;
-            if (!project.ok || !Number.isSafeInteger(project.data?.project?.revision)) { error(project); return; }
-            const body = { brief: text, ...(finite(resolved?.targetDurationSeconds)?{targetDurationSeconds:resolved.targetDurationSeconds}:{}), durationChoice: resolved?.durationChoice||'automatic', budgetCredits: budget, expectedRevision: project.data.project.revision, locale: german ? 'de' : 'en' };
-            const hash = await fingerprint(body);
-            if (current !== epoch) return;
-            let stored = null; try { stored = JSON.parse(sessionStorage.getItem(storageKey()) || 'null'); } catch { /* Optional recovery identity. */ }
-            const key = stored?.fingerprint === hash && typeof stored.key === 'string' ? stored.key : crypto.randomUUID();
-            pendingStart = { key, fingerprint: hash, body, uncertain: false }; rememberStart();
-            const response = await canvasRequest(`/projects/${identifier(projectId)}/agent`, { method: 'POST', body, idempotencyKey: key, timeoutMs: 30000 });
-            if (current !== epoch) return;
-            if (response.ok && validRun(response.data?.run) && response.data.run.requestKey===key) {
-                acceptRun(response.data.run); revising = false; clearStart(); approval.checked = false;
-                schedule();
-            } else if (response.status === 0 || response.status >= 500 || response.ok) {
-                pendingStart.uncertain = true; message(copy.connection); schedule();
-            } else { clearStart(); error(response); }
-        } finally { busy = false; render(); }
-    }
     async function resendStart() {
         if (busy || !pendingStart?.uncertain || !pendingStart?.body || !projectId) return;
         busy = true; controller?.abort(); clearTimeout(timer); render(); const current = epoch, pending = pendingStart;
@@ -298,7 +239,7 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
             if (await fingerprint(pending.body) !== pending.fingerprint || current !== epoch) return;
             const response = await canvasRequest(`/projects/${identifier(projectId)}/agent`, { method:'POST', body:pending.body, idempotencyKey:pending.key, timeoutMs:30000 });
             if (current !== epoch) return;
-            if (response.ok && validRun(response.data?.run) && response.data.run.requestKey===pending.key) { acceptRun(response.data.run); clearStart(); revising=false; approval.checked=false; message(''); }
+            if (response.ok && validRun(response.data?.run) && response.data.run.requestKey===pending.key) { acceptRun(response.data.run); clearStart();  message(''); }
             else if (response.status > 0 && response.status < 500 && !response.ok) { clearStart(); error(response); }
             else message(copy.connection);
             schedule();
@@ -337,8 +278,6 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
             availability = response.data?.availability || { available: false };
             if (validRun(response.data?.run)) {
                 acceptRun(response.data.run);acceptEvents(response.data);
-                if (!brief.value && typeof run.brief === 'string' && ['clarification_required','budget_required'].includes(run.status)) brief.value=run.brief;
-                if (!duration.value && finite(run.targetDurationSeconds) && run.status==='budget_required') duration.value=String(run.targetDurationSeconds);
                 if (!pendingStart || run.requestKey === pendingStart.key) clearStart();
             }
             if (!pendingStart?.uncertain) message('');
@@ -350,22 +289,19 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
         }
         render(); schedule(response.ok&&response.data?.hasMore?100:4000,Boolean(response.ok&&response.data?.hasMore));
     }
-    form.addEventListener('submit', event => void submit(event));
-    for (const input of [brief, duration, cap]) input.addEventListener('input', () => { approval.checked = false; });
     window.addEventListener('pagehide', () => { stopped = true; clearTimeout(timer); controller?.abort();closeStream(); });
     render();
     return {
-        setVisible(value) { const changed = visible !== value; visible = value; if (visible && changed) void observe(); else if (!visible){clearTimeout(timer);closeStream();} },
+        setVisible(value) { const changed = visible !== value; visible = value; conversation.setVisible(value); if (visible && changed) void observe(); else if (!visible){clearTimeout(timer);closeStream();} },
         projectChanged() {
             const id = getState().project?.id || null; if (id === projectId) return;
-            epoch += 1; projectId = id; run = null; pendingStart = null; pendingBudget=null; catchingUp=false; revising = false; availability = null;eventCursor=0;activity.reset();closeStream();
+            epoch += 1; projectId = id; run = null; pendingStart = null; pendingBudget=null; catchingUp=false; availability = null;eventCursor=0;activity.reset();closeStream();
             try {
                 const stored = JSON.parse(sessionStorage.getItem(storageKey()) || 'null');
                 if (stored?.key && stored?.fingerprint && stored?.body) pendingStart = {...stored,uncertain:true};
                 const decision=JSON.parse(sessionStorage.getItem(budgetStorageKey())||'null');if(decision?.key&&decision?.fingerprint&&decision?.body&&decision?.runId)pendingBudget={...decision,uncertain:true};
             } catch { /* Server status recovery still works without browser storage. */ }
-            brief.value = ''; duration.value = ''; duration.disabled = false; cap.value = ''; approval.checked = false;
-            durationHint.textContent = copy.durationHint; duration.removeAttribute('aria-invalid'); message(''); clearTimeout(timer); controller?.abort(); render();
+            conversation.projectChanged(id); message(''); clearTimeout(timer); controller?.abort(); render();
             if (visible) void observe();
         },
     };

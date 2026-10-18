@@ -77,7 +77,11 @@ export async function dispatchCanvasModelOperation(env,run,step,prepared,callerP
         env.DB.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM canvas_agent_runs r JOIN canvas_projects p ON p.id=r.project_id
             JOIN users u ON u.id=r.user_id JOIN member_ai_usage_attempts_v2 a ON a.id=?
             WHERE r.id=? AND r.lease_token=? AND r.lease_until>? AND r.status IN ('planning','running')
-            AND r.expires_at>? AND p.deleted_at IS NULL AND p.revision=r.expected_revision AND u.status='active'
+            AND r.expires_at>? AND p.deleted_at IS NULL AND (p.revision=r.expected_revision OR r.purpose='briefing') AND u.status='active'
+            AND (r.purpose='production' OR EXISTS(SELECT 1 FROM canvas_agent_conversations v WHERE v.project_id=r.project_id
+                AND v.state='active' AND v.allowance_tariff=r.tariff_revision
+                AND v.allowance_credits>=COALESCE((SELECT SUM(c.committed) FROM canvas_agent_step_costs c
+                  JOIN canvas_agent_runs owner ON owner.id=c.run_id WHERE c.project_id=r.project_id AND owner.purpose='briefing'),0)))
             AND a.user_id=r.user_id AND a.dispatch_token=? AND a.provider_outcome='dispatched' AND a.billing_status='reserved'
             AND a.reservation_released_at IS NULL) THEN 1 ELSE json_extract('[]','$[') END`)
             .bind(step.usage_attempt_id,run.id,run.lease_token,now,now,dispatchToken),
@@ -188,7 +192,7 @@ export async function reconcileCanvasModelOperation(env,op) {
             return readOperation(env,op.id);
         }
         const result=
-            await canvasModelService(env,'/internal/ai/canvas-agent/normalize',{kind:op.kind,requestId:op.request_id,context:JSON.parse(op.context_json),response:response.result},JSON.parse(op.caller_policy_json),op.user_id);
+            await canvasModelService(env,'/internal/ai/canvas-agent/normalize',{kind:JSON.parse(op.context_json).dialogue===true?'dialogue':op.kind,requestId:op.request_id,context:JSON.parse(op.context_json),response:response.result},JSON.parse(op.caller_policy_json),op.user_id);
         if(result.requestId!==op.request_id||result.model!==op.model)fail('canvas_agent_model_identity_mismatch');
         if(!['completed','not_submitted'].includes(result.outcome))fail('canvas_agent_receipt_review_required');
         const saved=await env.DB.prepare(`UPDATE canvas_agent_model_operations SET state=?,receipt_json=?,error_code=?,completed_at=?,updated_at=?
@@ -218,8 +222,8 @@ export async function reconcileCanvasModelOperation(env,op) {
         await env.DB.prepare(`UPDATE canvas_agent_runs SET status=?,error_code=?,next_attempt_at=?,updated_at=? WHERE id=?
             AND status='review_required' AND error_code IN ('canvas_agent_provider_outcome_unknown','canvas_agent_provider_timeout','canvas_agent_planning_review_required')
             AND expires_at>? AND EXISTS(SELECT 1 FROM canvas_projects p JOIN users u ON u.id=p.user_id
-              WHERE p.id=canvas_agent_runs.project_id AND p.deleted_at IS NULL AND p.revision=canvas_agent_runs.expected_revision AND u.status='active')
-            AND NOT EXISTS(SELECT 1 FROM canvas_agent_runs newer WHERE newer.project_id=canvas_agent_runs.project_id AND newer.id!=canvas_agent_runs.id
+              WHERE p.id=canvas_agent_runs.project_id AND p.deleted_at IS NULL AND (p.revision=canvas_agent_runs.expected_revision OR canvas_agent_runs.purpose='briefing') AND u.status='active')
+            AND NOT EXISTS(SELECT 1 FROM canvas_agent_runs newer WHERE newer.project_id=canvas_agent_runs.project_id AND newer.id!=canvas_agent_runs.id AND newer.purpose=canvas_agent_runs.purpose
               AND newer.status IN ('queued','planning','applying','running','exporting'))`)
             .bind(result.ok?(op.kind==='plan'?'planning':'running'):'blocked',result.ok?null:result.code,now,now,op.run_id,now).run();
     }

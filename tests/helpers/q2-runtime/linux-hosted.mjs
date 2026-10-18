@@ -93,6 +93,7 @@ export function stageInputPlan() {
     'workers/ai/src', 'tests/helpers/elevenlabs-member-control.mjs', 'tests/fixtures/media/member-music.mp3', 'tests/fixtures/media/member-music.opus',
     'tests/helpers/canvas-contributors-control.mjs',
     'tests/helpers/canvas-agent-control.mjs',
+    'tests/helpers/canvas-agent-conversation-control.mjs',
     'tests/helpers/canvas-agent-preflight-control.mjs',
     'tests/helpers/canvas-agent-autonomy-control.mjs',
     'tests/helpers/canvas-agent-model-operation-control.mjs',

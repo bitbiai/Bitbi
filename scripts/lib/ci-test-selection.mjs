@@ -50,6 +50,16 @@ const SHARED_WORKER_FILE_MAP = new Map([
   ["js/shared/gemini-omni-contract.mjs", ["auth", "ai"]],
   ["js/shared/gemini-omni-pricing.mjs", ["auth"]],
   ["workers/shared/ai-caller-policy.mjs", ["auth", "ai"]],
+  ["workers/shared/canvas-agent-plan.mjs", ["auth", "ai"]],
+  ["workers/shared/canvas-agent-dialogue.mjs", ["auth", "ai"]],
+  ["workers/shared/canvas-agent/core.mjs", ["auth", "ai"]],
+  ["workers/shared/canvas-agent/manifest.mjs", ["auth", "ai"]],
+  ["workers/shared/canvas-agent/skills/creative-briefing.mjs", ["auth", "ai"]],
+  ["workers/shared/canvas-agent/skills/story-and-continuity.mjs", ["auth", "ai"]],
+  ["workers/shared/canvas-agent/skills/model-selection.mjs", ["auth", "ai"]],
+  ["workers/shared/canvas-agent/skills/canvas-editing.mjs", ["auth", "ai"]],
+  ["workers/shared/canvas-agent/skills/generation-and-recovery.mjs", ["auth", "ai"]],
+  ["workers/shared/canvas-agent/skills/review-and-export.mjs", ["auth", "ai"]],
   ["workers/shared/fable-chat-contract.mjs", ["auth", "ai"]],
   ["workers/shared/fable-chat-memory-contract.mjs", ["auth", "ai"]],
   ["js/shared/admin-ai-contract.mjs", ["auth", "ai"]],
@@ -496,6 +506,7 @@ const AUTH_SHARED_PATTERNS = [
 const HOMEPAGE_CORE_TEST_FILES = new Set([
   "tests/helpers/canvas-audio-ui.cjs", "tests/helpers/canvas-transition-examples-ui.cjs",
   "tests/helpers/canvas-agent-ui.cjs", "tests/helpers/canvas-agent-model-recovery-ui.cjs", "tests/helpers/canvas-agent-autonomy-ui.cjs", "tests/helpers/canvas-assembly-editing-ui.cjs",
+  "tests/helpers/canvas-conversation-persisted-ui.cjs",
   "tests/audio-player.spec.js",
   "tests/canvas.spec.js",
   "tests/oma2-q1-canvas.spec.js",
@@ -570,6 +581,8 @@ const WORKER_TEST_PREFIXES = [
   "tests/q2-canvas-agent-preflight.spec.js", "tests/helpers/canvas-agent-preflight-control.mjs",
   "tests/q2-canvas-agent-autonomy.spec.js", "tests/helpers/canvas-agent-autonomy-control.mjs",
   "tests/q2-canvas-agent-model-operation.spec.js", "tests/helpers/canvas-agent-model-operation-cases.mjs",
+  "tests/q2-canvas-agent-conversation.spec.js", "tests/helpers/canvas-agent-conversation-control.mjs",
+  "tests/q2-canvas-agent-dialogue-provider.spec.js",
   "tests/appearance.spec.js", "tests/appearance-runtime.mjs",
   "tests/model-pricing.spec.js", "tests/model-pricing-runtime.mjs", "tests/helpers/model-pricing-control.mjs",
   "tests/helpers/q2-runtime/",
@@ -1323,7 +1336,7 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
       addReason(selection,'workers',file,'shared assembly/inspection/retention fixture executes through the ordinary Worker suite and native Q2 Canvas control');
       continue;
     }
-    if (['tests/helpers/canvas-agent-model-operation-control.mjs', 'tests/helpers/canvas-agent-control.mjs'].includes(file)) {
+    if (['tests/helpers/canvas-agent-model-operation-control.mjs', 'tests/helpers/canvas-agent-control.mjs', 'tests/helpers/canvas-agent-conversation-control.mjs'].includes(file)) {
       addReason(selection,'workers',file,'shared Canvas fixture executes signed provider, real persistence and native D1 callers');
       addReason(selection,'homepage',file,'shared fixture also executes rendered Canvas recovery and editable-film callers in both engines');
       continue;

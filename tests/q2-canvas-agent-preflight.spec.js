@@ -11,10 +11,12 @@ test('Canvas executable preflight rejects actual H3 combinations, repairs safely
         expect((await DB.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);
     }finally{DB.close();}
 });
-test('Canvas duration admission delegates omitted length and still requires a hard credit cap',async()=>{
+test('Canvas duration admission requires a stated length or explicit delegation and a hard credit cap',async()=>{
     const {normalizeCanvasAgentStart,resolveCanvasAgentDuration}=await import('../js/shared/canvas-agent-contract.mjs');
     const input={brief:'Build a house with ducks nearby.',budgetCredits:3000,expectedRevision:0};
-    expect(normalizeCanvasAgentStart(input).duration).toEqual({targetDurationSeconds:null,durationChoice:'automatic'});
+    expect(normalizeCanvasAgentStart(input).duration).toBeNull();
+    expect(normalizeCanvasAgentStart({...input,durationChoice:'automatic'}).duration).toBeNull();
+    expect(normalizeCanvasAgentStart(input,{durationAsked:true}).duration).toBeNull();
     expect(normalizeCanvasAgentStart({...input,durationChoice:'delegated'}).duration).toEqual({targetDurationSeconds:null,durationChoice:'delegated'});
     expect(normalizeCanvasAgentStart({...input,brief:'Make a film about 40 seconds long.'}).duration.targetDurationSeconds).toBe(40);
     expect(normalizeCanvasAgentStart({...input,targetDurationSeconds:120}).duration.targetDurationSeconds).toBe(120);

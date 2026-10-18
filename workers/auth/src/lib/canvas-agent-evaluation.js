@@ -8,6 +8,7 @@ import { canvasAgentCapabilities } from './canvas-agent-capabilities.js';
 import { nowIso,sha256Hex } from './tokens.js';
 import { appendCanvasAgentEvent } from './canvas-agent-progress.js';
 import { requestCanvasAgentBudget } from './canvas-agent-budget.js';
+import { canvasAgentPolicyIdentity } from '../../../shared/canvas-agent/manifest.mjs';
 
 // A small, explicitly limited sample of the first, middle and final shots. The
 // normal private processor owns frame decoding; no browser remains involved.
@@ -19,7 +20,7 @@ export async function canvasAgentEvaluationStep(env,run,assembly,specs,ids) {
     };});
     const price=await quoteCanvasAgentEvaluation(env);
     return {id:(await sha256Hex(`canvas-agent-evaluation:${run.id}:${run.rounds}`)).slice(0,32),key:`evaluate_${run.rounds}`,
-        credits:price.credits,input:{modelId:CANVAS_AGENT_MODEL,brief:JSON.parse(run.input_json).brief,samples,pricingInput:evaluationPriceInput()}};
+        credits:price.credits,input:{modelId:CANVAS_AGENT_MODEL,brief:JSON.parse(run.input_json).brief,samples,pricingInput:evaluationPriceInput(),policy:await canvasAgentPolicyIdentity('evaluation')}};
 }
 export async function evaluateCanvasAgent(env,run,view,user) {
     const step=await env.DB.prepare("SELECT * FROM canvas_agent_steps WHERE run_id=? AND kind='evaluate' ORDER BY rowid DESC LIMIT 1").bind(run.id).first();
@@ -50,7 +51,7 @@ export async function evaluateCanvasAgent(env,run,view,user) {
         frames.push({nodeId:node.id,timeSeconds:inspection.inspection.frameTime,requirement:sample.requirement,imageData:`data:image/jpeg;base64,${btoa(binary)}`});
         sources.push({nodeId:node.id,assetId:node.asset_id,version:original.version,inspectionId:inspection.id});
     }
-    const payload={version:1,model:CANVAS_AGENT_MODEL,requestId:step.id,brief:input.brief,frames,
+    const payload={version:1,model:CANVAS_AGENT_MODEL,requestId:step.id,brief:input.brief,frames,...(input.policy?{policy:input.policy}:{}),
         privacyUser:`cau_${await sha256Hex(`canvas-agent-user:${run.user_id}`)}`,promptCacheKey:`cap_${await sha256Hex(`canvas-agent-project:${run.user_id}:${run.project_id}`)}`};
     const result=await executeCanvasAgentModel(env,run,step,user,payload);
     if(!result)return null;

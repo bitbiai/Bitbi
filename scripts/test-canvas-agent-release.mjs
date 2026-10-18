@@ -32,6 +32,22 @@ const load=worker=>JSON.parse(fs.readFileSync(path.join(root,`workers/${worker}/
  assert.equal(retention.schemaApplies[0].latestMigration,checkpoint);
  assert.deepEqual(retention.workerDeploys.map(step=>step.worker),['auth']);
  assert(!retention.deploySteps.some(step=>step.type==='service'),'Retention-only schema work must not redeploy the media processor');
+ const dialogueFiles=['workers/shared/canvas-agent-dialogue.mjs','workers/shared/canvas-agent/core.mjs','workers/shared/canvas-agent/manifest.mjs',
+  ...['creative-briefing','story-and-continuity','model-selection','canvas-editing','generation-and-recovery','review-and-export'].map(name=>`workers/shared/canvas-agent/skills/${name}.mjs`)];
+ for(const file of dialogueFiles) {
+  const policyPlan=createReleasePlan(context,{changedFiles:[file]});
+  assert.deepEqual(policyPlan.workerDeploys.map(step=>step.worker),['ai','auth'],`${file} is runtime input to both signed reasoning and accounting`);
+  assert.equal(policyPlan.impacts.uncategorizedFiles.length,0);
+  assert(backendContinuationSupported(policyPlan));
+ }
+ const dialogue=createReleasePlan(context,{changedFiles:[...dialogueFiles,'workers/ai/src/lib/canvas-agent-dialogue.js',
+  'workers/auth/migrations/0109_canvas_agent_conversations.sql','workers/auth/src/routes/canvas-agent-conversation.js','config/release-compat.json','js/pages/canvas/agent.js']});
+ assert(backendContinuationSupported(dialogue));assertSupportedBackendMigrations(['0109_canvas_agent_conversations.sql']);
+ assert.deepEqual(dialogue.workerDeploys.map(step=>step.worker),['ai','auth']);
+ assert.deepEqual(dialogue.deploySteps.map(step=>step.type),['schema-checkpoint','worker','worker','static']);
+ assert.equal(dialogue.schemaApplies[0].latestMigration,checkpoint);
+ assert(!backendContinuationSupported(createReleasePlan(context,{changedFiles:[...dialogue.changedFiles,'workers/ai/src/lib/arbitrary-chat.js']})),'Unreviewed AI modules remain blocked');
+ assert(createReleasePlan(context,{changedFiles:['workers/shared/unapproved-agent/manifest.mjs']}).impacts.uncategorizedFiles.length>0,'Unapproved policy directories do not gain deployment authority');
  const creative=createReleasePlan(context,{changedFiles:[...changedFiles,'services/homepage-ffmpeg-processor/canvas-assembly-contract.mjs','workers/auth/src/lib/canvas-export-recipes.js']});
  assert(backendContinuationSupported(creative));
  assert.deepEqual(creative.workerDeploys.map(step=>step.worker),['ai','media','auth']);

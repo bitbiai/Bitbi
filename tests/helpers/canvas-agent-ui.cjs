@@ -19,10 +19,53 @@ async function fixture({page,locale,mockSharedAuth,createCanvasApiMock}) {
     await mockSharedAuth(page);
     const canvas=createCanvasApiMock(page), project='1'.repeat(32), now=new Date().toISOString();
     canvas.projects=[{id:project,title:'Editable film',locale,revision:0,created_at:now,updated_at:now}];
-    const state={run:null,available:true,posts:[],controls:[],loseResponse:false,reads:0,events:[],budgetPosts:[]};
+    const state={run:null,available:true,posts:[],controls:[],loseResponse:false,reads:0,events:[],budgetPosts:[],chatPosts:[],allowancePosts:[],chatControls:[]};
+    const conversation={revision:0,briefRevision:0,state:'active',draft:'',messages:[],brief:{version:1,revision:0,fields:{},duration:{targetDurationSeconds:null,choice:null,asked:false},openQuestions:[]},allowance:{capCredits:0,committedCredits:0,remainingCredits:0,tariffRevision:29},pendingTurnId:null,suggestedAllowanceCredits:20};
+    state.conversation=conversation;const chatReceipts=new Map();
     await page.route('**/api/account/canvas/**',async route=>{
         const request=route.request(),url=new URL(request.url());
         if(!url.pathname.includes('/agent'))return route.fallback();
+        if(url.pathname.includes('/agent/conversation')){
+            const respondChat=()=>route.fulfill({json:{ok:true,data:{conversation,availability:{available:state.available}}}});
+            if(request.method()==='GET')return respondChat();
+            const body=request.postDataJSON(),key=request.headers()['idempotency-key'];
+            if(url.pathname.endsWith('/start')){
+                state.posts.push({body,key});
+                if(!state.run)state.run={id:'a'.repeat(32),projectId:project,requestKey:key,status:'running',phase:'generating',completed:0,total:3,targetDurationSeconds:conversation.brief.duration.targetDurationSeconds??60,budgetCredits:body.budgetCredits,allocatedCredits:0,projectRevision:body.expectedRevision,result:null};
+                if(state.loseResponse){state.loseResponse=false;return route.abort('failed');}
+                return route.fulfill({json:{ok:true,data:{run:state.run}}});
+            }
+            const kind=url.pathname.split('/').at(-1);
+            (kind==='messages'?state.chatPosts:kind==='allowance'?state.allowancePosts:state.chatControls).push({body,key});
+            if(chatReceipts.has(key))return respondChat();
+            if(body.expectedConversationRevision!==conversation.revision)return route.fulfill({status:409,json:{ok:false,code:'canvas_conversation_revision_conflict'}});
+            conversation.revision++;
+            if(kind==='allowance')conversation.allowance={capCredits:body.capCredits,committedCredits:0,remainingCredits:body.capCredits,tariffRevision:29};
+            if(kind==='control'){
+                if(body.action==='save'){conversation.state='saved';conversation.draft=body.draft||'';}
+                if(body.action==='resume')conversation.state='active';
+                if(body.action==='cancel')conversation.state='cancelled';
+                if(body.action==='delegate_duration'){conversation.brief.duration={choice:'delegated',targetDurationSeconds:null,asked:true};conversation.briefRevision++;}
+                if(body.action==='clear'){conversation.messages=[];conversation.brief.fields={};conversation.brief.duration={choice:null,targetDurationSeconds:null,asked:false};conversation.briefRevision++;conversation.state='active';conversation.draft='';}
+            }
+            if(kind==='messages'){
+                const id='message-'+conversation.revision,text=body.text;
+                conversation.messages.push({id,role:'user',text,status:'completed'});
+                const seconds=/\b120\b|2-minüt|zweiminüt|two.minute/.test(text)?120:/\b60\b/.test(text)&&!/120/.test(text)?60:null;
+                const ambiguous=/60.*(?:or|oder).*120/.test(text);
+                if(!conversation.brief.fields.story||text.length>30)conversation.brief.fields.story={value:text,provenance:'user_stated',sourceMessageId:id,revision:conversation.briefRevision+1};
+                if(seconds&&!ambiguous)conversation.brief.duration={choice:'explicit',targetDurationSeconds:seconds,asked:conversation.brief.duration.asked};
+                const ask=!conversation.brief.duration.choice&&!conversation.brief.duration.asked;
+                if(ask)conversation.brief.duration.asked=true;
+                conversation.briefRevision++;conversation.brief.revision=conversation.briefRevision;conversation.draft='';
+                conversation.messages.push({id:id+'-reply',role:'assistant',text:ask?(locale==='de'?'Wie lang soll dein Film werden?':'How long should your film be?'):(locale==='de'?'Die Projektidee ist gespeichert.':'The project brief is saved.'),status:'completed'});
+                conversation.allowance.committedCredits++;conversation.allowance.remainingCredits--;
+            }
+            chatReceipts.set(key,true);
+            if(state.loseChatResponse){state.loseChatResponse=false;return route.abort('failed');}
+            if(state.holdChatResponse){state.holdChatResponse=false;state.releaseChatResponse=respondChat;return;}
+            return respondChat();
+        }
         if(url.pathname.endsWith('/events'))return route.fulfill({status:200,contentType:'text/event-stream',body:'event: heartbeat\ndata: {}\n\n'});
         const respond=()=>route.fulfill({json:{ok:true,data:{availability:{available:state.available,code:state.available?null:'grok_47_unverified',model:'xai/grok-4.7'},run:state.run,events:state.events,eventCursor:state.events.at(-1)?.id||0,hasMore:false}}});
         if(request.method()==='GET'){state.reads++;if(state.failRead){state.failRead=false;return route.fulfill({status:503,json:{ok:false,code:'synthetic_observation_unavailable'}});}if(state.holdRead){state.holdRead=false;state.pendingRead=route;return;}return respond();}
@@ -48,27 +91,39 @@ async function fixture({page,locale,mockSharedAuth,createCanvasApiMock}) {
     await page.route('**/api/ai/videos/agent-fixture/file',route=>route.fulfill({path:path.join(__dirname,'../fixtures/media/canvas-preview.mp4'),contentType:'video/mp4'}));
     const open=async()=>{await page.goto(locale==='de'?'/de/canvas/':'/canvas/');await page.locator('#canvasAgentToggle').click();};
     await open();
-    return {canvas,state,project,open,panel:page.locator('#canvasAgentPanel'),form:page.locator('.canvas-agent__form')};
+    return {canvas,state,project,open,panel:page.locator('#canvasAgentPanel'),form:page.locator('.canvas-agent__production-approval'),composer:page.locator('.canvas-agent__composer')};
+}
+
+async function briefing({panel,locale,text,expect}) {
+    const allowance=panel.locator('.canvas-agent__allowance');
+    await expect(panel.locator('.canvas-agent__composer textarea')).toBeEnabled();
+    if(await allowance.isVisible())await allowance.getByRole('button',{name:locale==='de'?'Dieses Gesprächsbudget freigeben':'Authorize this briefing allowance',exact:true}).click();
+    const composer=panel.locator('.canvas-agent__composer');await expect(composer.locator('textarea')).toBeEnabled();
+    await composer.locator('textarea').fill(text);await composer.locator('button[type=submit]').click();
+    await expect(panel.locator('.canvas-agent__messages')).toContainText(text);
+    await expect(composer.locator('textarea')).toHaveValue('');
 }
 
 exports.admission=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock})=>{
     const {canvas,state,panel,form}=await fixture({page,locale,mockSharedAuth,createCanvasApiMock});
-    await expect(form.locator('textarea')).toBeEnabled();
-    await form.locator('textarea').fill('A comic film about a house being built, a pool with ducks and arriving guests.');
-    await form.locator('button[type="submit"]').click();
-    // An omitted duration is deliberate automatic planning; money still needs
-    // explicit authorization. A submit without a cap cannot create any run.
-    expect(state.posts).toEqual([]);
-    await expect(panel).toContainText(locale==='de'?'Ausgabenfreigabe':'authorize the spend');
-    expect(canvas.requests.filter(request=>request.method==='POST')).toEqual([]);
-    await form.locator('[name="budget"]').fill('300');
-    await form.locator('[name="authorize"]').check();
+    const composer=panel.locator('.canvas-agent__composer');
+    await expect(composer.locator('textarea')).toBeEnabled();
+    await composer.locator('textarea').fill('A comic film about a house being built, a pool with ducks and arriving guests.');
+    await composer.locator('button[type=submit]').click();
+    expect(state.posts).toEqual([]);expect(state.chatPosts).toEqual([]);
+    await expect(panel).toContainText(locale==='de'?'Gesprächsbudget frei':'briefing allowance first');
+    await briefing({panel,locale,expect,text:'A comic film about a house being built, a pool with ducks and arriving guests.'});
+    await expect(panel.locator('.canvas-agent__messages')).toContainText(locale==='de'?'Wie lang':'How long');
+    await expect(form.locator('button[type=submit]')).toBeDisabled();
+    await panel.getByRole('button',{name:locale==='de'?'Du wählst eine passende Dauer':'You choose a suitable duration',exact:true}).click();
+    await expect(form.locator('button[type=submit]')).toBeEnabled();
+    await form.locator('button[type=submit]').click();expect(state.posts).toEqual([]);
+    await form.locator('[name="budget"]').fill('300');await form.locator('[name="authorize"]').check();
     await form.evaluate(node=>{node.requestSubmit();node.requestSubmit();});
     await expect.poll(()=>state.posts.length).toBe(1);
-    expect(Object.hasOwn(state.posts[0].body,'targetDurationSeconds')).toBe(false);
-    expect(state.posts[0].body.durationChoice).toBe('automatic');
-    expect(state.posts[0].body.budgetCredits).toBe(300);
-    await expect(form.locator('[name="delegateDuration"]')).toHaveCount(0);
+    expect(state.posts[0].body).toMatchObject({authorized:true,budgetCredits:300,expectedBriefRevision:2});
+    expect(Object.hasOwn(state.posts[0].body,'brief')).toBe(false);
+    expect(state.conversation.brief.duration.choice).toBe('delegated');
     await expect(panel.locator('.canvas-agent__counts')).toHaveText(locale==='de'?'0 / 3 abgeschlossen':'0 / 3 completed');
     // Completion requires an actual owned saved URL; play its real media bytes.
     state.run={...state.run,status:'completed',phase:'completed',completed:3,result:{exportId:'export-v1',assetId:'agent-fixture',fileUrl:'/api/ai/videos/agent-fixture/file',measuredDurationSeconds:60,technicalValidation:'processor_measured',visualReview:'sampled_frames',evaluation:{accepted:true,issues:[],confidence:'medium',samplingLimit:'Selected frames only.'}}};
@@ -95,21 +150,16 @@ exports.admission=async({page,expect,locale,info,mockSharedAuth,createCanvasApiM
 
 exports.recovery=async({page,expect,locale,mockSharedAuth,createCanvasApiMock})=>{
     const {canvas,state,panel,form}=await fixture({page,locale,mockSharedAuth,createCanvasApiMock});
-    await expect(form.locator('textarea')).toBeEnabled();
-    await form.locator('textarea').fill('A realistic 120 second housebuilding film, with ducks in the pool and visitors arriving.');
+    await briefing({panel,locale,expect,text:'A realistic 120 second housebuilding film, with ducks in the pool and visitors arriving.'});
     await form.locator('[name="budget"]').fill('900');await form.locator('[name="authorize"]').check();
-    canvas.projects[0].revision=7;
-    state.loseResponse=true;
+    canvas.projects[0].revision=7;state.loseResponse=true;
     await form.locator('button[type="submit"]').click();
     await expect.poll(()=>state.posts.length).toBe(1);
-    expect(state.posts[0].body.targetDurationSeconds).toBe(120);
+    expect(state.conversation.brief.duration.targetDurationSeconds).toBe(120);
     expect(state.posts[0].body.expectedRevision).toBe(7);
-    await expect(panel.getByRole('button',{name:locale==='de'?'Ursprünglichen Start bestätigen':'Confirm original start',exact:true})).toBeVisible();
-    await expect(form.locator('[name="delegateDuration"]')).toBeHidden();
-    // Explicit retry must carry precisely the original immutable authorization.
-    await panel.getByRole('button',{name:locale==='de'?'Ursprünglichen Start bestätigen':'Confirm original start',exact:true}).click();
-    await expect.poll(()=>state.posts.length).toBe(2);
-    expect(state.posts[1]).toEqual(state.posts[0]);
+    const retry=panel.getByRole('button',{name:locale==='de'?'Nachricht prüfen':'Check message',exact:true});
+    await expect(retry).toBeVisible();
+    await retry.click();await expect.poll(()=>state.posts.length).toBe(2);expect(state.posts[1]).toEqual(state.posts[0]);
     await page.reload();await page.locator('#canvasAgentToggle').click();
     await expect(panel.locator('.canvas-agent__counts')).toContainText('0 / 3');
     expect(state.posts.length).toBe(2);
@@ -148,15 +198,14 @@ exports.duration=async({page,expect,locale,mockSharedAuth,createCanvasApiMock})=
     ];
     const actual=await page.evaluate(async briefs=>{const {resolveCanvasAgentDuration}=await import('/js/shared/canvas-agent-contract.mjs');return briefs.map(brief=>resolveCanvasAgentDuration({brief})?.targetDurationSeconds??null);},cases.map(([brief])=>brief));
     expect(actual).toEqual(cases.map(([,seconds])=>seconds));
-    await expect(form.locator('textarea')).toBeEnabled();
-    await form.locator('textarea').fill(locale==='de'?'Ein 60 Sekunden Film oder ein 120 Sekunden Film.':'A 60 second film or a 120 second film.');await form.locator('button[type="submit"]').click();
-    expect(state.posts).toEqual([]);
-    await expect(panel).toContainText(locale==='de'?'Ausgabenfreigabe':'authorize the spend');
-    await form.locator('textarea').fill(locale==='de'?'Einen 2-minütigen Film mit 10-sekündigen Szenen.':cases[0][0]);
+    await briefing({panel,locale,expect,text:locale==='de'?'Ein 60 Sekunden Film oder ein 120 Sekunden Film.':'A 60 second film or a 120 second film.'});
+    expect(state.posts).toEqual([]);await expect(form.locator('button[type=submit]')).toBeDisabled();
+    await briefing({panel,locale,expect,text:locale==='de'?'Einen 2-minütigen Film mit 10-sekündigen Szenen.':cases[0][0]});
     await form.locator('[name="budget"]').fill('900');await form.locator('[name="authorize"]').check();await form.locator('button[type="submit"]').click();
-    await expect.poll(()=>state.posts.length).toBe(1);expect(state.posts[0].body.targetDurationSeconds).toBe(120);
-    await expect(form.locator('[name="delegateDuration"]')).toBeHidden();
+    await expect.poll(()=>state.posts.length).toBe(1);expect(state.conversation.brief.duration.targetDurationSeconds).toBe(120);
+    expect(state.conversation.messages.filter(message=>/How long|Wie lang/.test(message.text))).toHaveLength(1);
     expect(canvas.requests.filter(request=>request.method==='POST')).toEqual([]);
+
 };
 
 exports.unavailable=async({page,expect,locale,mockSharedAuth,createCanvasApiMock})=>{
@@ -164,7 +213,7 @@ exports.unavailable=async({page,expect,locale,mockSharedAuth,createCanvasApiMock
     state.available=false;
     await page.reload();await page.locator('#canvasAgentToggle').click();
     await expect(panel).toContainText(locale==='de'?'bestätigtem Zugriff':'confirmed access');
-    await expect(form.locator('button[type="submit"]')).toBeDisabled();
+    await expect(panel.locator('.canvas-agent__composer button[type=submit]')).toBeDisabled();
     await form.evaluate(node=>node.dispatchEvent(new Event('submit',{cancelable:true,bubbles:true})));
     expect(state.posts).toEqual([]);
     // A hostile result cannot turn a completion label into a playable/saved claim.
@@ -321,7 +370,76 @@ exports.outcome=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMoc
     await expect(panel).toContainText(de?'Die automatische Prüfung ist angehalten':'Automatic review has stopped');
     state.run={...state.run,status:'paused',allowedActions:null,modelOperation:{...state.run.modelOperation,outcome:'completed',recovery:null}};
     await refresh.click();await expect(resume).toBeHidden();await resume.evaluate(node=>node.click());expect(state.controls).toHaveLength(1);
+    // A complete new brief cannot turn an uncertain historical request into
+    // permission for a new production, including after the old run is stopped.
+    state.conversation.brief.fields.story={value:'A new film about the same house.',provenance:'user_stated'};
+    state.conversation.brief.duration={choice:'explicit',targetDurationSeconds:120,asked:false};
+    state.run={...state.run,status:'cancelled',modelOperation:{...state.run.modelOperation,outcome:'unknown',recovery:'review_required'}};
+    await page.reload();await page.locator('#canvasAgentToggle').click();
+    const produce=form.locator('button[type=submit]');await expect(form).toBeVisible();await expect(produce).toBeDisabled();
+    await form.evaluate(node=>node.requestSubmit());expect(state.posts).toEqual([]);
+    // Briefing uncertainty independently blocks paid sends and offers a status
+    // read. The known-complete control below proves readiness is otherwise met.
+    state.run={...state.run,status:'completed',modelOperation:{...state.run.modelOperation,outcome:'completed',recovery:null}};
+    state.conversation.messages=[{id:'review',role:'assistant',text:'',status:'review_required'}];
+    await page.reload();await page.locator('#canvasAgentToggle').click();
+    await expect(panel.locator('.canvas-agent__composer button[type=submit]')).toBeDisabled();await expect(produce).toBeDisabled();
+    await expect(panel.getByRole('button',{name:de?'Gespräch neu laden':'Reload conversation',exact:true})).toBeVisible();
+    state.conversation.messages=[];state.conversation.revision++;
+    await panel.getByRole('button',{name:de?'Gespräch neu laden':'Reload conversation',exact:true}).click();await expect(produce).toBeEnabled();
     expect(state.posts).toEqual([]);expect(errors).toEqual([]);
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
     await panel.screenshot({path:info.outputPath(`canvas-agent-unknown-${locale}.png`)});
+};
+
+
+exports.conversation=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock})=>{
+    const {state,panel,composer,form}=await fixture({page,locale,mockSharedAuth,createCanvasApiMock}),de=locale==='de';
+    const input=composer.locator('textarea'),button=name=>panel.getByRole('button',{name,exact:true});
+    await expect(input).toBeEnabled();
+    const text='A warm comic film about building a house next to a pool with ducks, ending with arriving visitors.';
+    await input.fill(text);state.holdChatResponse=true;await button(de?'Für später speichern':'Save for later').click();
+    await expect.poll(()=>Boolean(state.releaseChatResponse)).toBe(true);
+    const saved=panel.getByText(de?'Entwurf im Projekt gespeichert. Es wurde keine Produktion gestartet.':'Draft saved with this project. No production has started.',{exact:true});
+    // A saved claim before acknowledgement is a meaningful broken case; wait
+    // for the real UI acknowledgement before navigating away in this case.
+    await expect(saved).toBeHidden();await state.releaseChatResponse();await expect(saved).toBeVisible();
+    expect(state.chatPosts).toEqual([]);expect(state.posts).toEqual([]);expect(state.allowancePosts).toEqual([]);
+    await page.reload();await page.locator('#canvasAgentToggle').click();await expect(input).toHaveValue(text);
+    await expect(input).toBeDisabled();await button(de?'Briefing fortsetzen':'Resume briefing').click();await expect(input).toBeEnabled();
+    await briefing({panel,locale,expect,text});
+    expect(state.allowancePosts).toHaveLength(1);expect(state.allowancePosts[0].body.capCredits).toBe(20);
+    await expect(panel.locator('.canvas-agent__brief')).toContainText(text);
+    await button(de?'Projektidee vorbereiten':'Prepare the brief').click();
+    expect(state.conversation.brief.duration.choice).toBe(null);expect(state.posts).toEqual([]);
+    await expect(form.locator('button[type=submit]')).toBeDisabled();
+    // An interrupted response retains the original request across reload. The
+    // fixture independently rejects stale revisions and de-duplicates its key.
+    state.loseChatResponse=true;await input.fill('A 120 second film.');await composer.locator('button[type=submit]').click();
+    const check=button(de?'Nachricht prüfen':'Check message');await expect(check).toBeVisible();
+    const accepted=structuredClone(state.chatPosts.at(-1));await page.reload();await page.locator('#canvasAgentToggle').click();await expect(check).toBeVisible();
+    await check.click();await expect(check).toBeHidden();expect(state.chatPosts.at(-1)).toEqual(accepted);
+    expect(state.conversation.messages.filter(message=>message.role==='user'&&message.text==='A 120 second film.')).toHaveLength(1);
+    expect(state.conversation.messages.filter(message=>/How long|Wie lang/.test(message.text))).toHaveLength(1);
+    await expect(panel.locator('.canvas-agent__brief')).toContainText('120 s');
+    const hostile='<img src=x onerror="window.canvasInjected=true">';
+    state.conversation.messages.push({id:'hostile',role:'assistant',text:hostile+' [open](javascript:alert(1))',status:'completed'});state.conversation.revision++;
+    await page.reload();await page.locator('#canvasAgentToggle').click();
+    await expect(panel.locator('.canvas-agent__messages')).toContainText(hostile);
+    await expect(panel.locator('.canvas-agent__messages a, .canvas-agent__messages img, .canvas-agent__messages script')).toHaveCount(0);
+    expect(await page.evaluate(()=>window.canvasInjected)).toBeUndefined();
+    expect(state.posts).toEqual([]);expect(state.controls).toEqual([]);
+    await button(de?'Projektidee korrigieren':'Correct the brief').click();await expect(input).toBeFocused();
+    await input.fill('Keep the same house; use a realistic style instead.');await input.press('Control+Enter');
+    await expect(panel.locator('.canvas-agent__brief')).toContainText('realistic style instead');
+    await button(de?'Briefing beenden':'End briefing').click();await expect(input).toBeDisabled();
+    expect(state.controls).toEqual([]);
+    const privacy=panel.locator('.canvas-agent__conversation > details');await privacy.locator('summary').click();
+    await button(de?'Gespräch und Projektidee löschen':'Delete conversation and brief').click();
+    await button(de?'Gespräch jetzt löschen':'Delete conversation now').click();
+    await expect(panel.locator('.canvas-agent__messages li')).toHaveCount(0);await expect(form).toBeHidden();
+    expect(state.chatControls.map(item=>item.body.action)).toContain('clear');expect(state.posts).toEqual([]);
+    expect(await panel.locator('input,textarea').evaluateAll(nodes=>nodes.every(node=>node.labels.length>0))).toBe(true);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    await panel.screenshot({path:info.outputPath(`canvas-conversation-${locale}.png`)});
 };

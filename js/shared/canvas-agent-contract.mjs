@@ -44,9 +44,9 @@ export function resolveCanvasAgentDuration({brief='',targetDurationSeconds,durat
     const seconds=briefDuration(text);
     if(seconds!==null)return resolveCanvasAgentDuration({targetDurationSeconds:seconds});
     if(durationChoice!==undefined&&!['explicit','delegated','automatic'].includes(durationChoice))fail('canvas_agent_duration_invalid');
-    // The planner chooses an appropriate length within the authorized budget.
-    // Null is deliberate creative delegation, never a runtime deadline/default.
-    return {targetDurationSeconds:null,durationChoice:durationChoice==='delegated'?'delegated':'automatic'};
+    // Only an explicit user choice delegates length. Historical accepted inputs
+    // are replayed before normalization; an empty field never authorizes it.
+    return durationChoice==='delegated'?{targetDurationSeconds:null,durationChoice:'delegated'}:null;
 }
 export function normalizeCanvasAgentStart(input,{durationAsked=false}={}) {
     if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(k=>!['brief','targetDurationSeconds','durationChoice','budgetCredits','expectedRevision','locale'].includes(k)))fail('canvas_agent_input_invalid');

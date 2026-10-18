@@ -34,7 +34,7 @@ export async function canvasAgentCapabilities(env) {
         audio:{originalAudio:true,backgroundMusic:true,fades:true},tariffRevision:tariff.revision};
     return {...inventory,revision:await sha256Hex(stablePricingJson(inventory))};
 }
-export async function canvasAgentAvailability(env) {
+export async function canvasAgentAvailability(env,{dialogue=false}={}) {
     let code=null;
     if(String(env.CANVAS_AGENT_ENABLED)!=='true')code='canvas_agent_disabled';
     else if(!env.AI_LAB?.fetch||!env.AI_VIDEO_JOBS_QUEUE?.send||!env.PRIVATE_MEDIA_PROCESSOR?.fetch)code='canvas_agent_infrastructure_unavailable';
@@ -42,7 +42,8 @@ export async function canvasAgentAvailability(env) {
     else {
         try {if((await publicModelAvailability(env)).models[CANVAS_AGENT_MODEL]?.canvas===false)code='model_area_disabled';}
         catch {code='model_availability_unavailable';}
-        if(!code){const readiness=await readCanvasAgentProviderReadiness(env);if(!readiness.available)code=readiness.code||readiness.reason||'canvas_agent_provider_unavailable';}
+        if(!code){const readiness=await readCanvasAgentProviderReadiness(env,{dialogue});if(!readiness.available)code=readiness.code||readiness.reason||'canvas_agent_provider_unavailable';}
     }
     return {available:!code,code,model:CANVAS_AGENT_MODEL,providerAccess:'not_live_verified'};
 }
+export const canvasAgentDialogueAvailability=env=>canvasAgentAvailability(env,{dialogue:true});

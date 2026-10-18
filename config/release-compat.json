@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0108_canvas_creative_export_retention.sql",
+        "latest": "0109_canvas_agent_conversations.sql",
         "databaseName": "bitbi-auth-db"
       }
     },

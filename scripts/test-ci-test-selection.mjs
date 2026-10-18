@@ -17,6 +17,24 @@ import {isCanvasInspectorChange,isCanvasTransitionExampleChange} from './lib/can
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 
+{
+ const policyFiles=['workers/shared/canvas-agent-dialogue.mjs','workers/shared/canvas-agent/core.mjs','workers/shared/canvas-agent/manifest.mjs',
+  ...['creative-briefing','story-and-continuity','model-selection','canvas-editing','generation-and-recovery','review-and-export'].map(name=>`workers/shared/canvas-agent/skills/${name}.mjs`)];
+ for(const file of policyFiles) {
+  const selected=selectCiTests([file]);
+  assert(selected.workers&&selected.auth&&!selected.docsOnly,`${file} is executable policy, not documentation`);
+  assert.equal(selected.full,false,'Known runtime inputs retain ordinary affected selection');
+ }
+ for(const file of ['tests/q2-canvas-agent-conversation.spec.js','tests/q2-canvas-agent-dialogue-provider.spec.js']) {
+  const selected=selectCiTests([file]);assert(selected.workers&&!selected.full,'New dialogue regressions use the real Worker test caller');
+ }
+ const shared=selectCiTests(['tests/helpers/canvas-agent-conversation-control.mjs']);
+ assert(shared.workers&&shared.homepage&&!shared.full,'Shared conversation fixture retains native and rendered editable-film acceptance');
+ const browser=selectCiTests(['tests/helpers/canvas-conversation-persisted-ui.cjs']);
+ assert(browser.homepage&&!browser.full,'Persisted conversation UI uses the existing EN/DE Chromium/WebKit Canvas caller');
+ assert(selectCiTests(['tests/unknown-conversation-regression.fixture']).full,'Unknown test inputs still fail closed to full selection');
+}
+
 if (process.argv.includes('--doc-inventory-only')) {
   assert.deepEqual(process.argv.slice(2),['--doc-inventory-only']);
   verifyDocInventorySelection();

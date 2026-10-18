@@ -132,8 +132,18 @@ export async function canvasAgentApiCase(base) {
   const brief = 'A comic film about building a house next to a pool with ducks.';
   await bodyOf(await request(route, { brief, expectedRevision: 0, locale: 'de' }, 'agent-api-no-consent'), 400);
   check(messages.length === 0 && providerCalls.length === 0, 'Missing credit consent cannot queue or run inference');
-  const automatic = await bodyOf(await request(route, { brief, expectedRevision: 0, budgetCredits:10000,locale: 'de' }, 'agent-api-auto-duration'), 202);
-  check(automatic.data.run.status==='queued'&&automatic.data.run.targetDurationSeconds===null,'Omitted duration starts once; the planner chooses a creative target');
+  const missingInput={brief,expectedRevision:0,budgetCredits:10000,locale:'de'};
+  const missing=await bodyOf(await request(route,missingInput,'agent-api-missing-duration'),202);
+  check(missing.data.run.status==='clarification_required'&&missing.data.run.clarification.field==='duration','Omitted duration asks before any planning authority');
+  check(messages.length===0&&providerCalls.length===0,'Missing duration never queues inference or media');
+  check((await bodyOf(await request(route,missingInput,'agent-api-missing-duration'),200)).data.run.id===missing.data.run.id,'Clarification replay retains the original identity');
+  const historicalId=(await sha256Hex(owner+'-historical')).slice(0,32);
+  await db.prepare(`INSERT INTO canvas_agent_runs(id,project_id,user_id,request_key,input_json,status,expected_revision,target_seconds,budget_credits,next_attempt_at,created_at,updated_at,expires_at)
+    VALUES(?,?,?,?,?,'completed',0,NULL,10000,?,?,?,?)`).bind(historicalId,project,owner,'agent-api-historical-duration',JSON.stringify(missingInput),now,now,now,new Date(Date.now()+3600000).toISOString()).run();
+  const historical=await bodyOf(await request(route,missingInput,'agent-api-historical-duration'),200);
+  check(historical.data.run.id===historicalId&&historical.data.run.status==='completed'&&historical.data.idempotentReplay===true&&messages.length===0,'Historically accepted automatic input remains replayable without reinterpretation or paid resubmission');
+  const automatic = await bodyOf(await request(route, { ...missingInput,durationChoice:'delegated' }, 'agent-api-delegated-duration'), 202);
+  check(automatic.data.run.status==='queued'&&automatic.data.run.targetDurationSeconds===null,'An explicit duration delegation can authorize a creative target');
   check(messages.length===1&&providerCalls.length===0,'Start only wakes durable work, without browser-bound inference');
   check((await db.prepare('SELECT COUNT(*) AS n FROM member_ai_usage_attempts_v2 WHERE user_id=?').bind(owner).first()).n === 0, 'Start allocation is not a wallet reservation or charge');
   await bodyOf(await request(`${route}/${automatic.data.run.id}/control`,{action:'takeover'},'agent-api-auto-takeover'),200);
@@ -157,13 +167,13 @@ export async function canvasAgentApiCase(base) {
   check((await bodyOf(await request(control, { action: 'takeover' }, 'agent-api-takeover'), 200)).data.run.status === 'taken_over', 'Manual takeover revokes execution');
   check(providerCalls.length === 0, 'Editing, reopening and controls cannot submit generation');
   await Promise.all(waits);
-  return { autonomousDuration: true, starts: 2, duplicateStarts: 1, providerCalls: 0, foreignDenied: true, manualTakeover: true };
+  return { missingDurationBlocked:true,explicitDelegation:true,historicalReplayPreserved:true,starts: 2, duplicateStarts: 1, providerCalls: 0, foreignDenied: true, manualTakeover: true };
 }
 
 // Reuses an owned media fixture while exercising the real signed AI Worker,
 // member credit gateway, durable queue, guarded graph writes and export routes.
 // processor is a caller-owned real FFmpeg executor; no browser drives the run.
-export async function finishCanvasAgentFixture({ f, processor, targetSeconds = 16, order = f.order, generate = false, planOverride = null, stopAtExport = false, stopBeforeEvaluation = false, budgetCredits = 5000, beforeTurn = () => {}, legacyProjectionGap = false, evaluationRejectCount = 0, expectedTerminal = null,deliverGeneration=null }) {
+export async function finishCanvasAgentFixture({ f, processor, targetSeconds = 16, order = f.order, generate = false, planOverride = null, stopAtExport = false, stopBeforeEvaluation = false, budgetCredits = 5000, beforeTurn = () => {}, legacyProjectionGap = false, evaluationRejectCount = 0, expectedTerminal = null,deliverGeneration=null, admittedRunId=null }) {
   const aiWorker = (await import('../../workers/ai/src/index.js')).default;
   const plannerCalls = [], evaluationCalls = [], callbacks = [], providerBaseline = f.calls.length;
   const oldAiLab = f.env.AI_LAB,oldProviderFetch=f.env.__TEST_FETCH; let rejectedNode = null;
@@ -214,10 +224,18 @@ export async function finishCanvasAgentFixture({ f, processor, targetSeconds = 1
   };
   try {
   const before = await f.readProject(), revision = (await getModelTariff(f.env)).revision;
-  const response = await f.request(f.projectPath + '/agent', 'POST', { brief: `Create this ${targetSeconds} second film with editable sources.`, targetDurationSeconds: targetSeconds,
-    expectedRevision: before.project.revision, budgetCredits }, { 'Idempotency-Key': 'native-agent-production-start', 'X-Bitbi-Tariff-Revision': String(revision) });
-  const started = await response.json(); check(response.status === 202, `Agent production admission: ${response.status}/${started.code}`);
-  const runId = started.data.run.id;
+  let runId=admittedRunId;
+  if(runId) {
+    const admitted=await f.db.prepare('SELECT * FROM canvas_agent_runs WHERE id=? AND project_id=? AND user_id=?').bind(runId,f.project,f.owner).first();
+    check(admitted?.status==='queued'&&admitted.expected_revision===before.project.revision&&admitted.target_seconds===targetSeconds,
+      'Conversational handoff must already have admitted this exact project, revision and duration');
+    check(admitted.budget_credits===budgetCredits,'Conversational handoff retains the explicitly authorized production cap');
+  } else {
+    const response = await f.request(f.projectPath + '/agent', 'POST', { brief: `Create this ${targetSeconds} second film with editable sources.`, targetDurationSeconds: targetSeconds,
+      expectedRevision: before.project.revision, budgetCredits }, { 'Idempotency-Key': 'native-agent-production-start', 'X-Bitbi-Tariff-Revision': String(revision) });
+    const started = await response.json(); check(response.status === 202, `Agent production admission: ${response.status}/${started.code}`);
+    runId = started.data.run.id;
+  }
   const expectedOrder = planOverride ? await Promise.all(plan.assembly.clips.map(async clip => clip.key.startsWith('existing:') ? clip.key.slice(9) : (await sha256Hex(`canvas-agent-node:${runId}:0:${clip.key}`)).slice(0,32))) : order;
   const exportEndpoint = `${f.projectPath}/nodes/${expectedOrder.at(-1)}/full-video`;
   const expectedGeneration = planOverride ? plan.nodes.filter(node => node.type !== 'note').length + (plan.updates?.length || 0) : generate ? 1 : 0;

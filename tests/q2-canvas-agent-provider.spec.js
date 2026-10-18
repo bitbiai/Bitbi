@@ -90,7 +90,10 @@ test('Canvas background evaluation prepares bounded images and keeps persisted v
   const f = await fixture(), source = input('evaluate');
   const prepared = await f.call('prepare', { kind: 'evaluate', input: source });
   expect(prepared.status).toBe(200);
-  expect(prepared.body.context).toEqual({ frames: [{ nodeId, timeSeconds: 2 }] });
+  expect(prepared.body.context).toEqual({ frames: [{ nodeId, timeSeconds: 2 }], policy: {
+    version: 'canvas-policy-1', phase: 'evaluation', sha256: createHash('sha256').update(prepared.body.input.messages[0].content).digest('hex'),
+    skills: ['core', 'personality', 'review-and-export'].map(id => ({ id, version: 1 })),
+  } });
   expect(prepared.body.input).toMatchObject({ stream: false, max_completion_tokens: 2048, reasoning_effort: 'low' });
   expect(prepared.body.input.messages[1].content.at(-1)).toEqual({ type: 'image_url', image_url: { url: source.frames[0].imageData } });
   expect(JSON.stringify(prepared.body.context)).not.toMatch(/base64|requirement|brief|imageData/);
@@ -134,7 +137,10 @@ test('Canvas creative planning receives authoritative budget, conditional constr
     field: 'dependencies', message: 'Frame and reference input modes cannot be combined.', allowed: ['frame inputs with adaptive aspect ratio', 'reference inputs'] }], previousPlan: plan() };
   const result = await f.call('prepare', { kind: 'plan', input: source });
   expect(result.status).toBe(200);
-  expect(result.body.context).toEqual({ durationMode: 'creative', targetDurationSeconds: null, existingNodeIds: [nodeId] });
+  expect(result.body.context).toEqual({ durationMode: 'creative', targetDurationSeconds: null, existingNodeIds: [nodeId], policy: {
+    version: 'canvas-policy-1', phase: 'correction', sha256: createHash('sha256').update(result.body.input.messages[0].content).digest('hex'),
+    skills: ['core', 'personality', 'story-and-continuity', 'model-selection', 'canvas-editing', 'generation-and-recovery'].map(id => ({ id, version: 1 })),
+  } });
   const user = JSON.parse(result.body.input.messages[1].content);
   expect(user.budget).toEqual(source.budget);
   expect(user.repair).toEqual(source.repair);

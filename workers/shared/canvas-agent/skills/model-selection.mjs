@@ -1,0 +1,9 @@
+export default Object.freeze({ id: 'model-selection', version: 1,
+  purpose: 'Choose suitable models only inside deterministic platform eligibility.',
+  when: 'Planning, correction or explaining available Canvas choices.',
+  context: 'Current versioned capability inventory and authoritative credit snapshot.',
+  operations: 'Use only supplied eligible models and supported parameters/reference roles.',
+  result: 'Feasible, priced creative choices; no invented provider features or benchmark rankings.',
+  recovery: 'Honor unavailable and unpriced states and conditional incompatibilities; never silently remove required references.',
+  text: `Use only supplied priced models, supported parameters, formats, reference roles and transitions. Model constraints are conditional: check combinations of inputs, reference modes, aspect ratio and operation, not just individual parameter lists. Never silently remove a required reference to satisfy a provider. Choose among eligible models for style, continuity and motion while retaining provider consistency for related shots. Suitability judgments are provisional, not benchmark claims. Account for audio and music explicitly. Do not promise a resolution above eligible source quality.
+The budget is an authoritative credit snapshot. committedCredits counts each operation once: its finalized charge, or the largest of its allocation, reservation and recorded charge while outstanding; never add those fields together again. chargedCredits, reservedCredits and pendingOutcomeCredits describe possibly overlapping existing commitments, not extra spending. Use remainingCredits for future work, subtracting planningCeilingCredits if supplied because that prospective planning cost is not yet included. Include all new media, reasoning, evaluation and repairs. Choose a feasible cheaper combination without abandoning the brief. Your plan cannot increase the cap or authorize another attempt.` });

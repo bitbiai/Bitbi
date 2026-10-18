@@ -23,7 +23,7 @@ async function checkAuthority(env,run) {
     const user=await env.DB.prepare("SELECT id,role,status FROM users WHERE id=? AND status='active'").bind(run.user_id).first();
     if(!user)agentFail('canvas_agent_authority_revoked');
     const view=await canvasAgentProject(env,run.user_id,run.project_id);
-    if(view.project.revision!==run.expected_revision)agentFail('canvas_agent_project_changed');
+    if(run.purpose!=='briefing'&&view.project.revision!==run.expected_revision)agentFail('canvas_agent_project_changed');
     return {user,view};
 }
 async function generationStep(env,run,step,user) {
@@ -140,7 +140,10 @@ export async function processCanvasAgent(env,id) {
     let run=await claimCanvasAgent(env,id);if(!run)return {status:'ignored'};
     try {
         const {user,view}=await checkAuthority(env,run);
-        if(['queued','planning'].includes(run.status)){
+        if(run.purpose==='briefing'){
+            const {processCanvasAgentConversation}=await import('./canvas-agent-conversation.js');
+            await processCanvasAgentConversation(env,run,user);
+        } else if(['queued','planning'].includes(run.status)){
             await agentTransition(env,run,{status:'planning',phase:'planning'});
             const step=await env.DB.prepare("SELECT * FROM canvas_agent_steps WHERE run_id=? AND kind='plan' ORDER BY rowid DESC LIMIT 1").bind(id).first();
             if(step.status==='accepted'&&!step.receipt_json)agentFail('canvas_agent_planning_review_required');
