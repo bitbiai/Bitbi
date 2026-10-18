@@ -1,5 +1,5 @@
 import {STORED_PLAN_CONTINUATION,assertStoredPlanTree} from './lib/local-release-browser.mjs';
-import {STORED_PLAN_REFRESH,storedPlanPrefix,storedPlanCommand,verifyStoredPlanWorkers,verifyStoredPlanNativeReceipt,restoreStoredPlanProofs} from './lib/local-release-evidence.mjs';
+import {STORED_PLAN_REFRESH,storedPlanPrefix,storedPlanCommand,verifyStoredPlanWorkers,verifyStoredPlanNativeReceipt,verifyStoredPlanPlacement,restoreStoredPlanProofs} from './lib/local-release-evidence.mjs';
 import {SETTLEMENT_BROWSER_PREFLIGHT,settlementBrowserGuard,settlementBrowserContinuation,SETTLEMENT_NATIVE_PROGRESS,settlementNativeProgressGuard,settlementNativeProgressContinuation,verifySettlementNativeProgress,SETTLEMENT_NATIVE_PREFLIGHT,settlementNativeGuardContinuation,settlementNativeContinuation,verifySettlementNativeRepair,SETTLEMENT_HOSTING_PREFLIGHT,settlementHostingGuardContinuation,SETTLEMENT_PREFLIGHT,settlementPreflightGuardContinuation,CANVAS_POLICY_NATIVE_PROGRESS,verifyCanvasPolicyNativeProgress,canvasPolicyNativeGuardContinuation,CANVAS_POLICY_NATIVE_PREFLIGHT,verifyCanvasPolicyNativeRepair,canvasPolicyNativeContinuation,CANVAS_POLICY_WORKER_PREFLIGHT,verifyCanvasPolicyWorkerRepair,canvasPolicyWorkerContinuation,AUTONOMY_BROWSER_WORKER_PROGRESS,verifyAutonomyBrowserWorkerProgress,autonomyWorkerGuardContinuation,verifyAutonomyRetentionSelection,autonomyDocInventoryContinuation,AUTONOMY_BROWSER_DOC_PROGRESS,verifyAutonomyBrowserDocProgress,autonomyDocGuardContinuation,autonomyDocSelectionContinuation,AUTONOMY_BROWSER_PROGRESS,verifyAutonomyBrowserProgress,autonomyReleasePlanContinuation,runAutonomyReleasePlanContinuation,AUTONOMY_BROWSER_PREFLIGHT,verifyAutonomyBrowserRepair,verifyAutonomyRetentionWorkers,autonomyBrowserContinuation,autonomyRetentionContinuation,AUTONOMY_NATIVE_PREFLIGHT,verifyAutonomyNativeRepair,autonomyNativeContinuation,MODEL_BROWSER_PREFLIGHT,verifyModelBrowserRepair,modelBrowserContinuation,MODEL_WORKER_PREFLIGHT,verifyModelWorkerRepair,modelWorkerContinuation,MODEL_WORKFLOW_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,EXAMPLE_BROWSER_PREFLIGHT,canvasExampleBrowserContinuation,CANVAS_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,canvasExportStageContinuation,canvasPreflightProfile,assertCanvasPreflightTree,canvasPreflightPrefix,canvasWorkspaceStageContinuation,verifyCanvasPreflight} from './lib/local-release-evidence.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -185,7 +185,8 @@ async function runLocalRelease({ base, resume }) {
   const progressProfile=resume&&[CANVAS_POLICY_NATIVE_PROGRESS,AUTONOMY_BROWSER_WORKER_PROGRESS,AUTONOMY_BROWSER_DOC_PROGRESS,AUTONOMY_BROWSER_PROGRESS].find(p=>json(path.join(resume,'checkpoint.json')).sha===p.source&&sha!==p.source);
   const progressDirectory=progressProfile?path.resolve(resume):null;
   const originalDirectory=progressDirectory?path.join(path.dirname(progressDirectory),progressProfile===CANVAS_POLICY_NATIVE_PROGRESS?CANVAS_POLICY_NATIVE_PROGRESS.baseRun:AUTONOMY_BROWSER_PREFLIGHT.run):resume&&json(path.join(resume,'checkpoint.json')).sha!==sha?path.resolve(resume):null;
-  const storedPlanContinuation=originalDirectory&&json(path.join(originalDirectory,'checkpoint.json')).sha===STORED_PLAN_CONTINUATION.source;
+  const storedPlanPlacement=originalDirectory&&json(path.join(originalDirectory,'checkpoint.json')).sha===STORED_PLAN_CONTINUATION.placement.source;
+  const storedPlanContinuation=storedPlanPlacement||originalDirectory&&json(path.join(originalDirectory,'checkpoint.json')).sha===STORED_PLAN_CONTINUATION.source;
   const preflightContinuation=originalDirectory&&canvasPreflightProfile(json(path.join(originalDirectory,'checkpoint.json')).sha);
   const permissionContinuation=originalDirectory&&[EXAMPLE_CACHE_CONTINUATION.source,PERMISSION_CONTINUATION.source,PERMISSION_CONTINUATION.tail,EXPORT_BROWSER_CONTINUATION.source,WORKSPACE_CONTINUATION.source,INSPECTOR_CONTINUATION.source,AUDIO_FIT_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.progress,SMOOTH_BROWSER_CONTINUATION.accepted,SMOOTH_BROWSER_CONTINUATION.completed].includes(json(path.join(originalDirectory,'checkpoint.json')).sha);
   if(originalDirectory){if(storedPlanContinuation)assertStoredPlanTree(sha);else if(preflightContinuation)assertCanvasPreflightTree(sha,undefined,preflightContinuation);else if(permissionContinuation)assertPermissionContinuationTree(sha,undefined,{smooth:isSmoothContinuation(json(path.join(originalDirectory,'checkpoint.json')).sha),source:json(path.join(originalDirectory,'checkpoint.json')).sha});else assertLocalRepairTree(sha);}
@@ -197,19 +198,28 @@ async function runLocalRelease({ base, resume }) {
     id, sha, base, sourceTree: git(['rev-parse',`${sha}^{tree}`]), planHash: validationPlan().digest,
     selection, environment, ...(nativeEvidence?{nativeBrowsers:nativeEvidence}:{}), origin: 'development-mac', ci: true, startedAt: new Date().toISOString(), status: 'running', commands: [] };
   if(storedPlanContinuation) {
-    const bytes=fs.readFileSync(path.join(originalDirectory,'checkpoint.json'));
+    const source=storedPlanPlacement?path.join(originalDirectory,'bundle/reuse/stored-plan-origin'):path.join(originalDirectory,'bundle');
+    const bytes=fs.readFileSync(path.join(source,'evidence.json'));
     const prior=storedPlanPrefix(bytes,{...state,commands});
-    const origin=path.join(bundle,'reuse/stored-plan-origin');fs.mkdirSync(path.dirname(origin),{recursive:true});
-    fs.cpSync(path.join(originalDirectory,'bundle'),origin,{recursive:true});
-    for(const folder of ['test-results','runtime'])fs.cpSync(path.join(originalDirectory,'bundle',folder),path.join(bundle,folder),{recursive:true});
-    fs.cpSync(path.join(originalDirectory,'runtime'),path.join(directory,'runtime'),{recursive:true});
+    const origin=path.join(bundle,'reuse/test-results/stored-plan-origin');fs.mkdirSync(path.dirname(origin),{recursive:true});
+    fs.cpSync(source,origin,{recursive:true});
+    for(const folder of ['test-results','runtime'])fs.cpSync(path.join(source,folder),path.join(bundle,folder),{recursive:true});
+    fs.cpSync(path.join(source,'runtime'),path.join(directory,'runtime'),{recursive:true});
     fs.mkdirSync(path.join(bundle,'logs'),{recursive:true});
     const byName=new Map(prior.commands.map(row=>[row.command.job+':'+row.command.name,row]));
     state={...state,startedAt:prior.startedAt,storedPlanContinuation:{source:prior.sha,checkpoint:STORED_PLAN_CONTINUATION.checkpoint},commands:commands.map((command,i)=>{
       if(STORED_PLAN_REFRESH.has(command.name))return null;
-      const before=byName.get(command.job+':'+command.name),log=`logs/${i}.log`;fs.copyFileSync(path.join(originalDirectory,'bundle',before.log),path.join(bundle,log));
+      const before=byName.get(command.job+':'+command.name),log=`logs/${i}.log`;fs.copyFileSync(path.join(source,before.log),path.join(bundle,log));
       return {...before,command,log,reusedFrom:prior.sha};
     })};
+    if(storedPlanPlacement){
+      const root=path.join(bundle,'reuse/test-results/stored-plan-placement');fs.mkdirSync(root,{recursive:true});
+      for(const[from,to]of [['checkpoint.json','checkpoint.json'],['bundle/logs/0.log','preflight.log'],['bundle/logs/2.log','failed.log']])fs.copyFileSync(path.join(originalDirectory,from),path.join(root,to));
+      const partial=verifyStoredPlanPlacement(bundle,{...state,commands},prior);
+      fs.copyFileSync(path.join(root,'preflight.log'),path.join(bundle,'logs/0.log'));
+      state.storedPlanPlacement={source:partial.sha,checkpoint:STORED_PLAN_CONTINUATION.placement.checkpoint};
+      state.commands[0]={...partial.commands[0],command:commands[0],reusedFrom:partial.sha};
+    }
   } else if(preflightContinuation){
     const bytes=fs.readFileSync(path.join(originalDirectory,'checkpoint.json'));
     const prior=canvasPreflightPrefix(bytes,{...state,commands});

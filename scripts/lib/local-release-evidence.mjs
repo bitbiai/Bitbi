@@ -1804,8 +1804,25 @@ export function storedPlanPrefix(bytes,{sha,base,planHash,environment,nativeBrow
   for(const command of commands){assert(prior.has(storedPlanKey(command)),'New release command requires explicit evidence');if(!STORED_PLAN_REFRESH.has(command.name))assert.deepEqual(command,prior.get(storedPlanKey(command)).command,'Changed retained command');}
   return original;
 }
+export function verifyStoredPlanPlacement(directory,context,original){
+  const p=STORED_PLAN_CONTINUATION.placement,root=path.join(directory,'reuse/test-results/stored-plan-placement');
+  assert.equal(gitBytes(['rev-parse',`${context.sha}^`]).toString().trim(),p.source,'Placement receipt requires its exact source successor');
+  const read=(file,hash)=>{const bytes=fs.readFileSync(path.join(root,file));assert.equal(sha256(bytes),hash,'Changed original placement incident evidence');return bytes;};
+  const partial=JSON.parse(read('checkpoint.json',p.checkpoint));read('preflight.log',p.preflight);read('failed.log',p.failed);
+  assert.equal(partial.sha,p.source);assert.equal(partial.status,'failed');assert.equal(partial.base,original.sha);assert.equal(partial.environment.key,context.environment.key);assert.equal(partial.planHash,context.planHash);
+  assert.deepEqual(partial.storedPlanContinuation,{source:original.sha,checkpoint:STORED_PLAN_CONTINUATION.checkpoint});assert(!partial.storedPlanPlacement);
+  assert.equal(partial.commands.length,context.commands.length);assert.equal(partial.commands[0].exitCode,0);assert.equal(partial.commands[0].logHash,p.preflight);assert.equal(partial.commands[2].exitCode,1);assert.equal(partial.commands[2].logHash,p.failed);
+  assert.deepEqual({...partial.commands[0].command,env:{...partial.commands[0].command.env,STATIC_DEPLOY_HEAD_REF:context.sha}},context.commands[0]);
+  const old=new Map(original.commands.map(row=>[storedPlanKey(row.command),row]));
+  for(const[i,command]of context.commands.entries()){
+    if(i===0||i===2)continue;const row=partial.commands[i];
+    if(STORED_PLAN_REFRESH.has(command.name))assert.equal(row,null,'Unexpected fresh execution after the failed scanner');
+    else assert.deepEqual(row,{...old.get(storedPlanKey(command)),command,log:`logs/${i}.log`,reusedFrom:original.sha},'Changed previously retained command');
+  }
+  return partial;
+}
 export function verifyStoredPlanOrigin(directory,head){
-  assertStoredPlanTree(head);const origin=path.join(directory,'reuse/stored-plan-origin');
+  assertStoredPlanTree(head);const origin=path.join(directory,'reuse/test-results/stored-plan-origin');
   const bytes=fs.readFileSync(path.join(origin,'evidence.json'));assert.equal(sha256(bytes),STORED_PLAN_CONTINUATION.checkpoint);
   const original=JSON.parse(bytes);verifyLocalEvidence(origin,{sha:original.sha,base:original.base});return {origin,original};
 }
@@ -1889,10 +1906,13 @@ export function verifyStoredPlanContinuation(directory,evidence,commands){
   const p=STORED_PLAN_CONTINUATION;assert.deepEqual(evidence.storedPlanContinuation,{source:p.source,checkpoint:p.checkpoint});
   const {origin,original}=verifyStoredPlanOrigin(directory,evidence.sha);
   storedPlanPrefix(fs.readFileSync(path.join(origin,'evidence.json')),{...evidence,commands});
+  const placement=evidence.storedPlanPlacement?verifyStoredPlanPlacement(directory,{...evidence,commands},original):null;
+  if(placement)assert.deepEqual(evidence.storedPlanPlacement,{source:STORED_PLAN_CONTINUATION.placement.source,checkpoint:STORED_PLAN_CONTINUATION.placement.checkpoint});
   const old=new Map(original.commands.map(row=>[storedPlanKey(row.command),row]));
   for(const[i,command]of commands.entries()){
     const row=evidence.commands[i],before=old.get(storedPlanKey(command));
-    if(STORED_PLAN_REFRESH.has(command.name)){assert(!row.reusedFrom);const effective=storedPlanCommand(command);if(effective!==command.run)assert.equal(row.continuation,effective);else assert(!row.continuation);}
+    if(placement&&i===0)assert.deepEqual(row,{...placement.commands[0],command,reusedFrom:placement.sha},'Changed passed preflight receipt');
+    else if(STORED_PLAN_REFRESH.has(command.name)){assert(!row.reusedFrom);const effective=storedPlanCommand(command);if(effective!==command.run)assert.equal(row.continuation,effective);else assert(!row.continuation);}
     else assert.deepEqual(row,{...before,command,log:`logs/${i}.log`,reusedFrom:p.source},'Changed retained command receipt');
   }
   restoreStoredPlanProofs(directory,evidence.sha,{browser:true,verifyOnly:true});verifyStoredPlanWorkers(directory,evidence.sha);

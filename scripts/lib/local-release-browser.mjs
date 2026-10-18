@@ -141,6 +141,7 @@ export const SETTLEMENT_BROWSER_PREFLIGHT=Object.freeze({
 export const STORED_PLAN_CONTINUATION=Object.freeze({
   source:'976310e5bb02dd3bd317a1964bd90320f78db3d7',
   run:'976310e5bb02dd3bd317a1964bd90320f78db3d7-5bc79b8e-08f9-44fc-a595-a4ec869b099c',
+  placement:Object.freeze({source:'946d32c4cb5d35ab4653ed42a035b82a59b495d5',checkpoint:'7568ac5a524c7e7be11d56103d0afb5dcefc5354f617ea77246c8cfe40261b4a',preflight:'05cb0d53f874b72b53bed175cbd428236700b6ea586fd10cdaf092730e7a2f9e',failed:'4970a6841914aebbca609b757c44476b8c8ffed7deb4bb623ed3ccf4b1edbf86'}),
   checkpoint:'1fd347b91a4b2c3fdff267f8a8f06844555d571d36b7ec16ac50478242969ea9',
   reports:Object.freeze({
     homepage:'0fae2aba1a188087902d3bd2e82f5503008586b4a54019e5783c0fe378548b18',
@@ -166,8 +167,13 @@ export const STORED_PLAN_CONTINUATION=Object.freeze({
 });
 export function assertStoredPlanTree(head,read=args=>execFileSync('git',args,{maxBuffer:64*1024*1024})) {
   const p=STORED_PLAN_CONTINUATION;
-  assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,p.source],'Stored-plan continuation must be the direct accepted-source successor');
   const tooling=['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/lib/local-release-browser.mjs','scripts/test-local-release.mjs'];
+  const parents=read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/);
+  if(parents[1]===p.placement.source){
+    assert.deepEqual(parents,[head,p.placement.source]);assertStoredPlanTree(p.placement.source,read);
+    const repair=read(['diff','--name-only',p.placement.source,head]).toString().trim().split('\n').filter(Boolean);
+    assert(repair.length&&repair.every(file=>tooling.includes(file)),'Evidence-placement repair changed accepted runtime or test inputs');
+  }else assert.deepEqual(parents,[head,p.source],'Stored-plan continuation must preserve the exact accepted-source chain');
   const files=read(['diff','--name-only',p.source,head]).toString().trim().split('\n').filter(Boolean);
   assert(files.length&&files.every(file=>tooling.includes(file)||Object.hasOwn(p.specs,file)),'Unreviewed runtime, test, policy, dependency or frontend change');
   for(const[file,hash]of Object.entries(p.specs)){assert(files.includes(file),`Missing reviewed change: ${file}`);assert.equal(sha256(read(['show',`${head}:${file}`])),hash,`Changed reviewed input: ${file}`);}

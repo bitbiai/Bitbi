@@ -2167,7 +2167,7 @@ await testSettlementBrowserContinuation();
 
 async function testStoredPlanContinuation() {
  const {STORED_PLAN_CONTINUATION:p,assertStoredPlanTree,verifyModelBrowserReport}=await import('./lib/local-release-browser.mjs');
- const {storedPlanPrefix,storedPlanCommand,storedPlanWorkerNames,verifyStoredPlanWorkerUnion,verifyStoredPlanNative,verifyStoredPlanOrigin,workerDiscovery}=await import('./lib/local-release-evidence.mjs');
+ const {storedPlanPrefix,storedPlanCommand,storedPlanWorkerNames,verifyStoredPlanWorkerUnion,verifyStoredPlanNative,verifyStoredPlanOrigin,verifyStoredPlanPlacement,workerDiscovery}=await import('./lib/local-release-evidence.mjs');
  const {parseRuntimeArgs}=await import('../tests/helpers/q2-runtime/linux-hosted.mjs');
  const {selectedRuntimeSuites,runtimeSuites}=await import('../tests/helpers/q2-runtime/runner.mjs');
  const {canvasSettlementContinuationInventory,runCanvasSettlementContinuationTests}=await import('../tests/helpers/q2-runtime/canvas-policy-tail.mjs');
@@ -2190,7 +2190,7 @@ async function testStoredPlanContinuation() {
   for(const file of Object.keys(p.specs))for(const value of [null,Buffer.from('Unreviewed input'),{mode:'120000',content:Buffer.from('outside')}])assert.throws(()=>assertStoredPlanTree(commit({...fixes,[file]:value}),read));
   for(const file of ['workers/ai/src/lib/canvas-agent-plan.js','js/pages/canvas/agent.js','package-lock.json','config/release-validation.yml','tests/canvas.spec.js'])assert.throws(()=>assertStoredPlanTree(commit({...fixes,[file]:Buffer.from('Changed retained input')}),read));
   assert.throws(()=>assertStoredPlanTree(commit(fixes,accepted),read));assert.throws(()=>assertStoredPlanTree(commit({...fixes,'scripts/test-local-release.mjs':Buffer.from('Removed previous assertions')}),read));
-  const root='.local-release',origin=path.join(root,'reuse/stored-plan-origin');
+  const root='.local-release',origin=path.join(root,'reuse/test-results/stored-plan-origin');
   if(!fs.existsSync(path.join(origin,'evidence.json'))){assert(!process.argv.includes('--stored-plan-only'),'The continuation verifier requires actual preserved source evidence');return;}
   process.env.GIT_DIR=bare;
   const original=JSON.parse(fs.readFileSync(path.join(origin,'evidence.json'))),selection=gitSelection(p.source,accepted),commands=selectedCommands(selection,{GITHUB_SHA:accepted,CANDIDATE_BASE:p.source});
@@ -2198,6 +2198,19 @@ async function testStoredPlanContinuation() {
   assert.equal(storedPlanPrefix(fs.readFileSync(path.join(origin,'evidence.json')),context).sha,p.source);
   for(const patch of [{base:original.base},{environment:{...original.environment,image:'sha256:'+'0'.repeat(64)}},{commands:commands.slice(1)},{selection:{...selection,full:true}}])assert.throws(()=>storedPlanPrefix(fs.readFileSync(path.join(origin,'evidence.json')),{...context,...patch}));
   verifyStoredPlanOrigin(root,accepted);
+  const scan=path.join(temporary,'scan');copyEvidenceToolInputs(root,scan);assert.deepEqual(scanRepoForSecrets(scan),[],'Generated evidence must use the existing results boundary');
+  const misplaced=path.join(scan,'reuse/stored-plan-origin');fs.mkdirSync(misplaced,{recursive:true});fs.copyFileSync(path.join(origin,'evidence.json'),path.join(misplaced,'evidence.json'));
+  const oldFindings=scanRepoForSecrets(scan);assert.equal(oldFindings.length,8);assert(oldFindings.every(row=>row.file==='reuse/stored-plan-origin/evidence.json'&&row.rule==='generic-secret-assignment'));fs.rmSync(misplaced,{recursive:true});
+  fs.writeFileSync(path.join(scan,'ordinary-source.mjs'),'const apiKey = '+JSON.stringify('X'.repeat(40))+';');assert(scanRepoForSecrets(scan).some(row=>row.file==='ordinary-source.mjs'&&row.rule==='generic-secret-assignment'));fs.unlinkSync(path.join(scan,'ordinary-source.mjs'));
+  if(fs.existsSync(path.join(root,'reuse/test-results/stored-plan-placement/checkpoint.json'))){
+    const repair=commit({...fixes,...Object.fromEntries(tooling.map(file=>[file,fs.readFileSync(file)]))},p.placement.source);assertStoredPlanTree(repair,read);
+    const repairSelection=gitSelection(p.source,repair),repairContext={...context,sha:repair,selection:repairSelection,commands:selectedCommands(repairSelection,{GITHUB_SHA:repair,CANDIDATE_BASE:p.source})};
+    assert.equal(verifyStoredPlanPlacement(root,repairContext,original).commands[0].exitCode,0);
+    assert.throws(()=>verifyStoredPlanPlacement(root,context,original));
+    for(const file of ['checkpoint.json','preflight.log','failed.log']){const target=path.join(scan,'reuse/test-results/stored-plan-placement',file),bytes=fs.readFileSync(target);fs.writeFileSync(target,'forged');assert.throws(()=>verifyStoredPlanPlacement(scan,repairContext,original));fs.writeFileSync(target,bytes);}
+    assert.throws(()=>assertStoredPlanTree(commit({...fixes,'workers/auth/src/lib/canvas-agent-graph.js':Buffer.from('Changed production input')},p.placement.source),read));
+  }
+
   const old=workerDiscovery(JSON.parse(fs.readFileSync(path.join(origin,'test-results/settlement-worker-discovery.json'))));
   const fresh=storedPlanWorkerNames.map((title,i)=>({id:'synthetic-'+i,file:title.startsWith('Canvas settled-plan')?'q2-canvas-settlement-operator.spec.js':'q2-canvas-agent-settlement-review.spec.js',title,results:[{status:'passed',retry:0}]}));
   const discovery=[...old,...fresh];assert.deepEqual(verifyStoredPlanWorkerUnion(old,discovery,fresh),{retained:1574,executed:9,required:1583});
@@ -2216,7 +2229,7 @@ async function testStoredPlanContinuation() {
   for(const invalid of [names.slice(1),[...names,names[0]],names.filter(name=>name!==canvasSettlementContinuationInventory[0]),[...names,'new-unreviewed-native-case']])await assert.rejects(() => adapter(invalid).then(module=>module.runCanvasSettlementContinuationTests({calls:[],metrics:[],test:async(name,operation)=>operation()})));
   const worker=commands.find(row=>row.name==='Run worker route tests'),actual=storedPlanCommand(worker);assert(actual.includes('--retries=0'));assert(actual.includes('--suite canvas-settlement-continuation'));assert(actual.includes('--list --reporter=json'));assert(!actual.includes('npm run test:workers'));
   for(const scope of ['auth','homepage']){const oldReport=JSON.parse(fs.readFileSync(path.join(origin,`test-results/candidate-${scope}.json`))),report={...oldReport,sha:accepted,retainedSource:p.source};verifyModelBrowserReport(report,accepted);for(const mutate of [r=>r.fresh.pop(),r=>r.discovery.pop(),r=>r.retainedSource='a'.repeat(40),r=>r.previous[0].title='forged']){const bad=structuredClone(report);mutate(bad);assert.throws(()=>verifyModelBrowserReport(bad,accepted));}}
-  const snapshot=path.join(temporary,'proof');fs.cpSync(root,snapshot,{recursive:true});const proofOrigin=path.join(snapshot,'reuse/stored-plan-origin');
+  const snapshot=path.join(temporary,'proof');fs.cpSync(root,snapshot,{recursive:true});const proofOrigin=path.join(snapshot,'reuse/test-results/stored-plan-origin');
   for(const file of ['evidence.json','candidate/site/index.html','logs/41.log','test-results/candidate-auth.json','runtime/q2-runtime-evidence/native-Dvjqr1/reports/bitbi-q2-runtime-gLE6HW__result.json']){const target=path.join(proofOrigin,file),bytes=fs.readFileSync(target);fs.writeFileSync(target,'forged');assert.throws(()=>verifyStoredPlanOrigin(snapshot,accepted));fs.writeFileSync(target,bytes);}
  }finally{if(previousGitDir===undefined)delete process.env.GIT_DIR;else process.env.GIT_DIR=previousGitDir;fs.rmSync(temporary,{recursive:true,force:true});}
  console.log('Stored-plan continuation: actual accepted evidence calibrated;1574 Worker/385 native/browser outcomes retained;9 new Worker and7 new native identities mandatory; missing, forged, failed, duplicate and unrelated-source controls rejected.');
