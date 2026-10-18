@@ -91,12 +91,24 @@ test('Canvas background evaluation prepares bounded images and keeps persisted v
   const prepared = await f.call('prepare', { kind: 'evaluate', input: source });
   expect(prepared.status).toBe(200);
   expect(prepared.body.context).toEqual({ frames: [{ nodeId, timeSeconds: 2 }], policy: {
-    version: 'canvas-policy-1', phase: 'evaluation', sha256: createHash('sha256').update(prepared.body.input.messages[0].content).digest('hex'),
+    version: 'canvas-policy-2', phase: 'evaluation', sha256: createHash('sha256').update(prepared.body.input.messages[0].content).digest('hex'),
     skills: ['core', 'personality', 'review-and-export'].map(id => ({ id, version: 1 })),
   } });
   expect(prepared.body.input).toMatchObject({ stream: false, max_completion_tokens: 2048, reasoning_effort: 'low' });
   expect(prepared.body.input.messages[1].content.at(-1)).toEqual({ type: 'image_url', image_url: { url: source.frames[0].imageData } });
   expect(JSON.stringify(prepared.body.context)).not.toMatch(/base64|requirement|brief|imageData/);
+  const oldPolicy = { ...prepared.body.context.policy, version: 'canvas-policy-1' };
+  const legacy = await f.call('prepare', { kind: 'evaluate', input: { ...source, policy: oldPolicy } });
+  expect(legacy.status).toBe(200);
+  expect(legacy.body.context).toEqual({ ...prepared.body.context, policy: oldPolicy });
+  expect(legacy.body.input).toEqual(prepared.body.input);
+  // A recognized historical version preserves its actual prompt. A corrupted
+  // content pin must still fail before inference, rather than adopting current rules.
+  for (const version of ['canvas-policy-1', 'canvas-policy-2']) {
+    expect((await f.call('prepare', { kind: 'evaluate', input: { ...source,
+      policy: { ...prepared.body.context.policy, version, sha256: '0'.repeat(64) } } })).body)
+      .toMatchObject({ ok: false, code: 'canvas_agent_policy_changed', outcome: 'not_submitted' });
+  }
   const tooMany = { ...source, frames: Array.from({ length: 3 }, () => source.frames[0]) };
   expect((await f.call('prepare', { kind: 'evaluate', input: tooMany })).body).toMatchObject({ code: 'canvas_agent_evaluation_sample_limit', outcome: 'not_submitted' });
   const remote = structuredClone(source); remote.frames[0].imageData = 'https://untrusted.example/frame.png';
@@ -138,7 +150,7 @@ test('Canvas creative planning receives authoritative budget, conditional constr
   const result = await f.call('prepare', { kind: 'plan', input: source });
   expect(result.status).toBe(200);
   expect(result.body.context).toEqual({ durationMode: 'creative', targetDurationSeconds: null, existingNodeIds: [nodeId], policy: {
-    version: 'canvas-policy-1', phase: 'correction', sha256: createHash('sha256').update(result.body.input.messages[0].content).digest('hex'),
+    version: 'canvas-policy-2', phase: 'correction', sha256: createHash('sha256').update(result.body.input.messages[0].content).digest('hex'),
     skills: ['core', 'personality', 'story-and-continuity', 'model-selection', 'canvas-editing', 'generation-and-recovery'].map(id => ({ id, version: 1 })),
   } });
   const user = JSON.parse(result.body.input.messages[1].content);
@@ -149,6 +161,16 @@ test('Canvas creative planning receives authoritative budget, conditional constr
   expect(result.body.input.messages[0].content).toContain('never add those fields together again');
   expect(result.body.input.messages[0].content).toContain('never a deadline');
   expect(result.body.input.messages[0].content).toContain('never silently remove a required reference'.replace('never', 'Never'));
+  const oldPolicy = { ...result.body.context.policy, version: 'canvas-policy-1' };
+  const legacy = await f.call('prepare', { kind: 'plan', input: { ...source, policy: oldPolicy } });
+  expect(legacy.status).toBe(200);
+  expect(legacy.body.context).toEqual({ ...result.body.context, policy: oldPolicy });
+  expect(legacy.body.input).toEqual(result.body.input);
+  for (const version of ['canvas-policy-1', 'canvas-policy-2']) {
+    expect((await f.call('prepare', { kind: 'plan', input: { ...source,
+      policy: { ...result.body.context.policy, version, phase: 'planning' } } })).body)
+      .toMatchObject({ ok: false, code: 'canvas_agent_policy_changed', outcome: 'not_submitted' });
+  }
   const withoutDuration = structuredClone(source); delete withoutDuration.targetDurationSeconds;
   expect((await f.call('prepare', { kind: 'plan', input: withoutDuration })).body.context.targetDurationSeconds).toBeNull();
   const pending = structuredClone(source); pending.budget.pendingOutcomeCredits = 127;

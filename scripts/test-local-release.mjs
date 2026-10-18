@@ -21,6 +21,11 @@ import { LOCAL_IMPORT_REPAIR, assertImportRepairWorkflow, localRepairCommand, ve
 import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,assertPermissionContinuationTree,permissionContinuationPrefix,CANVAS_STAGE_CASES,canvasStageContinuation} from './lib/local-release-evidence.mjs';
 import {testLocalMediaProcess} from './test-local-media-process.mjs';
 
+if(process.argv.includes('--canvas-policy-worker-only')) {
+  assert(process.argv.length===3||process.argv.length===4);
+  await testCanvasPolicyWorkerContinuation(process.argv[3]||null);process.exit(0);
+}
+
 if(process.argv.includes('--autonomy-worker-selection-only')) {
   assert.deepEqual(process.argv.slice(2),['--autonomy-worker-selection-only']);
   await testAutonomyWorkerSelection();process.exit(0);
@@ -356,6 +361,14 @@ async function testLocalRepair() {
   assert.equal(workerListResults(log,fixture.discovery).length,3);
   assert.throws(()=>workerListResults(log.split('\n').slice(1).join('\n'),fixture.discovery));
   assert.throws(()=>workerListResults(log.replace(' › pending',' › foreign'),fixture.discovery));
+  const diagnostic={ts:'2026-10-18T11:25:24.771Z',service:'bitbi-auth',component:'ai-save-audio',event:'ai_audio_save_fetch_failed',level:'warn'};
+  const interleaved=log.replace('(1ms)','(1ms)'+JSON.stringify(diagnostic));
+  assert.deepEqual(workerListResults(interleaved,fixture.discovery),workerListResults(log,fixture.discovery),'A complete Auth JSON suffix does not hide an independently identified reporter result');
+  for(const suffix of ['untrusted trailing text','{',JSON.stringify(diagnostic).slice(0,-1),'null','[]',JSON.stringify({...diagnostic,service:'foreign'}),JSON.stringify({...diagnostic,ts:'unknown'}),JSON.stringify({...diagnostic,event:null}),JSON.stringify({...diagnostic,level:'passed'}),JSON.stringify(diagnostic)+JSON.stringify(diagnostic)])
+    assert.throws(()=>workerListResults(log.replace('(1ms)','(1ms)'+suffix),fixture.discovery));
+  assert.throws(()=>workerListResults(interleaved.replace(' › kept',' › foreign'),fixture.discovery));
+  assert.throws(()=>workerListResults(interleaved+'\n'+interleaved.split('\n')[0],fixture.discovery),'Duplicate result attempts must not create a pass');
+  assert.throws(()=>workerListResults(interleaved.replace(' (1ms)',' (1m'),fixture.discovery),'A truncated reporter record remains missing');
   assert(localWorkerContinuation().endsWith('node scripts/test-q2-runtime.mjs'));
   assert(!localWorkerContinuation().includes('npm run test:homepage-ffmpeg-processor'),'Passed processor must not be repeated');
   const nativeBefore=[...Array.from({length:25},(_,i)=>({title:`kept-${i}`,status:'passed'})),...NATIVE_REPAIRED_CASES.map(title=>({title,status:'failed'}))];
@@ -1511,3 +1524,115 @@ async function testAutonomyWorkerSelection() {
  } finally {fs.rmSync(temporary,{recursive:true,force:true});}
  console.log('Autonomy Worker selection: actual CLI discovery rejects the old anchored filter and selects exactly two unchanged identities; source chains, missing/foreign/duplicate results and prior-pass preservation controls passed. No test cases executed.');
 }
+
+async function testCanvasPolicyWorkerContinuation(originalDirectory=null) {
+ const {CANVAS_POLICY_WORKER_PREFLIGHT:p,canvasPreflightProfile,assertCanvasPreflightTree,canvasPreflightPrefix,
+  verifyCanvasPolicyWorkerRepair,canvasPolicyWorkerContinuation,verifyCanvasPreflight,restoreCanvasHostingProof}=await import('./lib/local-release-evidence.mjs');
+ assert.equal(canvasPreflightProfile(p.source),p);
+ const file='tests/q2-canvas-agent-provider.spec.js',current=fs.readFileSync(file);
+ const fixed=sha256(current)===p.specs[file]?current:execFileSync('git',['cat-file','blob','81df34620b2936db9956c2838d2e547e33d1f1af']);
+ assert.equal(sha256(fixed),p.specs[file]);assert(!/\btest\.only\s*\(/.test(fixed.toString()));
+ for(const index of [0,2,3,17,34,35,37,38,39,41,42,43,44,45,46,47,48,49,50,51])assert(!p.retain.includes(index),'Changed gates, candidate identity and unfinished tail cannot inherit passes');
+ for(const index of [1,4,12,13,14,15,16,18,27,30,33,36,40])assert(p.retain.includes(index),'Unchanged completed acceptance must not repeat');
+ const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-canvas-policy-continuation-')),bare=path.join(temporary,'git');
+ const previousGitDir=process.env.GIT_DIR;
+ const env={...process.env,GIT_AUTHOR_NAME:'Synthetic',GIT_AUTHOR_EMAIL:'synthetic@example.invalid',GIT_COMMITTER_NAME:'Synthetic',GIT_COMMITTER_EMAIL:'synthetic@example.invalid'};
+ const read=(args,input)=>execFileSync('git',['--git-dir',bare,...args],{env,input,stdio:['pipe','pipe','pipe']});
+ try {
+  execFileSync('git',['init','--bare',bare],{stdio:'pipe'});
+  fs.writeFileSync(path.join(bare,'objects/info/alternates'),path.resolve(execFileSync('git',['rev-parse','--git-path','objects'],{encoding:'utf8'}).trim())+'\n');
+  const commit=(changes,parent=p.source)=>{
+   read(['read-tree',p.source]);
+   for(const [name,value]of Object.entries(changes)){
+    if(value===null){read(['update-index','--index-info'],Buffer.from(`0 ${'0'.repeat(40)}\t${name}\n`));continue;}
+    const blob=read(['hash-object','-w','--stdin'],value.content??value).toString().trim();
+    read(['update-index','--add','--cacheinfo',`${value.mode||'100644'},${blob},${name}`]);
+   }
+   return read(['commit-tree',read(['write-tree']).toString().trim(),'-p',parent],Buffer.from('Synthetic closed policy correction boundary\n')).toString().trim();
+  };
+  const changes={[file]:fixed},head=commit(changes);assertCanvasPreflightTree(head,read,p);
+  for(const name of ['workers/ai/src/index.js','workers/shared/canvas-agent/manifest.mjs','js/shared/service-auth.mjs','tests/helpers/auth-worker-harness.js','tests/canvas.spec.js','package.json','package-lock.json','playwright.workers.config.js','.github/workflows/static.yml','config/release-validation.yml','scripts/lib/ci-test-selection.mjs','docs/runbooks/REGRESSION_REGISTER.md'])
+   assert.throws(()=>assertCanvasPreflightTree(commit({...changes,[name]:Buffer.from('Unrelated mutation')}),read,p));
+  for(const replacement of [Buffer.from('Unreviewed assertion'),read(['show',`${p.source}:${file}`])])assert.throws(()=>assertCanvasPreflightTree(commit({[file]:replacement}),read,p));
+  for(const replacement of [null,{mode:'120000',content:Buffer.from('outside')}])assert.throws(()=>assertCanvasPreflightTree(commit({...changes,'scripts/local-release.mjs':replacement}),read,p));
+  assert.throws(()=>assertCanvasPreflightTree(commit(changes,head),read,p));
+  assert.throws(()=>canvasPreflightPrefix(Buffer.from('{}'),{sha:head},read));
+  const actualHead=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),parents=execFileSync('git',['rev-list','--parents','-n','1',actualHead],{encoding:'utf8'}).trim().split(/\s+/);
+  const actualCandidate=parents.length===2&&parents[1]===p.source;
+  if(originalDirectory||actualCandidate){
+   const proof=path.join(temporary,'proof');fs.mkdirSync(path.join(proof,'reuse'),{recursive:true});fs.mkdirSync(path.join(proof,'test-results'));fs.mkdirSync(path.join(proof,'logs'));
+   const root=originalDirectory?path.join(originalDirectory,'bundle'):'.local-release';
+   if(originalDirectory){
+    const copy=(from,to)=>fs.copyFileSync(from,path.join(proof,'reuse',to));
+    copy(path.join(originalDirectory,'checkpoint.json'),'preflight-checkpoint.json');copy(path.join(root,'logs/41.log'),'preflight-failed.log');
+    copy(path.join(originalDirectory,'original-worker-discovery.json'),'original-worker-discovery.json');copy(path.join(originalDirectory,'source/test-results/.last-run.json'),'original-worker-last-run.json');
+    const native=path.resolve(originalDirectory,'../../canvas-policy-fixture-repair-61109a35');
+    copy(path.join(native,'report.json'),'canvas-policy-node-report.json');copy(path.join(native,'provenance.json'),'canvas-policy-node-provenance.json');
+    copy(path.join(root,'candidate/manifest.json'),'hosting-manifest.json');copy(path.join(root,'candidate/proof-frontend-runtime.json'),'hosting-proof.json');
+   }else fs.cpSync(path.join(root,'reuse'),path.join(proof,'reuse'),{recursive:true});
+   fs.copyFileSync(path.join(root,'test-results/frontend-runtime.log'),path.join(proof,'test-results/frontend-runtime.log'));
+   fs.cpSync(path.join(root,'candidate'),path.join(proof,'candidate'),{recursive:true});
+   const bytes=fs.readFileSync(path.join(proof,'reuse/preflight-checkpoint.json')),original=JSON.parse(bytes);
+   const candidate=originalDirectory?head:actualHead;
+   if(originalDirectory)process.env.GIT_DIR=bare;
+   const selection=original.selection,commands=selectedCommands(selection,{GITHUB_SHA:candidate,CANDIDATE_BASE:original.base});
+   const context={sha:candidate,base:original.base,planHash:validationPlan().digest,selection,environment:original.environment,nativeBrowsers:original.nativeBrowsers,commands};
+   assert.equal(canvasPreflightPrefix(bytes,context).sha,p.source);
+   const verify=()=>verifyCanvasPolicyWorkerRepair(proof,candidate);
+   const pending=verifyCanvasPolicyWorkerRepair(proof,candidate,{allowPending:true});assert.equal(pending.result,null);
+   assert.throws(verify,'Even the two real native Node passes require fresh complete Linux discovery');
+   const previous=pending.previous,passed=row=>row.results.length===1&&row.results[0].status==='passed'&&row.results[0].retry===0;
+   assert.equal(previous.length,1547);assert.equal(previous.filter(passed).length,1545);
+   const rawLog=fs.readFileSync(path.join(proof,'reuse/preflight-failed.log'),'utf8'),joinedTitle='member audio save rejects non-HTTPS schemes in audioUrl payloads';
+   const joinedLine=rawLog.split('\n').find(line=>line.includes(joinedTitle)&&line.includes('(1ms){'));
+   assert(joinedLine,'The pinned original concurrent-log boundary must be exercised');
+   const joinedCase=previous.find(row=>row.title===joinedTitle);assert(joinedCase&&passed(joinedCase));
+   const identities=previous.map(({results,...identity})=>identity);
+   for(const suffix of ['trailing text','{','null',JSON.stringify({service:'foreign'})])assert.throws(()=>workerListResults(rawLog.replace(joinedLine,joinedLine.slice(0,joinedLine.indexOf('(1ms)')+5)+suffix),identities));
+   assert.throws(()=>workerListResults(rawLog.replace(joinedLine,''),identities),'Removing the actual result must not infer a pass from the final count');
+   assert.throws(()=>workerListResults(rawLog+'\n'+joinedLine,identities),'Repeating the actual result cannot replace another case');
+   const failures=previous.filter(row=>!passed(row));assert(failures.every(row=>row.results.length===2&&row.results.every(result=>result.status==='failed')));
+   // Isolated verifier fixture only: the actual continuation performs --list.
+   // No product test executes and no synthetic results enter release evidence.
+   const discovery={config:{workers:1},suites:[{title:'Synthetic discovery identity countercheck',specs:previous.map(row=>({id:row.id,file:row.file,title:row.title,line:1,column:1,tests:[{projectName:''}]}))}],errors:[]};
+   const discoveryFile=path.join(proof,'test-results/model-worker-discovery.json'),save=value=>fs.writeFileSync(discoveryFile,JSON.stringify(value,null,2));save(discovery);
+   const expected={originalPassed:1545,progressPassed:2,correctedPassed:0,total:1547};assert.deepEqual(verify().result,expected);
+   const union={previous,discovery:previous.map(({results,...identity})=>identity),progress:failures.map(row=>({...row,results:[{status:'passed',retry:0}]})),corrected:[]};
+   assert.deepEqual(verifyWorkerUnion(union),expected);
+   for(const mutate of [r=>r.previous.pop(),r=>r.discovery.pop(),r=>r.discovery.push(r.discovery[0]),r=>r.discovery[0].title='Foreign case',r=>r.progress.pop(),r=>r.progress.push(r.progress[0]),r=>r.progress.push(previous.find(passed)),r=>r.progress[0].results[0].status='failed',r=>r.progress[0].results[0].retry=1,r=>r.progress[0].results[0].error=true,r=>r.progress[0].id='foreign',r=>r.corrected.push(r.progress[0])]){const broken=structuredClone(union);mutate(broken);assert.throws(()=>verifyWorkerUnion(broken));}
+   for(const name of ['preflight-checkpoint.json','preflight-failed.log','original-worker-discovery.json','original-worker-last-run.json','canvas-policy-node-report.json','canvas-policy-node-provenance.json']){
+    const target=path.join(proof,'reuse',name),saved=fs.readFileSync(target);fs.unlinkSync(target);assert.throws(verify);fs.writeFileSync(target,'{}');assert.throws(verify);fs.writeFileSync(target,saved);
+   }
+   for(const mutate of [r=>r.suites[0].specs.pop(),r=>r.suites[0].specs.push(r.suites[0].specs[0]),r=>r.suites[0].specs[0].id='foreign',r=>r.suites[0].specs[0].title='Foreign case',r=>r.errors.push({message:'Missing discovery'})]){const broken=structuredClone(discovery);mutate(broken);save(broken);assert.throws(verify);}save(discovery);
+   for(const mutate of [r=>r.status='passed',r=>r.commands[41].exitCode=0,r=>r.commands[1].exitCode=1,r=>r.commands[1].logHash='changed',r=>r.commands.pop()]){const broken=structuredClone(original);mutate(broken);assert.throws(()=>canvasPreflightPrefix(Buffer.from(JSON.stringify(broken)),context));}
+   for(const mutate of [r=>r.base='b'.repeat(40),r=>r.planHash='changed',r=>r.environment.key='changed',r=>r.environment.image='changed',r=>r.environment.inputs['package-lock.json']='changed',r=>r.selection.full=true,r=>r.commands.pop(),r=>r.commands[41].run='echo skipped',r=>r.commands[48].run='echo skipped']){const broken=structuredClone(context);mutate(broken);assert.throws(()=>canvasPreflightPrefix(bytes,broken));}
+   const rows=commands.map((command,index)=>{
+    if(p.retain.includes(index)){const row={...original.commands[index],reusedFrom:p.source};fs.copyFileSync(path.join(root,row.log),path.join(proof,row.log));return row;}
+    return {command,exitCode:0,log:`logs/${index}.log`,durationMs:1,logHash:sha256('Synthetic fresh verifier row')};
+   });
+   const evidence={...context,commands:rows,preflightContinuation:{source:p.source,checkpoint:p.checkpoint}};
+   evidence.commands[41].continuation=canvasPolicyWorkerContinuation(commands[41].run);restoreCanvasHostingProof(proof);
+   verifyCanvasPreflight(proof,evidence,commands);
+   for(const index of [0,2,3,17,34,41,42,48,51]){const forged=structuredClone(evidence);forged.commands[index].reusedFrom=p.source;assert.throws(()=>verifyCanvasPreflight(proof,forged,commands));}
+   for(const name of ['reuse/hosting-manifest.json','reuse/hosting-proof.json','test-results/frontend-runtime.log','logs/36.log','candidate/proof-frontend-runtime.json']){const target=path.join(proof,name),saved=fs.readFileSync(target);fs.writeFileSync(target,'forged retained proof');assert.throws(()=>verifyCanvasPreflight(proof,evidence,commands));fs.writeFileSync(target,saved);}
+   const changedBrowser=structuredClone(evidence);changedBrowser.nativeBrowsers.key='changed';assert.throws(()=>verifyCanvasPreflight(proof,changedBrowser,commands));
+   const candidateManifest=JSON.parse(fs.readFileSync(path.join(proof,'candidate/manifest.json'))),asset=Object.keys(candidateManifest.files).find(name=>name.endsWith('.js'));
+   const assetPath=path.join(proof,'candidate/site',asset),assetBytes=fs.readFileSync(assetPath);fs.appendFileSync(assetPath,'\n// Unreviewed product bytes');assert.throws(()=>verifyCanvasPreflight(proof,evidence,commands));fs.writeFileSync(assetPath,assetBytes);
+   const manifestPath=path.join(proof,'candidate/manifest.json'),manifestBytes=fs.readFileSync(manifestPath);
+   fs.appendFileSync(assetPath,'\n// Unreviewed product bytes');candidateManifest.files[asset]=sha256(fs.readFileSync(assetPath));fs.writeFileSync(manifestPath,JSON.stringify(candidateManifest));
+   assert.throws(()=>restoreCanvasHostingProof(proof),'Changed bytes cannot be admitted by recalculating their new manifest hash');fs.writeFileSync(assetPath,assetBytes);fs.writeFileSync(manifestPath,manifestBytes);
+   assert.deepEqual(verify().result,expected);
+  }
+  const shell=canvasPolicyWorkerContinuation('if false; then\n  exit 99\nelse\n  npm run test:workers\nfi\n');
+  assert(shell.includes('--list --reporter=json'));assert(!shell.includes('--grep')&&!shell.includes('npm run test:workers'),'No accepted Worker case may execute again');
+  assert(shell.includes('npm run test:homepage-ffmpeg-processor')&&shell.includes('npm run test:q2-runtime'));
+  assert.throws(()=>canvasPolicyWorkerContinuation('echo skipped'));assert.throws(()=>canvasPolicyWorkerContinuation(shell+'\nnpm run test:workers'));
+  const syntax=spawnSync('/bin/bash',['-n'],{input:shell,encoding:'utf8'});assert.equal(syntax.status,0,syntax.stderr);
+  const flow=path.join(temporary,'flow');fs.mkdirSync(flow);
+  const stub=`set -e\nnpx() { stage=discovery; printf '%s\\n' "$stage" >> "$TRACE"; [ "$FAIL_STAGE" != "$stage" ]; }\nnode() { stage=union; printf '%s\\n' "$stage" >> "$TRACE"; [ "$FAIL_STAGE" != "$stage" ]; }\nnpm() { case "$2" in test:homepage-ffmpeg-processor) stage=media;; test:q2-runtime) stage=native;; *) return 98;; esac; printf '%s\\n' "$stage" >> "$TRACE"; [ "$FAIL_STAGE" != "$stage" ]; }\n`;
+  const stages=['discovery','union','media','native'];
+  for(const failed of ['',...stages]){const trace=path.join(flow,'trace');fs.rmSync(trace,{force:true});const result=spawnSync('/bin/bash',['-c',stub+shell],{cwd:flow,env:{...process.env,TRACE:trace,FAIL_STAGE:failed},encoding:'utf8'});assert.equal(result.status,failed?1:0,result.stderr);assert.deepEqual(fs.readFileSync(trace,'utf8').trim().split('\n'),failed?stages.slice(0,stages.indexOf(failed)+1):stages);}
+ }finally{if(previousGitDir===undefined)delete process.env.GIT_DIR;else process.env.GIT_DIR=previousGitDir;fs.rmSync(temporary,{recursive:true,force:true});}
+ console.log('Canvas policy continuation: closed Git/source/runtime/report/discovery union controls passed; original1545 Linux +2 native Node results retained honestly; media/native/browser tail remains required. No product cases executed.');
+}
+await testCanvasPolicyWorkerContinuation();
