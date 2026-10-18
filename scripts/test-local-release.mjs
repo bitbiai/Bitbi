@@ -21,6 +21,11 @@ import { LOCAL_IMPORT_REPAIR, assertImportRepairWorkflow, localRepairCommand, ve
 import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,assertPermissionContinuationTree,permissionContinuationPrefix,CANVAS_STAGE_CASES,canvasStageContinuation} from './lib/local-release-evidence.mjs';
 import {testLocalMediaProcess} from './test-local-media-process.mjs';
 
+if(process.argv.includes('--settlement-native-progress-only')) {
+  assert.deepEqual(process.argv.slice(2),['--settlement-native-progress-only']);
+  await testSettlementNativeProgress();process.exit(0);
+}
+
 if(process.argv.includes('--settlement-native-only')) {
   assert.deepEqual(process.argv.slice(2),['--settlement-native-only']);
   await testSettlementNativeContinuation();process.exit(0);
@@ -2059,3 +2064,46 @@ async function testSettlementNativeContinuation() {
  console.log('Settlement native continuation: immutable1574 Worker and FFmpeg passes,29 retained launcher cases and one required correction verified; full native runtime remains mandatory.');
 }
 await testSettlementNativeContinuation();
+
+async function testSettlementNativeProgress() {
+ const {SETTLEMENT_NATIVE_PROGRESS:p,canvasPreflightProfile,assertCanvasPreflightTree,canvasPreflightPrefix,verifySettlementNativeProgress,
+  settlementNativeProgressGuard,settlementNativeProgressContinuation,settlementLauncherResults,settlementLauncherCase}=await import('./lib/local-release-evidence.mjs');
+ assert.equal(canvasPreflightProfile(p.source),p);assert(p.retain.includes(40));assert(!p.retain.includes(41));
+ assert.equal(settlementNativeProgressGuard('npm run test:local-release'),'npm run test:local-release -- --settlement-native-progress-only');assert.throws(()=>settlementNativeProgressGuard('echo skipped'));
+ const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-settlement-native-progress-')),bare=path.join(temporary,'git'),previousGitDir=process.env.GIT_DIR;
+ try {
+  execFileSync('git',['init','--bare',bare],{stdio:'pipe'});fs.writeFileSync(path.join(bare,'objects/info/alternates'),path.resolve(execFileSync('git',['rev-parse','--git-path','objects'],{encoding:'utf8'}).trim())+'\n');
+  const env={...process.env,GIT_AUTHOR_NAME:'Synthetic',GIT_AUTHOR_EMAIL:'synthetic@example.invalid',GIT_COMMITTER_NAME:'Synthetic',GIT_COMMITTER_EMAIL:'synthetic@example.invalid'};
+  const read=(args,input)=>execFileSync('git',['--git-dir',bare,...args],{env,input,stdio:['pipe','pipe','pipe']});
+  const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),reviewed=read(['rev-list','--ancestry-path','--reverse',`${p.source}..${head}`]).toString().trim().split('\n')[0];assert(reviewed);
+  const tooling=['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs'];
+  const fixes=Object.fromEntries([...Object.keys(p.specs),...tooling].map(file=>[file,read(['show',`${reviewed}:${file}`])]));for(const[file,hash]of Object.entries(p.specs))assert.equal(sha256(fixes[file]),hash);
+  const commit=(changes,parent=p.source)=>{
+   read(['read-tree',p.source]);for(const[file,value]of Object.entries(changes)){
+    if(value===null){read(['update-index','--index-info'],Buffer.from(`0 ${'0'.repeat(40)}\t${file}\n`));continue;}
+    const blob=read(['hash-object','-w','--stdin'],value.content??value).toString().trim();read(['update-index','--add','--cacheinfo',`${value.mode||'100644'},${blob},${file}`]);
+   }return read(['commit-tree',read(['write-tree']).toString().trim(),'-p',parent],Buffer.from('Synthetic closed native verifier progress\n')).toString().trim();
+  };
+  const accepted=commit(fixes);assertCanvasPreflightTree(accepted,read,p);
+  for(const file of Object.keys(p.specs))for(const value of [null,Buffer.from('Unreviewed fixture'),{mode:'120000',content:Buffer.from('outside')}])assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,[file]:value}),read,p));
+  for(const file of ['tests/helpers/q2-runtime/linux-hosted.mjs','scripts/test-q2-runtime-launcher.mjs','workers/auth/src/lib/canvas-agent-settlement-review.js','tests/helpers/canvas-agent-settlement-review-control.mjs','services/homepage-ffmpeg-processor/index.mjs','frontend/index.mjs','package-lock.json','config/release-validation.yml'])assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,[file]:Buffer.from('Changed accepted input')}),read,p));
+  for(const file of tooling)for(const value of [null,{mode:'120000',content:Buffer.from('outside')}])assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,[file]:value}),read,p));
+  assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,'scripts/test-local-release.mjs':Buffer.from('Removed accepted verifier')}),read,p));assert.throws(()=>assertCanvasPreflightTree(commit(fixes,accepted),read,p));
+  const root='.local-release',checkpoint=path.join(root,'reuse/preflight-checkpoint.json');
+  if(fs.existsSync(checkpoint)&&JSON.parse(fs.readFileSync(checkpoint)).sha===p.source){
+   const bytes=fs.readFileSync(checkpoint),original=JSON.parse(bytes),proof=path.join(temporary,'proof');fs.mkdirSync(proof);fs.cpSync(path.join(root,'reuse'),path.join(proof,'reuse'),{recursive:true});process.env.GIT_DIR=bare;
+   const selection=gitSelection(original.base,accepted),commands=selectedCommands(selection,{GITHUB_SHA:accepted,CANDIDATE_BASE:original.base}),context={sha:accepted,base:original.base,planHash:validationPlan().digest,selection,environment:original.environment,nativeBrowsers:original.nativeBrowsers,commands};assert.equal(canvasPreflightPrefix(bytes,context).sha,p.source);
+   const result=verifySettlementNativeProgress(proof,accepted);assert.deepEqual(result.result,{workerPassed:1574,processorPassed:true,launcherRetained:30,nativePending:true});
+   const tap=fs.readFileSync(path.join(proof,'reuse/settlement-native-origin/test-results/settlement-launcher-fresh.tap'),'utf8');assert.deepEqual(settlementLauncherResults(tap),[{title:settlementLauncherCase,status:'passed'}]);
+   for(const content of [tap.replace('ok 1 -','not ok 1 -'),tap.replace(`ok 1 - ${settlementLauncherCase}\n`,''),tap.replaceAll(settlementLauncherCase,'unselected assertion'),tap.replace('1..0\n','1..1\n'),tap.replaceAll('tests/q2-recovery-staging.test.mjs','foreign.test.mjs'),tap+'ok 3 - unrelated pass\n'])assert.throws(()=>settlementLauncherResults(content));
+   for(const file of ['reuse/preflight-checkpoint.json','reuse/preflight-failed.log','reuse/settlement-native-origin/test-results/settlement-launcher-fresh.tap','reuse/settlement-native-origin/test-results/settlement-worker-discovery.json','reuse/settlement-native-origin/candidate/manifest.json','reuse/settlement-native-origin/candidate/proof-frontend-runtime.json','reuse/settlement-native-origin/candidate/site/index.html','reuse/settlement-native-origin/reuse/preflight-failed.log']){
+    const target=path.join(proof,file),saved=fs.readFileSync(target);fs.unlinkSync(target);assert.throws(()=>verifySettlementNativeProgress(proof,accepted));fs.writeFileSync(target,'forged proof');assert.throws(()=>verifySettlementNativeProgress(proof,accepted));fs.writeFileSync(target,saved);
+   }
+   const shell=settlementNativeProgressContinuation(commands[41].run);assert(!shell.includes('--test-name-pattern'));assert(!shell.includes('--list'));assert(!shell.includes('npm run test:workers\n'));assert(shell.includes('verify-settlement-native-progress .local-release\n  node scripts/test-q2-runtime.mjs'));
+   const flow=path.join(temporary,'flow');fs.mkdirSync(flow);const trace=path.join(flow,'trace'),stub=`set -e\nnode(){ case "$*" in *verify-settlement-native-progress*) stage=verify;; *test-q2-runtime.mjs*) stage=native;; *) return 98;; esac; printf '%s\\n' "$stage" >> "$TRACE"; [ "$FAIL_STAGE" != "$stage" ]; }\n`;
+   for(const failed of ['','verify','native']){fs.rmSync(trace,{force:true});const q=spawnSync('/bin/bash',['-c',stub+shell],{cwd:flow,env:{...process.env,TRACE:trace,FAIL_STAGE:failed},encoding:'utf8'});assert.equal(q.status,failed?1:0,q.stderr);assert.deepEqual(fs.readFileSync(trace,'utf8').trim().split('\n'),failed==='verify'?['verify']:['verify','native']);}
+  }
+ }finally{if(previousGitDir===undefined)delete process.env.GIT_DIR;else process.env.GIT_DIR=previousGitDir;fs.rmSync(temporary,{recursive:true,force:true});}
+ console.log('Settlement native progress: actual saved Node22 empty-file envelope verified; staging assertion retained once and native child still required.');
+}
+await testSettlementNativeProgress();

@@ -2491,3 +2491,11 @@ before running D1. Add each new native helper to the existing staging allowlist
 and retain the real import-graph and removal counterchecks. Preserve those Worker,
 media and 29 successful launcher results; execute the repaired launcher case and
 the outstanding actual native runtime and browser acceptance.
+
+The repaired staging case passed at `a0aad4af`; Node 22 also emitted an empty-file
+TAP envelope for the second file selected by the name filter. The continuation
+verifier incorrectly counted that envelope as a second executed test. Calibrate
+against the actual TAP: require the one named assertion and separately validate
+the empty file envelope. Retain the completed staging assertion and execute the
+still-unstarted native runtime; neither missing nor failed assertions may inherit
+an empty-file pass.
