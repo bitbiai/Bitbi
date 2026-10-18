@@ -21,6 +21,11 @@ import { LOCAL_IMPORT_REPAIR, assertImportRepairWorkflow, localRepairCommand, ve
 import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,assertPermissionContinuationTree,permissionContinuationPrefix,CANVAS_STAGE_CASES,canvasStageContinuation} from './lib/local-release-evidence.mjs';
 import {testLocalMediaProcess} from './test-local-media-process.mjs';
 
+if(process.argv.includes('--settlement-hosting-only')) {
+  assert.deepEqual(process.argv.slice(2),['--settlement-hosting-only']);
+  await testSettlementHostingContinuation();process.exit(0);
+}
+
 if(process.argv.includes('--settlement-preflight-only')) {
   assert.deepEqual(process.argv.slice(2),['--settlement-preflight-only']);
   await testCanvasPolicyNativeContinuation();await testCanvasPolicyNativeProgress();await testSettlementPreflightContinuation();process.exit(0);
@@ -1923,3 +1928,69 @@ async function testSettlementPreflightContinuation() {
  console.log('Settlement preflight continuation: pinned failed source, exact historical discovery, retained logs and changed-input rejection verified; completed verifier groups and product tests never repeated.');
 }
 await testSettlementPreflightContinuation();
+
+async function testSettlementHostingContinuation() {
+ const {SETTLEMENT_HOSTING_PREFLIGHT:p,canvasPreflightProfile,assertCanvasPreflightTree,canvasPreflightPrefix,
+  verifyCanvasPreflight,settlementHostingGuardContinuation}=await import('./lib/local-release-evidence.mjs');
+ assert.equal(canvasPreflightProfile(p.source),p);
+ assert.deepEqual(p.retain,[1,4,5,6,7,8,9,10,11,13,16,18,19,20,21,22,23,24,25,26,27,28,30,31,32,33,35]);
+ assert.equal(settlementHostingGuardContinuation('npm run test:local-release'),'npm run test:local-release -- --settlement-hosting-only');
+ for(const command of ['echo skipped','npm run test:local-release -- --other','npm run test:local-release\nnpm run test:workers'])assert.throws(()=>settlementHostingGuardContinuation(command));
+ const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-settlement-hosting-')),bare=path.join(temporary,'git'),previousGitDir=process.env.GIT_DIR;
+ try {
+  execFileSync('git',['init','--bare',bare],{stdio:'pipe'});
+  fs.writeFileSync(path.join(bare,'objects/info/alternates'),path.resolve(execFileSync('git',['rev-parse','--git-path','objects'],{encoding:'utf8'}).trim())+'\n');
+  const env={...process.env,GIT_AUTHOR_NAME:'Synthetic',GIT_AUTHOR_EMAIL:'synthetic@example.invalid',GIT_COMMITTER_NAME:'Synthetic',GIT_COMMITTER_EMAIL:'synthetic@example.invalid'};
+  const read=(args,input)=>execFileSync('git',['--git-dir',bare,...args],{env,input,stdio:['pipe','pipe','pipe']});
+  const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),reviewed=read(['rev-list','--ancestry-path','--reverse',`${p.source}..${head}`]).toString().trim().split('\n')[0];
+  assert(reviewed,'The closed hosting fixture requires its committed reviewed successor');
+  const tooling=['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs'];
+  const fixes=Object.fromEntries([...Object.keys(p.specs),...tooling].map(file=>[file,read(['show',`${reviewed}:${file}`])]));
+  for(const[file,hash]of Object.entries(p.specs))assert.equal(sha256(fixes[file]),hash);
+  const commit=(changes,parent=p.source)=>{
+   read(['read-tree',p.source]);for(const[file,value]of Object.entries(changes)){
+    if(value===null){read(['update-index','--index-info'],Buffer.from(`0 ${'0'.repeat(40)}\t${file}\n`));continue;}
+    const blob=read(['hash-object','-w','--stdin'],value.content??value).toString().trim();read(['update-index','--add','--cacheinfo',`${value.mode||'100644'},${blob},${file}`]);
+   }
+   return read(['commit-tree',read(['write-tree']).toString().trim(),'-p',parent],Buffer.from('Synthetic closed hosting fixture continuation\n')).toString().trim();
+  };
+  const accepted=commit(fixes);assertCanvasPreflightTree(accepted,read,p);
+  for(const file of Object.keys(p.specs))for(const value of [null,Buffer.from('Unreviewed fixture'),{mode:'120000',content:Buffer.from('outside')}])assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,[file]:value}),read,p));
+  for(const file of ['workers/auth/src/lib/canvas-agent-settlement-review.js','workers/auth/migrations/0111_canvas_agent_settlement_reviews.sql','tests/helpers/canvas-agent-settlement-review-control.mjs','frontend/index.mjs','package-lock.json','.github/workflows/static.yml','config/release-validation.yml'])assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,[file]:Buffer.from('Unreviewed product or acceptance')}),read,p));
+  for(const file of tooling)for(const value of [null,{mode:'120000',content:Buffer.from('outside')}])assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,[file]:value}),read,p));
+  assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,'scripts/test-local-release.mjs':Buffer.from('Completed verifier groups removed')}),read,p));
+  assert.throws(()=>assertCanvasPreflightTree(commit(fixes,accepted),read,p));
+  const root='.local-release',checkpoint=path.join(root,'reuse/preflight-checkpoint.json');
+  if(fs.existsSync(checkpoint)&&JSON.parse(fs.readFileSync(checkpoint)).sha===p.source){
+   const bytes=fs.readFileSync(checkpoint),original=JSON.parse(bytes),proof=path.join(temporary,'proof');
+   fs.mkdirSync(proof);fs.cpSync(path.join(root,'reuse'),path.join(proof,'reuse'),{recursive:true});fs.mkdirSync(path.join(proof,'logs'));
+   process.env.GIT_DIR=bare;
+   const selection=gitSelection(original.base,accepted),commands=selectedCommands(selection,{GITHUB_SHA:accepted,CANDIDATE_BASE:original.base});
+   const context={sha:accepted,base:original.base,planHash:validationPlan().digest,selection,environment:original.environment,nativeBrowsers:original.nativeBrowsers,commands};
+   assert.equal(canvasPreflightPrefix(bytes,context).sha,p.source);
+   for(const mutate of [r=>r.status='passed',r=>r.commands[36].exitCode=0,r=>r.commands[17].exitCode=1,r=>r.commands.pop(),r=>delete r.preflightContinuation]){
+    const changed=structuredClone(original);mutate(changed);assert.throws(()=>canvasPreflightPrefix(Buffer.from(JSON.stringify(changed)),context));
+   }
+   for(const mutate of [r=>r.base='f'.repeat(40),r=>r.planHash='changed',r=>r.environment.key='changed',r=>r.environment.image='changed',r=>r.environment.inputs['package-lock.json']='changed',r=>r.selection.full=!r.selection.full,r=>r.commands.pop(),r=>r.commands[36].run='echo skipped']){
+    const changed=structuredClone(context);mutate(changed);assert.throws(()=>canvasPreflightPrefix(bytes,changed));
+   }
+   const rows=commands.map((command,index)=>{
+    if(p.retain.includes(index)){
+     const row={...original.commands[index],reusedFrom:original.commands[index].reusedFrom||p.source};fs.copyFileSync(path.join(root,row.log),path.join(proof,row.log));return row;
+    }
+    const log=`logs/${index}.log`,content=index===17?'Settlement hosting continuation: original completed guards, exact fixture repair, immutable evidence chain and fresh downstream acceptance enforced.\n':'Synthetic fresh verifier row; no product acceptance claimed.\n';
+    fs.writeFileSync(path.join(proof,log),content);return {command,exitCode:0,log,logHash:sha256(content),durationMs:1,...(index===17?{continuation:settlementHostingGuardContinuation(command.run)}:{})};
+   });
+   const evidence={...context,commands:rows,preflightContinuation:{source:p.source,checkpoint:p.checkpoint}};
+   verifyCanvasPreflight(proof,evidence,commands);
+   for(const index of [0,2,3,12,14,15,17,29,34,36,37,41]){const bad=structuredClone(evidence);bad.commands[index].reusedFrom=p.source;assert.throws(()=>verifyCanvasPreflight(proof,bad,commands));}
+   const bad=structuredClone(evidence);bad.commands[17].continuation='npm run test:local-release -- --settlement-preflight-only';assert.throws(()=>verifyCanvasPreflight(proof,bad,commands),'Completed verifier groups cannot repeat');
+   for(const file of ['reuse/preflight-checkpoint.json','reuse/preflight-failed.log','reuse/settlement-preflight-origin/reuse/preflight-checkpoint.json','reuse/settlement-preflight-origin/reuse/preflight-failed.log','reuse/settlement-preflight-origin/logs/17.log','logs/18.log']){
+    const target=path.join(proof,file),saved=fs.readFileSync(target);fs.unlinkSync(target);assert.throws(()=>verifyCanvasPreflight(proof,evidence,commands));fs.writeFileSync(target,'forged proof');assert.throws(()=>verifyCanvasPreflight(proof,evidence,commands));fs.writeFileSync(target,saved);
+   }
+   verifyCanvasPreflight(proof,evidence,commands);
+  }
+ }finally{if(previousGitDir===undefined)delete process.env.GIT_DIR;else process.env.GIT_DIR=previousGitDir;fs.rmSync(temporary,{recursive:true,force:true});}
+ console.log('Settlement hosting continuation: original completed guards, exact fixture repair, immutable evidence chain and fresh downstream acceptance enforced.');
+}
+await testSettlementHostingContinuation();

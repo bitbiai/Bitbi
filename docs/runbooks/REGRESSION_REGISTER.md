@@ -2478,3 +2478,9 @@ verifiers must read their pinned caller, while ordinary current native discovery
 continues to include every new recovery case. Preserve the failed checkpoint and
 reuse only exact unchanged command inputs; refresh affected verifiers and execute
 the outstanding Worker, native, media and browser acceptance before publication.
+
+The successor `5219f08a` passed that verifier and stopped at hosting-package
+validation: its isolated CLI fixture omitted the transitive Canvas inventory and
+caller modules imported by the evidence verifier. Copy the real import closure;
+calibrate each missing dependency and the complete fixture before provenance
+assertions. Keep earlier successful receipts and run the remaining acceptance.

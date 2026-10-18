@@ -35,9 +35,24 @@ try {
  }
  // Real CLI, real Git fixture and real ZIPs; only HTTP responses are synthetic.
  const fixture=path.join(temp,'checkout');fs.mkdirSync(fixture);
- for(const file of ['scripts','frontend','config/static-hosting.json','workers/contact/package-lock.json']) {
+ const evidenceImports=['tests/helpers/q2-runtime/canvas-policy-tail.mjs','tests/helpers/q2-runtime/canvas.mjs'];
+ for(const file of ['scripts','frontend','config/static-hosting.json','workers/contact/package-lock.json',...evidenceImports]) {
   fs.mkdirSync(path.dirname(path.join(fixture,file)),{recursive:true});fs.cpSync(path.join(root,file),path.join(fixture,file),{recursive:true});
  }
+ // The release CLI imports the evidence verifier, whose closed historical
+ // inventory imports Canvas and the already-copied schema helper. Exercise this
+ // real import closure before provenance failures could mask a broken fixture.
+ const importEvidence=()=>spawnSync(process.execPath,['--input-type=module','-e',
+  "globalThis.fetch=()=>{throw Error('Fixture import forbids network');}; await import('./scripts/lib/local-release-evidence.mjs');"],
+  {cwd:fixture,env:{PATH:process.env.PATH,HOME:temp,TMPDIR:temp},encoding:'utf8',timeout:15000});
+ for(const file of evidenceImports){
+  const target=path.join(fixture,file),bytes=fs.readFileSync(target);fs.unlinkSync(target);
+  try{const missing=importEvidence();assert.equal(missing.error,undefined);assert.notEqual(missing.status,0);
+   assert(missing.stderr.includes('ERR_MODULE_NOT_FOUND')&&missing.stderr.includes(file),'Missing fixture dependency must fail at the import boundary');
+  }finally{fs.writeFileSync(target,bytes);}
+ }
+ const complete=importEvidence();assert.equal(complete.error,undefined);assert.equal(complete.status,0,complete.stderr);
+ record('CLI evidence imports use the complete real fixture closure; each omitted dependency rejects');
  const initialPolicy=JSON.parse(fs.readFileSync(path.join(fixture,'config/static-hosting.json')));initialPolicy.provider='cloudflare';fs.writeFileSync(path.join(fixture,'config/static-hosting.json'),JSON.stringify(initialPolicy));
  fs.mkdirSync(path.join(fixture,'workers/auth/src'),{recursive:true});fs.writeFileSync(path.join(fixture,'workers/auth/src/index.js'),'// Synthetic unchanged Auth input\n');
  fs.writeFileSync(path.join(fixture,'.gitignore'),'candidate/\n.local/\n');

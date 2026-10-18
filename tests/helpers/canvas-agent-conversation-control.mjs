@@ -118,10 +118,10 @@ export async function canvasConversationCase(base,name) {
     }
     if(name==='paused-cap') {
       const production=await c.data(await f.request(f.route,'POST',{brief:'A twelve-second film of a house and a neighboring duck pool.',targetDurationSeconds:12,
-        expectedRevision:await projectRevision(),budgetCredits:1000,locale:'en'},{'Idempotency-Key':'conversation-paused-cap-production'}));
+        expectedRevision:await projectRevision(),budgetCredits:3000,locale:'en'},{'Idempotency-Key':'conversation-paused-cap-production'}));
       const runId=production.run.id,now=new Date().toISOString();
       const committed=(await f.db.prepare('SELECT COALESCE(SUM(committed),0) AS n FROM canvas_agent_step_costs WHERE project_id=?').bind(f.project).first()).n;
-      const allocation=999-committed;check(allocation>0,'Known positive production headroom exists before filling its authorized allocations');
+      const allocation=2999-committed;check(allocation>0,'Known positive production headroom exists before filling its authorized allocations');
       await f.db.prepare(`INSERT INTO canvas_agent_steps(id,run_id,step_key,kind,input_json,allocation_credits,created_at,updated_at)
         VALUES(?,?,'fixture-future-media','node',?,?,?,?)`).bind((await sha256Hex(f.owner+'-future-media')).slice(0,32),runId,
           JSON.stringify({modelId:'pixverse/v6',dependencies:[]}),allocation,now,now).run();
@@ -132,7 +132,7 @@ export async function canvasConversationCase(base,name) {
       const after=await c.read();
       check(after.revision===before.revision&&after.messages.length===before.messages.length,'Rejected cross-scope allocation rolls back the conversation transaction');
       check(c.calls.length===0&&await count("SELECT COUNT(*) AS n FROM canvas_agent_runs WHERE project_id=? AND purpose='briefing'",f.project)===0,'Paused production cap blocks a new briefing run before provider work');
-      check((await f.db.prepare('SELECT COALESCE(SUM(committed),0) AS n FROM canvas_agent_step_costs WHERE project_id=?').bind(f.project).first()).n===999,'Existing paused allocations remain intact');
+      check((await f.db.prepare('SELECT COALESCE(SUM(committed),0) AS n FROM canvas_agent_step_costs WHERE project_id=?').bind(f.project).first()).n===2999,'Existing paused allocations remain intact');
       await responseCode(await f.request(`${f.route}/${runId}/control`,'POST',{action:'takeover'},{'Idempotency-Key':'conversation-paused-cap-takeover'}),200);
       await responseCode((await c.send('Explain the planned film without changing any creative decisions.')).response,202);
       await c.deliver();await c.complete({text:'The project is under manual control; no film has been completed.',intent:'status'});await c.deliver();
