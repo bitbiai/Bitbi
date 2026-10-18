@@ -490,7 +490,8 @@ test('Canvas reference fixture reads the staged bytes from a non-repository cwd'
     const reached = new Error('fixture read reached');
     let migrated=false;
     const f = {
-      migrations: [{path:'0108_canvas_creative_export_retention.sql',statements:[]}],
+      migrations: [{path:'0108_canvas_creative_export_retention.sql',statements:[]},
+        {path:'0109_canvas_agent_conversations.sql',statements:[]}],
       db: {batch:async()=>{migrated=true;}},
       rows: async sql => sql.startsWith('SELECT sql FROM sqlite_schema') ? [{sql:migrated?${JSON.stringify(retentionSql)}:${JSON.stringify(retentionSql.replace('IN (7,8)','=7'))}}] : sql.includes('sqlite_schema') ? Array.from({length:sql.includes('canvas_agent_proposal_immutable')?8:sql.includes('canvas_preview_base_fence')?3:sql.includes('canvas_audio_timeline_immutable')?1:sql.includes('canvas_seam_result_immutable')?2:7},()=>({name:'synthetic-guard'})) : [],
       scalar: async sql => {
@@ -501,6 +502,7 @@ test('Canvas reference fixture reads the staged bytes from a non-repository cwd'
       control: async () => Response.json({ cookie: 'synthetic' }),
       test: async (name, operation) => {
         if(name==='canvas_assembly_retention_populated_migration')return; // This unit exercises fixture resolution; native D1 runs the migration proof.
+        if(name==='canvas_conversation_populated_migration_preserves_historical_identity_without_transcript')return; // Native D1, not this filename-resolution fake, proves the new migration.
         if(name==='canvas_export_release_schema_queries'){await operation();return;}
         assert.equal(name, 'image25_native_owned_reference_boundary_and_unverified_tariff_blocks_dispatch');
         await operation();

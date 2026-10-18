@@ -2061,8 +2061,12 @@ reasoning timer test advanced before asynchronous WebCrypto policy hashing had
 started the provider (expected one dispatch, observed zero). Synchronize on the
 actual provider start; the same observer must detect a deliberately shortened
 180-second deadline while retaining the real 600-second bound and no resubmission.
-Both repaired cases passed individually without retries; native and release
-acceptance still require their actual callers and exact-source checkpoint.
+Both repaired cases passed individually without retries and the complete
+`84de2703` Worker caller passed all 1,494 cases plus real FFmpeg checks. Its
+following launcher unit still declared only 0108 in a filename-resolution fake:
+include 0109 and leave populated-migration proofs to their real native D1 caller.
+The same staged-byte reader must still fail with the old cwd-relative path.
+Native and release acceptance require their actual exact-source checkpoint.
 
 ### Canvas reasoning deadline and durable receipt recovery — 2026-10-16
 
