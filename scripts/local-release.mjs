@@ -186,7 +186,8 @@ async function runLocalRelease({ base, resume }) {
   const progressDirectory=progressProfile?path.resolve(resume):null;
   const originalDirectory=progressDirectory?path.join(path.dirname(progressDirectory),progressProfile===CANVAS_POLICY_NATIVE_PROGRESS?CANVAS_POLICY_NATIVE_PROGRESS.baseRun:AUTONOMY_BROWSER_PREFLIGHT.run):resume&&json(path.join(resume,'checkpoint.json')).sha!==sha?path.resolve(resume):null;
   const storedPlanPlacement=originalDirectory&&json(path.join(originalDirectory,'checkpoint.json')).sha===STORED_PLAN_CONTINUATION.placement.source;
-  const storedPlanWorkerProgress=originalDirectory&&json(path.join(originalDirectory,'checkpoint.json')).sha===STORED_PLAN_CONTINUATION.worker.source;
+  const storedPlanWorkerRetry=originalDirectory&&json(path.join(originalDirectory,'checkpoint.json')).sha===STORED_PLAN_CONTINUATION.workerRetry.source;
+  const storedPlanWorkerProgress=storedPlanWorkerRetry||originalDirectory&&json(path.join(originalDirectory,'checkpoint.json')).sha===STORED_PLAN_CONTINUATION.worker.source;
   const storedPlanContinuation=storedPlanWorkerProgress||storedPlanPlacement||originalDirectory&&json(path.join(originalDirectory,'checkpoint.json')).sha===STORED_PLAN_CONTINUATION.source;
   const preflightContinuation=originalDirectory&&canvasPreflightProfile(json(path.join(originalDirectory,'checkpoint.json')).sha);
   const permissionContinuation=originalDirectory&&[EXAMPLE_CACHE_CONTINUATION.source,PERMISSION_CONTINUATION.source,PERMISSION_CONTINUATION.tail,EXPORT_BROWSER_CONTINUATION.source,WORKSPACE_CONTINUATION.source,INSPECTOR_CONTINUATION.source,AUDIO_FIT_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.progress,SMOOTH_BROWSER_CONTINUATION.accepted,SMOOTH_BROWSER_CONTINUATION.completed].includes(json(path.join(originalDirectory,'checkpoint.json')).sha);
@@ -222,13 +223,14 @@ async function runLocalRelease({ base, resume }) {
       state.commands[0]={...partial.commands[0],command:commands[0],reusedFrom:partial.sha};
     }
     if(storedPlanWorkerProgress){
-      const root=path.join(bundle,'reuse/test-results/stored-plan-worker-progress');fs.cpSync(path.join(originalDirectory,'bundle'),root,{recursive:true});
+      const root=path.join(bundle,'reuse/test-results',storedPlanWorkerRetry?'stored-plan-worker-retry':'stored-plan-worker-progress');fs.cpSync(path.join(originalDirectory,'bundle'),root,{recursive:true});
+      if(storedPlanWorkerRetry)fs.cpSync(path.join(originalDirectory,'bundle/reuse/test-results/stored-plan-worker-progress'),path.join(bundle,'reuse/test-results/stored-plan-worker-progress'),{recursive:true});
       fs.copyFileSync(path.join(originalDirectory,'checkpoint.json'),path.join(root,'checkpoint.json'));
-      fs.copyFileSync(path.join(originalDirectory,'source/test-results/stored-plan-worker-fresh.json'),path.join(root,'test-results/worker-failed.json'));
+      fs.copyFileSync(path.join(originalDirectory,'source/test-results',storedPlanWorkerRetry?'stored-plan-worker-corrected.json':'stored-plan-worker-fresh.json'),path.join(root,'test-results/worker-failed.json'));
       for(const target of [path.join(root,'runtime'),path.join(bundle,'runtime'),path.join(directory,'runtime')])fs.cpSync(path.join(originalDirectory,'runtime'),target,{recursive:true});
-      const {partial}=verifyStoredPlanWorkerProgress(bundle,sha);
+      const {partial,profile}=verifyStoredPlanWorkerProgress(bundle,sha);
       assert.equal(partial.environment.key,state.environment.key);assert.equal(partial.environment.image,state.environment.image);assert.equal(partial.nativeBrowsers.key,state.nativeBrowsers.key);assert.equal(partial.planHash,state.planHash);
-      state.storedPlanWorkerProgress={source:partial.sha,checkpoint:STORED_PLAN_CONTINUATION.worker.checkpoint};
+      state.storedPlanWorkerProgress={source:partial.sha,checkpoint:profile.checkpoint};
       state.commands=commands.map((command,i)=>{if(STORED_PLAN_WORKER_REFRESH.has(i))return null;const row=partial.commands[i];assert.equal(row.exitCode,0);fs.copyFileSync(path.join(root,row.log),path.join(bundle,row.log));return {...row,command,reusedFrom:partial.sha};});
     }
   } else if(preflightContinuation){

@@ -260,7 +260,7 @@ async function continuationRevalidationCase(base) {
         try{
             if(action==='atomic-edit'){
                 let error;try{await c.continuationService.applyCanvasPlanningSettlementContinuation(env,input);}catch(caught){error=caught;}
-                check(raced&&/malformed JSON|JSON path error/.test(String(error?.message||error)),'The actual D1 atomic guard rejects a revision race after successful revalidation');
+                check(raced&&/malformed JSON|JSON path error|bad JSON path: '\$\['/.test(String(error?.message||error)),'The actual D1 atomic guard rejects a revision race after successful revalidation');
             }else await rejected(()=>c.continuationService.applyCanvasPlanningSettlementContinuation(env,input),
                 action==='cap'?'canvas_agent_settlement_continuation_state_changed':action==='headroom'?'canvas_agent_settlement_continuation_preflight_blocked':'canvas_agent_settlement_continuation_prices_changed');
         }finally{

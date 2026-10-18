@@ -1837,7 +1837,19 @@ export function verifyStoredPlanWorkerProgress(directory,head){
   assert.equal(rows.length,9);assert.equal(passed.length,8);assert.equal(report.stats.expected,8);assert.equal(report.stats.unexpected,1);assert.equal(report.stats.flaky,0);assert.equal(report.stats.skipped,0);
   assert.deepEqual(rows.map(row=>row.title).sort(),[...storedPlanWorkerNames].sort());
   assert.deepEqual(failed.map(row=>row.title),['Canvas stored planning settlement continuation-revalidation']);assert.equal(failed[0].results.length,1);assert.equal(failed[0].results[0].status,'failed');assert.equal(failed[0].results[0].retry,0);
-  return {partial,passed,failed};
+  const retry=STORED_PLAN_CONTINUATION.workerRetry,retryRoot=path.join(directory,'reuse/test-results/stored-plan-worker-retry');
+  if(fs.existsSync(path.join(retryRoot,'checkpoint.json'))){
+    const nextBytes=fs.readFileSync(path.join(retryRoot,'checkpoint.json'));assert.equal(sha256(nextBytes),retry.checkpoint);
+    const next=JSON.parse(nextBytes),commands=selectedCommands(next.selection,{GITHUB_SHA:next.sha,CANDIDATE_BASE:next.base});assert.equal(next.sha,retry.source);assert.equal(next.status,'failed');assert.equal(next.commands.length,46);assert.equal(commands.length,46);
+    assert.deepEqual(next.storedPlanWorkerProgress,{source:p.source,checkpoint:p.checkpoint});assert.equal(next.environment.key,partial.environment.key);assert.equal(next.environment.image,partial.environment.image);assert.equal(next.nativeBrowsers.key,partial.nativeBrowsers.key);assert.equal(next.planHash,partial.planHash);
+    for(let i=0;i<46;i++){const row=next.commands[i];if([43,45].includes(i)){assert.equal(row,null);continue;}assert.deepEqual(row.command,commands[i]);assert.equal(row.exitCode,i===41?1:0);assert.equal(sha256(fs.readFileSync(path.join(retryRoot,row.log))),row.logHash);if(!STORED_PLAN_WORKER_REFRESH.has(i))assert.deepEqual(row,{...partial.commands[i],command:commands[i],reusedFrom:p.source});}
+    assert.equal(next.commands[17].logHash,retry.guard);assert.equal(next.commands[41].logHash,retry.failed);
+    const resultBytes=fs.readFileSync(path.join(retryRoot,'test-results/worker-failed.json'));assert.equal(sha256(resultBytes),retry.report);
+    const result=JSON.parse(resultBytes),rows=executedWorkers(result);assert.deepEqual(result.errors,[]);assert.equal(result.config.workers,1);assert.equal(result.stats.expected,0);assert.equal(result.stats.unexpected,1);assert.equal(result.stats.flaky,0);assert.equal(result.stats.skipped,0);
+    assert.deepEqual(rows.map(row=>[row.file,row.title,row.id]),failed.map(row=>[row.file,row.title,row.id]));assert.equal(rows[0].results.length,1);assert.equal(rows[0].results[0].status,'failed');assert.equal(rows[0].results[0].retry,0);
+    return {partial:next,passed,failed:rows,profile:retry};
+  }
+  return {partial,passed,failed,profile:p};
 }
 export function verifyStoredPlanOrigin(directory,head){
   assertStoredPlanTree(head);const origin=path.join(directory,'reuse/test-results/stored-plan-origin');
@@ -1929,7 +1941,7 @@ export function verifyStoredPlanContinuation(directory,evidence,commands){
   const {origin,original}=verifyStoredPlanOrigin(directory,evidence.sha);
   storedPlanPrefix(fs.readFileSync(path.join(origin,'evidence.json')),{...evidence,commands});
   const progress=evidence.storedPlanWorkerProgress?verifyStoredPlanWorkerProgress(directory,evidence.sha):null;
-  if(progress)assert.deepEqual(evidence.storedPlanWorkerProgress,{source:STORED_PLAN_CONTINUATION.worker.source,checkpoint:STORED_PLAN_CONTINUATION.worker.checkpoint});
+  if(progress)assert.deepEqual(evidence.storedPlanWorkerProgress,{source:progress.profile.source,checkpoint:progress.profile.checkpoint});
   const placement=evidence.storedPlanPlacement?verifyStoredPlanPlacement(directory,{...evidence,commands},original):null;
   if(placement)assert.deepEqual(evidence.storedPlanPlacement,{source:STORED_PLAN_CONTINUATION.placement.source,checkpoint:STORED_PLAN_CONTINUATION.placement.checkpoint});
   const old=new Map(original.commands.map(row=>[storedPlanKey(row.command),row]));

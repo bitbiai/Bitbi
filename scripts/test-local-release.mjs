@@ -2247,10 +2247,10 @@ async function testStoredPlanWorkerContinuation() {
  const root='.local-release',relative='reuse/test-results/stored-plan-worker-progress';
  if(!fs.existsSync(path.join(root,relative,'checkpoint.json'))){assert(!process.argv.includes('--stored-plan-worker-only'),'The Worker continuation requires its actual failed-source receipts');return;}
  const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),read=args=>execFileSync('git',args,{maxBuffer:64*1024*1024});
- const {partial,passed,failed}=verifyStoredPlanWorkerProgress(root,head);assert.equal(partial.sha,p.worker.source);assert.equal(passed.length,8);assert.equal(failed.length,1);
+ const {partial,passed,failed,profile}=verifyStoredPlanWorkerProgress(root,head);assert.equal(partial.sha,profile.source);assert([p.worker.source,p.workerRetry.source].includes(profile.source));assert.equal(passed.length,8);assert.equal(failed.length,1);
  const helper='tests/helpers/canvas-agent-settlement-review-control.mjs';
  assert.throws(()=>assertStoredPlanTree(head,args=>args[0]==='show'&&args[1]===head+':'+helper?Buffer.from('unreviewed fixture'):read(args)));
- assert.throws(()=>assertStoredPlanTree(head,args=>args[0]==='diff'&&args[2]===p.worker.source?Buffer.concat([read(args),Buffer.from('workers/auth/src/lib/canvas-agent-graph.js\n')]):read(args)));
+ assert.throws(()=>assertStoredPlanTree(head,args=>args[0]==='diff'&&[p.worker.source,p.workerRetry.source].includes(args[2])?Buffer.concat([read(args),Buffer.from('workers/auth/src/lib/canvas-agent-graph.js\n')]):read(args)));
  const old=workerDiscovery(parseDiscovery(fs.readFileSync(path.join(root,'reuse/test-results/stored-plan-origin/test-results/settlement-worker-discovery.json'),'utf8')));
  // Disposable verifier calibration only: actual acceptance still requires the
  // separate executed corrected report and complete current --list receipts.
@@ -2268,6 +2268,7 @@ async function testStoredPlanWorkerContinuation() {
   for(const file of ['checkpoint.json','logs/17.log','logs/41.log','test-results/worker-failed.json']){
    const target=path.join(snapshot,relative,file),bytes=fs.readFileSync(target);fs.writeFileSync(target,'forged');assert.throws(()=>verifyStoredPlanWorkerProgress(snapshot,head));fs.writeFileSync(target,bytes);
   }
+  if(profile===p.workerRetry)for(const file of ['checkpoint.json','logs/17.log','logs/41.log','test-results/worker-failed.json']){const target=path.join(snapshot,'reuse/test-results/stored-plan-worker-retry',file),bytes=fs.readFileSync(target);fs.writeFileSync(target,'forged');assert.throws(()=>verifyStoredPlanWorkerProgress(snapshot,head));fs.writeFileSync(target,bytes);}
   assert.equal(verifyStoredPlanWorkerProgress(snapshot,head).passed.length,8);
  }finally{fs.rmSync(temporary,{recursive:true,force:true});}
  console.log('Stored-plan Worker continuation: eight actual Linux passes retained; only failed revalidation selected, seven native cases still mandatory; changed source, omitted/failed/retried/duplicate outcomes and forged receipts rejected.');
