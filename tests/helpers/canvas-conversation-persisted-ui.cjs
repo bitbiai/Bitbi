@@ -22,9 +22,10 @@ module.exports = async ({ page, expect, locale, info, mockSharedAuth, createCanv
         const open = async () => { await page.goto(de ? '/de/canvas/' : '/canvas/'); await page.locator('#canvasAgentToggle').click(); };
         await open();
         const panel = page.locator('#canvasAgentPanel'), composer = panel.locator('.canvas-agent__composer');
+        const showProject=()=>panel.getByRole('tab',{name:de?'Projekt & Produktion':'Project & production',exact:true}).click(),showChat=()=>panel.getByRole('tab',{name:de?'Gespräch':'Conversation',exact:true}).click();
         const input = composer.locator('textarea'), transcript = panel.locator('.canvas-agent__messages'), brief = panel.locator('.canvas-agent__brief');
         const submitMessage = async (text, pending = true) => {
-            await expect(input).toBeEnabled(); await input.fill(text);
+            await showChat();await expect(input).toBeEnabled(); await input.fill(text);
             const accepted = page.waitForResponse(response => new URL(response.url()).pathname.endsWith('/conversation/messages') && response.request().method() === 'POST');
             await composer.locator('button[type=submit]').click();
             const response = await accepted, body = await response.json();
@@ -34,13 +35,13 @@ module.exports = async ({ page, expect, locale, info, mockSharedAuth, createCanv
             await expect(transcript).toContainText(text);
         };
         const allowance = panel.locator('.canvas-agent__allowance');
-        await expect(allowance.locator('[name=briefingBudget]')).not.toHaveValue('');
+        await showProject();await expect(allowance.locator('[name=briefingBudget]')).not.toHaveValue('');
         await allowance.locator('[name=briefingBudget]').fill('500');
         await allowance.getByRole('button', { name: de ? 'Dieses Gesprächsbudget freigeben' : 'Authorize this briefing allowance', exact: true }).click();
         await expect(allowance).toBeHidden();
         const initial = de ? 'Ein freundlicher Comicfilm über Hausbau, einen Pool mit Enten und ankommende Gäste.' : 'A friendly comic film about building a house, a duck pool and arriving visitors.';
         await submitMessage(initial);
-        await expect(input).toBeDisabled();
+        await expect(composer.locator('button[type=submit]')).toBeDisabled();
         expect(c.calls).toHaveLength(0);
         const firstRevision = (await f.data(await f.request(f.projectPath))).project.revision;
         // Closing the UI has no role in queue dispatch or completion. Two queue
@@ -57,13 +58,13 @@ module.exports = async ({ page, expect, locale, info, mockSharedAuth, createCanv
         await expect(form.locator('button[type=submit]')).toBeDisabled();
         expect(requests.filter(item => item.path.endsWith('/conversation/start'))).toEqual([]);
         await submitMessage(de ? 'Ungefähr zwei Minuten.' : 'About two minutes.');
-        await expect(input).toBeDisabled(); await c.deliver();
+        await expect(composer.locator('button[type=submit]')).toBeDisabled(); await c.deliver();
         await c.complete({ text: de ? 'Die Zieldauer ist ungefähr zwei Minuten.' : 'The target duration is about two minutes.' }); await c.deliver();
         await page.reload(); await page.locator('#canvasAgentToggle').click();
         await expect(brief).toContainText('120 s');
         expect((await c.read()).messages.filter(message => message.role === 'assistant' && /how long|Wie lang/.test(message.text))).toHaveLength(1);
         expect(c.calls).toHaveLength(2);
-        await form.locator('[name=budget]').fill('5000'); await form.locator('[name=authorize]').check();
+        await showProject();await form.locator('[name=budget]').fill('5000'); await form.locator('[name=authorize]').check();
         const admitted = page.waitForResponse(response => new URL(response.url()).pathname.endsWith('/conversation/start') && response.request().method() === 'POST');
         await form.locator('button[type=submit]').click();
         expect((await admitted).status()).toBe(202);

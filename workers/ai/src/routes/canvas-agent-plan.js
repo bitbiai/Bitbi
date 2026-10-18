@@ -10,11 +10,11 @@ export const CANVAS_AGENT_EVALUATION_BODY_MAX_BYTES = CANVAS_AGENT_EVALUATION_IN
 export const CANVAS_AGENT_PREPARE_BODY_MAX_BYTES = CANVAS_AGENT_EVALUATION_INPUT_MAX_BYTES + 8192;
 export const CANVAS_AGENT_NORMALIZE_BODY_MAX_BYTES = CANVAS_AGENT_NORMALIZE_MAX_BYTES + 8192;
 export function handleCanvasAgentReadiness({ env }) { return ok(canvasAgentProviderReadiness(env)); }
-function failure(error, afterDispatch = false) {
+function failure(error, afterDispatch = false, preparationOnly = false) {
   const expected = error instanceof CanvasAgentProviderError;
   return json({ ok: false, error: 'Canvas planning could not complete.',
-    code: expected ? error.code : isRequestBodyError(error) ? error.code : 'canvas_agent_provider_outcome_unknown',
-    outcome: expected ? error.outcome : isRequestBodyError(error) && !afterDispatch ? 'not_submitted' : 'unknown',
+    code: expected ? error.code : isRequestBodyError(error) ? error.code : preparationOnly ? 'canvas_agent_prepare_failed' : 'canvas_agent_provider_outcome_unknown',
+    outcome: preparationOnly ? 'not_submitted' : expected ? error.outcome : isRequestBodyError(error) && !afterDispatch ? 'not_submitted' : 'unknown',
     retryable: false,
     ...(expected && error.usage ? { usage: error.usage } : {}),
     ...(expected && error.responseId ? { responseId: error.responseId } : {}),
@@ -43,7 +43,7 @@ async function handleCanvasAgentModel({ request, env, aiCallerPolicy }, normaliz
     const { body } = stripAiCallerPolicyFromBody(raw);
     return ok(normalize ? normalizeCanvasAgentModel(body) : await prepareCanvasAgentModel(env, body));
   } catch (error) {
-    return failure(error, normalize);
+    return failure(error, normalize, !normalize);
   }
 }
 export const handleCanvasAgentPrepare = ctx => handleCanvasAgentModel(ctx, false);

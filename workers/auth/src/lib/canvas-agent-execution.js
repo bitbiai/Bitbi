@@ -15,6 +15,7 @@ import { evaluateCanvasAgent,prepareCanvasAgentImprovement } from './canvas-agen
 import { persistCanvasAgentProposal,markCanvasAgentProposal,appendCanvasAgentEvent } from './canvas-agent-progress.js';
 import { prepareCanvasAgentCorrection } from './canvas-agent-repair.js';
 import { requestCanvasAgentBudget } from './canvas-agent-budget.js';
+import { canvasDialogueFailure,logCanvasDialogueStage } from './canvas-agent-dialogue-state.js';
 
 async function checkAuthority(env,run) {
     if(run.expires_at<=nowIso())agentFail('canvas_agent_authorization_expired');
@@ -138,6 +139,7 @@ export async function processCanvasAgent(env,id) {
     const {reconcileCanvasAgentModelOperations}=await import('./canvas-agent-model-operations.js');
     await reconcileCanvasAgentModelOperations(env,{runId:id});
     let run=await claimCanvasAgent(env,id);if(!run)return {status:'ignored'};
+    if(run.purpose==='briefing')logCanvasDialogueStage('consumer_received',{runId:id});
     try {
         const {user,view}=await checkAuthority(env,run);
         if(run.purpose==='briefing'){
@@ -189,12 +191,20 @@ export async function processCanvasAgent(env,id) {
             }
         } else if(run.status==='exporting')await exportStep(env,run,view);
     } catch(error){
-        const code=/^[a-z0-9_]{1,90}$/.test(error?.code||'')?error.code:'canvas_agent_execution_review_required';
-        const status=/unknown|review|required|claim_lost|provider_timeout/.test(code)?'review_required':'blocked';
-        const cause={code,step:run.phase,recovery:'manual',...(Array.isArray(error.issues)?{issues:error.issues.slice(0,16)}:{})};
+        const failure=run.purpose==='briefing'?await canvasDialogueFailure(env,run,error):null;
+        const code=failure?.code||(/^[a-z0-9_]{1,90}$/.test(error?.code||'')?error.code:'canvas_agent_execution_review_required');
+        const status=failure?.status||(/unknown|review|required|claim_lost|provider_timeout/.test(code)?'review_required':'blocked');
+        const cause=failure?.cause||{code,step:run.phase,recovery:'manual',...(Array.isArray(error.issues)?{issues:error.issues.slice(0,16)}:{})};
         const failed=await env.DB.prepare('UPDATE canvas_agent_runs SET status=?,error_code=?,cause_json=?,updated_at=? WHERE id=? AND lease_token=?')
             .bind(status,code,JSON.stringify(cause),nowIso(),id,run.lease_token).run();
         if(failed.meta?.changes===1)await appendCanvasAgentEvent(env,run,`error:${run.rounds}:${run.repair_attempts||0}:${code}`,'error',{phase:run.phase,code,tool:'production.reconcile'});
+        if(failure){
+            logCanvasDialogueStage(cause.stage,{runId:id,operationId:cause.operationId,code,dispatchState:cause.dispatchState,receiptState:cause.receiptState});
+            if(cause.dispatchState==='not_dispatched'){
+                const {releaseCanvasAgentUndispatched}=await import('./canvas-agent-store.js');
+                await releaseCanvasAgentUndispatched(env,id);
+            }
+        }
     } finally {
         const next=new Date(Math.max(Date.now()+10000,Date.parse(run.next_attempt_at)||0)).toISOString();
         await env.DB.prepare('UPDATE canvas_agent_runs SET lease_token=NULL,lease_until=NULL,next_attempt_at=? WHERE id=? AND lease_token=?').bind(next,id,run.lease_token).run();

@@ -23,7 +23,7 @@ export async function attachCanvasConversation(f,{locale='en',scope='conversatio
     if(body?.model!=='xai/grok-4.7')return oldFetch(url,init);
     check(body.input.response_format.json_schema.name==='bitbi_canvas_dialogue_v1','Briefing cannot silently return structured production plans');
     const headers=new Headers(init.headers);
-    check(body.options.background===true&&headers.get('cf-aig-collect-log')==='false'&&headers.get('cf-aig-max-attempts')==='1','Private single-dispatch background dialogue');
+    check(body.options.background===true&&headers.get('cf-aig-collect-log')==='true'&&headers.get('cf-aig-collect-log-payload')==='false'&&headers.get('cf-aig-max-attempts')==='1','Metadata-only single-dispatch background dialogue');
     check(!body.input.tools&&body.input.messages.length===2,'Dialogue never receives external or private administrator tools');
     const id=`synthetic-${scope}-${calls.length+1}`;calls.push({id,body});
     return Response.json({success:true,result:{id,state:'Queued'},errors:[],messages:[]});
@@ -218,7 +218,9 @@ export async function canvasConversationCase(base,name) {
       await worker.queue({queue:'bitbi-ai-video-jobs',messages:[{body:{type:'canvas_agent.process',run_id:turn.run_id},attempts:1,ack(){},retry(){throw new Error('Unknown dialogue must not be blindly retried');}}]},f.env,{waitUntil(){throw new Error('No browser recovery loop');}});
       check(c.calls.length===1,'Duplicate wake and reconnect cannot manufacture a new paid request identity');
       await c.control('clear');
-      await responseCode((await c.start({budgetCredits:10000})).response,409,'canvas_agent_provider_review_required');
+      const cleared=await c.read();
+      check(cleared.blockingOperation?.stage==='dispatch_unknown'&&cleared.blockingOperation.turnId===null&&!cleared.canSend,'Deleting visible history preserves the evidence-based unresolved operation gate');
+      await responseCode((await c.start({budgetCredits:10000})).response,409,'canvas_agent_conversation_pending');
       check(c.calls.length===1&&(await c.read()).messages.length===0,'Clearing displayed history never clears an uncertain operational receipt or authorizes production');
       return {case:name,acceptedDispatches:1,reservationRetained:true,newPaidRetryDenied:true,clearedHistoryCannotBypassReview:true};
     }

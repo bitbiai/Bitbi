@@ -6,7 +6,7 @@ import { agentFail,releaseCanvasAgentUndispatched,publicAgentRun } from '../lib/
 import { nowIso,randomTokenHex } from '../lib/tokens.js';
 import { getModelTariff } from '../lib/model-tariffs.js';
 import { emptyBrief,ensureConversation,conversationView,conversationGuard,createConversationTurn,productionBrief,
-    pauseForBriefChange,durationQuestion } from '../lib/canvas-agent-conversation.js';
+    pauseForBriefChange,durationQuestion,canvasConversationBlocker } from '../lib/canvas-agent-conversation.js';
 
 const respond=(data,status=200)=>Response.json({ok:true,data},{status,headers:{'Cache-Control':'private, no-store'}});
 const keyFor=request=>{const key=request.headers.get('Idempotency-Key');if(!/^[A-Za-z0-9._:-]{8,100}$/.test(key||''))agentFail('idempotency_key_required',428);return key;};
@@ -40,7 +40,7 @@ async function control(ctx,row,body,key,locale) {
     const input=actionInput('control',body);
     if(await actionReplay(ctx.env,row,key,input))return;
     revision(body,row);
-    const pending=await ctx.env.DB.prepare("SELECT id FROM canvas_agent_turns WHERE project_id=? AND state='pending'").bind(row.project_id).first();
+    const pending=await canvasConversationBlocker(ctx.env,row.project_id);
     if(pending&&['skip_questions','delegate_duration'].includes(body.action))agentFail('canvas_agent_conversation_pending');
     if(['skip_questions','delegate_duration'].includes(body.action)){
         const count=await ctx.env.DB.prepare("SELECT COUNT(*) AS n FROM canvas_agent_turns WHERE project_id=? AND state!='deleted'").bind(row.project_id).first();
@@ -93,7 +93,7 @@ async function start(ctx,session,view,row,body,key) {
     if(body.authorized!==true)agentFail('canvas_agent_production_consent_required',400);
     if(body.expectedBriefRevision!==row.brief_revision||body.expectedRevision!==view.project.revision)agentFail('canvas_agent_project_changed');
     if(row.state==='cancelled')agentFail('canvas_agent_conversation_stopped');
-    const pending=await ctx.env.DB.prepare("SELECT id FROM canvas_agent_turns WHERE project_id=? AND state IN ('pending','review_required')").bind(row.project_id).first();
+    const pending=await canvasConversationBlocker(ctx.env,row.project_id);
     if(pending)agentFail('canvas_agent_conversation_pending');
     const unresolved=await ctx.env.DB.prepare("SELECT o.id FROM canvas_agent_model_operations o JOIN canvas_agent_runs r ON r.id=o.run_id WHERE r.project_id=? AND o.state IN ('dispatching','pending','unknown','received') LIMIT 1").bind(row.project_id).first();
     if(unresolved)agentFail('canvas_agent_provider_review_required');

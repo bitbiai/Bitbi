@@ -171,3 +171,22 @@ test('Canvas incomplete or refused dialogue retains paid outcome and is never ac
   }
   expect(f.calls).toEqual([]);
 });
+
+test('Canvas dialogue stage diagnostics retain opaque references and reject payloads, callback URLs and untrusted stages', async () => {
+  const { logCanvasDialogueStage } = await import('../workers/auth/src/lib/canvas-agent-dialogue-state.js');
+  const entries = [], originalLog = console.log, originalWarn = console.warn;
+  try {
+    console.log = console.warn = line => entries.push(JSON.parse(line));
+    logCanvasDialogueStage('provider_pending', { runId: 'a'.repeat(32), operationId: 'b'.repeat(32), stepId: 'c'.repeat(32),
+      httpStatus: 202, durationMs: 1400, dispatchState: 'dispatched', receiptState: 'pending',
+      prompt: 'PRIVATE_FILM_TEXT', response: 'PRIVATE_REPLY', callbackUrl: 'https://bitbi.ai/private/SIGNED_CALLBACK_SECRET',
+      error: new Error('Bearer PRIVATE_PROVIDER_CREDENTIAL'), headers: { authorization: 'PRIVATE_PROVIDER_CREDENTIAL' } });
+    logCanvasDialogueStage('PRIVATE_STAGE_TEXT', { runId: 'https://bitbi.ai/private/SIGNED_CALLBACK_SECRET',
+      code: 'PRIVATE ERROR MESSAGE', request: { body: 'PRIVATE_FILM_TEXT' } });
+  } finally { console.log = originalLog; console.warn = originalWarn; }
+  expect(entries).toHaveLength(2);
+  expect(entries[0]).toMatchObject({ stage: 'provider_pending', correlation_id: 'a'.repeat(32), operation_id: 'b'.repeat(32),
+    step_id: 'c'.repeat(32), http_status: 202, duration_ms: 1400, dispatch_state: 'dispatched', receipt_state: 'pending' });
+  expect(entries[1]).toMatchObject({ stage: 'unknown_stage', correlation_id: null, code: null });
+  expect(JSON.stringify(entries)).not.toMatch(/PRIVATE_|SIGNED_CALLBACK|Bearer|https:/);
+});

@@ -1,5 +1,6 @@
 import {canvasAgentPreflightCase} from '../canvas-agent-preflight-control.mjs';
 import {seedCanvasConversationMigration,verifyCanvasConversationMigration,CANVAS_CONVERSATION_CASES,canvasConversationCase} from '../canvas-agent-conversation-control.mjs';
+import {CANVAS_CONVERSATION_RECOVERY_CASES,canvasConversationRecoveryCase} from '../canvas-agent-conversation-recovery-control.mjs';
 import {CANVAS_AGENT_AUTONOMY_CASES,canvasAgentAutonomyCase} from '../canvas-agent-autonomy-control.mjs';
 import {canvasWorkspaceTransitionCase} from '../canvas-workspace-transition-control.mjs';
 import {CANVAS_MODEL_CASES,canvasModelOperationCase} from '../canvas-agent-model-operation-cases.mjs';
@@ -38,6 +39,7 @@ export default {
     if(path==='/canvas-conversation-migration-seed')return Response.json(await seedCanvasConversationMigration(env));
     if(path==='/canvas-conversation-migration-verify')return Response.json(await verifyCanvasConversationMigration(env,body));
     if(path==='/canvas-conversation'&&CANVAS_CONVERSATION_CASES.includes(body.name))return Response.json(await canvasConversationCase(env,body.name));
+    if(path==='/canvas-conversation-recovery'&&CANVAS_CONVERSATION_RECOVERY_CASES.includes(body.name))return Response.json(await canvasConversationRecoveryCase(env,body.name));
     if(path==='/canvas-agent-autonomy'&&CANVAS_AGENT_AUTONOMY_CASES.includes(body.name))return Response.json(await canvasAgentAutonomyCase(env,body.name));
     if(path==='/canvas-agent-model-operation'&&CANVAS_MODEL_CASES.includes(body.name))return Response.json(await canvasModelOperationCase(env,body.name));
     if (path === '/canvas-agent-authority') return Response.json(await canvasAgentAuthorityCase(env));

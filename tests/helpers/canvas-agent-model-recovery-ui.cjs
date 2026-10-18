@@ -24,7 +24,7 @@ module.exports=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock
                 const body=await require('./canvas-agent-ui.cjs').responseBytes(response);
                 if(!target.isClosed())await route.fulfill({status:response.status,headers:Object.fromEntries(response.headers),body});
             });
-            await target.goto(de?'/de/canvas/':'/canvas/');await target.locator('#canvasAgentToggle').click();
+            await target.goto(de?'/de/canvas/':'/canvas/');await target.locator('#canvasAgentToggle').click();await target.locator('#canvasAgentPanel').getByRole('tab',{name:de?'Projekt & Produktion':'Project & production',exact:true}).click();
         };
         await install(activePage);
         let panel=activePage.locator('#canvasAgentPanel');

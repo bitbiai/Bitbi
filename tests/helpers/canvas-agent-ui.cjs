@@ -27,7 +27,7 @@ async function fixture({page,locale,mockSharedAuth,createCanvasApiMock}) {
         if(!url.pathname.includes('/agent'))return route.fallback();
         if(url.pathname.includes('/agent/conversation')){
             const respondChat=()=>route.fulfill({json:{ok:true,data:{conversation,availability:{available:state.available}}}});
-            if(request.method()==='GET')return respondChat();
+            if(request.method()==='GET'){state.chatReads=(state.chatReads||0)+1;return respondChat();}
             const body=request.postDataJSON(),key=request.headers()['idempotency-key'];
             if(url.pathname.endsWith('/start')){
                 state.posts.push({body,key});
@@ -94,10 +94,16 @@ async function fixture({page,locale,mockSharedAuth,createCanvasApiMock}) {
     return {canvas,state,project,open,panel:page.locator('#canvasAgentPanel'),form:page.locator('.canvas-agent__production-approval'),composer:page.locator('.canvas-agent__composer')};
 }
 
+const showProject=(panel,locale)=>panel.getByRole('tab',{name:locale==='de'?'Projekt & Produktion':'Project & production',exact:true}).click();
+const showChat=(panel,locale)=>panel.getByRole('tab',{name:locale==='de'?'Gespräch':'Conversation',exact:true}).click();
+async function showOptions(panel,locale){await showProject(panel,locale);const options=panel.locator('.canvas-agent__briefing-options');if(await options.getAttribute('open')===null)await options.locator('summary').click();}
+
 async function briefing({panel,locale,text,expect}) {
     const allowance=panel.locator('.canvas-agent__allowance');
     await expect(panel.locator('.canvas-agent__composer textarea')).toBeEnabled();
+    await showProject(panel,locale);
     if(await allowance.isVisible())await allowance.getByRole('button',{name:locale==='de'?'Dieses Gesprächsbudget freigeben':'Authorize this briefing allowance',exact:true}).click();
+    await showChat(panel,locale);
     const composer=panel.locator('.canvas-agent__composer');await expect(composer.locator('textarea')).toBeEnabled();
     await composer.locator('textarea').fill(text);await composer.locator('button[type=submit]').click();
     await expect(panel.locator('.canvas-agent__messages')).toContainText(text);
@@ -115,6 +121,7 @@ exports.admission=async({page,expect,locale,info,mockSharedAuth,createCanvasApiM
     await briefing({panel,locale,expect,text:'A comic film about a house being built, a pool with ducks and arriving guests.'});
     await expect(panel.locator('.canvas-agent__messages')).toContainText(locale==='de'?'Wie lang':'How long');
     await expect(form.locator('button[type=submit]')).toBeDisabled();
+    await showOptions(panel,locale);
     await panel.getByRole('button',{name:locale==='de'?'Du wählst eine passende Dauer':'You choose a suitable duration',exact:true}).click();
     await expect(form.locator('button[type=submit]')).toBeEnabled();
     await form.locator('button[type=submit]').click();expect(state.posts).toEqual([]);
@@ -151,7 +158,7 @@ exports.admission=async({page,expect,locale,info,mockSharedAuth,createCanvasApiM
 exports.recovery=async({page,expect,locale,mockSharedAuth,createCanvasApiMock})=>{
     const {canvas,state,panel,form}=await fixture({page,locale,mockSharedAuth,createCanvasApiMock});
     await briefing({panel,locale,expect,text:'A realistic 120 second housebuilding film, with ducks in the pool and visitors arriving.'});
-    await form.locator('[name="budget"]').fill('900');await form.locator('[name="authorize"]').check();
+    await showProject(panel,locale);await form.locator('[name="budget"]').fill('900');await form.locator('[name="authorize"]').check();
     canvas.projects[0].revision=7;state.loseResponse=true;
     await form.locator('button[type="submit"]').click();
     await expect.poll(()=>state.posts.length).toBe(1);
@@ -160,7 +167,7 @@ exports.recovery=async({page,expect,locale,mockSharedAuth,createCanvasApiMock})=
     const retry=panel.getByRole('button',{name:locale==='de'?'Nachricht prüfen':'Check message',exact:true});
     await expect(retry).toBeVisible();
     await retry.click();await expect.poll(()=>state.posts.length).toBe(2);expect(state.posts[1]).toEqual(state.posts[0]);
-    await page.reload();await page.locator('#canvasAgentToggle').click();
+    await page.reload();await page.locator('#canvasAgentToggle').click();await showProject(panel,locale);
     await expect(panel.locator('.canvas-agent__counts')).toContainText('0 / 3');
     expect(state.posts.length).toBe(2);
     state.run={...state.run,phase:'waiting_limit'};
@@ -181,7 +188,7 @@ exports.recovery=async({page,expect,locale,mockSharedAuth,createCanvasApiMock})=
     await panel.getByRole('button',{name:locale==='de'?'Manuell übernehmen':'Take over manually',exact:true}).click();
     await expect.poll(()=>state.controls.map(control=>control.body.action)).toEqual(['pause','resume','takeover']);
     await expect(panel).toBeHidden();
-    await page.reload();await page.locator('#canvasAgentToggle').click();
+    await page.reload();await page.locator('#canvasAgentToggle').click();await showProject(panel,locale);
     await expect(panel.locator('h3')).toHaveText(locale==='de'?'Manuell übernommen':'Taken over manually');
     expect(state.posts.length).toBe(2);
     expect(state.controls.every(control=>Boolean(control.key))).toBe(true);
@@ -201,7 +208,7 @@ exports.duration=async({page,expect,locale,mockSharedAuth,createCanvasApiMock})=
     await briefing({panel,locale,expect,text:locale==='de'?'Ein 60 Sekunden Film oder ein 120 Sekunden Film.':'A 60 second film or a 120 second film.'});
     expect(state.posts).toEqual([]);await expect(form.locator('button[type=submit]')).toBeDisabled();
     await briefing({panel,locale,expect,text:locale==='de'?'Einen 2-minütigen Film mit 10-sekündigen Szenen.':cases[0][0]});
-    await form.locator('[name="budget"]').fill('900');await form.locator('[name="authorize"]').check();await form.locator('button[type="submit"]').click();
+    await showProject(panel,locale);await form.locator('[name="budget"]').fill('900');await form.locator('[name="authorize"]').check();await form.locator('button[type="submit"]').click();
     await expect.poll(()=>state.posts.length).toBe(1);expect(state.conversation.brief.duration.targetDurationSeconds).toBe(120);
     expect(state.conversation.messages.filter(message=>/How long|Wie lang/.test(message.text))).toHaveLength(1);
     expect(canvas.requests.filter(request=>request.method==='POST')).toEqual([]);
@@ -211,14 +218,14 @@ exports.duration=async({page,expect,locale,mockSharedAuth,createCanvasApiMock})=
 exports.unavailable=async({page,expect,locale,mockSharedAuth,createCanvasApiMock})=>{
     const {state,panel,form}=await fixture({page,locale,mockSharedAuth,createCanvasApiMock});
     state.available=false;
-    await page.reload();await page.locator('#canvasAgentToggle').click();
+    await page.reload();await page.locator('#canvasAgentToggle').click();await showProject(panel,locale);
     await expect(panel).toContainText(locale==='de'?'bestätigtem Zugriff':'confirmed access');
     await expect(panel.locator('.canvas-agent__composer button[type=submit]')).toBeDisabled();
     await form.evaluate(node=>node.dispatchEvent(new Event('submit',{cancelable:true,bubbles:true})));
     expect(state.posts).toEqual([]);
     // A hostile result cannot turn a completion label into a playable/saved claim.
     state.run={id:'a'.repeat(32),projectId:'1'.repeat(32),status:'completed',phase:'completed',result:{assetId:'foreign',fileUrl:'https://attacker.invalid/film.mp4'},errorCode:'<img src=x onerror=alert(1)>'};
-    await page.reload();await page.locator('#canvasAgentToggle').click();
+    await page.reload();await page.locator('#canvasAgentToggle').click();await showProject(panel,locale);
     await expect(panel.locator('h3')).toHaveText(locale==='de'?'Die Produktion benötigt Aufmerksamkeit. Vorhandene Ergebnisse bleiben im Projekt.':'The production needs attention. Existing results remain in the project.');
     await expect(panel.locator('video,img')).toHaveCount(0);
     await expect(panel.locator('.canvas-agent__production details dd').last()).toHaveText('<img src=x onerror=alert(1)>');
@@ -236,7 +243,7 @@ exports.activity=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMo
     state.events=[{id:2,type:'action',text:'Plan received',tool:'plan.validate'},{id:1,type:'action',text:hostile},{id:2,type:'action',text:'Duplicate must not appear'}];
     const check=panel.getByRole('button',{name:de?'Status prüfen':'Check status',exact:true});
     // Load a persisted run without submitting a new production.
-    await page.reload();await page.locator('#canvasAgentToggle').click();
+    await page.reload();await page.locator('#canvasAgentToggle').click();await showProject(panel,locale);
     await expect(panel.locator('.canvas-agent__plan')).toContainText('Building the house');
     await expect(panel.locator('.canvas-agent__plan')).toContainText('First frame and reference mode conflict.');
     await expect(panel.locator('.canvas-agent__cause')).toContainText(de?'inkompatible Referenzmodi':'incompatible reference modes');
@@ -254,7 +261,7 @@ exports.activity=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMo
     await check.click();await expect(log.locator('li')).toHaveCount(3);
     state.run={...state.run,status:'taken_over'};await check.click();
     await expect(panel.locator('.canvas-agent__cause')).toContainText('shot-2');
-    await page.reload();await page.locator('#canvasAgentToggle').click();await expect(log.locator('li')).toHaveCount(3);
+    await page.reload();await page.locator('#canvasAgentToggle').click();await showProject(panel,locale);await expect(log.locator('li')).toHaveCount(3);
     await expect(panel.locator('.canvas-agent__plan')).toContainText('House and ducks');
     expect(state.posts).toEqual([]);expect(state.budgetPosts).toEqual([]);
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
@@ -265,7 +272,7 @@ exports.budget=async({page,expect,locale,mockSharedAuth,createCanvasApiMock})=>{
     const {state,panel,project}=await fixture({page,locale,mockSharedAuth,createCanvasApiMock}),de=locale==='de';
     const request={id:'b'.repeat(32),revision:2,projectRevision:7,tariffRevision:29,currentCapCredits:300,additionalCredits:97,proposedCapCredits:397,status:'pending',reasonCode:'canvas_agent_plan_correction',model:'xai/grok-4.7',action:'plan.repair'};
     state.run={id:'a'.repeat(32),projectId:project,status:'paused',phase:'budget',budgetCredits:300,projectRevision:7,budgetRequest:request,allowedActions:['cancel','takeover']};
-    await page.reload();await page.locator('#canvasAgentToggle').click();
+    await page.reload();await page.locator('#canvasAgentToggle').click();await showProject(panel,locale);
     const box=panel.locator('.canvas-agent__budget'),accept=box.getByRole('button',{name:de?'Dieses neue Limit freigeben':'Authorize this new cap',exact:true}),decline=box.getByRole('button',{name:de?'Bisheriges Limit behalten':'Keep current cap',exact:true});
     await expect(accept).toBeEnabled();await expect(box).toContainText('397');expect(state.budgetPosts).toEqual([]);
     // A lost response keeps precisely the displayed cap, tariff and decision.
@@ -273,7 +280,7 @@ exports.budget=async({page,expect,locale,mockSharedAuth,createCanvasApiMock})=>{
     await expect.poll(()=>state.budgetPosts.length).toBe(1);await expect(decline).toBeDisabled();
     expect(state.budgetPosts[0].body).toEqual({requestId:request.id,requestRevision:2,decision:'accept',proposedCapCredits:397,expectedRevision:7});
     expect(state.budgetPosts[0].tariff).toBe('29');
-    await page.reload();await page.locator('#canvasAgentToggle').click();
+    await page.reload();await page.locator('#canvasAgentToggle').click();await showProject(panel,locale);
     await expect(decline).toBeDisabled();expect(state.budgetPosts.length).toBe(1);
     await panel.getByRole('button',{name:new RegExp(de?'Ursprüngliche Budgetentscheidung prüfen':'Check original budget decision')}).click();
     await expect.poll(()=>state.budgetPosts.length).toBe(2);expect(state.budgetPosts[1]).toEqual(state.budgetPosts[0]);
@@ -300,7 +307,7 @@ exports.outcome=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMoc
     const refresh=panel.getByRole('button',{name:de?'Status prüfen':'Check status',exact:true});
     const summary=panel.locator('.canvas-agent__production > .canvas-agent__summary');
     const value=label=>summary.getByText(label,{exact:true}).locator('xpath=following-sibling::dd[1]');
-    await refresh.click();
+    await showProject(panel,locale);await refresh.click();
     await expect(panel.locator('h3')).toHaveText(de?'Anbieterergebnis ungeklärt':'Provider outcome unknown');
     await expect(value(de?'Produktionsschritt':'Production step')).toHaveText(de?'Geschichte und Einstellungen planen':'Planning story and settings');
     await expect(value(de?'Bereits abgerechnet (Credits)':'Already charged (credits)')).toHaveText('0');
@@ -330,14 +337,14 @@ exports.outcome=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMoc
     await expect(panel).toContainText(de?'Anbieterantwort ist gespeichert':'provider response has been saved');
     await expect(panel).not.toContainText(de?'Die Antwortfrist ist abgelaufen':'The response deadline has passed');
     state.run={...state.run,modelOperation:{...state.run.modelOperation,outcome:'unknown',recovery:'review_required'}};
-    await page.reload();await page.locator('#canvasAgentToggle').click();
+    await page.reload();await page.locator('#canvasAgentToggle').click();await showProject(panel,locale);
     await expect(value(de?'Im Guthaben reserviert (Credits)':'Reserved in wallet (credits)')).toHaveText('127');
     expect(state.posts).toEqual([]);expect(state.controls).toEqual([]);
     // Errors during production must be visible outside the hidden start form.
     state.failRead=true;await refresh.click();
     await expect(panel.getByText(de?'Der Status konnte nicht bestätigt werden. Prüfe den Status, bevor du einen neuen Auftrag startest.':'The status could not be confirmed. Check status before starting another production.',{exact:true})).toBeVisible();
     state.failControl=true;await panel.getByRole('button',{name:de?'Abbrechen':'Cancel',exact:true}).click();
-    await expect(panel.locator('#canvasAgentBody > .canvas-agent__notice').filter({hasText:de?'Für die ursprüngliche Anfrage':'The original request'})).toBeVisible();
+    await expect(panel.locator('.canvas-agent__project-pane > .canvas-agent__notice').filter({hasText:de?'Für die ursprüngliche Anfrage':'The original request'})).toBeVisible();
     expect(state.controls.map(control=>control.body.action)).toEqual(['cancel']);
     // A saved paused run with an unresolved dispatch still cannot resume, even
     // if a malformed older response advertises it as an allowed action.
@@ -355,7 +362,7 @@ exports.outcome=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMoc
     await expect(panel.locator('h3')).toHaveText(de?'Abgebrochen':'Cancelled');
     await expect(panel).toContainText(de?'Es werden keine neuen Schritte gestartet':'No new production steps will start');
     const revise=panel.getByRole('button',{name:de?'Weitere Änderung beschreiben':'Describe another change',exact:true,includeHidden:true});
-    await expect(revise).toBeHidden();await revise.evaluate(node=>node.click());await expect(form).toBeHidden();
+    await expect(revise).toBeHidden();await revise.evaluate(node=>node.click());await showProject(panel,locale);await expect(form).toBeHidden();
     state.run={...state.run,status:'blocked',errorCode:'canvas_agent_provider_rejected',reservedCredits:0,pendingOutcomeCredits:0,modelOperation:{...state.run.modelOperation,outcome:'rejected',recovery:null}};
     await refresh.click();await expect(panel.locator('h3')).toHaveText(de?'Modellanfrage abgelehnt':'Model request rejected');
     await expect(panel).toContainText(de?'kein automatischer Ersatzauftrag':'No replacement request');
@@ -375,16 +382,16 @@ exports.outcome=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMoc
     state.conversation.brief.fields.story={value:'A new film about the same house.',provenance:'user_stated'};
     state.conversation.brief.duration={choice:'explicit',targetDurationSeconds:120,asked:false};
     state.run={...state.run,status:'cancelled',modelOperation:{...state.run.modelOperation,outcome:'unknown',recovery:'review_required'}};
-    await page.reload();await page.locator('#canvasAgentToggle').click();
+    await page.reload();await page.locator('#canvasAgentToggle').click();await showProject(panel,locale);
     const produce=form.locator('button[type=submit]');await expect(form).toBeVisible();await expect(produce).toBeDisabled();
     await form.evaluate(node=>node.requestSubmit());expect(state.posts).toEqual([]);
     // Briefing uncertainty independently blocks paid sends and offers a status
     // read. The known-complete control below proves readiness is otherwise met.
     state.run={...state.run,status:'completed',modelOperation:{...state.run.modelOperation,outcome:'completed',recovery:null}};
     state.conversation.messages=[{id:'review',role:'assistant',text:'',status:'review_required'}];
-    await page.reload();await page.locator('#canvasAgentToggle').click();
+    await page.reload();await page.locator('#canvasAgentToggle').click();await showProject(panel,locale);
     await expect(panel.locator('.canvas-agent__composer button[type=submit]')).toBeDisabled();await expect(produce).toBeDisabled();
-    await expect(panel.getByRole('button',{name:de?'Gespräch neu laden':'Reload conversation',exact:true})).toBeVisible();
+    await showChat(panel,locale);await expect(panel.getByRole('button',{name:de?'Gespräch neu laden':'Reload conversation',exact:true})).toBeVisible();
     state.conversation.messages=[];state.conversation.revision++;
     await panel.getByRole('button',{name:de?'Gespräch neu laden':'Reload conversation',exact:true}).click();await expect(produce).toBeEnabled();
     expect(state.posts).toEqual([]);expect(errors).toEqual([]);
@@ -398,7 +405,7 @@ exports.conversation=async({page,expect,locale,info,mockSharedAuth,createCanvasA
     const input=composer.locator('textarea'),button=name=>panel.getByRole('button',{name,exact:true});
     await expect(input).toBeEnabled();
     const text='A warm comic film about building a house next to a pool with ducks, ending with arriving visitors.';
-    await input.fill(text);state.holdChatResponse=true;await button(de?'Für später speichern':'Save for later').click();
+    await input.fill(text);await showOptions(panel,locale);state.holdChatResponse=true;await button(de?'Für später speichern':'Save for later').click();
     await expect.poll(()=>Boolean(state.releaseChatResponse)).toBe(true);
     const saved=panel.getByText(de?'Entwurf im Projekt gespeichert. Es wurde keine Produktion gestartet.':'Draft saved with this project. No production has started.',{exact:true});
     // A saved claim before acknowledgement is a meaningful broken case; wait
@@ -406,16 +413,16 @@ exports.conversation=async({page,expect,locale,info,mockSharedAuth,createCanvasA
     await expect(saved).toBeHidden();await state.releaseChatResponse();await expect(saved).toBeVisible();
     expect(state.chatPosts).toEqual([]);expect(state.posts).toEqual([]);expect(state.allowancePosts).toEqual([]);
     await page.reload();await page.locator('#canvasAgentToggle').click();await expect(input).toHaveValue(text);
-    await expect(input).toBeDisabled();await button(de?'Briefing fortsetzen':'Resume briefing').click();await expect(input).toBeEnabled();
+    await expect(composer.locator('button[type=submit]')).toBeDisabled();await showOptions(panel,locale);await button(de?'Briefing fortsetzen':'Resume briefing').click();await showChat(panel,locale);await expect(input).toBeEnabled();
     await briefing({panel,locale,expect,text});
     expect(state.allowancePosts).toHaveLength(1);expect(state.allowancePosts[0].body.capCredits).toBe(20);
     await expect(panel.locator('.canvas-agent__brief')).toContainText(text);
-    await button(de?'Projektidee vorbereiten':'Prepare the brief').click();
+    await showOptions(panel,locale);await button(de?'Projektidee vorbereiten':'Prepare the brief').click();
     expect(state.conversation.brief.duration.choice).toBe(null);expect(state.posts).toEqual([]);
     await expect(form.locator('button[type=submit]')).toBeDisabled();
     // An interrupted response retains the original request across reload. The
     // fixture independently rejects stale revisions and de-duplicates its key.
-    state.loseChatResponse=true;await input.fill('A 120 second film.');await composer.locator('button[type=submit]').click();
+    await showChat(panel,locale);state.loseChatResponse=true;await input.fill('A 120 second film.');await composer.locator('button[type=submit]').click();
     const check=button(de?'Nachricht prüfen':'Check message');await expect(check).toBeVisible();
     const accepted=structuredClone(state.chatPosts.at(-1));await page.reload();await page.locator('#canvasAgentToggle').click();await expect(check).toBeVisible();
     await check.click();await expect(check).toBeHidden();expect(state.chatPosts.at(-1)).toEqual(accepted);
@@ -429,12 +436,12 @@ exports.conversation=async({page,expect,locale,info,mockSharedAuth,createCanvasA
     await expect(panel.locator('.canvas-agent__messages a, .canvas-agent__messages img, .canvas-agent__messages script')).toHaveCount(0);
     expect(await page.evaluate(()=>window.canvasInjected)).toBeUndefined();
     expect(state.posts).toEqual([]);expect(state.controls).toEqual([]);
-    await button(de?'Projektidee korrigieren':'Correct the brief').click();await expect(input).toBeFocused();
+    await showProject(panel,locale);await button(de?'Projektidee korrigieren':'Correct the brief').click();await expect(input).toBeFocused();
     await input.fill('Keep the same house; use a realistic style instead.');await input.press('Control+Enter');
     await expect(panel.locator('.canvas-agent__brief')).toContainText('realistic style instead');
-    await button(de?'Briefing beenden':'End briefing').click();await expect(input).toBeDisabled();
+    await showOptions(panel,locale);await button(de?'Briefing beenden':'End briefing').click();await expect(composer.locator('button[type=submit]')).toBeDisabled();
     expect(state.controls).toEqual([]);
-    const privacy=panel.locator('.canvas-agent__conversation > details');await privacy.locator('summary').click();
+    const privacy=panel.locator('.canvas-agent__privacy');await privacy.locator('summary').click();
     await button(de?'Gespräch und Projektidee löschen':'Delete conversation and brief').click();
     await button(de?'Gespräch jetzt löschen':'Delete conversation now').click();
     await expect(panel.locator('.canvas-agent__messages li')).toHaveCount(0);await expect(form).toBeHidden();
@@ -442,4 +449,106 @@ exports.conversation=async({page,expect,locale,info,mockSharedAuth,createCanvasA
     expect(await panel.locator('input,textarea').evaluateAll(nodes=>nodes.every(node=>node.labels.length>0))).toBe(true);
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
     await panel.screenshot({path:info.outputPath(`canvas-conversation-${locale}.png`)});
+};
+
+exports.viewport=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock})=>{
+    const {state,panel,composer}=await fixture({page,locale,mockSharedAuth,createCanvasApiMock}),de=locale==='de';
+    await page.setViewportSize({width:de?390:1440,height:720});
+    state.conversation.allowance={capCredits:3000,committedCredits:77,chargedCredits:0,reservedCredits:77,remainingCredits:2923,tariffRevision:29};
+    state.conversation.brief.fields.delegatedChoices={value:'Choose reasonable defaults for optional creative details. This does not delegate duration or spending.',provenance:'delegated',revision:1};
+    state.conversation.messages=Array.from({length:64},(_,i)=>({id:'long-'+i,role:i%2?'assistant':'user',text:`${i+1}. ${'A short scene near the same house and duck pool. '.repeat(i%5+1)}`,status:'completed'}));
+    await page.reload();await page.locator('#canvasAgentToggle').click();
+    await expect(panel.locator('.canvas-agent__messages li')).toHaveCount(64);
+    const measure=()=>panel.evaluate(node=>{const p=node.getBoundingClientRect(),c=node.querySelector('.canvas-agent__composer').getBoundingClientRect(),t=node.querySelector('.canvas-agent__transcript')||node.querySelector('.canvas-agent__messages');return {panelTop:p.top,panelBottom:p.bottom,composerTop:c.top,composerBottom:c.bottom,transcriptHeight:t.clientHeight,transcriptScroll:t.scrollHeight,viewport:innerHeight};});
+    const initial=await measure();await info.attach('chat-viewport-measurement',{contentType:'application/json',body:JSON.stringify(initial)});
+    expect(initial.composerBottom).toBeLessThanOrEqual(initial.panelBottom+1);
+    expect(initial.panelBottom).toBeLessThanOrEqual(initial.viewport+1);
+    expect(initial.transcriptScroll).toBeGreaterThan(initial.transcriptHeight+100);
+    const scroll=panel.locator('.canvas-agent__transcript'),messages=panel.locator('.canvas-agent__messages');
+    const reload=panel.getByRole('button',{name:de?'Gespräch neu laden':'Reload conversation',exact:true});
+    await expect.poll(()=>scroll.evaluate(node=>node.scrollHeight-node.clientHeight-node.scrollTop)).toBeLessThan(3);
+    await scroll.evaluate(node=>{node.scrollTop=node.scrollHeight/3;node.dispatchEvent(new Event('scroll'));});
+    const reading=await scroll.evaluate(node=>{const top=node.getBoundingClientRect().top,row=[...node.querySelectorAll('li')].find(row=>row.getBoundingClientRect().bottom>top+2);window.canvasReadingNode=row;const text=row.querySelector('p').firstChild;const range=document.createRange();range.setStart(text,0);range.setEnd(text,Math.min(15,text.length));window.getSelection().removeAllRanges();window.getSelection().addRange(range);return{id:row.dataset.messageId,offset:row.getBoundingClientRect().top-top,selected:window.getSelection().toString()};});
+    state.conversation.revision++;
+    await reload.evaluate(node=>node.click());
+    await expect.poll(()=>messages.evaluate((node,id)=>node.querySelector(`[data-message-id="${id}"]`)===window.canvasReadingNode,reading.id)).toBe(true);
+    expect(await page.evaluate(()=>window.getSelection().toString())).toBe(reading.selected);
+    const offset=()=>scroll.evaluate((node,id)=>node.querySelector(`[data-message-id="${id}"]`).getBoundingClientRect().top-node.getBoundingClientRect().top,reading.id);
+    state.conversation.messages.unshift({id:'older',role:'user',text:'An older remembered scene. '.repeat(10),status:'completed'});
+    state.conversation.messages.push({id:'newest',role:'assistant',text:'',status:'pending',delivery:{stage:'provider_pending',blocking:true,canObserve:true,source:'system',diagnosticReference:'cr_fixture_pending'}});state.conversation.revision++;
+    await reload.evaluate(node=>node.click());await expect(messages.locator('li')).toHaveCount(66);
+    expect(Math.abs(await offset()-reading.offset)).toBeLessThan(3);
+    const newest=panel.getByRole('button',{name:de?'Neue Nachrichten':'New messages',exact:true});await expect(newest).toBeVisible();
+    // A real layout-size change above the reading anchor models delayed media
+    // metadata or font reflow; fixed scrollTop alone cannot pass this control.
+    await messages.locator('li').first().evaluate(node=>{node.style.paddingBottom='240px';});
+    await expect.poll(async()=>Math.abs(await offset()-reading.offset)).toBeLessThan(3);
+    await page.setViewportSize({width:de?430:1280,height:560});
+    await expect.poll(async()=>Math.abs(await offset()-reading.offset)).toBeLessThan(3);
+    const compact=await measure();expect(compact.composerBottom).toBeLessThanOrEqual(compact.viewport+1);expect(compact.transcriptHeight).toBeGreaterThan(40);
+    await newest.click();await expect(newest).toBeHidden();await expect.poll(()=>scroll.evaluate(node=>node.scrollHeight-node.clientHeight-node.scrollTop)).toBeLessThan(3);
+    await scroll.evaluate(node=>{node.scrollTop=node.scrollHeight/4;node.dispatchEvent(new Event('scroll'));});
+    const pendingNode=messages.locator('[data-message-id=newest]');await pendingNode.evaluate(node=>{window.canvasPendingNode=node;});
+    state.conversation.messages.at(-1).text='The newest validated reply.';state.conversation.messages.at(-1).status='completed';state.conversation.messages.at(-1).delivery={stage:'completed',blocking:false,canObserve:false,source:'provider'};state.conversation.revision++;
+    await reload.evaluate(node=>node.click());await expect(pendingNode).toContainText('The newest validated reply.');
+    expect(await pendingNode.evaluate(node=>node===window.canvasPendingNode)).toBe(true);await expect(newest).toBeVisible();
+    await newest.click();await expect(newest).toBeHidden();
+    // The bounds helper must reject a deliberately unbounded scrolling chain.
+    const rejected=await panel.evaluate(node=>{const mount=node.querySelector('.canvas-agent__mount'),before=mount.style.cssText;mount.style.minHeight='4000px';const failed=node.querySelector('.canvas-agent__composer').getBoundingClientRect().bottom>node.getBoundingClientRect().bottom+1;mount.style.cssText=before;return failed;});expect(rejected).toBe(true);
+    await panel.getByRole('tab',{name:de?'Projekt & Produktion':'Project & production',exact:true}).click();
+    await expect(panel.locator('.canvas-agent__brief')).toContainText(de?'Dauer und Ausgabenfreigabe':'Duration and spending approval');
+    await expect(panel.locator('.canvas-agent__brief')).not.toContainText('Choose reasonable defaults');
+    expect(state.conversation.brief.fields.delegatedChoices.value).toContain('Choose reasonable defaults');
+    await panel.getByRole('tab',{name:de?'Gespräch':'Conversation',exact:true}).click();
+    const input=composer.locator('textarea');await input.fill('First line');await input.press('Shift+Enter');await input.type('Second line');expect(await input.inputValue()).toBe('First line\nSecond line');
+    const before=state.chatPosts.length;
+    await input.evaluate(node=>{node.dispatchEvent(new CompositionEvent('compositionstart',{bubbles:true}));node.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',isComposing:true,bubbles:true,cancelable:true}));node.dispatchEvent(new CompositionEvent('compositionend',{bubbles:true}));});
+    expect(state.chatPosts).toHaveLength(before);await input.press('Enter');await expect.poll(()=>state.chatPosts.length).toBe(before+1);
+    expect(state.chatPosts.at(-1).body.text).toBe('First line\nSecond line');
+    await panel.screenshot({path:info.outputPath(`canvas-chat-bounded-${locale}.png`)});
+};
+
+exports.delivery=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock})=>{
+    const {state,panel,composer}=await fixture({page,locale,mockSharedAuth,createCanvasApiMock}),de=locale==='de';
+    const userText=de?'Ein lustiger ungefähr 45 Sekunden langer Film mit Hintergrundmusik: Eine Schnecke auf einem Blatt, Ameisen schneiden das Blatt ab.':'A funny approximately 45 second video with background music: a snail on a leaf, ants cut the leaf.';
+    const diagnostic='cr_0123456789abcdef';
+    const delivery={stage:'provider_pending',blocking:true,diagnosticReference:diagnostic,canObserve:true,source:'system'};
+    Object.assign(state.conversation,{canSend:false,pendingTurnId:null,blockingOperation:{...delivery,turnId:'observed'},allowance:{capCredits:3000,committedCredits:77,chargedCredits:0,reservedCredits:77,remainingCredits:2923,tariffRevision:29},messages:[{id:'observed',role:'user',text:userText,status:'completed'},{id:'observed:reply',role:'assistant',text:'',status:'review_required',delivery}],brief:{...state.conversation.brief,fields:{story:{value:userText,provenance:'user_stated'}},duration:{choice:'explicit',targetDurationSeconds:45,asked:true}}});
+    const current=state.conversation;
+    await page.reload();await page.locator('#canvasAgentToggle').click();
+    const reply=panel.locator('[data-message-id="observed:reply"]');
+    await expect(reply).toHaveAttribute('data-kind','system');await expect(reply).toContainText(de?'Anbieter bearbeitet':'provider is processing');
+    await expect(reply).not.toContainText(de?'Canvas-Assistent':'Canvas assistant');await expect(composer.locator('button[type=submit]')).toBeDisabled();
+    await expect(reply.locator('code')).toHaveText(diagnostic);
+    await reply.getByRole('button',{name:de?'Referenz kopieren':'Copy reference',exact:true}).click();
+    await expect(reply.getByRole('button')).toHaveText(de?/Referenz (kopiert|markiert)/:/Reference (copied|selected)/);
+    await showProject(panel,locale);const costs=panel.locator('.canvas-agent__briefing-cost');
+    await expect(costs).toContainText(de?'Tatsächlich abgerechnet':'Actually charged');
+    await expect(costs.locator('dt').filter({hasText:de?'Tatsächlich abgerechnet':'Actually charged'}).locator('xpath=following-sibling::dd[1]')).toHaveText('0');
+    await expect(costs.locator('dt').filter({hasText:de?'Im Guthaben reserviert':'Reserved in your wallet'}).locator('xpath=following-sibling::dd[1]')).toHaveText('77');
+    await showChat(panel,locale);
+    current.messages[1].delivery={...delivery,stage:'dispatch_unknown',recovery:'operator'};current.blockingOperation={...current.messages[1].delivery,turnId:'observed'};current.revision++;
+    await panel.getByRole('button',{name:de?'Gespräch neu laden':'Reload conversation',exact:true}).click();
+    await expect(reply).toContainText(de?'Annahme ist nicht bestätigt':'acceptance is unconfirmed');
+    await expect(reply).not.toContainText(de?'automatische Klärung ist beendet':'Automatic reconciliation has stopped');
+    await expect(composer.locator('button[type=submit]')).toBeDisabled();
+    // Late completion must be picked up without clicking Reload or making a
+    // second paid POST, even though the old turn status was review_required.
+    current.canSend=true;current.blockingOperation=null;current.revision++;
+    current.messages[1]={...current.messages[1],text:de?'Wir erzählen die Szene als 45-sekündige Komödie mit passender Musik.':'We can tell this as a 45-second comedy with suitable music.',status:'completed',delivery:{stage:'completed',blocking:false,canObserve:false,source:'provider',diagnosticReference:diagnostic}};
+    await expect(reply).toHaveAttribute('data-kind','assistant',{timeout:15000});await expect(reply.locator('.canvas-agent__diagnostic')).toBeHidden();await expect(composer.locator('button[type=submit]')).toBeEnabled();
+    expect(current.messages[0].text).toBe(userText);expect(state.chatPosts).toEqual([]);expect(state.posts).toEqual([]);
+    current.messages.unshift({id:'old-local-error',role:'assistant',text:'',status:'review_required',delivery:{stage:'preparation_failed',blocking:false,canObserve:false,source:'system',diagnosticReference:'cr_local_preparation'}});current.revision++;
+    await panel.getByRole('button',{name:de?'Gespräch neu laden':'Reload conversation',exact:true}).click();
+    await expect(composer.locator('button[type=submit]')).toBeEnabled();await expect(panel.locator('[data-message-id=old-local-error]')).toContainText(de?'vor der Modellbeauftragung':'before model dispatch');
+    await panel.screenshot({path:info.outputPath(`canvas-chat-delivery-${locale}.png`)});
+    // Exhausted reconciliation is an explicit operator state, not an endless
+    // poll or permission for a replacement paid request.
+    await page.clock.install();
+    const operator={stage:'dispatch_unknown',blocking:true,canObserve:false,recovery:'operator',source:'system',diagnosticReference:'cr_operator_attention'};
+    current.canSend=false;current.blockingOperation={...operator,turnId:'operator'};current.messages.push({id:'operator:reply',role:'assistant',status:'review_required',text:'',delivery:operator});current.revision++;
+    await panel.getByRole('button',{name:de?'Gespräch neu laden':'Reload conversation',exact:true}).click();
+    await expect(panel.locator('[data-message-id="operator:reply"]')).toContainText(de?'automatische Klärung ist beendet':'Automatic reconciliation has stopped');
+    const reads=state.chatReads;await page.clock.fastForward(20000);expect(state.chatReads).toBe(reads);
+    await expect(composer.locator('button[type=submit]')).toBeDisabled();expect(state.chatPosts).toEqual([]);expect(state.posts).toEqual([]);
 };

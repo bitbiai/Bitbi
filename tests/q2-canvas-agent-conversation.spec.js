@@ -15,6 +15,11 @@ test('Canvas duration delegation requires affirmative intent and preserves a kno
   expect(userDuration('Roughly two minutes.',unasked,id)).toMatchObject({choice:'explicit',targetDurationSeconds:120,sourceMessageId:id});
   expect(userDuration('120',asked,id)).toMatchObject({choice:'explicit',targetDurationSeconds:120,sourceMessageId:id});
   expect(userDuration('120',unasked,id)).toBeNull();
+  for(const text of ['Ein lustiger Clip von ungefähr 45 Sekunden mit Hintergrundmusik.', 'A funny clip about 45 seconds long with background music.'])
+    expect(userDuration(text,asked,id),text).toMatchObject({choice:'explicit',targetDurationSeconds:45,sourceMessageId:id});
+  for(const text of ['Drei Clips von 15 Sekunden.', 'Je Clip 15 Sekunden.', '45 oder 60 Sekunden.',
+    'Use a 5 second clip for each scene.', 'Ein Clip von 5 Sekunden pro Szene.'])
+    expect(userDuration(text,asked,id),text).toBeNull();
 });
 
 for(const name of ['briefing','isolation','recovery','unknown','revocation','concurrency','status-pending','paused-cap'])test(`Canvas conversation ${name} through authenticated durable production boundaries`,async()=>{
@@ -22,6 +27,15 @@ for(const name of ['briefing','isolation','recovery','unknown','revocation','con
   try {
     const {canvasConversationCase}=await import('./helpers/canvas-agent-conversation-control.mjs');
     const result=await canvasConversationCase({...createAuthTestEnv(),DB},name);
+    expect(result.case).toBe(name);expect((await DB.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);
+  }finally{DB.close();}
+});
+
+for(const name of ['snail','prepare','rejected','rejected-tail','malformed','invalid-tail','lost-acceptance','ack-error','normalization','storage','completed-tail','failed-projection','expired-projection','historical','stale-policy','isolation'])test(`Canvas conversation recovery ${name} through signed transport and persisted receipts`,async()=>{
+  const DB=new SqliteD1Database();applyAuthMigrations(DB);
+  try {
+    const {canvasConversationRecoveryCase}=await import('./helpers/canvas-agent-conversation-recovery-control.mjs');
+    const result=await canvasConversationRecoveryCase({...createAuthTestEnv(),DB},name);
     expect(result.case).toBe(name);expect((await DB.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);
   }finally{DB.close();}
 });

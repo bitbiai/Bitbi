@@ -83,6 +83,44 @@ Unknown provider acceptance is shown for review and never resubmitted. Duplicate
 requests and callbacks reuse the original identity. Chat/model availability does
 not own an accepted production or normal manual Canvas editing.
 
+The **Conversation / Gespräch** tab keeps the transcript within the Canvas
+viewport, with the composer and header outside its scrolling area. The project
+brief, allowance and production controls live in **Project & production / Projekt & Produktion**. New
+messages follow the viewport only while the reader is near its end; otherwise a
+new-message control preserves the reading position. Enter sends, Shift+Enter
+adds a line, and IME composition never submits a message. System delivery states
+are separate from actual assistant replies.
+
+## Briefing transport and recovery
+
+The signed AI `prepare` route composes and validates input; Auth makes the single
+paid Cloudflare background POST. A non-error HTTP 202 acknowledgement means
+pending work, not a completed response. Its signed callback can bind the provider
+identity later. A missing receipt, malformed terminal output, local preparation
+failure and unsettled stored result are different stages. The delivery view
+derives these stages from the original operation, usage attempt and saved result;
+an old generic error label alone cannot lock a completed conversation.
+
+**Reload conversation / Gespräch neu laden** observes the original request and safely
+reconciles a stored result. It never starts inference. Ambiguous dispatch remains
+held; only matched evidence allows settlement or release. The original request
+identity, accepted policy context, user wording and first terminal receipt remain
+unchanged. A completed receipt can repair its saved dialogue after the execution
+authority expires; this never renews that authority or starts media generation.
+Draft saving and ordinary Canvas editing remain available during review. A valid late result clears the active delivery error and preserves the
+original accounting identity.
+
+Diagnostics expose a copyable opaque reference and bounded stage metadata, not
+prompts, responses, credentials or signed callback URLs. Briefing inference requests
+use per-request metadata-only AI Gateway logging (`cf-aig-collect-log: true`,
+`cf-aig-collect-log-payload: false`) and one provider attempt. This does not change
+global retention or other model transports. Auth invocation logging stays off
+because callback paths contain signatures; structured application diagnostics
+carry safe correlation instead. See the official [background REST contract](https://developers.cloudflare.com/ai-gateway/usage/rest-api/)
+and [Gateway logging controls](https://developers.cloudflare.com/ai-gateway/observability/logging/).
+Gateway logs, Worker logs and D1 receipts are separate evidence: missing logs do
+not establish that a request was never accepted.
+
 ## Editable deliverables
 
 Productions contain ordinary persisted generation nodes, reference edges, a

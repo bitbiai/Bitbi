@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const {openCanvasSettings} = require('./helpers/canvas-inspector-actions.cjs');
 
-for (const locale of ['en','de']) for (const scenario of ['admission','duration','recovery','unavailable','outcome','activity','budget','conversation']) test(`Canvas agent ${locale}: ${scenario}`,async({page},info)=>{
+for (const locale of ['en','de']) for (const scenario of ['admission','duration','recovery','unavailable','outcome','activity','budget','conversation','viewport','delivery']) test(`Canvas agent ${locale}: ${scenario}`,async({page},info)=>{
     await require('./helpers/canvas-agent-ui.cjs')[scenario]({page,expect,locale,info,mockSharedAuth,createCanvasApiMock});
 });
 for (const locale of ['en','de']) test(`Canvas conversation ${locale}: persisted briefing and guarded production handoff`,async({page},info)=>{

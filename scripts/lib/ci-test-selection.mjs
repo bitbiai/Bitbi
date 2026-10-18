@@ -582,6 +582,7 @@ const WORKER_TEST_PREFIXES = [
   "tests/q2-canvas-agent-autonomy.spec.js", "tests/helpers/canvas-agent-autonomy-control.mjs",
   "tests/q2-canvas-agent-model-operation.spec.js", "tests/helpers/canvas-agent-model-operation-cases.mjs",
   "tests/q2-canvas-agent-conversation.spec.js", "tests/helpers/canvas-agent-conversation-control.mjs",
+  "tests/helpers/canvas-agent-conversation-recovery-control.mjs",
   "tests/q2-canvas-agent-dialogue-provider.spec.js",
   "tests/appearance.spec.js", "tests/appearance-runtime.mjs",
   "tests/model-pricing.spec.js", "tests/model-pricing-runtime.mjs", "tests/helpers/model-pricing-control.mjs",

@@ -35,8 +35,11 @@ Durable member/Canvas H3 and Canvas Grok planning/evaluation use Cloudflare REST
 API token with Account > Workers AI > Read restricted to `CLOUDFLARE_ACCOUNT_ID`;
 never install Wrangler OAuth or a deployment credential. The release manifest
 requires this secret. Verify its policy/account and published binding separately
-from provider acceptance. Preserve default Gateway/Unified Billing, disabled
-request logging, private sources, single dispatch and unknown-outcome fences.
+from provider acceptance. Preserve default Gateway/Unified Billing, private
+sources, single dispatch and unknown-outcome fences. H3 and production reasoning
+keep request logging disabled. Briefing requests collect metadata only with
+`cf-aig-collect-log-payload:false`; never retain prompt/response bodies or signed
+callback URLs in logs. Auth invocation logging remains disabled.
 H3 retains its model callback; Canvas reasoning uses documented Gateway background
 completion and the signed AI service for preparation/result validation. Other
 model transports and private Admin chat remain unchanged.

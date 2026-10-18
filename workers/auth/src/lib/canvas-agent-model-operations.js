@@ -8,6 +8,7 @@ import { wakeCanvasAgent } from './canvas-agent-store.js';
 import { markMemberAiUsageAttemptProviderFailed } from './member-ai-usage-attempts.js';
 import { h3Diagnostic } from './h3-provider-result.js';
 import { canvasAgentReasoningSummary } from '../../../shared/canvas-agent-plan.mjs';
+import { logCanvasDialogueStage } from './canvas-agent-dialogue-state.js';
 
 export const CANVAS_MODEL_PROTOCOL=1;
 export const CANVAS_MODEL_RECEIPT_WAIT_MS=30*60_000;
@@ -40,7 +41,9 @@ export async function canvasModelService(env,path,payload,policy,userId) {
         method:'POST',headers:{...signed,'Content-Type':'application/json','x-bitbi-user-id':userId},body}),undefined,
     {timeoutMs:30_000,consumeResponse:async(response,signal)=>{result=await boundedJson(response,signal);return response;}});
     if(!result||typeof result.ok!=='boolean')fail('canvas_agent_service_response_invalid');
-    if(!response.ok&&result.outcome!=='completed')fail(result.code||'canvas_agent_service_unavailable');
+    if(!response.ok&&result.outcome!=='completed')throw Object.assign(new Error('canvas_agent_service_failed'),{
+        code:/^[a-z0-9_]{1,90}$/.test(result.code||'')?result.code:'canvas_agent_service_unavailable',
+        status:response.status,outcome:path.endsWith('/prepare')?'not_submitted':result.outcome});
     return result;
 }
 async function signature(secret,op) {
@@ -61,6 +64,8 @@ async function markUnknown(env,op,code,detail) {
         WHERE id=? AND state IN ('dispatching','pending') AND response_json IS NULL`).bind(code,JSON.stringify(detail),now,op.id).run();
     const current=await readOperation(env,op.id);
     if(current?.state==='unknown'){
+        logCanvasDialogueStage('dispatch_unknown',{runId:op.run_id,operationId:op.id,stepId:op.step_id,code,
+            httpStatus:detail?.status,durationMs:detail?.durationMs,dispatchState:'unknown',receiptState:'none'});
         await markMemberAiUsageAttemptProviderFailed(env,op.usage_attempt_id,{dispatchToken:op.dispatch_token,code,message:'Provider outcome requires reconciliation.'});
         await env.DB.prepare(`UPDATE canvas_agent_runs SET status='review_required',error_code=?,lease_token=NULL,lease_until=NULL,updated_at=?
             WHERE id=? AND status IN ('queued','planning','running','exporting')`).bind(code,now,op.run_id).run();
@@ -94,24 +99,39 @@ export async function dispatchCanvasModelOperation(env,run,step,prepared,callerP
         env.DB.prepare("SELECT CASE WHEN changes()=1 THEN 1 ELSE json_extract('[]','$[') END"),
     ]);
     const startedAt=Date.now();let response,body;
+    logCanvasDialogueStage('dispatching',{runId:run.id,operationId:op.id,stepId:step.id,dispatchState:'dispatched',receiptState:'none'});
     try {
         response=await fetchWithGenerationTimeout(env.__TEST_FETCH||fetch,`https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/ai/run`,{
             method:'POST',redirect:'manual',headers:{Authorization:`Bearer ${env.H3_CLOUDFLARE_API_TOKEN}`,'Content-Type':'application/json',
-                'cf-aig-gateway-id':'default','cf-aig-skip-cache':'true','cf-aig-collect-log':'false','cf-aig-max-attempts':'1',
+                'cf-aig-gateway-id':'default','cf-aig-skip-cache':'true','cf-aig-collect-log':run.purpose==='briefing'?'true':'false',
+                'cf-aig-collect-log-payload':'false','cf-aig-max-attempts':'1',
                 'cf-aig-metadata':JSON.stringify({bitbi_dispatch:op.id,canvas_run:run.id,canvas_step:step.id})},
             body:JSON.stringify({model:MODEL,input:prepared.input,options:{background:true,webhookUrl:url}})},
         {timeoutMs:30_000,consumeResponse:async(response,signal)=>{body=await boundedJson(response,signal);return response;}});
         const result=body?.result;
-        if(!response.ok||body?.success!==true||!safeId(result?.id)) {
+        // A documented background request may acknowledge acceptance with HTTP
+        // 202 before it supplies a run ID. That is pending work, never a completed
+        // inference or permission to resubmit. Its signed callback binds the ID.
+        const accepted=response.status===202&&body&&typeof body==='object'&&!Array.isArray(body)
+            &&(body.success===undefined||body.success===true)&&(body.errors===undefined||Array.isArray(body.errors)&&body.errors.length===0)&&!body.error&&!result?.error;
+        if(!response.ok||body?.success===false||body?.errors?.length||body?.error||!accepted&&(body?.success!==true||!safeId(result?.id))) {
             const detail=diagnostic(response,op,startedAt,body?.errors?.[0]||result?.error);
             if(detail.noInference&&!safeId(result?.id))await storeRejection(env,op,'canvas_agent_provider_rejected',detail);
             else await markUnknown(env,op,'canvas_agent_provider_outcome_unknown',detail);
-        } else if(result.result?.object==='chat.completion'||result.state==='Failed')await storeCallback(env,op,result);
+        } else if(result?.result?.object==='chat.completion'||result?.state==='Failed')await storeCallback(env,op,result);
         else {
+            const providerId=safeId(result?.id);
             const saved=await env.DB.prepare(`UPDATE canvas_agent_model_operations SET state='pending',provider_run_id=?,diagnostic_json=?,response_at=?,updated_at=?
                 WHERE id=? AND state='dispatching' AND provider_run_id IS NULL AND response_json IS NULL`)
-                .bind(result.id,JSON.stringify({...diagnostic(response,op,startedAt),providerRunId:result.id}),nowIso(),nowIso(),op.id).run();
-            if(saved.meta?.changes!==1){const current=await readOperation(env,op.id);if(current?.provider_run_id!==result.id)fail('canvas_agent_model_identity_mismatch');}
+                .bind(providerId,JSON.stringify({...diagnostic(response,op,startedAt),providerRunId:providerId,
+                    envelope:{successPresent:typeof body.success==='boolean',resultPresent:Boolean(result&&typeof result==='object'),
+                        rootIdPresent:Boolean(safeId(body.id)),resultIdPresent:Boolean(safeId(result?.id)),
+                        state:['Queued','Running','Pending','Completed','Failed'].includes(result?.state)?result.state:null}}),nowIso(),nowIso(),op.id).run();
+            const current=await readOperation(env,op.id);
+            if(saved.meta?.changes!==1&&providerId&&current?.provider_run_id!==providerId)fail('canvas_agent_model_identity_mismatch');
+            logCanvasDialogueStage(current.state==='pending'?'provider_pending':'callback_observed',{
+                runId:run.id,operationId:op.id,stepId:step.id,httpStatus:response.status,
+                durationMs:Date.now()-startedAt,dispatchState:current.state==='completed'?'succeeded':'dispatched',receiptState:current.state});
         }
     } catch(error) {
         await markUnknown(env,op,error?.code==='generation_timeout'?'canvas_agent_provider_timeout':'canvas_agent_provider_outcome_unknown',diagnostic(response,op,startedAt));
@@ -124,6 +144,7 @@ async function storeRejection(env,op,code,detail) {
     await env.DB.prepare(`UPDATE canvas_agent_model_operations SET state='rejected',receipt_json=?,error_code=?,diagnostic_json=?,completed_at=?,updated_at=?
         WHERE id=? AND state IN ('dispatching','pending','unknown') AND response_json IS NULL AND receipt_json IS NULL`)
         .bind(receipt,code,JSON.stringify(detail),nowIso(),nowIso(),op.id).run();
+    logCanvasDialogueStage('rejected',{runId:op.run_id,operationId:op.id,stepId:op.step_id,code,httpStatus:detail.status,dispatchState:'rejected',receiptState:'rejected'});
 }
 function normalizedCallback(body,op) {
     if(!body||typeof body!=='object'||!safeId(body.id)||!safeId(body.state)
@@ -166,6 +187,9 @@ export async function handleCanvasAgentModelCallback({env,request},token) {
         if(!valid)fail('canvas_agent_callback_identity',403);
         const body=JSON.parse(new TextDecoder().decode(await readBodyBytesLimited(request,{maxBytes:MAX_RECEIPT_BYTES})));
         await storeCallback(env,op,body);
+        const stored=await readOperation(env,op.id);
+        logCanvasDialogueStage('callback_observed',{runId:op.run_id,operationId:op.id,stepId:op.step_id,
+            dispatchState:stored.state==='completed'?'succeeded':'dispatched',receiptState:stored.state});
         // Successful persistence is acknowledged even if the wake fails. Cron
         // observes received operations, including cancelled/historical runs.
         await wakeCanvasAgent(env,op.run_id);
@@ -199,6 +223,8 @@ export async function reconcileCanvasModelOperation(env,op) {
             WHERE id=? AND state='received' AND receipt_json IS NULL AND response_json=?`)
             .bind(result.outcome==='completed'?'completed':'rejected',JSON.stringify(result),result.ok?null:result.code,nowIso(),nowIso(),op.id,op.response_json).run();
         op=await readOperation(env,op.id);if(!saved.meta?.changes&&!op.receipt_json)fail('canvas_agent_receipt_review_required');
+        logCanvasDialogueStage(result.ok?'receipt_pending':'response_invalid',{runId:op.run_id,operationId:op.id,stepId:op.step_id,
+            code:result.ok?null:result.code,dispatchState:'dispatched',receiptState:'completed'});
     }
     if(op.state==='rejected') {
         // Only the authenticated immutable terminal receipt permits a release.

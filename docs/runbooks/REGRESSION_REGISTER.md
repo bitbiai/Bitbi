@@ -2012,6 +2012,47 @@ contract to accommodate an incorrectly assembled artifact.
 
 ### Canvas conversational briefing and duration admission — 2026-10-18
 
+The subsequent chat incident was verified read-only against deployed source
+`12372329`, publication run `39110238039/1`, matching Auth/AI/frontend versions
+and schema 0109. Operation `5280d26a2cd07bdb152d6980ee557dc4` received HTTP 202
+in 1,668 ms at 08:41 UTC, but the parser required `success:true/result.id` and
+projected an unknown outcome. The original signed callback arrived at
+08:41:53.361Z; the validated dialogue was saved by 08:42:05.442Z. The original
+usage identity settled once: 77-credit ceiling, **22-credit actual ledger debit**,
+zero remaining reservation. The completed turn retained its stale error code,
+and the UI stopped observing after the review projection. Preserve the saved
+user wording and original receipt; no inference replay or live data repair was
+needed. The initial response body was not retained, so its exact JSON envelope
+cannot be reconstructed from these facts.
+
+Separate source counterchecks reproduced a preparation exception with zero
+provider calls and a released reservation being labelled review-required by a
+generic regex fallback. Delivery stages must follow operation/usage evidence,
+not words such as `required` in an error. HTTP 202 acknowledges pending work;
+a signed terminal receipt alone supports completion. Reconcile stored results
+under their original identities, clear resolved delivery errors and block only
+actual unsettled work. Never reinterpret a historical label as permission to
+resubmit or release funds.
+
+Gateway logging was explicitly suppressed per request. Read-only Gateway and
+Worker telemetry queries with existing Wrangler OAuth returned 403/10000;
+absence of log entries was therefore not established. Deployment/settings reads
+and D1 queries succeeded. Auth invocation logs remain disabled to protect signed
+callback paths. New Canvas diagnostics use bounded stage metadata and briefing requests use
+payload-free Gateway logging; do not widen credentials, retain prompt bodies or
+change global retention to investigate this boundary.
+
+The actual 1,440×720 Chromium panel with 64 mixed-length messages placed the
+composer bottom at 8,872 px before repair. Keep the entire panel ancestry bounded,
+scroll only the transcript, and reconcile stable message nodes. Browser controls
+must preserve reading/selection/focus through polling and resizing, and signal
+new replies without jumping while reading older messages. This measurement and
+its failing baseline are retained outside disposable test output in the local
+`bitbi-canvas-chat-repair/2026-10-18` evidence directory. Focused transport cases
+use the complete signed prepare/dispatch/callback/normalize path in ordinary
+Worker and native D1 callers; EN/DE Chromium/WebKit cover scrolling and late
+response observation. Synthetic responses are not fresh live-provider acceptance.
+
 The pre-conversation source (`6c2d0724`) treated missing duration as a truthy
 `automatic` choice; the start route therefore queued planning rather than its
 intended clarification branch. The new conversation path requires a user-stated

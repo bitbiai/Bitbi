@@ -30,6 +30,8 @@ const repoRoot = path.resolve(__dirname, "..");
  }
  const shared=selectCiTests(['tests/helpers/canvas-agent-conversation-control.mjs']);
  assert(shared.workers&&shared.homepage&&!shared.full,'Shared conversation fixture retains native and rendered editable-film acceptance');
+ const recovery=selectCiTests(['tests/helpers/canvas-agent-conversation-recovery-control.mjs']);
+ assert(recovery.workers&&!recovery.full,'Conversation transport faults use ordinary Worker and native D1 callers');
  const browser=selectCiTests(['tests/helpers/canvas-conversation-persisted-ui.cjs']);
  assert(browser.homepage&&!browser.full,'Persisted conversation UI uses the existing EN/DE Chromium/WebKit Canvas caller');
  assert(selectCiTests(['tests/unknown-conversation-regression.fixture']).full,'Unknown test inputs still fail closed to full selection');

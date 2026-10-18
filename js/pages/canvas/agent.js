@@ -55,9 +55,11 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
     const activity=createCanvasAgentActivity({parent:live,copy,privateMediaUrl,decideBudget:(decision,request)=>void decideBudget(decision,request)});
     status.append(phase, counts, summary, note, connection, media, live, actions, stopHint, details);
     const help = create('details', 'canvas-disclosure'); help.append(create('summary', '', copy.inspect), create('p', 'canvas-muted', copy.editHint));
-    const conversationRoot = create('div');
-    root.append(availabilityNote, availabilityDetails, projectHint, conversationRoot, feedback, status, help);
+    const conversationRoot = create('div','canvas-agent__mount');
+    root.append(projectHint, conversationRoot);
     const conversation = createCanvasAgentConversation({root:conversationRoot,german,flush,getRun:()=>run,canProduce:()=>!modelHeld(),onRun:next=>{acceptRun(next);clearStart();message('');render();schedule();}});
+
+    conversation.appendDetails(availabilityNote,availabilityDetails,feedback,status,help);
 
     function message(text) { feedback.textContent = text; feedback.hidden = !text; }
     function validRun(value) { return value && /^[a-f0-9]{32}$/.test(value.id || '') && value.projectId===projectId && typeof value.status==='string'; }

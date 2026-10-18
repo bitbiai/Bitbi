@@ -6,7 +6,7 @@ export const CANVAS_AGENT_LIMITS = Object.freeze({maxNodes:60,maxShots:48,maxAct
 export const CANVAS_AGENT_TERMINAL = new Set(['completed','cancelled','taken_over']);
 const fail = code => { throw Object.assign(new Error(code), {code,status:400}); };
 const words = {a:1,one:1,an:1,eine:1,einen:1,ein:1,zwei:2,two:2,drei:3,three:3,half:0.5,halb:0.5};
-function briefDuration(text) {
+function briefDuration(text,{durationAsked=false}={}) {
     // Normalize German compound/adjectival units explicitly. Do not depend on
     // JavaScript's ASCII word boundary treating the umlaut in minütig as a break.
     text=text.replace(/\b(\d+(?:\.\d+)?|eine[nr]?|ein|zwei|drei|halb)[\s-]*(minütig|sekündig)(?:en|er|es|em|e)?\b/g,
@@ -21,13 +21,19 @@ function briefDuration(text) {
     }
     const candidates=groups.filter(group=>{
         const before=text.slice(Math.max(0,group.start-60),group.start),after=text.slice(group.end,group.end+70);
+        // In a direct duration answer, “a funny clip of about 45 seconds” names
+        // the whole requested film. Plural/per-clip shot timings remain excluded.
+        const perShot=/\b(?:per|each|every|pro|je|jeweils)(?:\s+[\p{L}-]+){0,2}\s+(?:shots?|clips?|scenes?|szenen?|einstellungen?)\b/u.test(`${before} ${after}`);
+        const singularClip=durationAsked&&!perShot&&(/\b(?:a|an|one|ein|eine[nm]?)\s+(?:[\p{L}-]+\s+){0,4}clip\s+(?:(?:of|lasting|von|mit|for)\s+)?(?:(?:about|approximately|around|ungefähr|etwa|ca\.?)\s*)?$/u.test(before)
+            ||/^\s*(?:[-–]?\s*(?:long|lang(?:en|er|es|em|e)?))?\s*clip\b/.test(after)
+              &&/\b(?:a|an|one|ein|eine[nm]?)\s+(?:[\p{L}-]+\s+){0,4}$/u.test(before));
         group.ambiguous=/\b(?:\d+(?:\.\d+)?|one|two|three|ein|eine|zwei|drei)\s*(?:or|oder|and|und|to|bis|[-–])\s*$/.test(before);
-        group.target=/^\s*(?:[-–]?\s*(?:long|lang(?:en|er|es|em|e)?))?\s*(?:films?|movies?|videos?|kurzfilme?)\b/.test(after)
+        group.target=singularClip||/^\s*(?:[-–]?\s*(?:long|lang(?:en|er|es|em|e)?))?\s*(?:films?|movies?|videos?|kurzfilme?)\b/.test(after)
             ||/\b(?:film|movie|video|target duration|total duration|zieldauer|gesamtdauer)(?:\s+(?:of|is|should|be|last|lasting|von|ist|soll|dauern|beträgt)){0,4}\s*[:=]?\s*$/.test(before);
         const shotAfter=/^\s*(?:[-–]?\s*(?:long|lang(?:en|er|es|em|e)?))?\s*(?:(?:per|each|pro|je)\s+)?(?:shots?|clips?|scenes?|szenen?|einstellungen?)\b/.test(after);
         const shotBefore=/\b(?:shots?|clips?|scenes?|szenen?|einstellungen?)(?:\s+(?:of|lasting|last|each|every|je|von|mit|à|zu|dauert|dauern|alle)){0,4}\s*[:=]?\s*$/.test(before);
         const continuedShotList=!group.target&&/\b(?:shots?|clips?|scenes?|szenen?|einstellungen?)\b[^.;\n]*$/.test(before)&&!/\b(?:film|movie|video|zieldauer|gesamtdauer)\b[^.;\n]*$/.test(before);
-        return !shotAfter&&!shotBefore&&!continuedShotList;
+        return singularClip||!shotAfter&&!shotBefore&&!continuedShotList;
     });
     const targets=candidates.filter(group=>group.target),chosen=targets.length?targets:candidates;
     // Add only an adjacent minutes-and-seconds expression. Separate clip times,
@@ -41,7 +47,7 @@ export function resolveCanvasAgentDuration({brief='',targetDurationSeconds,durat
         return {targetDurationSeconds:Math.round(seconds*1000)/1000,durationChoice:'explicit'};
     }
     const text=String(brief).toLowerCase().replace(/,/g,'.');
-    const seconds=briefDuration(text);
+    const seconds=briefDuration(text,{durationAsked});
     if(seconds!==null)return resolveCanvasAgentDuration({targetDurationSeconds:seconds});
     if(durationChoice!==undefined&&!['explicit','delegated','automatic'].includes(durationChoice))fail('canvas_agent_duration_invalid');
     // Only an explicit user choice delegates length. Historical accepted inputs

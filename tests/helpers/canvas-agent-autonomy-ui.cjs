@@ -11,7 +11,7 @@ async function mount({page,locale,mockSharedAuth,createCanvasApiMock,f,requests,
         if(loseDecision?.value&&url.pathname.endsWith('/budget')&&req.method()==='POST'){loseDecision.value=false;return route.abort('failed');}
         if(!page.isClosed())await route.fulfill({status:response.status,headers:Object.fromEntries(response.headers),body:bytes});
     });
-    await page.goto(locale==='de'?'/de/canvas/':'/canvas/');await page.locator('#canvasAgentToggle').click();
+    await page.goto(locale==='de'?'/de/canvas/':'/canvas/');await page.locator('#canvasAgentToggle').click();if(await page.locator('#canvasAgentPanel').isVisible())await page.locator('#canvasAgentPanel').getByRole('tab',{name:locale==='de'?'Projekt & Produktion':'Project & production',exact:true}).click();
     return page.locator('#canvasAgentPanel');
 }
 
@@ -47,7 +47,7 @@ exports.proposal=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMo
         const eventIds=await log.locator('li').evaluateAll(nodes=>nodes.map(node=>node.dataset.eventId));expect(new Set(eventIds).size).toBe(eventIds.length);
         // Explicit manual takeover is the only browser mutation in this case.
         await panel.getByRole('button',{name:de?'Manuell übernehmen':'Take over manually',exact:true}).click();
-        await page.reload();await page.locator('#canvasAgentToggle').click();
+        await page.reload();await page.locator('#canvasAgentToggle').click();if(await page.locator('#canvasAgentPanel').isVisible())await page.locator('#canvasAgentPanel').getByRole('tab',{name:locale==='de'?'Projekt & Produktion':'Project & production',exact:true}).click();
         await expect(panel.locator('h3')).toHaveText(de?'Manuell übernommen':'Taken over manually');
         await expect(panel.locator('.canvas-agent__plan')).toContainText('House construction');
         await expect(panel.locator('.canvas-agent__cause')).toBeVisible();
@@ -82,7 +82,7 @@ exports.budget=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock
         if(manualEdit){
             let held=null;const nodePath=f.projectPath+'/nodes/'+editable.id;
             await page.route('**'+nodePath,route=>{if(route.request().method()==='PATCH'){held=route;return;}return route.fallback();});
-            await page.locator('#canvasAgentToggle').click();
+            await page.locator('#canvasAgentToggle').click();if(await page.locator('#canvasAgentPanel').isVisible())await page.locator('#canvasAgentPanel').getByRole('tab',{name:locale==='de'?'Projekt & Produktion':'Project & production',exact:true}).click();
             if(de&&await page.locator('#canvasGraphToggle').getAttribute('aria-pressed')!=='true')await page.locator('#canvasGraphToggle').click();
             await page.locator(`[data-node-id="${editable.id}"]`).press('Enter');
             const inspector=page.locator('#canvasInspectorPanel'),inspectorToggle=page.locator('#canvasInspectorToggle');
@@ -97,7 +97,7 @@ exports.budget=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock
             // Hold the real ordinary save in flight. Without the first-decision
             // flush, the old revision could still authorize work ahead of it.
             await expect.poll(()=>Boolean(held)).toBe(true);
-            await page.locator('#canvasAgentToggle').click();await expect(accept).toBeEnabled();await accept.click();await expect(accept).toBeDisabled();
+            await page.locator('#canvasAgentToggle').click();if(await page.locator('#canvasAgentPanel').isVisible())await page.locator('#canvasAgentPanel').getByRole('tab',{name:locale==='de'?'Projekt & Produktion':'Project & production',exact:true}).click();await expect(accept).toBeEnabled();await accept.click();await expect(accept).toBeDisabled();
             expect(requests.filter(item=>item.path.endsWith('/budget'))).toEqual([]);
             const saved=await f.request(nodePath,'PATCH',held.request().postDataJSON());expect(saved.status).toBe(200);
             await held.fulfill({status:saved.status,headers:Object.fromEntries(saved.headers),body:await responseBytes(saved)});
@@ -115,7 +115,7 @@ exports.budget=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock
         // The server already accepted the first request. Reopening and retrying
         // can only observe/replay its immutable decision, never create a charge.
         expect((await DB.prepare('SELECT status FROM canvas_agent_budget_requests WHERE id=?').bind(amendment.id).first()).status).toBe('accepted');
-        await page.reload();await page.locator('#canvasAgentToggle').click();await expect(retry).toBeVisible();await retry.click();await expect(retry).toBeHidden();
+        await page.reload();await page.locator('#canvasAgentToggle').click();if(await page.locator('#canvasAgentPanel').isVisible())await page.locator('#canvasAgentPanel').getByRole('tab',{name:locale==='de'?'Projekt & Produktion':'Project & production',exact:true}).click();await expect(retry).toBeVisible();await retry.click();await expect(retry).toBeHidden();
         const decisions=requests.filter(item=>item.path.endsWith('/budget'));
         expect(decisions).toHaveLength(2);expect(decisions[1]).toEqual(decisions[0]);
         expect(decisions[0].body).toEqual({requestId:amendment.id,requestRevision:amendment.revision,decision:'accept',proposedCapCredits:250,expectedRevision:amendment.project_revision});

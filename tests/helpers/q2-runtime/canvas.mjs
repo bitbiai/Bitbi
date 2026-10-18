@@ -607,4 +607,10 @@ export async function runCanvasTests(f) {
     const result=await response.json();assert.equal(result.case,name);f.metrics.push(result);
     assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
   });
+  for(const name of ['snail','prepare','rejected','rejected-tail','malformed','invalid-tail','lost-acceptance','ack-error','normalization','storage','completed-tail','failed-projection','expired-projection','historical','stale-policy','isolation'])await f.test('canvas_conversation_recovery_native_'+name,async()=>{
+    const response=await f.control('/canvas-conversation-recovery',{name});
+    assert.equal(response.status,200,await response.clone().text());
+    const result=await response.json();assert.equal(result.case,name);f.metrics.push(result);
+    assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
+  });
 }

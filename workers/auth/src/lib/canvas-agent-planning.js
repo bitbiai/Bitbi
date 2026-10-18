@@ -16,6 +16,7 @@ import { markMemberAiUsageAttemptFinalizing, markMemberAiUsageAttemptSucceeded }
 import { canvasModelTransportReady,canvasModelService,readCanvasModelOperation,dispatchCanvasModelOperation,reconcileCanvasAgentModelOperations } from './canvas-agent-model-operations.js';
 import { persistCanvasAgentProposal,appendCanvasAgentEvent } from './canvas-agent-progress.js';
 import { readCanvasAgentBudget } from './canvas-agent-budget.js';
+import { logCanvasDialogueStage } from './canvas-agent-dialogue-state.js';
 
 export const PLAN_PATH='/internal/ai/canvas-agent/plan';
 export const EVALUATE_PATH='/internal/ai/canvas-agent/evaluate';
@@ -169,13 +170,19 @@ export async function executeCanvasAgentModel(env,run,step,user,suppliedPayload)
         source_component:'auth-worker-canvas-agent',budget_fingerprint:policy.gatewayPlan?.fingerprint||policy.requestFingerprint,
         request_fingerprint:policy.gatewayPlan?.fingerprint||policy.requestFingerprint,correlation_id:run.id,reason:'canvas_agent_member_credit_gateway_verified'};
     let prepared;
+    const prepareStarted=Date.now();
+    if(kind==='dialogue')logCanvasDialogueStage('preparing',{runId:run.id,stepId:step.id,dispatchState:'not_dispatched'});
     try {
         prepared=await canvasModelService(env,'/internal/ai/canvas-agent/prepare',{kind,input:payload},callerPolicy,user.id);
         if(!prepared.ok||prepared.protocolVersion!==1||prepared.model!==CANVAS_AGENT_MODEL||prepared.inputDigest!==snapshot.inputDigest
             ||prepared.requestId!==payload.requestId||!prepared.context||!prepared.input)fail('canvas_agent_service_response_invalid');
         await canvasAgentSession(request,scoped);
     } catch(error) {
-        await policy.markProviderFailed({definitelyNotDispatched:true,code:error.code||'canvas_agent_prepare_failed'});throw error;
+        const code=/^[a-z0-9_]{1,90}$/.test(error?.code||'')?error.code:'canvas_agent_prepare_failed';
+        if(kind==='dialogue')logCanvasDialogueStage('preparation_failed',{runId:run.id,stepId:step.id,code,httpStatus:error?.status,
+            durationMs:Date.now()-prepareStarted,dispatchState:'not_dispatched',receiptState:'none'});
+        await policy.markProviderFailed({definitelyNotDispatched:true,code});
+        throw Object.assign(new Error(code),{code,status:error?.status||502,stage:'preparation_failed',outcome:'not_submitted'});
     }
     const token=await policy.markProviderRunning();
     await appendCanvasAgentEvent(env,run,`model-dispatch:${step.id}`,'action',{code:'planning',phase:step.kind,model:CANVAS_AGENT_MODEL,tool:'model.background',stepId:step.id});
