@@ -5,8 +5,8 @@ assert.rejects=async(p,pattern)=>{try{await p;}catch(e){assert(pattern.test(Stri
 import {saveGeneratedVideoAsset} from '../../workers/auth/src/lib/ai-text-assets.js';
 import {claimHeroPreview,ownsPublicPreview} from '../../workers/auth/src/lib/media-preview-jobs.js';
 import worker from '../../workers/auth/src/index.js';
-import { enqueueCanvasProcessing,claimCanvasProcessing } from '../../workers/auth/src/lib/canvas-video-processing.js';
-import { privateMediaStatus,setPrivateMediaService,mediaRunner,dispatchPrivateMedia,recoverPrivateMedia,processorBackend,PRIVATE_MEDIA_WAKE } from '../../workers/auth/src/lib/private-media-service.js';
+import { enqueueCanvasProcessing,claimCanvasProcessing,publicCanvasProcessingStatus } from '../../workers/auth/src/lib/canvas-video-processing.js';
+import { privateMediaStatus,setPrivateMediaService,mediaRunner,dispatchPrivateMedia,recoverPrivateMedia,processorBackend,PRIVATE_MEDIA_WAKE,retryPrivateMediaDelivery } from '../../workers/auth/src/lib/private-media-service.js';
 export async function privateMediaCase(base,{cookie,videoBase64,imageBase64}={}) {
   const now=new Date().toISOString(),owner='private-media-owner',project='9'.repeat(32),messages=[],starts=[];
   const env={...base,GITHUB_ACTIONS_DISPATCH_TOKEN:'synthetic',GITHUB_ACTIONS_DISPATCH_OWNER:'synthetic',GITHUB_ACTIONS_DISPATCH_REPO:'fixture',MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET:'synthetic-github',PRIVATE_MEDIA_PROCESSOR_SECRET:'synthetic-container',
@@ -42,15 +42,32 @@ export async function privateMediaCase(base,{cookie,videoBase64,imageBase64}={})
   await assert.rejects(env.DB.prepare("UPDATE canvas_video_processing SET processing_backend='github' WHERE id=?").bind(cloud.id).run(),/media_backend_immutable/);
   const delivered={body:{type:PRIVATE_MEDIA_WAKE,backend:'cloudflare'},ack(){this.acked=true;},retry(){throw Error('Unexpected retry');}};
   await worker.queue({queue:'bitbi-ai-video-jobs',messages:[delivered]},env,{});assert(delivered.acked);assert.equal(starts.length,1);
-  await Promise.all([dispatchPrivateMedia(env,'cloudflare'),dispatchPrivateMedia(env,'cloudflare')]);assert.equal(starts.length,1);
+  await Promise.all([dispatchPrivateMedia(env,'cloudflare'),dispatchPrivateMedia(env,'cloudflare')]);assert.equal(starts.length,3);
+  assert(starts.every(start=>start.token===starts[0].token),'Lost scheduling acknowledgement reuses the one current activation');
+  const delivery=async(token,action,secret='synthetic-container')=>{
+    const response=await worker.fetch(new Request('https://bitbi.ai/api/internal/homepage/hero-videos/private-media/runner',{method:'POST',headers:{Authorization:'Bearer '+secret,'Content-Type':'application/json'},body:JSON.stringify({token,runner:'native-delivery',action})}),env,{waitUntil(){}});
+    return {status:response.status,body:await response.json()};
+  };
+  assert.equal((await delivery(starts[0].token,'observe')).body.data.state,'pending');
+  assert.equal((await delivery(starts[0].token,'observe','wrong')).status,403);
+  assert.equal((await delivery(starts[0].token,'observe','synthetic-github')).status,409);
   const token=starts[0].token,runner='native-runner';await mediaRunner(env,'cloudflare',{token,runner,action:'acquire'});
   await assert.rejects(mediaRunner(env,'cloudflare',{token,runner:'duplicate',action:'acquire'}),/media_runner_claim_lost/);
+  assert.equal((await delivery(token,'observe')).body.data.state,'running');
+  assert.equal((await delivery(token,'delivery_failed')).body.data.state,'running','A late failure cannot block an accepted runner');
   const claimed=await claimCanvasProcessing(env,'concat',10,'cloudflare');assert.deepEqual(claimed.map(r=>r.id),[cloud.id]);
   assert(!(await claimCanvasProcessing(env,'concat',10,'github')).some(r=>r.id===cloud.id));
   assert.equal(await processorBackend(env,new Request('https://test',{headers:{Authorization:'Bearer synthetic-github'}})),'github');
   assert.equal(await processorBackend(env,new Request('https://test',{headers:{Authorization:'Bearer synthetic-container'}})),'cloudflare');
   assert.equal(await processorBackend(env,new Request('https://test',{headers:{Authorization:'Bearer invalid'}})),null);
-  // Arrival after the first job list must wake again at finish, not await cron.
+  // A second owned project waits on the same processor without a competing
+  // runner. Arrival after the first list must wake again at finish, not await cron.
+  const otherProject='6'.repeat(32),otherNode='5'.repeat(32),otherRun='4'.repeat(32);
+  await env.DB.prepare('INSERT INTO canvas_projects(id,user_id,title,created_at,updated_at) VALUES(?,?,?,?,?)').bind(otherProject,owner,'Second synthetic project',now,now).run();
+  await env.DB.prepare("INSERT INTO canvas_nodes(id,project_id,user_id,type,x,y,created_at,updated_at) VALUES(?,?,?,'video_generation',0,0,?,?)").bind(otherNode,otherProject,owner,now,now).run();
+  await env.DB.prepare("INSERT INTO canvas_runs(id,project_id,node_id,user_id,model_id,operation_type,status,idempotency_key,input_json,created_at,updated_at) VALUES(?,?,?,?,'synthetic','canvas.video.generate','completed','second-synthetic','{}',?,?)").bind(otherRun,otherProject,otherNode,owner,now,now).run();
+  const other=await enqueueCanvasProcessing(env,{userId:owner,projectId:otherProject,runId:otherRun,kind:'concat',sources:[{assetId:'second-source'}]});
+  assert.equal(other.processing_backend,'cloudflare');
   await add('arrived-after-claim');messages.length=0;
   await mediaRunner(env,'cloudflare',{token,runner,action:'finish'});assert.equal(messages.length,1);
   // Public Hero preview and source poster use the same fenced transport and
@@ -110,12 +127,13 @@ export async function privateMediaCase(base,{cookie,videoBase64,imageBase64}={})
   const receipt={upload_token:permit.upload_token,stream_uid:'f'.repeat(32),source_fingerprint:fingerprint};
   assert.equal((await stream('jobs/'+streamId+'/receipt',receipt,'synthetic-github')).status,403);
   const late=await stream('jobs/'+streamId+'/receipt',receipt);assert.equal(late.status,200);assert(late.body.data.retired,'Late receipt survives deletion without republishing');
-  // Simulate a lost activation response. Do not dispatch again while its lease
-  // survives; expiry replaces the token and fences a delayed original runner.
+  // Simulate a lost activation response. Redelivery preserves its exact token;
+  // expiry alone replaces the activation and fences a delayed original runner.
   env.PRIVATE_MEDIA_PROCESSOR.fetch=async()=>{throw Error('synthetic lost response');};
   assert.equal((await dispatchPrivateMedia(env,'cloudflare')).status,'retry');
   const lost=(await env.DB.prepare("SELECT token FROM private_media_dispatch WHERE backend='cloudflare'").first()).token;
-  assert.equal((await dispatchPrivateMedia(env,'cloudflare')).status,'active');
+  assert.equal((await dispatchPrivateMedia(env,'cloudflare')).status,'retry');
+  assert.equal((await env.DB.prepare("SELECT token FROM private_media_dispatch WHERE backend='cloudflare'").first()).token,lost,'Ambiguous redelivery preserves the original token');
   await env.DB.prepare("UPDATE private_media_dispatch SET lease_until='2000-01-01' WHERE backend='cloudflare'").run();
   assert.equal((await dispatchPrivateMedia(env,'cloudflare')).status,'retry');
   await assert.rejects(mediaRunner(env,'cloudflare',{token:lost,runner:'late',action:'acquire'}),/media_runner_claim_lost/);
@@ -128,6 +146,60 @@ export async function privateMediaCase(base,{cookie,videoBase64,imageBase64}={})
   await assert.rejects(setPrivateMediaService(env,{backend:'cloudflare',actor:owner,reason:'unavailable'}),/media_service_not_ready/);
   await env.DB.prepare("DELETE FROM app_settings WHERE key='private_media_service'").run();
   assert.equal((await env.DB.prepare('SELECT processing_backend FROM canvas_video_processing WHERE id=?').bind(cloud.id).first()).processing_backend,'cloudflare');
+  const finalDispatch=await env.DB.prepare("SELECT * FROM private_media_dispatch WHERE backend='cloudflare'").first();
+  assert.equal((await delivery(lost,'observe')).body.data.state,'stale');
+  assert.equal((await delivery(lost,'delivery_failed')).body.data.state,'stale');
+  assert.equal((await delivery(finalDispatch.token,'delivery_failed')).body.data.state,'blocked');
+  const blocked=await env.DB.prepare("SELECT * FROM private_media_dispatch WHERE backend='cloudflare'").first();
+  assert.equal((await delivery(finalDispatch.token,'delivery_failed')).body.data.state,'blocked');
+  assert.deepEqual(await env.DB.prepare("SELECT * FROM private_media_dispatch WHERE backend='cloudflare'").first(),blocked);
+  await assert.rejects(mediaRunner(env,'cloudflare',{token:finalDispatch.token,runner:'blocked-runner',action:'acquire'}),/media_runner_claim_lost/);
+  assert.equal((await dispatchPrivateMedia(env,'cloudflare')).status,'blocked');
+  const projection=await publicCanvasProcessingStatus(env,{...cloud,status:'queued',processing_token:null,asset_id:null});
+  assert.deepEqual(projection.processing,{stage:'waiting_for_media',blocked:true,errorCode:'media_delivery_exhausted',diagnosticRef:cloud.id});
+  assert.deepEqual((await publicCanvasProcessingStatus(env,{...cloud,status:'queued',asset_id:null,processing_token:'historical-claim',locked_until:null})).processing,projection.processing);
+  assert.equal((await publicCanvasProcessingStatus(env,{...cloud,status:'queued',asset_id:null,processing_token:'active-claim',locked_until:new Date(Date.now()+60_000).toISOString()})).processing,undefined);
+  assert.equal((await publicCanvasProcessingStatus(env,{...cloud,status:'ready',asset_id:'saved'})).processing,undefined);
+  // Exact operator recovery preserves the exhausted activation and prior failure,
+  // renews only its post-processing lease, and reconciles both partial commits.
+  await env.DB.prepare("UPDATE private_media_dispatch SET lease_until='2000-01-01' WHERE backend='cloudflare'").run();
+  const historicalClaim='2'.repeat(32);
+  await env.DB.prepare("UPDATE canvas_video_processing SET processing_token=?,locked_until=NULL,attempt_count=1 WHERE id=?").bind(historicalClaim,other.id).run();
+  let deliveryState={reference:'12345678-1234-1234-1234-123456789012',state:'blocked',attempt:6},retryCalls=0,loseReply=true;const audits=[];
+  env.PRIVATE_MEDIA_PROCESSOR.fetch=async(url,init)=>{
+    if(new URL(url).pathname==='/status')return Response.json({protocol:1,delivery:deliveryState});
+    assert.equal(new URL(url).pathname,'/retry');retryCalls++;const request=JSON.parse(init.body);
+    assert.equal(request.token,finalDispatch.token);
+    deliveryState={...deliveryState,state:'prepared',recovery:{requestId:request.requestId,jobId:request.jobId},previousFailures:1};
+    if(loseReply){loseReply=false;throw Error('synthetic accepted retry response lost');}
+    return Response.json({accepted:true},{status:202});
+  };
+  const recovery={jobId:other.id,expectedDispatchUpdatedAt:blocked.updated_at,diagnosticRef:deliveryState.reference,requestId:'1'.repeat(32)};
+  const adminDry=await worker.fetch(new Request('https://bitbi.ai/api/admin/private-media/service',{method:'POST',headers:{Cookie:cookie,Origin:'https://bitbi.ai','Content-Type':'application/json','CF-Connecting-IP':'192.0.2.200'},body:JSON.stringify({retryDelivery:{...recovery,dryRun:true},reason:'Synthetic exact activation recovery'})}),env,{waitUntil(){}});
+  assert.equal(adminDry.status,200);assert.equal((await adminDry.json()).data.dryRun,true);
+  const dry=await retryPrivateMediaDelivery(env,{...recovery,dryRun:true},{audit:async p=>{audits.push(p);return {ok:true};}});assert.equal(dry.dryRun,true);assert.equal(audits.length,0);assert.equal(retryCalls,0);
+  await assert.rejects(retryPrivateMediaDelivery(env,{...recovery,expectedDispatchUpdatedAt:'2000-01-01'}),/media_delivery_recovery_changed/);
+  await assert.rejects(retryPrivateMediaDelivery(env,recovery,{audit:async()=>({ok:false})}),/media_delivery_recovery_unavailable/);assert.equal(retryCalls,0,'Missing durable audit cannot authorize retry');
+  await assert.rejects(retryPrivateMediaDelivery(env,recovery,{audit:async p=>{audits.push(p);return {ok:true};}}),/accepted retry response lost/);
+  assert.equal((await env.DB.prepare("SELECT error_code FROM private_media_dispatch WHERE backend='cloudflare'").first()).error_code,'media_delivery_exhausted');
+  const originalPrepare=env.DB.prepare.bind(env.DB);let crashAfterCommit=true;
+  const crashingDB={...env.DB,prepare(sql){const statement=originalPrepare(sql);if(!sql.startsWith('UPDATE private_media_dispatch SET error_code=NULL,lease_until='))return statement;
+    return {bind(...values){const bound=statement.bind(...values);return {async run(){const result=await bound.run();if(crashAfterCommit){crashAfterCommit=false;throw Error('synthetic recovery write response lost');}return result;}};}};}};
+  await assert.rejects(retryPrivateMediaDelivery({...env,DB:crashingDB},recovery,{audit:async p=>{audits.push(p);return {ok:true};}}),/recovery write response lost/);
+  const recovered=await retryPrivateMediaDelivery(env,recovery,{audit:async p=>{audits.push(p);return {ok:true};}});assert.equal(recovered.reconciled,true);
+  assert.equal(audits.length,1);assert.equal(retryCalls,2,'Only the same accepted recovery operation was retried');
+  const resumed=await env.DB.prepare("SELECT * FROM private_media_dispatch WHERE backend='cloudflare'").first();
+  assert.equal(resumed.token,finalDispatch.token);assert.equal(resumed.error_code,null);assert(resumed.lease_until>new Date().toISOString());
+  assert.equal((await delivery(resumed.token,'observe')).body.data.state,'pending');
+  const preservedRetry=await env.DB.prepare('SELECT processing_token,attempt_count FROM canvas_video_processing WHERE id=?').bind(other.id).first();
+  assert.equal(preservedRetry.processing_token,historicalClaim);assert.equal(preservedRetry.attempt_count,1);
+  deliveryState.state='blocked';await env.DB.prepare("UPDATE private_media_dispatch SET error_code='media_delivery_exhausted' WHERE backend='cloudflare'").run();
+  const failedRecovery=await env.DB.prepare("SELECT * FROM private_media_dispatch WHERE backend='cloudflare'").first();
+  const replayFailure=await retryPrivateMediaDelivery(env,recovery,{audit:async p=>{audits.push(p);return {ok:true};}});
+  assert.equal(replayFailure.accepted,false);assert.equal(replayFailure.blocked,true);assert.equal(retryCalls,2);assert.equal(audits.length,1);
+  assert.deepEqual(await env.DB.prepare("SELECT * FROM private_media_dispatch WHERE backend='cloudflare'").first(),failedRecovery);
+
+
   return {immediateQueue:true,atomicAssignment:true,backendIsolation:true,duplicateStarts:0,lostResponseFenced:true,lateArrivalWoken:true};
 }
 

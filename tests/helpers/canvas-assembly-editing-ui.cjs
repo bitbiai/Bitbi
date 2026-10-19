@@ -27,7 +27,7 @@ module.exports=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock
     const music=path.join(dir,'music.mp3');ffmpeg(['-f','lavfi','-i','sine=frequency=1000:sample_rate=48000:duration=2','-c:a','libmp3lame',music]);
     const media=name=>fs.readFileSync(path.join(__dirname,'../fixtures/media',name)).toString('base64');
     const f=await canvasAudioFixture({...createAuthTestEnv(),DB},{scope:'assembly-browser-'+locale,videoBase64:fs.readFileSync(files.red).toString('base64'),importVideoBase64:fs.readFileSync(files.blue).toString('base64'),musicBase64:fs.readFileSync(music).toString('base64'),imageBase64:media('h3-frame.png')});
-    const endpoint=f.endpoint,de=locale==='de',requests=[],errors=[];let rendering=Promise.resolve();
+    const endpoint=f.endpoint,de=locale==='de',requests=[],errors=[];let rendering=Promise.resolve(),disconnectExportRead=false,disconnectedReads=0;
     const processorOptions={baseUrl:'https://bitbi.ai',limit:1,authHeaders:headers=>({Authorization:'Bearer synthetic-audio-processor',...headers}),
         requestJson:async(url,init={})=>{const response=await f.request(url,init.method||'GET',init.body,{Authorization:'Bearer synthetic-audio-processor',...init.headers});const payload=await response.json();expect(response.ok,JSON.stringify(payload)).toBe(true);return payload;},fetchImpl:(url,init)=>f.request(url.pathname+url.search,'GET',null,init.headers)};
     const processor=async()=>{await processCanvasInspections(processorOptions);await processCanvasExports(processorOptions);};
@@ -60,6 +60,9 @@ module.exports=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock
     await page.setViewportSize({width:de?390:1440,height:1000});await mockSharedAuth(page);createCanvasApiMock(page);page.on('pageerror',error=>errors.push(error.message));
     await page.route(/\/api\/(account\/canvas\/|ai\/(generation-jobs\/|text-assets\/|images\/|audio\/)|model-pricing)/,async route=>{
         const req=route.request(),url=new URL(req.url()),body=req.postData();requests.push({path:url.pathname,method:req.method(),body:body?JSON.parse(body):null});
+        if(disconnectExportRead&&req.method()==='GET'&&url.pathname.endsWith('/full-video')&&!url.searchParams.has('seamPreview')&&!url.searchParams.has('previewBase')){
+            disconnectExportRead=false;disconnectedReads++;return route.abort('internetdisconnected');
+        }
         const response=await f.request(url.pathname+url.search,req.method(),body,{...(req.headers()['idempotency-key']?{'Idempotency-Key':req.headers()['idempotency-key']}:{}),'X-Bitbi-Tariff-Revision':String((await getModelTariff(f.env)).revision),...(req.headers().range?{Range:req.headers().range}:{})});
         const bytes=Buffer.from(await response.arrayBuffer());await route.fulfill({status:response.status,headers:Object.fromEntries(response.headers),body:bytes});
         if(req.method()==='POST'&&url.pathname.endsWith('/run')){const payload=JSON.parse(bytes);if(payload.code==='canvas_video_pending')rendering=rendering.then(()=>f.deliver());}
@@ -137,9 +140,9 @@ module.exports=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock
         const gain=sound.getByRole('slider',{name:de?'Hintergrundmusik: Lautstärke':'Background music: Volume',exact:true});await gain.fill('25');await gain.dispatchEvent('input');
         await expect.poll(async()=>(await f.readProject()).project.assembly.backgroundMusic?.gain).toBe(.25);
         expect(f.calls).toHaveLength(providerBaseline+1);
+        disconnectExportRead=true;
         await inspector.getByRole('button',{name:de?'Gesamtes Video mit Hintergrundmusik erstellen':'Create full video with background music',exact:true}).click();
         await expect.poll(()=>requests.filter(request=>request.method==='POST'&&request.path.endsWith('/full-video')).length).toBe(1);await rendering;
-        await inspector.getByRole('button',{name:de?'Status aktualisieren':'Refresh status',exact:true}).click();
         const current=(await f.data(await f.request(endpoint))).current;
         expect(current.id).not.toBe(original.id);expect(current.storage).toBe('assets');expect(current.duration).toBe(11.5);
         const revisedRun=(await f.readProject()).nodes.find(node=>node.id===f.nodes[0]).output.runId;
@@ -157,7 +160,11 @@ module.exports=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock
         expect(sourceTone).toBeGreaterThan(.1);expect(originalTone).toBeLessThan(sourceTone*.01);
         expect(mixedTone/sourceTone).toBeGreaterThan(.22);expect(mixedTone/sourceTone).toBeLessThan(.28);
         expect(Buffer.from(await(await f.request(original.asset.file_url)).arrayBuffer()).equals(originalBytes)).toBe(true);
-        const video=inspector.locator('.canvas-full-video > div:last-child > video');await expect(video).toHaveAttribute('src',current.asset.file_url);await video.evaluate(async node=>{node.muted=true;await node.play();});await expect.poll(()=>video.evaluate(node=>node.currentTime)).toBeGreaterThan(.1);await video.evaluate(node=>node.pause());
+        // Actual Worker admission, processor completion and saved bytes must
+        // arrive automatically after a dropped observation, without a new POST.
+        const video=inspector.locator('.canvas-full-video > div:last-child > video');await expect(video).toHaveAttribute('src',current.asset.file_url,{timeout:20000});
+        expect(disconnectedReads).toBe(1);expect(requests.filter(request=>request.method==='POST'&&request.path.endsWith('/full-video'))).toHaveLength(1);
+        await video.evaluate(async node=>{node.muted=true;await node.play();});await expect.poll(()=>video.evaluate(node=>node.currentTime)).toBeGreaterThan(.1);await video.evaluate(node=>node.pause());
         await page.reload();await open();await expect(editor.locator('ol > li')).toHaveCount(3);
         const final=await f.readProject();expect(final.project.assembly.clips.map(clip=>clip.nodeId)).toEqual([f.first.id,f.nodes[0],f.last.id]);expect(final.project.assembly.backgroundMusic.gain).toBe(.25);
         expect(f.calls).toHaveLength(providerBaseline+1);expect(requests.filter(request=>request.path.includes('/agent'))).toEqual([]);expect(errors).toEqual([]);

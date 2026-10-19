@@ -1,3 +1,4 @@
+import {exportDeliveryCommand} from './canvas-export-release.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
@@ -156,5 +157,5 @@ export function selectedCommands(selection, env = {}, root = '.') {
         env: Object.fromEntries(Object.entries(step.env || {}).map(([key, value]) => [key, interpolate(value, context)])) });
     }
   }
-  return commands;
+  return commands.map(command=>exportDeliveryCommand(command,selection));
 }

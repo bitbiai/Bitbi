@@ -1,3 +1,4 @@
+import {EXPORT_DELIVERY_POLICY,verifyExportDeliveryDiscovery,exportDeliverySources} from './lib/canvas-export-release.mjs';
 import {verifyCanvasTransitionDiscovery,verifyCanvasExampleDiscovery} from './lib/homepage-test-selection.mjs';
 import {canvasInspectorSources} from './lib/canvas-inspector-selection.mjs';
 import {browserRows} from './lib/browser-fixture-repair.mjs';
@@ -71,7 +72,7 @@ export function gitSelection(base, sha) {
   assert(/^[a-f0-9]{40}$/.test(base || ''), 'Missing exact release base');
   assert(/^[a-f0-9]{40}$/.test(sha || ''), 'Missing exact release head');
   execFileSync('git',['merge-base','--is-ancestor',base,sha],{stdio:'pipe'});
-  return selectCiTests(execFileSync('git',['diff','--name-only','--no-renames',`${base}...${sha}`,'--'],{encoding:'utf8'}).trim().split('\n').filter(Boolean), {inspectorSources:canvasInspectorSources(base,sha),memberTestSources:memberSpecSources(base,sha),canvasRouteSources:canvasCompletionRouteSources(base,sha)});
+  return selectCiTests(execFileSync('git',['diff','--name-only','--no-renames',`${base}...${sha}`,'--'],{encoding:'utf8'}).trim().split('\n').filter(Boolean), {exportSources:exportDeliverySources(sha),inspectorSources:canvasInspectorSources(base,sha),memberTestSources:memberSpecSources(base,sha),canvasRouteSources:canvasCompletionRouteSources(base,sha)});
 }
 export function validatePublishedDeployment(deployment,status,run,job) {
   assert.equal(deployment.environment,'github-pages'); assert.equal(status.state,'success');
@@ -295,7 +296,10 @@ export function verifyCanvasTextReport(report,discovery) {
 export function verifyCanvasCandidateReports(names, reports, discovery, selection = {}) {
   const name = 'test-results/candidate-auth.json';
   assert.equal(names.filter(value => value === name).length, 1, 'Exactly one Canvas auth report required');
-  if(selection.canvasExamples){
+  if(selection.policy===EXPORT_DELIVERY_POLICY){
+    verifyExportDeliveryDiscovery(flattenHomepageDiscovery(discovery));
+    verifyAdminReport(reports[names.indexOf(name)],discovery,[['canvas',['canvas.spec.js']]],canvasReleaseProject);
+  } else if(selection.canvasExamples){
     verifyCanvasExampleDiscovery(flattenHomepageDiscovery(discovery));
     const report=reports[names.indexOf(name)];
     if(report.policy===SMOOTH_BROWSER_POLICY){assert.deepEqual(report.discovery,browserRows(discovery,{discovery:true}));verifySmoothBrowserReport(report,report.sha);}

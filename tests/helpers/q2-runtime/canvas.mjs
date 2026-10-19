@@ -659,7 +659,7 @@ export async function runCanvasTests(f) {
     assert.equal(response.status,200,await response.clone().text());const result=await response.json();assert.equal(result.name,name);f.metrics.push(result);
     assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
   });
-  for (const path of ['/canvas-agent-preflight', '/canvas-assembly', '/canvas-inspection', '/canvas-agent-dispatch', '/canvas-agent-capabilities', '/canvas-agent-late-completion','/canvas-agent-unknown-provider']) await f.test('canvas_native' + path.replaceAll('-', '_').replace('/', '_'), async () => {
+  for (const path of ['/canvas-agent-preflight', '/canvas-assembly', '/canvas-inspection', '/canvas-agent-dispatch', '/canvas-agent-capabilities', '/canvas-agent-native-duration', '/canvas-agent-late-completion','/canvas-agent-unknown-provider']) await f.test('canvas_native' + path.replaceAll('-', '_').replace('/', '_'), async () => {
     const response = await f.control(path, {
       videoBase64: fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4', import.meta.url)).toString('base64'),
       imageBase64: fs.readFileSync(new URL('../../fixtures/media/h3-frame.png', import.meta.url)).toString('base64'),

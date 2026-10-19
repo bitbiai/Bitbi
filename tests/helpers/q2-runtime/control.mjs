@@ -13,7 +13,7 @@ import {CANVAS_IMAGE_SCHEDULING_CASES,canvasImageSchedulingCase} from '../canvas
 import {H3_RECOVERY_CASES,canvasH3RecoveryCase} from '../canvas-agent-h3-recovery-control.mjs';
 import {READINESS_CASES,canvasAgentReadinessCase} from '../canvas-agent-readiness-control.mjs';
 import {CANVAS_CONVERSATION_DECISION_CASES,canvasConversationDecisionCase} from '../canvas-conversation-decisions-control.mjs';
-import { canvasAgentAuthorityCase, canvasAgentApiCase, canvasAgentDispatchCase, canvasAgentCapabilityCase, canvasAgentLateCompletionCase,canvasAgentUnknownProviderCase, canvasAgentManualTakeoverCase } from '../canvas-agent-control.mjs';
+import { canvasAgentAuthorityCase, canvasAgentApiCase, canvasAgentDispatchCase, canvasAgentCapabilityCase, canvasAgentNativeDurationCase, canvasAgentLateCompletionCase,canvasAgentUnknownProviderCase, canvasAgentManualTakeoverCase } from '../canvas-agent-control.mjs';
 import { canvasAssemblyCase, canvasInspectionCase, canvasAssemblyRetentionCase, seedCanvasAssemblyRetentionMigration, verifyCanvasAssemblyRetentionMigration } from '../canvas-assembly-control.mjs';
 import {memberGenerationCase} from '../member-generation-control.mjs';
 import { modelPricingCase } from '../model-pricing-control.mjs';
@@ -102,6 +102,7 @@ export default {
     if (path === '/canvas-agent-api') return Response.json(await canvasAgentApiCase(env));
     if (path === '/canvas-agent-dispatch') return Response.json(await canvasAgentDispatchCase(env,body));
     if (path === '/canvas-agent-capabilities') return Response.json(await canvasAgentCapabilityCase(env));
+    if (path === '/canvas-agent-native-duration') return Response.json(await canvasAgentNativeDurationCase(env));
     if (path === '/canvas-agent-late-completion') return Response.json(await canvasAgentLateCompletionCase(env,body));
     if (path === '/canvas-agent-unknown-provider') return Response.json(await canvasAgentUnknownProviderCase(env,body));
     if (path === '/canvas-agent-manual-takeover') return Response.json(await canvasAgentManualTakeoverCase(env,body));

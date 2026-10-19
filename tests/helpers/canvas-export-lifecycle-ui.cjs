@@ -6,14 +6,14 @@ module.exports=async options=>{
   state.edges=[{id:id(5),project_id:project,source_node_id:id(2),target_node_id:id(3),config:{}}];
   const clips=state.nodes.map(n=>({nodeId:n.id,runId:n.output.runId,assetId:n.output.assetId,version:n.output.sourceVersion,modelId:n.model_id,createdAt:now}));
   const media='/api/plain/canvas-preview/video.mp4',old={id:id(12),status:'ready',storage:'canvas',asset:{id:id(13),file_url:media},recipe:{videos:clips},audio_timeline:[]};
-  const posts=[],accepted=new Map();let latest=old,reads=0,losePost=false,stall=false,delayed=[];
+  const posts=[],accepted=new Map();let latest=old,reads=0,losePost=false,stall=false,denied=false,delayed=[];
   await page.route(/\/full-video(?:\?.*)?$/,async route=>{
     const req=route.request(),key=req.headers()['idempotency-key'],url=new URL(req.url());
     if(req.method()==='POST'){
       const body=req.postDataJSON();posts.push({key,body});
       if(!body.saveExportId){latest={id:String(posts.length).padStart(32,'0'),status:'processing'};accepted.set(key,latest);}
       if(losePost){losePost=false;return route.abort('failed');}
-    }else {reads++;if(stall){delayed.push(route);return;}}
+    }else {reads++;if(denied)return route.fulfill({status:403,json:{ok:false,code:'permission_denied'}});if(stall){delayed.push(route);return;}}
     const lookup=url.searchParams.get('requestKey');
     return route.fulfill({json:{ok:true,data:{eligible:true,availableClips:clips,current:old,export:lookup?accepted.get(lookup)||latest:latest,...(lookup?{submission:{found:accepted.has(lookup)}}:{})}}});
   });
@@ -30,31 +30,55 @@ module.exports=async options=>{
   await create.click();await expect.poll(()=>posts.length).toBe(1);await expect(connection).toHaveText('');await expect(create).toBeDisabled();
   await expect(identity).toContainText(de?'Vorherige fertige Version':'Previous completed version');
   await expect(displayed).toHaveAttribute('src',media);
-  // Consume the real per-job budget under controlled time. Still processing is
-  // not failure: the old implementation stopped silently and never reset it.
-  for(let i=1;i<120;i++){
-    const before=reads;await page.clock.runFor(5000);
+  // Exercise the former 120-read cutoff through real timers. Pending work
+  // continues at the slower cadence after ten minutes, without another POST.
+  for(let i=1;i<124;i++){
+    const before=reads;await page.clock.runFor(i<120?5000:30000);
     await expect.poll(()=>reads).toBeGreaterThan(before);
-    if(i<119)await expect(connection).toHaveText('');
+    await expect(connection).toHaveText('');
   }
-  await expect(connection).toContainText(de?'pausiert':'paused');await expect(create).toBeDisabled();
+  await expect(create).toBeDisabled();expect(posts).toHaveLength(1);
+  latest={...latest,status:'queued',processing:{stage:'waiting_for_media',blocked:true,errorCode:'media_delivery_exhausted',diagnosticRef:latest.id}};
+  await page.clock.runFor(30000);await expect(message).toContainText(de?'Medienverarbeitung ist blockiert':'Media processing is blocked');
+  await expect(message).toContainText(latest.id);await expect(create).toBeDisabled();expect(posts).toHaveLength(1);
   latest={...latest,status:'failed',error_code:'canvas_media_filter_invalid'};
-  await refresh.click();await expect(message).toContainText(de?'Dieser Versuch ist beendet':'This attempt has ended');await expect(create).toBeEnabled();
+  await page.clock.runFor(30000);await expect(message).toContainText(de?'Dieser Versuch ist beendet':'This attempt has ended');await expect(create).toBeEnabled();
+  const terminalReads=reads;await page.clock.runFor(60000);expect(reads).toBe(terminalReads);
+  latest={...latest,asset:old.asset,error_code:'canvas_poster_failed'};
+  await refresh.click();await expect(message).toContainText(de?'Video verfügbar. Vorschau':'Video available. Preview');
+  await expect(message).not.toContainText(de?'Verarbeitung fehlgeschlagen':'Processing failed');await expect(displayed).toHaveAttribute('src',media);
   await create.click();await expect.poll(()=>posts.length).toBe(2);await expect(connection).toHaveText('');
   const before=reads;await page.clock.runFor(5000);await expect.poll(()=>reads).toBeGreaterThan(before);await expect(connection).toHaveText('');
   latest={...latest,status:'failed'};await refresh.click();await expect(create).toBeEnabled();
-  // Accepted POST whose response is lost retains its identity through reopen.
+  // Accepted POST whose response is lost reconnects by its original key,
+  // never by automatic POST. Reopening retains the accepted server identity.
   losePost=true;await create.click();await expect.poll(()=>posts.length).toBe(3);
   await expect(connection).toContainText(de?'nicht bestätigt':'not yet confirmed');await expect(create).toBeDisabled();
+  await page.clock.runFor(5000);await expect(connection).toHaveText('');expect(posts).toHaveLength(3);
   await select(2);await select(3);await expect(connection).toHaveText('');await expect(create).toBeDisabled();expect(posts).toHaveLength(3);
+  // Browsers can freeze hidden/BFCache pages. Neither transition replays POST;
+  // returning to a visible page immediately observes the still-current job.
+  await page.evaluate(()=>{Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'hidden'});document.dispatchEvent(new Event('visibilitychange'));});
+  const hiddenReads=reads;await page.clock.runFor(60000);expect(reads).toBe(hiddenReads);
+  await page.evaluate(()=>{Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'visible'});document.dispatchEvent(new Event('visibilitychange'));});
+  await expect.poll(()=>reads).toBeGreaterThan(hiddenReads);await expect(connection).toHaveText('');
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide',{persisted:true})));
+  const frozenReads=reads;await page.clock.runFor(60000);expect(reads).toBe(frozenReads);
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true})));
+  await expect.poll(()=>reads).toBeGreaterThan(frozenReads);await expect(connection).toHaveText('');expect(posts).toHaveLength(3);
   latest={...latest,status:'failed'};await refresh.click();await expect(create).toBeEnabled();
-  // A hung read reaches a bounded deadline. Refresh actively reconnects and
+  // A hung read reaches a bounded deadline. A read-only retry reconnects and
   // a late old response cannot overwrite the recovered terminal state.
   stall=true;await refresh.click();await expect.poll(()=>delayed.length).toBe(1);
   await page.clock.runFor(30000);await expect(connection).toContainText(de?'unterbrochen':'interrupted');await expect(create).toBeDisabled();
-  stall=false;await refresh.click();await expect(create).toBeEnabled();
+  stall=false;await page.clock.runFor(5000);await expect(create).toBeEnabled();
   for(const route of delayed)await route.fulfill({json:{ok:true,data:{export:{id:'stale',status:'processing'}}}}).catch(()=>{});
   await expect(create).toBeEnabled();expect(posts).toHaveLength(3);
+  // Permanent access denial is not a transient outage: stop automated reads
+  // and block another render until an explicit successful access check.
+  denied=true;await refresh.click();await expect(connection).toContainText(de?'Zugriff prüfen':'Check access');await expect(create).toBeDisabled();
+  const deniedReads=reads;await page.clock.runFor(60000);await page.evaluate(()=>window.dispatchEvent(new Event('online')));expect(reads).toBe(deniedReads);
+  denied=false;await refresh.click();await expect(create).toBeEnabled();
   // Edits not rendered yet must never relabel an earlier file as their output.
   await require('./canvas-inspector-actions.cjs').openCanvasSettings(page,'merge');
   await inspector.getByRole('checkbox',{name:de?'Sanft zusammenführen':'Smooth joins',exact:true}).check();
@@ -64,5 +88,5 @@ module.exports=async options=>{
   await expect.poll(()=>posts.length).toBe(4);expect(posts.at(-1).body.saveExportId).toBe(old.id);
   expect(new Set(posts.slice(0,3).map(p=>p.key)).size).toBe(3);expect(errors).toEqual([]);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-  await info.attach('export-lifecycle',{contentType:'application/json',body:JSON.stringify({provider:'synthetic',boundedReads:120,newJobBudget:true,ambiguousAcceptance:'read-only lookup',posts:3,oldArtifact:old.id,deadlineRecovery:true})});
+  await info.attach('export-lifecycle',{contentType:'application/json',body:JSON.stringify({provider:'synthetic',automaticReadsBeyond:120,longPendingPollMs:30000,ambiguousAcceptance:'automatic read-only lookup',posts:3,oldArtifact:old.id,deadlineRecovery:true,terminalStops:true})});
 };

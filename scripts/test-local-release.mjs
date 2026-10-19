@@ -21,6 +21,11 @@ import { LOCAL_IMPORT_REPAIR, assertImportRepairWorkflow, localRepairCommand, ve
 import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,assertPermissionContinuationTree,permissionContinuationPrefix,CANVAS_STAGE_CASES,canvasStageContinuation} from './lib/local-release-evidence.mjs';
 import {testLocalMediaProcess} from './test-local-media-process.mjs';
 
+if(process.argv.includes('--export-delivery-only')) {
+  assert.deepEqual(process.argv.slice(2),['--export-delivery-only']);
+  await testExportDeliveryContinuation();process.exit(0);
+}
+
 const assistantPreflightTail=process.argv.includes('--assistant-preflight-only');
 if(assistantPreflightTail)assert.deepEqual(process.argv.slice(2),['--assistant-preflight-only']);
 
@@ -3445,3 +3450,53 @@ async function testReadinessWorkerContinuation() {
  console.log('Readiness Worker continuation:15 first-attempt passes and completed guards retained;only original stale-control failure executes, then first native/launcher acceptance; raw failure, unchanged helper branches, exact query/retry/resume and tampered-proof controls enforced.');
 }
 await testReadinessWorkerContinuation();
+
+async function testExportDeliveryContinuation(){
+ const {EXPORT_DELIVERY_POLICY,EXPORT_DELIVERY_FILES,EXPORT_DELIVERY_PRIOR_FILES,EXPORT_DELIVERY_UNPUBLISHED_FILES,EXPORT_DELIVERY_PREFLIGHT:p,assertExportDeliveryTree,exportDeliveryPrefix,validateExportDeliveryPrefix,validateExportDeliveryRows,exportDeliveryCommand}=await import('./lib/canvas-export-release.mjs');
+ const head='f'.repeat(40),selection=selectCiTests(EXPORT_DELIVERY_UNPUBLISHED_FILES),commands=selectedCommands(selection,{GITHUB_SHA:head,CANDIDATE_BASE:p.base});
+ const read=args=>args[0]==='show'?fs.readFileSync(args[1].slice(head.length+1)):Buffer.from(args[0]==='rev-list'?`${head} ${p.source}\n`:(args[2]===p.base?EXPORT_DELIVERY_UNPUBLISHED_FILES:EXPORT_DELIVERY_FILES).join('\n'));
+ assertExportDeliveryTree(head,read);
+ assert.throws(()=>assertExportDeliveryTree(head,args=>Buffer.from(args[0]==='rev-list'?`${head} ${'e'.repeat(40)}`:EXPORT_DELIVERY_FILES.join('\n'))),/exact published successor/);
+ assert.throws(()=>assertExportDeliveryTree(head,args=>args[0]==='diff'?Buffer.from([...EXPORT_DELIVERY_FILES,'workers/auth/src/lib/model-tariffs.js'].join('\n')):read(args)),/outside export delivery/);
+ const old={sha:p.source,base:p.base,selection:{files:[...EXPORT_DELIVERY_PRIOR_FILES].sort()},status:'passed',planHash:'same-plan',environment:{key:'same-runtime'},commands:Array.from({length:46},(_,i)=>({command:commands[i],exitCode:0}))};
+ const context={sha:head,base:p.base,planHash:'same-plan',environment:{key:'same-runtime'},selection,commands};
+ assert.equal(validateExportDeliveryPrefix(old,context),old);
+ for(const patch of [{status:'failed'},{sha:head},{planHash:'other'},{environment:{key:'other'}},{commands:old.commands.slice(1)}])assert.throws(()=>validateExportDeliveryPrefix({...old,...patch},context));
+ assert.throws(()=>validateExportDeliveryPrefix(old,{...context,base:head}));
+ assert.throws(()=>validateExportDeliveryPrefix(old,{...context,base:p.source}),/Frontend base/);
+ assert.throws(()=>validateExportDeliveryPrefix({...old,base:p.source},context));
+ const incompletePrior=structuredClone(old);incompletePrior.selection.files.pop();assert.throws(()=>validateExportDeliveryPrefix(incompletePrior,context),/prior unpublished/);
+ assert.throws(()=>validateExportDeliveryPrefix(old,{...context,selection:{...selection,policy:'impact-v1'}}));
+ for(const i of p.retain){const changed=structuredClone(old);changed.commands[i].command.run+='\nfalse';assert.throws(()=>validateExportDeliveryPrefix(changed,context));}
+ assert.throws(()=>exportDeliveryPrefix(Buffer.from(JSON.stringify(old)),context,read),/Changed published/,'Structurally plausible synthetic evidence is never the pinned production receipt');
+ assert.throws(()=>exportDeliveryPrefix(Buffer.from(JSON.stringify(old)),{...context,selection:{...selection,files:EXPORT_DELIVERY_FILES}},read),/Incomplete unpublished/);
+ assert.equal(new Set(p.retain).size,p.retain.length);assert(p.retain.every(i=>i<40));
+ const log=Buffer.from('published unchanged check\n');
+ for(const [index,row]of old.commands.entries()){row.log=`logs/${index}.log`;row.logHash=sha256(log);}
+ const evidence={commands:commands.map((command,index)=>p.retain.includes(index)?{...old.commands[index],reusedFrom:old.sha}:{command,exitCode:0})};
+ validateExportDeliveryRows(old,evidence,commands,()=>log);
+ assert.throws(()=>validateExportDeliveryRows(old,evidence,commands,()=>Buffer.from('forged log')),/Changed retained log/);
+ const changedHash=structuredClone(evidence);changedHash.commands[p.retain[0]].logHash='0'.repeat(64);assert.throws(()=>validateExportDeliveryRows(old,changedHash,commands,()=>log));
+ const fakeProduct=structuredClone(evidence);fakeProduct.commands[41].reusedFrom=old.sha;assert.throws(()=>validateExportDeliveryRows(old,fakeProduct,commands,()=>log),/must execute/);
+
+ const native=commands.find(c=>c.name==='Run worker route tests'),browser=commands.find(c=>c.name==='Run selected auth and admin tests');
+ assert.match(native.run,/--suite canvas-export-delivery/);assert.match(native.run,/--retries=0/);assert(!native.run.includes('npm run test:workers'));
+ assert.match(browser.run,/Canvas export lifecycle\|Canvas editable film/);assert.match(browser.run,/--project=chromium --project=webkit-canvas/);
+ assert.equal(commands.filter(c=>c.name==='Run private media lifecycle tests').length,1);
+ assert.deepEqual(exportDeliveryCommand(native,{policy:'impact-v1'}),native);
+ // Execute the actual selected shell with controlled commands. A failing native
+ // launcher/provider call must stop later work; resuming at the release-command
+ // boundary never reconstructs a successful product result from old evidence.
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'export-release-guard-'));
+ try{
+  const bin=path.join(root,'bin');fs.mkdirSync(bin);
+  for(const name of ['node','npx'])fs.writeFileSync(path.join(bin,name),'#!/bin/sh\nprintf "%s\\n" "'+name+' $*" >> "$TRACE"\ncase "$*" in *"$FAIL_MATCH"*) test -z "$FAIL_MATCH" || exit 17;; esac\n',{mode:0o755});
+  const run=fail=>{const trace=path.join(root,'trace');fs.writeFileSync(trace,'');const result=spawnSync('/bin/sh',['-c',native.run],{cwd:root,env:{PATH:bin+':/usr/bin:/bin',TRACE:trace,FAIL_MATCH:fail},encoding:'utf8'});return{status:result.status,lines:fs.readFileSync(trace,'utf8').trim().split('\n')};};
+  const okay=run('');assert.equal(okay.status,0);assert.equal(okay.lines.length,3);assert.match(okay.lines[2],/--suite canvas-export-delivery$/);
+  const launcherFailure=run('test-q2-runtime-launcher');assert.equal(launcherFailure.status,17);assert.equal(launcherFailure.lines.length,1);
+  const workerFailure=run('playwright');assert.equal(workerFailure.status,17);assert.equal(workerFailure.lines.length,2);
+  const resume=run('');assert.deepEqual(resume,okay);
+ }finally{fs.rmSync(root,{recursive:true,force:true});}
+ console.log('Export delivery continuation: published-prefix identity, unchanged commands/runtime, exact real caller routing, forged receipt, failure and command-boundary resume controls enforced; product evidence stays fresh.');
+}
+await testExportDeliveryContinuation();

@@ -34,7 +34,8 @@ export async function testPrivateMediaRunner() {
 // runner is real; only the authenticated backend responses are synthetic.
 export async function testContainerLifecycle() {
   const {createServer}=await import('node:http'),{spawn}=await import('node:child_process'),{once}=await import('node:events');
-  const first='c'.repeat(32),next='d'.repeat(32);let accepted=0,exports=0,finished;
+  const first='c'.repeat(32),next='d'.repeat(32),third='e'.repeat(32);let accepted=0,exports=0,finished,releaseFinish,finishedThird;
+  const thirdPromise=new Promise(resolve=>{finishedThird=resolve;});
   const finishedPromise=new Promise(resolve=>{finished=resolve;});
   const backend=createServer(async(req,res)=>{
     const chunks=[];for await(const c of req)chunks.push(c);
@@ -46,7 +47,10 @@ export async function testContainerLifecycle() {
         if(body.token===first&&accepted)return send(409,{code:'media_runner_claim_lost'});
         accepted++;
       }
-      if(body.action==='finish')finished();
+      if(body.action==='finish') {
+        if(body.token===next){releaseFinish=()=>send(200,{pending:0});finished();return;}
+        if(body.token===third)finishedThird();
+      }
       return send(200,{pending:0});
     }
     if(req.url.includes('canvas-exports')&&req.method==='POST') {exports++;if(exports===1)return;}
@@ -72,6 +76,19 @@ export async function testContainerLifecycle() {
     assert.equal((await wake({token:next})).status,202);
     await Promise.race([finishedPromise,new Promise((_,reject)=>{const t=setTimeout(()=>reject(Error('Container recovery did not finish')),5000);t.unref();})]);
     assert.equal(accepted,2);assert.equal(exports,2);
-    console.log(JSON.stringify({test:'container-process-restart',oneConcurrent:true,malformedRejected:true,restarted:true,finished:true}));
+    // D1 finish may release the activation before this child receives its HTTP
+    // acknowledgement and exits. The next project's wake must not kill it or
+    // become an unobserved success; the actor retries the same new token.
+    const busy=await wake({token:third});assert.equal(busy.status,409);assert.equal(busy.headers.get('retry-after'),'2');
+    assert.equal((await busy.json()).code,'media_container_busy');
+    assert.equal(accepted,2,'No second processor owner while finish is in flight');
+    releaseFinish();
+    const handoffDeadline=Date.now()+5000;let health;
+    do {health=await (await fetch('http://127.0.0.1:8080/health')).json();if(!health.busy)break;await new Promise(r=>setTimeout(r,10));}while(Date.now()<handoffDeadline);
+    assert.equal(health.busy,false,'Child exit releases the local busy flag');
+    assert.equal((await wake({token:third})).status,202);assert.equal((await wake({token:third})).status,202);
+    await Promise.race([thirdPromise,new Promise((_,reject)=>{const t=setTimeout(()=>reject(Error('Next project never acquired renderer')),5000);t.unref();})]);
+    assert.equal(accepted,3);assert.equal(exports,3);
+    console.log(JSON.stringify({test:'container-process-restart',oneConcurrent:true,malformedRejected:true,restarted:true,finished:true,finishBeforeExitBusy:true,nextProjectProgress:true}));
   }finally{if(processHandle)await stop();backend.closeAllConnections();await new Promise(r=>backend.close(r));}
 }

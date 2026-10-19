@@ -17,6 +17,11 @@ import {isCanvasInspectorChange,isCanvasTransitionExampleChange} from './lib/can
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 
+if(process.argv.includes('--canvas-export-delivery-only')) {
+  assert.deepEqual(process.argv.slice(2),['--canvas-export-delivery-only']);
+  await testExportDeliverySelection();process.exit(0);
+}
+
 if(process.argv.includes('--canvas-readiness-only')) {
   assert.deepEqual(process.argv.slice(2),['--canvas-readiness-only']);
   testCanvasReadinessSelection();process.exit(0);
@@ -1433,3 +1438,43 @@ function testCanvasReadinessSelection() {
  console.log('Canvas readiness selection: exact discovered Worker caller and native helper select Workers/Auth; unknown neighbors, explicit Full and changed UI retain their gates.');
 }
 testCanvasReadinessSelection();
+
+async function testExportDeliverySelection(){
+ const {EXPORT_DELIVERY_POLICY,EXPORT_DELIVERY_FILES,EXPORT_DELIVERY_UNPUBLISHED_FILES,EXPORT_DELIVERY_PRIOR_FILES,EXPORT_DELIVERY_BROWSER_GREP,EXPORT_DELIVERY_WORKER_GREP,verifyExportDeliveryDiscovery,exportDeliverySources}=await import('./lib/canvas-export-release.mjs');
+ const {selectedCommands}=await import('./lib/local-release-plan.mjs');
+ const {flattenHomepageDiscovery}=await import('./lib/homepage-test-selection.mjs');
+ const selection=selectCiTests(EXPORT_DELIVERY_UNPUBLISHED_FILES);
+ assert.deepEqual(selection.files,EXPORT_DELIVERY_UNPUBLISHED_FILES);
+ assert(EXPORT_DELIVERY_PRIOR_FILES.every(file=>selection.files.includes(file)));
+ const {gitSelection}=await import('./pages-candidate.mjs');
+ const head=spawnSync('git',['rev-parse','HEAD'],{cwd:repoRoot,encoding:'utf8'});assert.equal(head.status,0);
+ const complete=gitSelection('4dd1caccca2d05a3e69e61ed3f9fe0db67bbefd5',head.stdout.trim());assert.equal(complete.policy,EXPORT_DELIVERY_POLICY);assert.deepEqual(complete.files,EXPORT_DELIVERY_UNPUBLISHED_FILES);
+ assert.equal(selectCiTests(EXPORT_DELIVERY_FILES).policy,EXPORT_DELIVERY_POLICY);
+ assert.notEqual(selectCiTests(EXPORT_DELIVERY_FILES,{exportSources:null}).policy,EXPORT_DELIVERY_POLICY);
+ assert.notEqual(selectCiTests(EXPORT_DELIVERY_FILES,{exportSources:exportDeliverySources('0000000000000000000000000000000000000000')}).policy,EXPORT_DELIVERY_POLICY);
+ const changedSource=exportDeliverySources();changedSource['workers/auth/src/lib/canvas-agent-graph.js']='0'.repeat(64);assert.notEqual(selectCiTests(EXPORT_DELIVERY_FILES,{exportSources:changedSource}).policy,EXPORT_DELIVERY_POLICY);
+ assert.equal(selection.policy,EXPORT_DELIVERY_POLICY);assert(selection.workers&&selection.auth&&selection.canvasText&&!selection.full&&!selection.homepage&&!selection.canvasTransitions&&!selection.mediaLifecycle);
+ const changedPrior=exportDeliverySources();changedPrior['workers/auth/src/lib/canvas-agent-planning.js']='0'.repeat(64);assert.notEqual(selectCiTests(EXPORT_DELIVERY_UNPUBLISHED_FILES,{exportSources:changedPrior}).policy,EXPORT_DELIVERY_POLICY);
+ assert(requiresPrivateMediaImage(selection.files));
+ for(const unknown of ['workers/media/src/unreviewed.js','scripts/lib/canvas-export-release.mjs.unreviewed','tests/helpers/q2-runtime/unreviewed.mjs','workers/auth/src/lib/model-tariffs.js'])assert.notEqual(selectCiTests([...EXPORT_DELIVERY_FILES,unknown]).policy,EXPORT_DELIVERY_POLICY);
+ assert(selectCiTests(EXPORT_DELIVERY_FILES,{forceFull:true}).full);
+ const commands=selectedCommands(selection,{GITHUB_SHA:'a'.repeat(40),CANDIDATE_BASE:'b'.repeat(40)});
+ for(const name of ['Verify native Linux isolation before Worker tests','Run worker route tests','Run private media lifecycle tests','Build and test private media Linux image','Run selected auth and admin tests'])assert.equal(commands.filter(c=>c.name===name).length,1);
+ const discover=args=>{const result=spawnSync(process.execPath,['node_modules/@playwright/test/cli.js','test',...args,'--list','--reporter=json'],{cwd:repoRoot,encoding:'utf8',timeout:60000,env:{...process.env,PLAYWRIGHT_JSON_OUTPUT_NAME:'',PLAYWRIGHT_JSON_OUTPUT_FILE:''},maxBuffer:20*1024*1024});assert.equal(result.status,0,result.stderr);return JSON.parse(result.stdout);};
+ const discovery=discover(['tests/canvas.spec.js','--project=chromium','--project=webkit-canvas','--grep',EXPORT_DELIVERY_BROWSER_GREP]),browser=flattenHomepageDiscovery(discovery);
+ verifyExportDeliveryDiscovery(browser);
+ const {candidateProof}=await import('./pages-candidate.mjs');
+ const report=structuredClone(discovery);report.stats={expected:8,unexpected:0,flaky:0};report.errors=[];
+ const fill=suite=>{for(const spec of suite.specs||[])for(const test of spec.tests||[])test.results=[{status:'passed',retry:0}];for(const child of suite.suites||[])fill(child);};report.suites.forEach(fill);
+ const prove=executed=>candidateProof({sha:'f'.repeat(40),selection},{job:'browser-validation',readJson:file=>file.endsWith('canvas-discovery.json')?discovery:executed});
+ assert.equal(prove(report).tests,8);
+ const noResults=structuredClone(report);noResults.suites=[];assert.throws(()=>prove(noResults));
+ const failed=structuredClone(report);failed.stats.unexpected=1;assert.throws(()=>prove(failed));
+ const retried=structuredClone(report);const retry=suite=>{for(const spec of suite.specs||[])for(const test of spec.tests||[])test.results.push({status:'passed',retry:1});for(const child of suite.suites||[])retry(child);};retried.suites.forEach(retry);assert.throws(()=>prove(retried));
+
+ for(const bad of [browser.slice(1),[...browser,browser[0]],browser.map((r,i)=>i? r:{...r,expectedStatus:'skipped'}),browser.map((r,i)=>i?r:{...r,title:'wrong caller'})])assert.throws(()=>verifyExportDeliveryDiscovery(bad));
+ const worker=flattenHomepageDiscovery(discover(['-c','playwright.workers.config.js','tests/workers.spec.js','tests/q2-canvas-agent.spec.js','--grep',EXPORT_DELIVERY_WORKER_GREP]));
+ assert.equal(worker.length,2);assert.deepEqual(worker.map(r=>r.title).sort(),['Canvas private full video: chain, ownership, poster retry and backfill','Canvas agent Seedance native duration constrains trims before graph admission'].sort());assert(worker.every(r=>r.expectedStatus==='passed'));
+ console.log('Export delivery selection: exact real Worker/browser discovery, native/image gates, unknown-neighbour and missing/duplicate/skipped caller controls preserved.');
+}
+await testExportDeliverySelection();

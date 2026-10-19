@@ -1,5 +1,5 @@
 import { privateMediaSmoke,PRIVATE_MEDIA_SMOKE_ERROR_CODES } from '../lib/private-media-smoke.js';
-import { privateMediaStatus,setPrivateMediaService,processorBackend,mediaRunner } from '../lib/private-media-service.js';
+import { privateMediaStatus,setPrivateMediaService,processorBackend,mediaRunner,retryPrivateMediaDelivery } from '../lib/private-media-service.js';
 import { requireAdmin } from '../lib/session.js';
 import { json } from '../lib/response.js';
 import { readJsonBodyOrResponse,BODY_LIMITS } from '../lib/request.js';
@@ -35,9 +35,14 @@ export async function handlePrivateMediaService(ctx) {
     const limit=await evaluateSharedRateLimit(ctx.env,'admin-action-ip',getClientIp(ctx.request),30,900_000,sensitiveRateLimitOptions({component:'private-media-service',correlationId:ctx.correlationId,requestInfo:ctx}));
     if(limit.unavailable)return rateLimitUnavailableResponse(ctx.correlationId);
     if(limit.limited)return rateLimitResponse();
+    if(Object.hasOwn(body,'retryDelivery')) {
+      if(Object.keys(body).some(k=>!['retryDelivery','reason'].includes(k))||typeof body.reason!=='string'||!body.reason.trim()||body.reason.length>180)return reply({ok:false,code:'reason_required'},400);
+      const data=await retryPrivateMediaDelivery(ctx.env,body.retryDelivery,{audit:meta=>enqueueAdminAuditEvent(ctx.env,{adminUserId:actor.user.id,action:'private_media_delivery_retry_authorized',targetUserId:null,meta:{...meta,reason:body.reason}},{correlationId:ctx.correlationId,requestInfo:ctx,allowDirectFallback:true})});
+      return reply({ok:true,data});
+    }
     if(Object.keys(body).some(k=>!['backend','thumbnailBackend','reason'].includes(k))||typeof body.reason!=='string'||!body.reason.trim()||body.reason.length>180)return reply({ok:false,code:'reason_required'},400);
     const data=await setPrivateMediaService(ctx.env,{backend:body.backend,thumbnailBackend:body.thumbnailBackend,actor:actor.user.id,reason:body.reason.trim()});
     await enqueueAdminAuditEvent(ctx.env,{adminUserId:actor.user.id,action:'private_media_service_updated',targetUserId:null,meta:{backend:data.backend,thumbnailBackend:data.thumbnailBackend,existingJobsUnchanged:true}},{correlationId:ctx.correlationId,requestInfo:ctx,allowDirectFallback:true});
     return reply({ok:true,data});
-  } catch(error){return reply({ok:false,code:['media_backend_invalid','media_service_not_ready','media_runner_invalid','media_runner_claim_lost'].includes(error.code)||(smoke&&PRIVATE_MEDIA_SMOKE_ERROR_CODES.includes(error.code))?error.code:'media_service_unavailable'},error.status||503);}
+  } catch(error){return reply({ok:false,code:['media_backend_invalid','media_service_not_ready','media_runner_invalid','media_runner_claim_lost','media_delivery_recovery_invalid','media_delivery_recovery_changed','media_delivery_recovery_unavailable'].includes(error.code)||(smoke&&PRIVATE_MEDIA_SMOKE_ERROR_CODES.includes(error.code))?error.code:'media_service_unavailable'},error.status||503);}
 }

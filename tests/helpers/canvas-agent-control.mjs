@@ -437,6 +437,37 @@ export async function canvasAgentCapabilityCase(env) {
   return { profiles: cases, unavailableRejected: true, unsupportedRejected: true, paidCalls: 0 };
 }
 
+export async function canvasAgentNativeDurationCase(env) {
+  const {canvasAgentCapabilities}=await import('../../workers/auth/src/lib/canvas-agent-capabilities.js');
+  const {preflightCanvasAgentGraph,prepareCanvasAgentGraph}=await import('../../workers/auth/src/lib/canvas-agent-graph.js');
+  const {canvasAgentProject}=await import('../../workers/auth/src/routes/canvas-agent.js');
+  const {canvasGenerationSettings}=await import('../../js/shared/canvas-generation-settings.mjs');
+  const {getCanvasModelForRole}=await import('../../js/shared/canvas-model-contract.mjs');
+  const owner='canvas-native-duration-member',now=new Date().toISOString(),project=(await sha256Hex('native-duration-project')).slice(0,32),runId=(await sha256Hex('native-duration-run')).slice(0,32);
+  await env.DB.prepare("INSERT INTO users(id,email,password_hash,created_at,role,status,email_verified_at) VALUES(?,?,?,?,'user','active',?)").bind(owner,owner+'@example.invalid','synthetic',now,now).run();
+  await env.DB.prepare("INSERT INTO canvas_projects(id,user_id,title,locale,created_at,updated_at) VALUES(?,?,'Native duration','en',?,?)").bind(project,owner,now,now).run();
+  await env.DB.prepare(`INSERT INTO canvas_agent_runs(id,project_id,user_id,request_key,input_json,status,expected_revision,budget_credits,target_seconds,tolerance_seconds,lease_token,lease_until,next_attempt_at,created_at,updated_at,expires_at)
+    VALUES(?,?,?,?,?,'planning',0,10000,45,.5,'native-duration-lease',?,?,?,?,?)`).bind(runId,project,owner,runId,JSON.stringify({brief:'Four scenes with a creative target of forty-five seconds.'}),new Date(Date.now()+600000).toISOString(),now,now,now,new Date(Date.now()+3600000).toISOString()).run();
+  const run=await env.DB.prepare('SELECT * FROM canvas_agent_runs WHERE id=?').bind(runId).first(),view=await canvasAgentProject(env,owner,project),inventory=await canvasAgentCapabilities(env);
+  const model=getCanvasModelForRole('bytedance/seedance-2.5','member');check(inventory.models.some(candidate=>candidate.id===model.id),'Seedance fixture must have real eligible pricing');
+  const plan=(config,duration=11.7)=>({version:1,title:'Four editable scenes',continuity:'Keep the same subject and location.',nodes:Array.from({length:4},(_,i)=>({key:`scene${i}`,type:'video_generation',title:`Scene ${i+1}`,modelId:model.id,prompt:`Film scene ${i+1} in the same location.`,config:structuredClone(config),dependencies:[]})),
+    assembly:{clips:Array.from({length:4},(_,i)=>({key:`scene${i}`,trim:{start:.2,duration},transition:i===3?{preset:'none'}:{preset:'dissolve',duration:.45}})),musicKey:null,targetDurationSeconds:45,toleranceSeconds:.5,backgroundMusic:{enabled:false,gain:1},smoothJoins:false}});
+  for(const config of [{duration:13},{duration:13,seedance25:{duration:5}}]) {
+    check(canvasGenerationSettings(config,model,'Scene').duration===5,'Ordinary execution and quote actually request five seconds');
+    const checked=await preflightCanvasAgentGraph(env,run,view,inventory,plan(config));
+    check(!checked.ok&&checked.issues.some(issue=>issue.code==='canvas_agent_trim_outside_planned_source'),'Ignored top-level duration must not admit an eleven-second trim from a five-second native request');
+    await rejected(()=>prepareCanvasAgentGraph(env,run,view,inventory,plan(config)),'canvas_agent_trim_outside_planned_source');
+  }
+  const long=await preflightCanvasAgentGraph(env,run,view,inventory,plan({duration:5,seedance25:{duration:13}}));
+  check(long.ok&&long.plannedDurationSeconds>45,'Explicit native thirteen-second request, not an ignored generic five-second field, bounds the trim');
+  const short=await preflightCanvasAgentGraph(env,run,view,inventory,plan({duration:13,seedance25:{duration:5}},4));
+  check(short.ok&&short.plannedDurationSeconds<16,'Valid shorter footage remains valid with an approximate creative target');
+  check((await canvasAgentProject(env,owner,project)).nodes.length===0,'Preflight never changes the editable project');
+  check((await env.DB.prepare('SELECT COUNT(*) AS n FROM canvas_agent_steps WHERE run_id=?').bind(runId).first()).n===0,'Rejected plans allocate no production steps');
+  check((await env.DB.prepare('SELECT COUNT(*) AS n FROM member_ai_usage_attempts_v2 WHERE user_id=?').bind(owner).first()).n===0,'No inference or media is submitted');
+  return {nativeSeconds:5,ignoredGenericSeconds:13,invalidTrimsRejected:2,validNativeTrims:2,paidCalls:0,graphWrites:0};
+}
+
 export async function canvasAgentLateCompletionCase(env, media) {
   const { canvasAudioFixture } = await import('./canvas-audio-control.mjs');
   const f = await canvasAudioFixture(env, { ...media, scope: 'agent-late-completion' }), originalFetch = f.env.__TEST_FETCH;

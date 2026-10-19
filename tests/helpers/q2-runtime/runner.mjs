@@ -1,3 +1,4 @@
+import {runCanvasExportDeliveryTests} from './canvas-export-delivery.mjs';
 import { runAppearanceTests } from '../../appearance-runtime.mjs';
 import { runWebsiteAssistantTests } from '../../website-assistant-runtime.mjs';
 import { runModelPricingTests } from '../../model-pricing-runtime.mjs';
@@ -41,6 +42,7 @@ export const runtimeSuites = Object.freeze([
 // invented attestation of that external OS boundary.
 export function selectedRuntimeSuites(suite) {
   // Preserve the normal Canvas D1/Images/AI bindings and result identity.
+  if(suite==='canvas-export-delivery')return [['canvas',runCanvasExportDeliveryTests,{}]];
   if(suite==='canvas-readiness-recovery')return [['canvas',runCanvasReadinessRecoveryTests,{}]];
   if(suite==='canvas-settlement-continuation')return [['canvas',runCanvasSettlementContinuationTests,{}]];
   if(suite==='canvas-settlement-recovery')return [['canvas',runCanvasSettlementRecoveryTests,{}]];

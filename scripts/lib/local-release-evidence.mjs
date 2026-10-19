@@ -1,3 +1,4 @@
+import {EXPORT_DELIVERY_PREFLIGHT,assertExportDeliveryTree,exportDeliveryPrefix,verifyExportDeliveryReuse} from './canvas-export-release.mjs';
 import {READINESS_CONTINUATION,assertReadinessTree,STORED_PLAN_CONTINUATION,assertStoredPlanTree} from './local-release-browser.mjs';
 import {canvasReadinessRecoveryInventory} from '../../tests/helpers/q2-runtime/canvas-readiness-recovery.mjs';
 import {canvasSettlementContinuationInventory,canvasSettlementRecoveryRetainedInventory,canvasSettlementRecoveryInventory} from '../../tests/helpers/q2-runtime/canvas-policy-tail.mjs';
@@ -1876,8 +1877,9 @@ export function canvasExampleBrowserContinuation(command){
   assert.equal(command.split(passed).length,2);assert(command.includes("--grep 'Canvas transition examples'"));
   return command.replace(passed,''); // Pinned decoded-asset pass remains in the archived original log.
 }
-export const canvasPreflightProfile=source=>[ASSISTANT_BROWSER_PREFLIGHT,ASSISTANT_NATIVE_RATE,ASSISTANT_NATIVE_TAIL,ASSISTANT_NATIVE_PROGRESS,ASSISTANT_NATIVE_PREFLIGHT,ASSISTANT_WORKER_PREFLIGHT,ASSISTANT_PREFLIGHT,SETTLEMENT_BROWSER_PREFLIGHT,SETTLEMENT_NATIVE_PROGRESS,SETTLEMENT_NATIVE_PREFLIGHT,SETTLEMENT_HOSTING_PREFLIGHT,SETTLEMENT_PREFLIGHT,CANVAS_POLICY_NATIVE_PREFLIGHT,CANVAS_POLICY_WORKER_PREFLIGHT,AUTONOMY_BROWSER_PREFLIGHT,AUTONOMY_NATIVE_PREFLIGHT,CANVAS_PREFLIGHT,EXPORT_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,EXAMPLE_PREFLIGHT,EXAMPLE_BROWSER_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].find(p=>p.source===source)||null;
+export const canvasPreflightProfile=source=>[EXPORT_DELIVERY_PREFLIGHT,ASSISTANT_BROWSER_PREFLIGHT,ASSISTANT_NATIVE_RATE,ASSISTANT_NATIVE_TAIL,ASSISTANT_NATIVE_PROGRESS,ASSISTANT_NATIVE_PREFLIGHT,ASSISTANT_WORKER_PREFLIGHT,ASSISTANT_PREFLIGHT,SETTLEMENT_BROWSER_PREFLIGHT,SETTLEMENT_NATIVE_PROGRESS,SETTLEMENT_NATIVE_PREFLIGHT,SETTLEMENT_HOSTING_PREFLIGHT,SETTLEMENT_PREFLIGHT,CANVAS_POLICY_NATIVE_PREFLIGHT,CANVAS_POLICY_WORKER_PREFLIGHT,AUTONOMY_BROWSER_PREFLIGHT,AUTONOMY_NATIVE_PREFLIGHT,CANVAS_PREFLIGHT,EXPORT_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,EXAMPLE_PREFLIGHT,EXAMPLE_BROWSER_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].find(p=>p.source===source)||null;
 export function assertCanvasPreflightTree(head,read=gitBytes,profile=CANVAS_PREFLIGHT){
+  if(profile===EXPORT_DELIVERY_PREFLIGHT)return assertExportDeliveryTree(head,read);
   if(profile===ASSISTANT_BROWSER_PREFLIGHT){
     assertCanvasPreflightTree(profile.source,read,ASSISTANT_NATIVE_RATE);
     assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,profile.source],'Assistant browser continuation requires the direct reviewed successor');
@@ -2195,6 +2197,7 @@ export function verifyWorkspaceGuardUnion(before,after){
 }
 export function canvasPreflightPrefix(bytes,{sha,base,planHash,environment,nativeBrowsers,commands,selection},read=gitBytes){
   const original=JSON.parse(bytes),profile=canvasPreflightProfile(original.sha)||CANVAS_PREFLIGHT;
+  if(profile===EXPORT_DELIVERY_PREFLIGHT)return exportDeliveryPrefix(bytes,{sha,base,planHash,environment,nativeBrowsers,commands,selection},read);
   assertCanvasPreflightTree(sha,read,profile);assert.equal(sha256(bytes),profile.checkpoint,'Changed failed preflight checkpoint');
   assert.equal(original.sha,profile.source);assert.equal(original.status,'failed');
   assert.equal(original.base,base);assert.equal(original.planHash,planHash);assert.equal(original.environment.key,environment.key);
@@ -2298,6 +2301,7 @@ export function verifyExportGuardUnion(before,after){
   assert.equal(new Set(after.map(r=>r.title)).size,after.length);assert(after.every(r=>before.some(old=>old.title===r.title)));
 }
 export function verifyCanvasPreflight(directory,evidence,commands){
+  if(evidence.preflightContinuation?.source===EXPORT_DELIVERY_PREFLIGHT.source)return verifyExportDeliveryReuse(directory,evidence,commands,{read:gitBytes,readFile:fs.readFileSync});
   const profile=canvasPreflightProfile(evidence.preflightContinuation?.source);assert(profile,'Unknown preflight origin');
   assert.deepEqual(evidence.preflightContinuation,{source:profile.source,checkpoint:profile.checkpoint});
   const original=canvasPreflightPrefix(fs.readFileSync(path.join(directory,'reuse/preflight-checkpoint.json')),{...evidence,commands});

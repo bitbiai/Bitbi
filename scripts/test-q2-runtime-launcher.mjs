@@ -1009,9 +1009,9 @@ test('Canvas readiness recovery pins retained discovery and admits only fresh na
     await run(f);return {names,setup,metrics:f.metrics};
   };
   const full=await discover(runCanvasTests),selected=await discover(runCanvasReadinessRecoveryTests);
-  assert.equal(full.names.length,266);assert.deepEqual(selected.names,fresh);assert.deepEqual(selected.setup,full.setup);
+  assert.equal(full.names.length,267);assert.deepEqual(selected.names,fresh);assert.deepEqual(selected.setup,full.setup);
   const metric=selected.metrics.find(item=>item.readinessRecovery).readinessRecovery;
-  assert.deepEqual(metric.discovery,full.names);assert.deepEqual(metric.fresh,fresh);assert.equal(metric.retained.length,251);
+  assert.deepEqual(metric.discovery,full.names);assert.deepEqual(metric.fresh,fresh);assert.equal(metric.retained.length,251);assert.deepEqual(metric.unselected,['canvas_native_canvas_agent_native_duration']);
   assert.equal(createHash('sha256').update(JSON.stringify(metric.retained)).digest('hex'),'3bcde3da85495a7cfa8190ca3ad20f8f255c7b065941f88cfbf5d1c75cd3640f');
   const child=spawnSync(process.execPath,['--experimental-vm-modules','--input-type=module','-e',`
     import assert from 'node:assert/strict';import {createHash} from 'node:crypto';
@@ -1092,4 +1092,85 @@ test('actual selected Worker shell stops before downstream work on every failure
     else assert.deepEqual(passed.commands,['npm run test:workers']);
     for(const [i,failed] of passed.commands.entries()) {const result=run(failed);assert.equal(result.status,37);assert.deepEqual(result.commands,passed.commands.slice(0,i+1));}
   }
+});
+
+test('Canvas export delivery pins actual native callers and rejects incomplete discovery',async()=>{
+  const {runCanvasTests}=await import('../tests/helpers/q2-runtime/canvas.mjs');
+  const {canvasExportDeliveryInventory,runCanvasExportDeliveryTests}=await import('../tests/helpers/q2-runtime/canvas-export-delivery.mjs');
+  const {selectedRuntimeSuites,runtimeSuites}=await import('../tests/helpers/q2-runtime/runner.mjs');
+  const fresh=[
+    'private_media_admin_read_no_inference_and_not_ready_switch_denied',
+    'canvas_native_private_full_video_and_posters',
+    'private_media_native_release_smoke_same_endpoints_both_backends',
+    'private_media_native_immediate_fenced_dispatch_and_backend_assignment',
+    'canvas_assembly_completed_delivery_retention',
+    'canvas_smooth_persistence_preview_cache_policy_and_private_completion',
+    'canvas_audio_imported_identity_independent_settings_and_snapshot_admission',
+    'canvas_audio_real_imported_video_and_image_inputs_type_replacement',
+    'canvas_workspace_transition_persistence_validation_snapshot_and_processor_fencing',
+    'canvas_native_canvas_agent_preflight','canvas_native_canvas_agent_native_duration',
+  ];
+  assert.deepEqual(canvasExportDeliveryInventory,fresh);
+  assert.equal(parseRuntimeArgs(['--suite','canvas-export-delivery'],{}).suite,'canvas-export-delivery');
+  assert.throws(()=>parseRuntimeArgs(['--suite','canvas-export-delivery','--suite','canvas'],{}));
+  assert.throws(()=>parseRuntimeArgs(['--suite','canvas-export-delivery-other'],{}));
+  assert.deepEqual(selectedRuntimeSuites('canvas-export-delivery').map(([name])=>name),['canvas']);
+  assert.equal(selectedRuntimeSuites('canvas-export-delivery')[0][1],runCanvasExportDeliveryTests);
+  assert.equal(selectedRuntimeSuites('canvas')[0][1],runCanvasTests);
+  assert(!runtimeSuites.some(([,run])=>run===runCanvasExportDeliveryTests),'Full acceptance must retain every ordinary Canvas callback');
+  assert.match(read('tests/helpers/q2-runtime/linux-bootstrap.py'),/\+ \["canvas-export-delivery"\]/);
+  const required='tests/helpers/private-media-control.mjs',plan=stageInputPlan();
+  const checkStage=inputs=>assert(inputs.includes(required),'Readiness native helper must be staged');
+  checkStage(plan);assert.throws(()=>checkStage(plan.filter(item=>item!==required)),/must be staged/);
+  const discover=async run=>{
+    const names=[],setup=[],headers=new Headers();headers.append('set-cookie','__Host-bitbi_session=synthetic; Secure');headers.append('set-cookie','__Host-bitbi_admin_mfa=synthetic; Secure');
+    const f={migrations:['0108','0109','0110','0112'].map(path=>({path,statements:[]})),
+      db:{batch:async()=>{setup.push('migration');}},sql:()=>({run:async()=>{setup.push('sql');}}),
+      rows:async()=>[{sql:'synthetic pre-migration schema'}],scalar:async()=>1,
+      control:async route=>{setup.push(route);return Response.json({cookie:'synthetic',code:'synthetic'});},
+      mf:{dispatchFetch:async()=>Response.json({setup:{secret:'synthetic'}},{headers})},
+      canvasProvider:{requests:[]},counters:{outboundDenied:0},metrics:[],test:async name=>{names.push(name);}};
+    await run(f);return {names,setup,metrics:f.metrics};
+  };
+  const full=await discover(runCanvasTests),selected=await discover(runCanvasExportDeliveryTests);
+  assert.equal(full.names.length,267);assert.deepEqual(selected.names,fresh);assert.deepEqual(selected.setup,full.setup);
+  const metric=selected.metrics.find(item=>item.exportDelivery).exportDelivery;
+  assert.deepEqual(metric.discovery,full.names);assert.deepEqual(metric.fresh,fresh);assert.equal(metric.discovery.length,267);
+  assert.equal(createHash('sha256').update(JSON.stringify(metric.discovery)).digest('hex'),'9f41365aff215f22be923d5564703618ac5b828607df719071f55345e479d83f');
+  const child=spawnSync(process.execPath,['--experimental-vm-modules','--input-type=module','-e',`
+    import assert from 'node:assert/strict';import {createHash} from 'node:crypto';
+    import {readFileSync} from 'node:fs';import {SourceTextModule,SyntheticModule,createContext} from 'node:vm';
+    const source=readFileSync('tests/helpers/q2-runtime/canvas-export-delivery.mjs','utf8');
+    const expected=${JSON.stringify(full.names)},fresh=${JSON.stringify(fresh)};
+    for(const fault of [null,'retained-missing','retained-order','fresh-missing','fresh-duplicate','fresh-order','foreign','extra','operation-failed']){
+      const names=[...expected],executed=[],metrics=[],context=createContext({});
+      const at=names.indexOf(fresh[0]);
+      if(fault==='retained-missing')names.splice(50,1);
+      if(fault==='retained-order')[names[50],names[51]]=[names[51],names[50]];
+      if(fault==='fresh-missing')names.splice(at,1);
+      if(fault==='fresh-duplicate')names.splice(at,0,fresh[0]);
+      if(fault==='fresh-order'){const next=names.indexOf(fresh[1]);[names[at],names[next]]=[names[next],names[at]];}
+      if(fault==='foreign')names[at]='foreign-case';
+      if(fault==='extra')names.push('extra-case');
+      const modules={'node:assert/strict':{default:assert},'node:crypto':{createHash},'./canvas.mjs':{runCanvasTests:async f=>{
+        for(const name of names)await f.test(name,async()=>{executed.push(name);if(fault==='operation-failed')throw Error('Synthetic required readiness failure');});
+      }}};
+      const load=async name=>{assert(modules[name]);const m=new SyntheticModule(Object.keys(modules[name]),function(){for(const [key,value]of Object.entries(modules[name]))this.setExport(key,value);},{context});await m.link(()=>{});await m.evaluate();return m;};
+      const module=new SourceTextModule(source,{context});await module.link(load);await module.evaluate();
+      const run=()=>module.namespace.runCanvasExportDeliveryTests({test:async(name,operation)=>{await operation();},metrics});
+      if(fault)await assert.rejects(run);else{await run();assert.deepEqual(executed,fresh);assert.equal(metrics.length,1);}
+      assert(executed.every(name=>fresh.includes(name)),'Retained successful callbacks must never execute');
+      if(fault==='operation-failed')assert.deepEqual(executed,[fresh[0]]);
+    }
+    const childSource=readFileSync('tests/helpers/q2-runtime/linux-runtime-child.mjs','utf8');
+    for(const suite of ['canvas-export-delivery','canvas-export-delivery-other'])for(const fault of [null,'platform','uid','gid']){
+      const calls=[],context=createContext({process:{platform:fault==='platform'?'darwin':'linux',getuid:()=>fault==='uid'?0:65534,getgid:()=>fault==='gid'?0:65534}});
+      const modules={'node:assert/strict':{default:assert},'node:fs':{readFileSync:file=>{assert.equal(file,'/runtime/boundary.json');calls.push('boundary');return JSON.stringify({suite});}},'./runner.mjs':{runQ2Runtime:async(args,selected)=>{assert.deepEqual(Array.from(args),['--artifacts','/artifacts']);assert.equal(selected,suite);calls.push('run');}}};
+      const load=async name=>{assert(modules[name]);calls.push(name);const m=new SyntheticModule(Object.keys(modules[name]),function(){for(const [key,value]of Object.entries(modules[name]))this.setExport(key,value);},{context});await m.link(()=>{});await m.evaluate();return m;};
+      const module=new SourceTextModule(childSource,{context,importModuleDynamically:load});await module.link(load);
+      if(!fault&&suite==='canvas-export-delivery'){await module.evaluate();assert.deepEqual(calls,['node:assert/strict','node:fs','boundary','./runner.mjs','run']);}
+      else{await assert.rejects(module.evaluate());assert(!calls.includes('./runner.mjs'));if(fault)assert(!calls.includes('boundary'));}
+    }
+  `],{cwd:root,encoding:'utf8',timeout:15000});
+  assert.equal(child.status,0,child.stderr);
 });

@@ -16,11 +16,11 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
     const anchor=assemblyAnchor?{nodeId:assemblyAnchor}:output.runId || (output.nodeId?{nodeId:output.nodeId}:null);
     if (!anchor) return;
     const copy=german?{
-        create:'Gesamtes Video erstellen',retry:'Verarbeitung wiederholen',queued:'Gesamtvideo wartet auf Verarbeitung.',processing:'Gesamtvideo wird zusammengefügt.',
+        create:'Gesamtes Video erstellen',retry:'Verarbeitung wiederholen',queued:'Gesamtvideo wartet auf Medienverarbeitung.',processing:'Gesamtvideo wird verarbeitet.',
         preview_pending:'Video gespeichert. Vorschau wird erstellt.',ready:'Gesamtvideo bereit.',failed:'Verarbeitung fehlgeschlagen.',
         unavailable:'Gesamtvideo nicht verfügbar. Quellen oder Herkunft prüfen.',download:'Gesamtvideo herunterladen',poster:'Vorschau wird erstellt.',posterFailed:'Video verfügbar. Vorschau konnte nicht erstellt werden.',
         refresh:'Status aktualisieren',again:'Gesamtes Video erneut erstellen',music:'Musik als Hintergrund hinzufügen',volume:'Musiklautstärke',save:'Gesamtvideo in Assets speichern',saved:'Diese Version ist in Assets gespeichert.',ambiguous:'Genau eine fertige Musikquelle nur für den Export verbinden.',savingFailed:'Canvas-Einstellungen konnten nicht gespeichert werden.',
-    }:{create:'Create full video',retry:'Retry processing',queued:'Full video is queued.',processing:'Joining full video.',preview_pending:'Video stored. Preparing preview.',ready:'Full video ready.',failed:'Processing failed.',unavailable:'Full video unavailable. Check sources and provenance.',download:'Download full video',poster:'Preparing preview.',posterFailed:'Video available. Preview could not be created.',refresh:'Refresh status',again:'Create full video again',music:'Add music as background',volume:'Music volume',save:'Save full video to Assets',saved:'This version is saved to Assets.',ambiguous:'Connect exactly one completed music source for export only.',savingFailed:'Canvas settings could not be saved.'};
+    }:{create:'Create full video',retry:'Retry processing',queued:'Full video is queued for media processing.',processing:'Processing full video.',preview_pending:'Video stored. Preparing preview.',ready:'Full video ready.',failed:'Processing failed.',unavailable:'Full video unavailable. Check sources and provenance.',download:'Download full video',poster:'Preparing preview.',posterFailed:'Video available. Preview could not be created.',refresh:'Refresh status',again:'Create full video again',music:'Add music as background',volume:'Music volume',save:'Save full video to Assets',saved:'This version is saved to Assets.',ambiguous:'Connect exactly one completed music source for export only.',savingFailed:'Canvas settings could not be saved.'};
     const block=document.createElement('div');block.className='canvas-full-video';section.append(block);
     const auditionCopy=german?{start:'Vorschau mit Musik',pause:'Vorschau pausieren',label:'Vorschau · noch nicht übernommen',create:'Gesamtes Video mit Hintergrundmusik erstellen',back:'Zurück zum erstellten Video',missing:'Musikvorschau nicht verfügbar: Für diese Version fehlt das vollständige Video ohne Hintergrundmusik. Das erstellte Video bleibt verfügbar.',error:'Die Musikvorschau konnte nicht abgespielt werden. Das erstellte Video bleibt verfügbar.',loading:'Musikvorschau wird geladen.',track:'Hintergrundmusik',choose:'Musik auswählen'}:{start:'Preview with music',pause:'Pause preview',label:'Preview · not exported',create:'Create full video with background music',back:'Return to completed video',missing:'Music preview unavailable: this version has no complete video without background music. The completed video remains available.',error:'Music preview could not play. The completed video remains available.',loading:'Loading music preview.',track:'Background music',choose:'Choose music'};
     const controls=document.createElement('div'),message=document.createElement('p'),preview=document.createElement('div');
@@ -106,10 +106,10 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
         createButton.disabled=blocked||!sequence.valid;sequence.lock(blocked);joins?.lock(blocked);
         retrySubmission.hidden=!state?.canRetry;retrySubmission.disabled=Boolean(state?.busy);
         if(!state)return;
-        observation.textContent=state.busy?(german?'Status wird geprüft…':'Checking status…'):state.pending
-            ?(german?'Übermittlung noch nicht bestätigt. Status aktualisieren; es wird kein neuer Auftrag gestartet.':'Submission is not yet confirmed. Refresh status; no new job will be started.')
-            :state.paused?(state.known?(german?'Automatische Statusprüfung pausiert. Der Auftrag läuft möglicherweise weiter. Status aktualisieren.':'Automatic status checks paused. The job may still be running. Refresh status.')
-                :(german?'Statusverbindung unterbrochen. Status aktualisieren, bevor ein neuer Auftrag gestartet wird.':'Status connection interrupted. Refresh status before starting a new job.')):'';
+        observation.textContent=state.busy?(german?'Status wird geprüft…':'Checking status…'):state.paused&&!state.reconnecting
+            ?(german?'Status konnte nicht abgerufen werden. Zugriff prüfen und Status aktualisieren.':'Status could not be read. Check access and refresh status.'):state.pending
+            ?(german?'Übermittlung noch nicht bestätigt. Der Status wird automatisch erneut geprüft; es wird kein neuer Auftrag gestartet.':'Submission is not yet confirmed. Status will be checked again automatically; no new job will be started.')
+            :state.reconnecting?(german?'Statusverbindung unterbrochen. Die Verbindung wird automatisch wiederhergestellt; der Auftrag kann weiterlaufen.':'Status connection interrupted. Reconnecting automatically; the job may still be running.'):'';
     }
     function paintVersion(){
         if(!completed?.asset)return;
@@ -156,15 +156,21 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
             const changed=['canvas_selection_changed','video_source_changed'].includes(result.code);
             message.textContent=`${changed?(german?'Eine ausgewählte Ausgabe wurde gelöscht oder ersetzt. Status aktualisieren und Clips erneut auswählen.':'A selected output was deleted or replaced. Refresh status and choose the clips again.'):copy.unavailable} (${result.code})`;
         } else if(result.data.eligible || status || result.data.current) {
-            message.textContent=status?(copy[status.status]||copy.failed):'';
+            const deliveryBlocked=status?.status==='queued'&&status.processing?.blocked===true&&status.processing.stage==='waiting_for_media'&&status.processing.errorCode==='media_delivery_exhausted';
+            const failureCode=status?.error_code||(deliveryBlocked?status.processing.errorCode:null);
+            message.textContent=deliveryBlocked?(german?'Die Medienverarbeitung ist blockiert. Der Auftrag bleibt gespeichert; der Verarbeitungsdienst muss wiederhergestellt werden.':'Media processing is blocked. The job remains saved; the processing service needs recovery.')
+                :status?(status.status==='failed'&&status.asset?copy.posterFailed:copy[status.status]||copy.failed):'';
             if(status?.duration)message.textContent+=' '+(german?'Dauer: ':'Duration: ')+status.duration.toFixed(2)+' s.';
             if(status?.seam_result)message.textContent+=' '+smoothJoinResultText(status.seam_result,german);
             if(status?.audio_timeline)message.textContent+=' '+audioFitResultText(status.audio_timeline,german);
             if(status?.error_code==='canvas_transition_too_long')message.textContent+=' '+(german?'Überlappung verkürzen: höchstens die halbe Länge jedes Nachbarclips. Bei kurzen mittleren Clips muss auch zwischen beiden Übergängen ein Bild bleiben.':'Shorten the overlap to at most half of each neighboring clip. Short middle clips also need at least one frame between both transitions.');
+            if(status?.error_code==='canvas_trim_outside_source')message.textContent+=' '+(german?'Ein Ausschnitt liegt außerhalb der gemessenen Clipdauer. Schnittpunkte und Quelldauer prüfen.':'A trim lies outside the measured clip duration. Check trim points and source duration.');
             if(status?.error_code==='canvas_duration_target_missed')message.textContent+=' '+(german?'Die gemessene Dauer liegt außerhalb der Zieltoleranz von ±0,5 s. Ausschnitte, Übergänge oder Zieldauer anpassen. Es wird keine erfolgreiche Produktion gemeldet.':'Measured duration misses the target tolerance of ±0.5 s. Adjust trims, transitions or the target duration. This production is not reported as successful.');
             if(status?.error_code==='canvas_audio_tail_exceeds_video')message.textContent+=' '+(german?'Diesen älteren Auftrag durch einen neuen Export ersetzen. Der Originalton wird jetzt automatisch an die Bilddauer angepasst.':'Create a new export to replace this older failed job. Original audio now fits the picture duration automatically.');
             createButton.hidden=false;createButton.textContent=status?copy.again:copy.create;
-            if(status?.status==='failed')message.textContent+=' '+(german?'Dieser Versuch ist beendet. Quellen/Einstellungen prüfen und bei Bedarf eine neue Version erstellen.':'This attempt has ended. Check sources/settings, then create a new version if needed.');
+            if(status?.status==='failed'&&!status.asset)message.textContent+=' '+(german?'Dieser Versuch ist beendet. Quellen/Einstellungen prüfen und bei Bedarf eine neue Version erstellen.':'This attempt has ended. Check sources/settings, then create a new version if needed.');
+            if(failureCode&&/^[a-z0-9_]{1,80}$/.test(failureCode))message.textContent+=' '+failureCode;
+            if((status?.status==='failed'||deliveryBlocked)&&/^[a-zA-Z0-9_-]{1,100}$/.test(status.id))message.textContent+=' · '+(german?'Diagnosereferenz: ':'Diagnostic reference: ')+status.id;
             const current=result.data.current||status;
             if(current?.asset && current.storage==='assets')message.textContent+=' '+copy.saved;
             if(current?.asset) {
@@ -200,6 +206,7 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
             const project=await canvasApi.getProject(projectId,request.signal,30000);
             if(!request.current())return;
             const current=project.data?.runs?.find(r=>r.id===output.runId)?.output;
+            if(current?.posterStatus)output.posterStatus=current.posterStatus;
             if(current?.previewUrl) {output.previewUrl=current.previewUrl;video.poster=current.previewUrl;posterStatus.textContent='';}
             else {
               posterStatus.textContent=current?.posterStatus==='failed'?copy.posterFailed:copy.poster;
@@ -215,6 +222,6 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
     refresh.addEventListener('click',()=>void observer.refresh(),{signal});section.append(refresh);
     document.addEventListener('canvas:merge-state',paintVersion,{signal});
     sound.details.addEventListener('canvas:sound-change',paintVersion,{signal});
-    observer=exportObserver({projectId,anchor,signal,onState:()=>{syncAvailability();paintVersion();},onResult:renderResult,needsObservation:()=>Boolean(output.runId&&!output.previewUrl)});
+    observer=exportObserver({projectId,anchor,signal,onState:()=>{syncAvailability();paintVersion();},onResult:renderResult,needsObservation:()=>Boolean(output.runId&&!output.previewUrl&&output.posterStatus!=='failed')});
     void observer.refresh();
 }

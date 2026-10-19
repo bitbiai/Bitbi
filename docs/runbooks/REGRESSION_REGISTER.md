@@ -875,6 +875,30 @@ Local green remains distinct from CI, account provisioning and live smoke;
 only the protected publication's durable MP4/poster checks establish the latter.
 
 ### Private media container idle lifecycle (2026-09-19)
+October 19 export follow-up: the active `243c153a` media bundle mapped the supplied
+`deliver` line 1460 to the non-success HTTP response branch. SDK 0.3.7 catches
+that scheduled callback error and deletes its one-time schedule; scheduling 202
+does not prove container acceptance or runner acquisition. Preserve body draining
+and idle protection while explicitly scheduling bounded retries of the current
+fenced activation. The actual HTTP status remains unavailable from the retained
+stack; a different-token 409 during child exit is a regression case, not a proven
+classification of that live request. The existing SDK lifecycle and native
+private-media queue/D1 callers cover this boundary; standalone FFmpeg tests did
+not exercise it. Keep exhausted delivery observable and explicitly recoverable,
+without rotating unknown work or resetting render attempts.
+
+Separate export findings must not be conflated with delivery: one saved mixed
+export completed after the UI's former 120-read observation limit; reconnecting
+GETs retain the original request and never submit another render. Another recipe
+requested approximately twelve-second windows from measured 121-frame/24-fps
+sources. Seedance quotation/execution used its nested five-second setting while
+agent feasibility trusted an unused top-level duration. Derive feasibility from
+the native request; retain strict measured trim rejection and immutable failed
+recipes. A shorter successor requires an explicit creative decision. Private
+source/job evidence stays outside Git. The existing EN/DE export lifecycle and
+editable-film browser cases, native graph preflight and actual processor image
+are the affected acceptance callers; source inspection alone is not publication.
+
 The production actor remained running after all jobs/leases finished: SDK 0.3.7
 keeps `containerFetch` in-flight until the response body drains. `deliver` now
 consumes success/error acknowledgements. Idle health is consumed and validated;

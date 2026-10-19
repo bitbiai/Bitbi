@@ -1,3 +1,4 @@
+import {EXPORT_DELIVERY_POLICY,EXPORT_DELIVERY_FILES,EXPORT_DELIVERY_UNPUBLISHED_FILES,exportDeliverySources,isExportDeliverySource} from './canvas-export-release.mjs';
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { isMemberModelFastDeployPath } from "./fast-deploy-paths.mjs";
@@ -1009,7 +1010,7 @@ const CANVAS_COMPLETION_FILES = new Set([
   'tests/helpers/q2-runtime/environment.mjs',
 ]);
 
-export function selectCiTests(files, { forceFull = false, forceReason = "explicit full regression", memberTestSources = null, canvasRouteSources = null, inspectorSources = null } = {}) {
+export function selectCiTests(files, { forceFull = false, forceReason = "explicit full regression", memberTestSources = null, canvasRouteSources = null, inspectorSources = null, exportSources = undefined } = {}) {
   const changedFiles = normalizeFiles(files);
   const selection = {
     files: changedFiles,
@@ -1044,6 +1045,16 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
   if (forceFull) selectFullRegression(selection, "<forced>", forceReason);
   if (changedFiles.length === 0) {
     selectFullRegression(selection, "", "empty or unresolved diff fails closed");
+  }
+
+  if (!forceFull && changedFiles.includes('workers/media/src/index.js') && changedFiles.includes('js/pages/canvas/export-observer.js')
+      && changedFiles.every(file=>isDocumentation(file)||EXPORT_DELIVERY_UNPUBLISHED_FILES.includes(file))
+      && isExportDeliverySource(exportSources===undefined?exportDeliverySources():exportSources)) {
+    selection.policy=EXPORT_DELIVERY_POLICY;selection.canvasText=true;
+    selection.workers=selection.auth=selection.static=selection.runtime=true;
+    selection.reasons.workers.push('Private service/SDK delivery, native claims/recovery/receipt/ownership, Seedance graph duration and all three changed AMD64 image groups');
+    selection.reasons.auth.push('Export lifecycle and real editable mixed-film acceptance in EN/DE Chromium/WebKit; status retries cannot create another render');
+    return selection;
   }
 
   if (!forceFull && changedFiles.some(file => ['js/shared/asset-preview-details.js','js/shared/wallet/wallet-visibility.js'].includes(file))

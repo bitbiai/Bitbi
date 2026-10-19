@@ -1,7 +1,7 @@
 import { canvasMergeView, canvasVideoSelection } from '../lib/canvas-merge-selection.js';
 import { canvasClipIdentity, canvasExportSubject } from '../../../../js/shared/canvas-export.mjs';
 import { processorBackend, notifyPrivateMedia } from '../lib/private-media-service.js';
-import { canvasVideoChain, canvasExportId, enqueueCanvasProcessing, publicCanvasProcessing, claimCanvasProcessing, canvasProcessingClaim, failCanvasProcessing, CANVAS_VIDEO_LIMITS, canvasProcessingError } from '../lib/canvas-video-processing.js';
+import { canvasVideoChain, canvasExportId, enqueueCanvasProcessing, publicCanvasProcessingStatus, claimCanvasProcessing, canvasProcessingClaim, failCanvasProcessing, CANVAS_VIDEO_LIMITS, canvasProcessingError } from '../lib/canvas-video-processing.js';
 import { exportMusicSettings } from '../../../../js/shared/canvas-export.mjs';
 import { ownedCanvasVideo } from '../lib/canvas-video-input.js';
 import { saveGeneratedVideoAsset } from '../lib/ai-text-assets.js';
@@ -31,7 +31,7 @@ export async function canvasExport(ctx,userId,projectId,runId) {
     const row=await ctx.env.DB.prepare(`SELECT * FROM canvas_video_processing WHERE id=? AND user_id=? AND project_id=? AND ${subject.column}=? AND json_extract(recipe_json,'$.preview') IS NOT NULL`)
       .bind(comparisonId,userId,projectId,subject.id).first();
     if(!row)throw canvasProcessingError('canvas_preview_unavailable','Preview unavailable.',404);
-    return reply({preview:publicCanvasProcessing(row)});
+    return reply({preview:await publicCanvasProcessingStatus(ctx.env,row)});
   }
   const rows=await ctx.env.DB.prepare(`SELECT * FROM canvas_video_processing WHERE user_id=? AND project_id=? AND ${subject.column}=? AND kind='concat' AND json_extract(recipe_json,'$.preview') IS NULL ORDER BY created_at DESC LIMIT 1`).bind(userId,projectId,subject.id).all();
   let task=rows.results?.[0];
@@ -40,7 +40,7 @@ export async function canvasExport(ctx,userId,projectId,runId) {
     const currentHead=await exportHead(ctx.env,userId,runId);
     const latest=selected||currentHead.latest;
     const previous=currentHead.current||await ctx.env.DB.prepare(`SELECT * FROM canvas_video_processing WHERE user_id=? AND project_id=? AND ${subject.column}=? AND kind='concat' AND recipe_json IS NULL AND asset_id IS NOT NULL ORDER BY created_at DESC LIMIT 1`).bind(userId,projectId,subject.id).first();
-    return {export:latest?publicCanvasProcessing(latest):null,current:previous?publicCanvasProcessing(previous):null,eligible:true,limits:CANVAS_VIDEO_LIMITS};
+    return {export:latest?await publicCanvasProcessingStatus(ctx.env,latest):null,current:previous?await publicCanvasProcessingStatus(ctx.env,previous):null,eligible:true,limits:CANVAS_VIDEO_LIMITS};
   };
   if(ctx.method==='GET') {
     const {availableClips,chain}=await canvasMergeView(ctx.env,userId,projectId,runId);
@@ -50,7 +50,7 @@ export async function canvasExport(ctx,userId,projectId,runId) {
       const id=await canvasExportId(userId,projectId,runId,requestKey);
       requested=await ctx.env.DB.prepare(`SELECT * FROM canvas_video_processing WHERE id=? AND user_id=? AND project_id=? AND ${subject.column}=? AND kind='concat' AND json_extract(recipe_json,'$.preview') IS NULL`).bind(id,userId,projectId,subject.id).first();
     }
-    const current=requested?await result(requested):head.latest?await result(head.latest):task?{export:publicCanvasProcessing(task),eligible:true}:{export:null,eligible:!chain.error};
+    const current=requested?await result(requested):head.latest?await result(head.latest):task?{export:await publicCanvasProcessingStatus(ctx.env,task),eligible:true}:{export:null,eligible:!chain.error};
     return reply({...current,...(requestKey!==null?{submission:{found:Boolean(requested)}}:{}),assembly:project.assembly_json?canvasAssembly(JSON.parse(project.assembly_json)):null,revision:project.revision,availableClips,chain,clips:chain.clips.length,chainError:chain.error,limits:CANVAS_VIDEO_LIMITS});
   }
   const parsed=await readJsonBodyOrResponse(ctx.request,{maxBytes:BODY_LIMITS.smallJson});
@@ -81,7 +81,7 @@ export async function canvasExport(ctx,userId,projectId,runId) {
         throw canvasProcessingError('canvas_export_idempotency_conflict');
       // A lost response, including one spanning deployment, observes the same
       // immutable job. Never turn a replay into a second render.
-      return reply(recipe.preview?{preview:publicCanvasProcessing(existing)}:await result(existing),202);
+      return reply(recipe.preview?{preview:await publicCanvasProcessingStatus(ctx.env,existing)}:await result(existing),202);
     }
     const view=await canvasMergeView(ctx.env,userId,projectId,runId);
     const assembly=usesAssembly&&project.assembly_json?canvasAssembly(JSON.parse(project.assembly_json)):null;
@@ -114,14 +114,14 @@ export async function canvasExport(ctx,userId,projectId,runId) {
         await ctx.env.DB.prepare('INSERT OR IGNORE INTO canvas_preview_requests(request_id,job_id) VALUES(?,?)').bind(requestId,cached.id).run();
         const alias=await ctx.env.DB.prepare('SELECT job_id FROM canvas_preview_requests WHERE request_id=?').bind(requestId).first();
         if(alias?.job_id!==cached.id)throw canvasProcessingError('canvas_export_idempotency_conflict');
-        return reply({preview:publicCanvasProcessing(cached)},202);
+        return reply({preview:await publicCanvasProcessingStatus(ctx.env,cached)},202);
       }
       const previous=await ctx.env.DB.prepare(`SELECT id FROM canvas_video_processing WHERE user_id=? AND project_id=? AND ${subject.column}=? AND recipe_json=? ORDER BY created_at DESC LIMIT 1`)
         .bind(userId,projectId,subject.id,JSON.stringify(recipe)).first();
       key='seam-'+await sha256Hex(JSON.stringify([recipe,previous?.id||null]));
     }
     task=await enqueueCanvasProcessing(ctx.env,{userId,projectId,runId,kind:'concat',recipe,requestKey:key,requestAlias:recipe.preview?requestId:null,admission,sources:[...videos,...(recipe.music?[recipe.music]:[])]});
-    if(recipe.preview)return reply({preview:publicCanvasProcessing(task)},202);
+    if(recipe.preview)return reply({preview:await publicCanvasProcessingStatus(ctx.env,task)},202);
     return reply(await result(task),202);
   }
   if(Object.keys(parsed.body).length) throw canvasProcessingError('unsupported_option');
@@ -136,7 +136,7 @@ export async function canvasExport(ctx,userId,projectId,runId) {
       task=await ctx.env.DB.prepare('SELECT * FROM canvas_video_processing WHERE id=?').bind(task.id).first();
     }
     if(['queued','preview_pending'].includes(task.status))await notifyPrivateMedia(ctx.env,task.status==='preview_pending'?task.thumbnail_backend:task.processing_backend);
-  return reply({export:publicCanvasProcessing(task),eligible:true,limits:CANVAS_VIDEO_LIMITS},202);
+  return reply({export:await publicCanvasProcessingStatus(ctx.env,task),eligible:true,limits:CANVAS_VIDEO_LIMITS},202);
   }
   if(task.recipe_json) {
     // Retry an accepted recipe with its original sources/settings, even after
@@ -159,7 +159,7 @@ export async function canvasExport(ctx,userId,projectId,runId) {
     task=await ctx.env.DB.prepare('SELECT * FROM canvas_video_processing WHERE id=?').bind(task.id).first();
   }
   if(['queued','preview_pending'].includes(task.status))await notifyPrivateMedia(ctx.env,task.status==='preview_pending'?task.thumbnail_backend:task.processing_backend);
-  return reply({export:publicCanvasProcessing(task),eligible:true,limits:CANVAS_VIDEO_LIMITS},202);
+  return reply({export:await publicCanvasProcessingStatus(ctx.env,task),eligible:true,limits:CANVAS_VIDEO_LIMITS},202);
 }
 
 // Existing private processor credential + expiring per-job lease. Neither source

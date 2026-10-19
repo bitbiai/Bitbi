@@ -17,8 +17,12 @@ export async function runCanvasReadinessRecoveryTests(f){
   };
   await runCanvasTests(scoped);
   assert.deepEqual(fresh,canvasReadinessRecoveryInventory,'Missing or reordered fresh readiness callbacks');
-  const retained=discovery.filter(name=>!canvasReadinessRecoveryInventory.includes(name));
+  // This later case belongs to export-delivery acceptance; it was never a
+  // published readiness pass and must not be relabelled as retained evidence.
+  const unselected=discovery.filter(name=>name==='canvas_native_canvas_agent_native_duration');
+  assert.deepEqual(unselected,['canvas_native_canvas_agent_native_duration']);
+  const retained=discovery.filter(name=>!canvasReadinessRecoveryInventory.includes(name)&&!unselected.includes(name));
   assert.equal(retained.length,251,'Retained readiness Canvas inventory changed');
   assert.equal(createHash('sha256').update(JSON.stringify(retained)).digest('hex'),'3bcde3da85495a7cfa8190ca3ad20f8f255c7b065941f88cfbf5d1c75cd3640f','Retained readiness membership/order changed');
-  f.metrics.push({readinessRecovery:{retained,fresh,discovery}});
+  f.metrics.push({readinessRecovery:{retained,fresh,discovery,unselected}});
 }

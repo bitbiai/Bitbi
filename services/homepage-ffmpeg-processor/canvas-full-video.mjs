@@ -6,7 +6,7 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import {smoothVideoSeams,SEAM_POLICY} from './canvas-seams.mjs';
 import {AUDIO_FIT_POLICY,pictureTiming,audioFitReport,fittedSourceFilter,cutSafeSettings} from './canvas-audio-fit.mjs';
-import {classifyMediaFailure,safeCanvasDiagnostic,safeCanvasFailureCode} from './canvas-diagnostics.mjs';
+import {classifyMediaFailure,safeCanvasDiagnostic,canvasProcessingFailure} from './canvas-diagnostics.mjs';
 import { canvasAssembly, verifyCanvasDuration } from './canvas-assembly-contract.mjs';
 import { processCanvasInspections } from './canvas-media-inspection.mjs';
 
@@ -373,8 +373,8 @@ export async function processCanvasExports({requestJson,authHeaders,baseUrl,limi
       stages[stage]=(stages[stage]||0)+Date.now()-stageStart;
       console.log(JSON.stringify({phase:'canvas_full_video',job:job.id,attempt:job.attempt,status:'stored',mode:result.mode,elapsedMs:Date.now()-started,stages}));
     } catch(error) {
-      const code=error.code?safeCanvasFailureCode(error.code):['TypeError','TimeoutError','AbortError'].includes(error.name)?'canvas_processing_transient':'canvas_processing_failed';
-      const diagnostic=safeCanvasDiagnostic({stage,errorClass:code==='canvas_processing_transient'?'transient':code==='canvas_processing_deadline'?'deadline':'unknown',...error.diagnostic,elapsedMs:Date.now()-started});
+      const classified=canvasProcessingFailure(error),code=classified.code;
+      const diagnostic=safeCanvasDiagnostic({stage,...classified.diagnostic,elapsedMs:Date.now()-started});
       console.error(JSON.stringify({phase:'canvas_full_video',job:job.id,attempt:job.attempt,code,diagnostic}));process.exitCode=1;
       try{await json(`${base}/${job.id}/fail`,{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({code,diagnostic})});}
       catch{console.error(JSON.stringify({phase:'canvas_full_video',job:job.id,attempt:job.attempt,code:'canvas_failure_report_unconfirmed'}));}

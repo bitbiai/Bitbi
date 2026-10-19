@@ -1,3 +1,4 @@
+import {exportDeliverySources} from './lib/canvas-export-release.mjs';
 import {canvasInspectorSources} from './lib/canvas-inspector-selection.mjs';
 import { discoverRepairSource, repairSelection } from './lib/media-repair-source.mjs';
 import fs from "node:fs";
@@ -152,6 +153,7 @@ try {
   }
   const resolved = resolveFiles(options);
   let selection = selectCiTests(resolved.files, {
+    exportSources: exportDeliverySources(options.base ? options.head : null),
     forceFull: options.forceFull || !!resolved.issue,
     forceReason: resolved.issue || "explicit full regression",
     inspectorSources: options.base ? canvasInspectorSources(options.base, options.head, repoRoot) : null,

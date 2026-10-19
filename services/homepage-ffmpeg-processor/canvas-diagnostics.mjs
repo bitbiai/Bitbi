@@ -7,6 +7,7 @@ export function safeCanvasDiagnostic(value={}) {
     const result={};
     for(const [key,values] of [['stage',stages],['errorClass',classes],['reason',reasons],['tool',new Set(['ffmpeg','ffprobe','media-tool'])],['osCode',osCodes],['signal',new Set(['SIGKILL','SIGTERM','SIGABRT','SIGSEGV','SIGBUS'])]])if(values.has(value?.[key]))result[key]=value[key];
     for(const key of ['elapsedMs','exit'])if(Number.isSafeInteger(value?.[key])&&value[key]>=0&&value[key]<=(key==='exit'?255:900000))result[key]=value[key];
+    if(Number.isInteger(value?.httpStatus)&&value.httpStatus>=400&&value.httpStatus<=599)result.httpStatus=value.httpStatus;
     if(value?.exit===null)result.exit=null;
     if(value?.signal===null)result.signal=null;
     return result;
@@ -24,5 +25,17 @@ export function classifyMediaFailure({stderr='',osCode,deadline=false,outputLimi
 }
 export const canvasFailureCanRetry=code=>['canvas_processing_transient','canvas_source_unavailable'].includes(code);
 
-const failureCodes=new Set(('assembly_invalid assembly_sources_changed trim_invalid trim_outside_source duration_target_invalid duration_invalid duration_target_missed audio_fit_policy_invalid audio_tail_exceeds_video duration_limit frame_rate_unsupported media_limits music_ambiguous music_gain_invalid music_invalid music_unavailable orientation_unsupported output_incomplete output_size_limit picture_timeline_mismatch processing_deadline processing_failed processing_transient processor_protocol sample_aspect_ratio_unsupported seam_index_invalid seam_policy_invalid source_changed source_invalid source_name_invalid source_route_invalid source_size sources_invalid spatial_policy_unsupported stream_layout_unsupported temporary_size_limit transition_invalid transition_too_long transition_incomplete media_timing_invalid seam_decode_incomplete seam_output_mismatch media_output_limit media_filter_invalid media_invalid media_resource_limit media_configuration media_tool_failed source_unavailable poster_failed').split(' ').map(code=>'canvas_'+code));
+const failureCodes=new Set(('assembly_invalid assembly_sources_changed trim_invalid trim_outside_source duration_target_invalid duration_invalid duration_target_missed audio_fit_policy_invalid audio_tail_exceeds_video duration_limit frame_rate_unsupported media_limits music_ambiguous music_changed music_gain_invalid music_invalid music_unavailable orientation_unsupported output_incomplete output_size_limit picture_timeline_mismatch processing_deadline processing_failed processing_transient processor_protocol sample_aspect_ratio_unsupported seam_index_invalid seam_policy_invalid source_changed source_invalid source_name_invalid source_route_invalid source_size sources_invalid spatial_policy_unsupported stream_layout_unsupported temporary_size_limit transition_invalid transition_too_long transition_incomplete media_timing_invalid seam_decode_incomplete seam_output_mismatch media_output_limit media_filter_invalid media_invalid media_resource_limit media_configuration media_tool_failed source_unavailable poster_failed').split(' ').map(code=>'canvas_'+code));
 export const safeCanvasFailureCode=code=>failureCodes.has(code)?code:'canvas_processing_failed';
+
+// requestJson reports HTTP errors with status/body, unlike subprocess errors.
+// Only the status and allowlisted backend code cross the diagnostic boundary.
+// A failed completion response is reconciled against committed bytes by Auth
+// before its existing bounded retry policy can admit another render.
+export function canvasProcessingFailure(error={}) {
+    const httpStatus=Number.isInteger(error.status)&&error.status>=400&&error.status<=599?error.status:null;
+    const transient=httpStatus===429||httpStatus>=500||['TypeError','TimeoutError','AbortError'].includes(error.name);
+    const code=error.code?safeCanvasFailureCode(error.code):transient?'canvas_processing_transient':safeCanvasFailureCode(error.body?.code);
+    return {code,diagnostic:safeCanvasDiagnostic({errorClass:code==='canvas_processing_transient'?'transient':code==='canvas_processing_deadline'?'deadline':'unknown',
+      ...(transient?{reason:'transport'}:{}),...error.diagnostic,...(httpStatus?{httpStatus}:{})})};
+}

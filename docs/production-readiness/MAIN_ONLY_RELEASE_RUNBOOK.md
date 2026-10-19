@@ -732,6 +732,21 @@ ancestry only prevents duplicated footage. New admission atomically checks the
 validated node/graph snapshot; accepted keys, processor retries, saved exports and
 originals keep their immutable contract.
 
+Private-media wake acceptance, container acknowledgement, runner acquisition and
+job claim are separate receipts. For an exhausted delivery, read the existing
+Admin service status and the exact owned export first; preserve any saved final
+asset. The existing `POST /api/admin/private-media/service` accepts a scoped
+`retryDelivery` object (`jobId`, `expectedDispatchUpdatedAt`, `diagnosticRef`,
+stable `requestId`, and initially `dryRun:true`) plus a bounded `reason`.
+Execution needs task-specific recovery authorization and the same Admin/MFA/CSRF
+guards. It records audit acceptance before preparing a bounded delivery window,
+then renews only that activation's post-processing lease. Retry an interrupted
+operator request with the same identity; do not reset job attempts or rotate an
+unknown activation. This operation does not fix invalid trims, change a recipe,
+restart AI inference or alter credits. See
+[`retryPrivateMediaDelivery`](../../workers/auth/src/lib/private-media-service.js)
+and the private-media entry in the regression register.
+
 Use existing Canvas Worker/native and EN/DE Chromium/WebKit callers for this boundary.
 The selection guard distinguishes graph/UI changes from processor changes: unchanged
 `center-crop-v1` processing reuses its image and evidence. Do not rebuild/redeploy the

@@ -48,6 +48,7 @@ export async function testCanvasConcatenation() {
 export async function testCanvasConcatenationCore() {
   await testCanvasAssemblyProcessing();
   await testMediaCommandDiagnostics();
+  await testCanvasProcessorStorageRecovery();
   assert.equal(processingTimeout(720000,0),120000);
   assert.equal(processingTimeout(720000,719000),1000);
   assert.throws(()=>processingTimeout(720000,720000),/canvas_processing_deadline/);
@@ -118,6 +119,156 @@ export async function testCanvasConcatenationCore() {
     assert((await readFile(full.output)).byteLength>1000);
     console.log(JSON.stringify({test:'canvas-full-video-native-ffmpeg',two:pair.mode,five:full.mode,duration:full.duration,pixelOrder:'PASS',audioAndSilence:'PASS'}));
   } finally {await rm(dir,{recursive:true,force:true});}
+}
+
+// Actual processor entrypoint -> authenticated HTTP -> private runner -> claim,
+// downloads, clean-base and final completion. The backend is synthetic; FFmpeg,
+// requestJson, error classification and uploaded MP4s are the production code.
+export async function testCanvasProcessorStorageRecovery() {
+  const {createServer}=await import('node:http'),{spawn}=await import('node:child_process');
+  const {once}=await import('node:events');
+  const {AUDIO_FIT_POLICY}=await import('./canvas-audio-fit.mjs');
+  const {SEAM_POLICY}=await import('./canvas-seams.mjs');
+  const {TRANSITION_POLICY}=await import('./canvas-transition-contract.mjs');
+  const {canvasProcessingFailure}=await import('./canvas-diagnostics.mjs');
+  const dir=await mkdtemp(path.join(tmpdir(),'canvas-processor-storage-'));
+  const base='/api/internal/homepage/hero-videos',exports=base+'/canvas-exports/jobs',token='1'.repeat(32),claim='2'.repeat(32);
+  let current,serverError=null,children=new Set();
+  const server=createServer(async(req,res)=>{
+    try {
+      assert.equal(req.headers.authorization,'Bearer synthetic-storage-only');
+      const url=new URL(req.url,'http://synthetic.invalid'),chunks=[];for await(const chunk of req)chunks.push(chunk);
+      const bytes=Buffer.concat(chunks),send=(status,data)=>{res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:status===200,...(status===200?{data}:data)}));};
+      const json=()=>JSON.parse(bytes.toString()||'{}');
+      current.routes.push(`${req.method} ${url.pathname}`);
+      if(url.pathname===base+'/private-media/runner') {
+        const body=json();assert.equal(body.token,token);assert.equal(body.runner,'storage-regression');
+        assert(['acquire','heartbeat','finish'].includes(body.action));
+        if(body.action==='acquire')current.acquires++;
+        if(body.action==='finish')current.finishes++;
+        return send(200,{pending:0,previews:{hero:false,stream:false}});
+      }
+      if(url.pathname===base+'/reference-videos/jobs/claim')return send(200,{jobs:[]});
+      if(url.pathname===exports+'/claim') {
+        if(req.method==='GET')return send(200,{protocol:1,recipeProtocol:9,previewBase:1});
+        assert.equal(json().recipeProtocol,9);
+        const eligible=!current.saved&&!current.terminal;
+        if(eligible)current.claims++;
+        return send(200,{jobs:eligible?[{...current.job,attempt:current.claims}]:[]});
+      }
+      if(url.pathname===base+'/source-posters/jobs/claim') {
+        if(current.posterFailure&&current.saved)return send(503,{code:'synthetic_poster_claim_unavailable'});
+        return send(200,{jobs:[]});
+      }
+      const source=url.pathname.match(new RegExp(`^${exports}/${current.job.id}/source/(\\d+)$`));
+      if(source) {
+        assert.equal(req.headers['x-bitbi-canvas-claim'],claim);current.downloads++;
+        const content=current.inputs[Number(source[1])];assert(content);res.writeHead(200);return res.end(content);
+      }
+      if(url.pathname===`${exports}/${current.job.id}/complete`) {
+        assert.equal(req.headers['x-bitbi-canvas-claim'],claim);
+        const form=await new Response(bytes,{headers:{'Content-Type':req.headers['content-type']}}).formData();
+        const video=Buffer.from(await form.get('video').arrayBuffer());assert.equal(video.subarray(4,8).toString(),'ftyp');
+        assert(Math.abs(Number(form.get('duration'))-1.5)<.001);
+        const preview=url.searchParams.get('part')==='preview-base';
+        current[preview?'previewCalls':'finalCalls']++;
+        if(current.failure?.stage===(preview?'preview':'final')&&!current.failedOnce) {
+          current.failedOnce=true;
+          if(current.failure.commit){current.saved=video;current.savedCount++;res.destroy();return;}
+          return send(current.failure.status,{code:current.failure.code||'private-storage-unavailable',detail:'private-token https://private.invalid/secret'});
+        }
+        if(preview){current.clean=video;return send(200,{base_stored:true});}
+        assert(!current.saved,'An already committed video must not be uploaded again');
+        current.saved=video;current.savedCount++;
+        return send(200,{asset_id:current.job.id,status:'preview_pending'});
+      }
+      if(url.pathname===`${exports}/${current.job.id}/fail`) {
+        const failure=json();current.failures.push(failure);
+        assert(!bytes.toString().includes('private-token'));assert(!bytes.toString().includes('private.invalid'));
+        // Mirror the existing receipt-first branch, not a fresh render after an
+        // acknowledgement is lost. Native D1 tests exercise the actual writer.
+        if(!current.saved)current.terminal=failure.code!=='canvas_processing_transient';
+        return send(200,{recorded:true});
+      }
+      assert.fail(`Unexpected processor operation: ${req.method} ${url.pathname}`);
+    } catch(error){serverError||=error;res.writeHead(500);res.end('{}');}
+  });
+  const run=async()=>{
+    const child=spawn(process.execPath,[new URL('./processor.mjs',import.meta.url).pathname],{detached:true,env:{PATH:process.env.PATH,
+      AUTH_WORKER_BASE_URL:`http://127.0.0.1:${server.address().port}`,MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET:'synthetic-storage-only',
+      PRIVATE_MEDIA_DISPATCH:token,PRIVATE_MEDIA_RUNNER:'storage-regression',MEMBER_GENERATION_POSTERS_ONLY:'1'},stdio:['ignore','pipe','pipe']});
+    children.add(child);let output='';for(const stream of [child.stdout,child.stderr])stream.on('data',chunk=>{output=(output+chunk).slice(-20000);});
+    const timer=setTimeout(()=>{try{process.kill(-child.pid,'SIGKILL');}catch{}},120000);
+    try {const [code,signal]=await once(child,'close');assert.equal(signal,null,'The actual processor must terminate within its fixture deadline');
+      if(serverError)throw serverError;
+      assert(!output.includes('private-token'));assert(!output.includes('private.invalid'));return {code,output};
+    } finally {clearTimeout(timer);children.delete(child);}
+  };
+  const decode=file=>{const result=spawnSync('ffmpeg',['-v','error','-i',file,'-vn','-ac','1','-ar','48000','-f','f32le','-'],{maxBuffer:5_000_000});assert.equal(result.status,0);return result.stdout;};
+  const amplitude=(pcm,hz,start)=>{let re=0,im=0;const offset=Math.round(start*48000),n=4800;assert((offset+n)*4<=pcm.length);
+    for(let i=0;i<n;i++){const v=pcm.readFloatLE((offset+i)*4),angle=2*Math.PI*hz*i/48000;re+=v*Math.cos(angle);im+=v*Math.sin(angle);}return 2*Math.hypot(re,im)/n;};
+  try {
+    const files=[];
+    for(const [i,color] of ['red','blue'].entries()) {
+      const file=path.join(dir,`source-${i}.mp4`);files.push(file);
+      await mediaCommand('ffmpeg',['-v','error','-y','-f','lavfi','-i',`color=c=${color}:s=160x90:r=24:d=0.75`,
+        ...(i===0?['-f','lavfi','-i','sine=frequency=400:sample_rate=48000:duration=0.75']:[]),'-c:v','libx264','-threads','1','-pix_fmt','yuv420p',...(i===0?['-c:a','aac']:[]),file]);
+    }
+    const clips=await Promise.all(files.map(file=>readFile(file))),music=[];
+    for(const duration of [.35,3]) {const file=path.join(dir,`music-${duration}.wav`);await mediaCommand('ffmpeg',['-v','error','-y','-f','lavfi','-i',`sine=frequency=1200:sample_rate=48000:duration=${duration}`,'-ac','2',file]);music.push(await readFile(file));}
+    const original=amplitude(decode(files[0]),400,.2);assert(original>.08);
+    server.listen(0,'127.0.0.1');await once(server,'listening');
+    const scenarios=[
+      {name:'preview-transient',failure:{stage:'preview',status:503},music:0,retry:true},
+      {name:'final-rate-limit',failure:{stage:'final',status:429},music:1,retry:true},
+      {name:'committed-ack-lost',failure:{stage:'final',commit:true},music:0,retry:true},
+      {name:'permanent-source-change',failure:{stage:'preview',status:409,code:'canvas_music_changed'},music:0,terminal:true},
+      {name:'poster-unavailable',music:1,posterFailure:true},
+      {name:'music-off',music:null},
+    ];
+    for(const [index,scenario] of scenarios.entries()) {
+      const id=(index+3).toString(16).repeat(32),inputs=[...clips,...(scenario.music===null?[]:[music[scenario.music]])];
+      current={...scenario,terminal:false,inputs,routes:[],acquires:0,finishes:0,claims:0,downloads:0,previewCalls:0,finalCalls:0,savedCount:0,failures:[],saved:null,clean:null,
+        job:{id,claim,recipeVersion:8,limits:{sourceBytes:400_000_000,outputBytes:80_000_000,durationSeconds:600},spatialPolicy:'center-crop-v1',
+          smoothJoins:{policy:SEAM_POLICY,enabled:false},originalAudioPolicy:AUDIO_FIT_POLICY,transitionPolicy:TRANSITION_POLICY,transitions:[{preset:'none'}],
+          assembly:{version:1,clips:files.map((_,i)=>({nodeId:(i+1).toString(16).repeat(32),trim:{start:0},transition:{preset:'none'}})),target:{seconds:1.5,mode:'creative'}},
+          originalAudio:files.map(()=>({enabled:true,gain:.5,fadeIn:0,fadeOut:0})),backgroundMusic:{enabled:scenario.music!==null,gain:.5,fadeIn:0,fadeOut:0},
+          sources:inputs.map((bytes,i)=>({url:`${exports}/${id}/source/${i}`,size:bytes.length,kind:i===2?'music':'video'}))}};
+      const first=await run();assert.equal(first.code,scenario.failure||scenario.posterFailure?1:0,first.output);
+      assert.equal(current.finishes,1,'The private runner releases its activation after success or failure');
+      if(scenario.failure) {
+        assert.equal(current.failures.length,1);
+        assert.equal(current.failures[0].code,scenario.terminal?'canvas_music_changed':'canvas_processing_transient');
+        assert.equal(current.failures[0].diagnostic.stage,scenario.failure.stage==='preview'?'preview_upload':'complete');
+        if(scenario.failure.status)assert.equal(current.failures[0].diagnostic.httpStatus,scenario.failure.status);
+        if(!scenario.failure.commit)assert.equal(current.saved,null,'A clean base or failed completion is not the requested final export');
+      }
+      if(scenario.retry) {
+        const repeated=await run();assert.equal(repeated.code,0,repeated.output);
+        assert.equal(current.claims,scenario.failure.commit?1:2,'A saved final artifact is reconciled without another render');
+        assert.equal(current.savedCount,1);
+        if(scenario.failure.commit)assert.equal(current.finalCalls,1);
+      }
+      if(scenario.terminal){assert(current.terminal);assert.equal(current.saved,null);continue;}
+      assert(current.saved);assert.equal(current.savedCount,1);
+      const output=path.join(dir,`${scenario.name}.mp4`);await writeFile(output,current.saved);
+      const inspected=await inspectClip(output);assert.equal(inspected.videoDuration,1.5);assert.equal(Number(inspected.video.nb_frames),36);assert.equal(inspected.video.width,160);assert.equal(inspected.video.height,90);
+      const pcm=decode(output);assert(Math.abs(amplitude(pcm,400,.2)/original-.5)<.06,'Requested source audio gain survives the actual upload');
+      assert(amplitude(pcm,400,1)<.001,'Audio-less source does not inherit another clip audio');
+      const audible=audio=>amplitude(audio,1200,.2)>.025&&amplitude(audio,1200,1.25)>.025;
+      if(scenario.music!==null){assert(audible(pcm),'The uploaded MP4 contains audible selected music across both clips');
+        const clean=path.join(dir,'clean.mp4');await writeFile(clean,current.clean);assert(!audible(decode(clean)),'The same oracle rejects the unscored preview base');}
+      else assert(!audible(pcm),'Music-off never invents a background soundtrack');
+      for(const [at,channel] of [[.2,0],[1,2]]) {const pixel=spawnSync('ffmpeg',['-v','error','-ss',String(at),'-i',output,'-frames:v','1','-vf','scale=1:1','-f','rawvideo','-pix_fmt','rgb24','-'],{maxBuffer:100000});assert.equal(pixel.status,0);assert(pixel.stdout[channel]>200);assert(pixel.stdout[(channel+1)%3]<50);}
+      for(const [i,file] of files.entries())assert.deepEqual(await readFile(file),clips[i],'Owned original bytes stay unchanged');
+    }
+    for(const status of [400,401,403,404,409,422])assert.notEqual(canvasProcessingFailure({status,body:{code:'untrusted-code',detail:'private-token'}}).code,'canvas_processing_transient','Permanent admission/ownership failures must not become retries');
+    assert.equal(canvasProcessingFailure({status:503,body:{code:'private-token'}}).code,'canvas_processing_transient');
+    console.log('Canvas processor HTTP storage: preview 503/final 429 bounded recovery, committed final lost acknowledgement, permanent 409, poster outage after saved video, actual uploaded source/music tone gains and order, short/long/music-off and clean-base broken control passed.');
+  } finally {
+    for(const child of children)try{process.kill(-child.pid,'SIGKILL');}catch{}
+    server.closeAllConnections();await new Promise(resolve=>server.close(resolve));await rm(dir,{recursive:true,force:true});
+  }
 }
 
 export async function testCenterCrop() {

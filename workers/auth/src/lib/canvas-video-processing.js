@@ -85,6 +85,18 @@ export function publicCanvasProcessing(row) {
     asset:row.asset_id?{id:row.asset_id,file_url:`/api/ai/text-assets/${row.asset_id}/file`,poster_url:row.status==='ready'?`/api/ai/text-assets/${row.asset_id}/poster`:null}:null};
 }
 
+// Ownership is resolved by the caller before projection. An unclaimed queued
+// export may expose a proven shared renderer outage, never a guessed FFmpeg stage
+// or a dispatch credential. A saved final video always keeps its own result state.
+export async function publicCanvasProcessingStatus(env,row) {
+  const result=publicCanvasProcessing(row);
+  if(row.processing_backend==='cloudflare'&&row.status==='queued'&&!row.asset_id&&(!row.locked_until||row.locked_until<=nowIso())) {
+    const delivery=await env.DB.prepare("SELECT error_code FROM private_media_dispatch WHERE backend='cloudflare'").first();
+    if(delivery?.error_code==='media_delivery_exhausted')result.processing={stage:'waiting_for_media',blocked:true,errorCode:delivery.error_code,diagnosticRef:row.id};
+  }
+  return result;
+}
+
 export async function claimCanvasProcessing(env,kind,limit,backend='github',recipeProtocol=0) {
   const now=nowIso();
   const rows=await env.DB.prepare(`SELECT * FROM canvas_video_processing WHERE

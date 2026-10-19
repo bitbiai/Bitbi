@@ -15,6 +15,7 @@ import { canvasAgentEvaluationStep } from './canvas-agent-evaluation.js';
 import { stablePricingJson } from '../../../../js/shared/model-tariff.mjs';
 import { canvasAssembly } from '../../../../js/shared/canvas-assembly.mjs';
 import { prepareCanvasAgentPriceInput, canvasAgentDependencyKind } from './canvas-agent-price-input.js';
+import { canvasGenerationSettings } from '../../../../js/shared/canvas-generation-settings.mjs';
 
 const TYPE_KIND={text_generation:'text',image_generation:'image',video_generation:'video',music_generation:'music'};
 function validateConfig(model,config,prompt) {
@@ -76,7 +77,7 @@ async function calculateCanvasAgentGraph(env,run,view,inventory,rawPlan,repairNo
         const updated={...old,prompt:u.prompt,config,update:true};
         specs.set(updated.key,updated);return updated;
     })];
-    const steps=[],now=nowIso();
+    const steps=[],effectiveInputs=new Map(),now=nowIso();
     for(const node of changes){
         if(node.type==='note')continue;
         const model=getCanvasModelForRole(node.modelId,'member');
@@ -114,6 +115,7 @@ async function calculateCanvasAgentGraph(env,run,view,inventory,rawPlan,repairNo
         // Feasibility uses the same body builder as normal Canvas. References
         // are priced conservatively here and checked again at real admission.
         const input=prepareCanvasAgentPriceInput({node,model,dependencies:references,existingNodes:view.nodes});
+        effectiveInputs.set(node.key,input);
         if(model.id==='google/gemini-omni-flash')await assertOmniReady(env,input);
         const quote=await quoteModelTariff(env,{modelId:node.modelId,input});
         if(!Number.isSafeInteger(quote.credits)||quote.credits<1)agentFail('model_pricing_unavailable');
@@ -130,7 +132,11 @@ async function calculateCanvasAgentGraph(env,run,view,inventory,rawPlan,repairNo
     const plannedDurations=plan.assembly.clips.map(clip=>{
         const spec=specs.get(clip.key),available=inventory.models.find(m=>m.id===spec.modelId);
         const old=view.nodes.find(node=>node.id===spec.id),output=old&&JSON.parse(old.output_json||'{}');
-        const requested=spec.config.duration??spec.config.seedance25?.duration;
+        // Duration belongs to the same native request used for quotation and
+        // execution. Seedance's nested controls intentionally ignore generic
+        // duration; an unused top-level value cannot authorize longer trims.
+        const model=getCanvasModelForRole(spec.modelId,'member');
+        const requested=(effectiveInputs.get(spec.key)??(model?canvasGenerationSettings(spec.config,model,spec.prompt):null))?.duration;
         const known=(!spec.update?(output?.duration??output?.durationSeconds):null)??(requested>0?requested:null)
             ??(available?.controls.supportsDuration===false?null:available?.controls.duration?.default);
         if(Number.isFinite(known)&&known>0&&(clip.trim.start>=known||clip.trim.duration!==undefined&&clip.trim.start+clip.trim.duration>known+0.0001)){
