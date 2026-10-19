@@ -24,6 +24,11 @@ import {testLocalMediaProcess} from './test-local-media-process.mjs';
 const assistantPreflightTail=process.argv.includes('--assistant-preflight-only');
 if(assistantPreflightTail)assert.deepEqual(process.argv.slice(2),['--assistant-preflight-only']);
 
+if(process.argv.includes('--assistant-native-rate-only')) {
+  assert.deepEqual(process.argv.slice(2),['--assistant-native-rate-only']);
+  await testAssistantNativeRate();process.exit(0);
+}
+
 if(process.argv.includes('--assistant-native-tail-only')) {
   assert.deepEqual(process.argv.slice(2),['--assistant-native-tail-only']);
   await testAssistantNativeTail();process.exit(0);
@@ -2995,3 +3000,186 @@ else: raise AssertionError('Foreign scope accepted')
  console.log(marker);
 }
 await testAssistantNativeTail();
+
+async function testAssistantNativeRate() {
+ const repositoryRoot=fs.realpathSync(new URL('..',import.meta.url));
+ const {ASSISTANT_NATIVE_RATE:p,canvasPreflightProfile,assertCanvasPreflightTree,canvasPreflightPrefix,
+  assistantNativeRateGuard,assistantNativeRateContinuation,verifyAssistantNativeRate,
+  verifyAssistantNativeRateUnion}=await import('./lib/local-release-evidence.mjs');
+ const marker='Assistant native rate tail: 1630 Worker, media, 30 launcher and 334 native passes retained; exact 100 remaining Canvas callbacks required with full isolation and inventory evidence.';
+ assert.equal(canvasPreflightProfile(p.source),p);
+ assert.equal(assistantNativeRateGuard('npm run test:local-release'),'npm run test:local-release -- --assistant-native-rate-only');
+ for(const command of ['true','npm run test:local-release -- --assistant-native-only','npm run test:local-release\nnpm run test:workers'])assert.throws(()=>assistantNativeRateGuard(command));
+ for(const index of [0,2,3,12,14,15,17,34,40,41,42,43,44,45,46,47,48,49,50,51])assert(!p.retain.includes(index),'Affected verification and unexecuted browser gates remain fresh');
+ assert(p.retain.includes(36),'Unchanged hosting proof still requires a fresh candidate and strict byte rebind');
+ const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-assistant-native-rate-')),bare=path.join(temporary,'git'),previousGitDir=process.env.GIT_DIR;
+ try {
+  execFileSync('git',['init','--bare',bare],{stdio:'pipe'});
+  fs.writeFileSync(path.join(bare,'objects/info/alternates'),path.resolve(execFileSync('git',['rev-parse','--git-path','objects'],{encoding:'utf8'}).trim())+'\n');
+  const env={...process.env,GIT_AUTHOR_NAME:'Synthetic',GIT_AUTHOR_EMAIL:'synthetic@example.invalid',GIT_COMMITTER_NAME:'Synthetic',GIT_COMMITTER_EMAIL:'synthetic@example.invalid'};
+  const read=(args,input)=>execFileSync('git',['--git-dir',bare,...args],{env,input,stdio:['pipe','pipe','pipe'],maxBuffer:64*1024*1024});
+  const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),reviewed=read(['rev-list','--ancestry-path','--reverse',`${p.source}..${head}`]).toString().trim().split('\n')[0];
+  assert(reviewed,'The closed native rate fixture requires its committed reviewed successor');
+  const tooling=['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs'];
+  const fixes=Object.fromEntries([...new Set([...Object.keys(p.specs),...tooling])].map(file=>[file,read(['show',`${reviewed}:${file}`])]));
+  for(const[file,hash]of Object.entries(p.specs))assert.equal(sha256(fixes[file]),hash,'Reviewed native rate correction must match its pin');
+  const commit=(changes,parent=p.source)=>{
+   read(['read-tree',p.source]);for(const[file,value]of Object.entries(changes)){
+    if(value===null){read(['update-index','--index-info'],Buffer.from(`0 ${'0'.repeat(40)}\t${file}\n`));continue;}
+    const blob=read(['hash-object','-w','--stdin'],value.content??value).toString().trim();read(['update-index','--add','--cacheinfo',`${value.mode||'100644'},${blob},${file}`]);
+   }return read(['commit-tree',read(['write-tree']).toString().trim(),'-p',parent],Buffer.from('Synthetic closed assistant native rate\n')).toString().trim();
+  };
+  const accepted=commit(fixes);assertCanvasPreflightTree(accepted,read,p);
+  for(const file of Object.keys(p.specs))for(const value of [null,Buffer.from('Unreviewed fixture'),{mode:'120000',content:Buffer.from('outside')}])assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,[file]:value}),read,p));
+  for(const file of ['workers/auth/src/lib/canvas-agent-conversation.js','workers/auth/migrations/0112_canvas_assistant_models_and_scheduling.sql',
+   'js/pages/canvas/agent-conversation.js','package-lock.json','.github/workflows/static.yml','config/release-validation.yml','scripts/test-q2-runtime-launcher.mjs'])
+   assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,[file]:Buffer.from('Unreviewed passed source')}),read,p));
+  for(const file of tooling)assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,[file]:{mode:'120000',content:Buffer.from('outside')}}),read,p));
+  assert.throws(()=>assertCanvasPreflightTree(commit(fixes,accepted),read,p),'Later successors cannot inherit this closed evidence');
+
+  // Exercise actual registration and routing without invoking a product callback.
+  // Frozen reviewed sources keep this historical guard independent of later cases.
+  const sources=Object.fromEntries(['canvas.mjs','canvas-policy-tail.mjs','runner.mjs','linux-runtime-child.mjs','linux-hosted.mjs','linux-bootstrap.py']
+   .map(name=>[name,read(['show',`${reviewed}:tests/helpers/q2-runtime/${name}`]).toString()]));
+  const sourcesFile=path.join(temporary,'sources.json'),discoveryFile=path.join(temporary,'canvas-discovery.json');fs.writeFileSync(sourcesFile,JSON.stringify(sources));
+  const child=spawnSync(process.execPath,['--experimental-vm-modules','--input-type=module','-e',`
+   import assert from 'node:assert/strict';import fs from 'node:fs';import crypto from 'node:crypto';
+   import{SourceTextModule,SyntheticModule,createContext}from'node:vm';
+   import{verifyCanvasExportSchema,verifyCanvasAssemblyRetentionSchema}from'./scripts/lib/canvas-export-readiness.mjs';
+   const sources=JSON.parse(fs.readFileSync(process.env.SCOPE_SOURCES)),context=createContext({Response,Headers});
+   const synthetic=async(exports,ctx=context)=>{const module=new SyntheticModule(Object.keys(exports),function(){for(const[key,value]of Object.entries(exports))this.setExport(key,value);},{context:ctx});await module.link(()=>{});await module.evaluate();return module;};
+   const basics={'node:assert/strict':{default:assert},'node:fs':{default:fs},'node:crypto':{createHash:crypto.createHash},'../../../scripts/lib/canvas-export-readiness.mjs':{verifyCanvasExportSchema,verifyCanvasAssemblyRetentionSchema}};
+   const full=new SourceTextModule(sources['canvas.mjs'],{context});await full.link(name=>{assert(basics[name],name);return synthetic(basics[name]);});await full.evaluate();
+   const tail=new SourceTextModule(sources['canvas-policy-tail.mjs'],{context,importModuleDynamically:name=>{assert(basics[name],name);return synthetic(basics[name]);}});
+   await tail.link(name=>name==='./canvas.mjs'?full:synthetic(basics[name]));await tail.evaluate();
+   const discover=async run=>{
+    const names=[],setup=[],metrics=[],headers=new Headers();headers.append('set-cookie','__Host-bitbi_session=synthetic; Secure');headers.append('set-cookie','__Host-bitbi_admin_mfa=synthetic; Secure');
+    const f={migrations:['0108','0109','0110','0112'].map(path=>({path,statements:[]})),db:{batch:async()=>{setup.push('migration');}},imageDb:{batch:async()=>{setup.push('image-migration');},prepare:statement=>statement},sql:()=>({run:async()=>{setup.push('sql');}}),
+     rows:async()=>[{sql:'synthetic pre-migration schema'}],scalar:async()=>1,control:async route=>{setup.push(route);return Response.json({cookie:'synthetic',code:'synthetic'});},
+     mf:{dispatchFetch:async()=>Response.json({setup:{secret:'synthetic'}},{headers})},canvasProvider:{requests:[]},counters:{outboundDenied:0},metrics,
+     test:async(name,operation)=>{assert.equal(typeof operation,'function');names.push(name);}};
+    await run(f);return{names,setup,metrics};
+   };
+   assert.equal(tail.namespace.canvasAssistantRateTailRetainedCount,151);assert.equal(tail.namespace.canvasAssistantRateTailCount,251);
+   const all=await discover(full.namespace.runCanvasTests),selected=await discover(tail.namespace.runCanvasAssistantRateTailTests);
+   assert.equal(all.names.length,251);assert.equal(crypto.createHash('sha256').update(JSON.stringify(all.names)).digest('hex'),'3bcde3da85495a7cfa8190ca3ad20f8f255c7b065941f88cfbf5d1c75cd3640f');
+   assert.equal(all.names[0],'canvas_assistant_models_populated_migration');assert.equal(all.names[151],'canvas_image_scheduling_rate_admission');
+   assert.deepEqual(selected.names,all.names.slice(151));assert.deepEqual(selected.setup,all.setup);assert(all.setup.includes('/canvas-assistant-migration-seed'));assert.equal(all.setup.filter(item=>item==='image-migration').length,4,'All isolated image D1 migrations remain outside retained callbacks');
+   assert.deepEqual(JSON.parse(JSON.stringify(selected.metrics)),[{assistantRateTail:{retained:all.names.slice(0,151),discovery:all.names,currentfullcount:251,fresh:all.names.slice(151)}}]);
+   fs.writeFileSync(process.env.SCOPE_DISCOVERY,JSON.stringify(all.names));
+   for(const fault of [null,'first-missing','first-changed','tail-missing','tail-duplicate','tail-order','foreign','extra','operation-failed']){
+    const names=[...all.names],executed=[],markers=[],ctx=createContext({});
+    if(fault==='first-missing')names.shift();if(fault==='first-changed')names[0]='foreign-retained';if(fault==='tail-missing')names.pop();
+    if(fault==='tail-duplicate')names.splice(152,0,names[151]);if(fault==='tail-order')[names[151],names[152]]=[names[152],names[151]];if(fault==='foreign')names[151]='foreign-fresh';if(fault==='extra')names.push('extra');
+    const load=name=>synthetic(name==='./canvas.mjs'?{runCanvasTests:async f=>{markers.push('setup');for(const item of names)await f.test(item,async()=>{executed.push(item);if(fault==='operation-failed')throw Error('Synthetic callback failure');});markers.push('finished');}}:basics[name],ctx);
+    const module=new SourceTextModule(sources['canvas-policy-tail.mjs'],{context:ctx,importModuleDynamically:load});await module.link(load);await module.evaluate();
+    const run=()=>module.namespace.runCanvasAssistantRateTailTests({metrics:[],test:async(name,operation)=>{await operation();}});
+    if(fault)await assert.rejects(run);else{await run();assert.deepEqual(executed,all.names.slice(151));assert.deepEqual(markers,['setup','finished']);}
+    assert(!executed.some(name=>all.names.slice(0,151).includes(name)),'No retained passed callback may execute');if(fault==='operation-failed')assert.deepEqual(executed,[all.names[151]]);
+   }
+   const runnerContext=createContext({}),runner=new SourceTextModule(sources['runner.mjs'],{context:runnerContext});
+   await runner.link(name=>{const statement=sources['runner.mjs'].split('\\n').find(line=>line.includes("from '"+name+"'")||line.includes('from "'+name+'"'));assert(statement,name);
+    const named=statement.match(/import\\s*\\{([^}]+)\\}/);const exports=named?Object.fromEntries(named[1].split(',').map(key=>[key.trim(),name==='./canvas.mjs'?full.namespace[key.trim()]:name==='./canvas-policy-tail.mjs'?tail.namespace[key.trim()]:()=>{}])):{default:{}};
+    return synthetic(exports,runnerContext);});await runner.evaluate();
+   const select=runner.namespace.selectedRuntimeSuites;assert.deepEqual(Array.from(select('canvas-assistant-rate-tail'),row=>row[0]),['canvas']);assert.equal(select('canvas-assistant-rate-tail')[0][1],tail.namespace.runCanvasAssistantRateTailTests);
+   assert.equal(select('canvas')[0][1],full.namespace.runCanvasTests);assert.equal(select(),runner.namespace.runtimeSuites);assert(!Array.from(runner.namespace.runtimeSuites).some(([,run])=>run===tail.namespace.runCanvasAssistantRateTailTests),'Ordinary Full cannot skip historical callbacks');assert.throws(()=>select('canvas-assistant-rate-tail-other'));
+   const parserSource=sources['linux-hosted.mjs'].split('export function parseRuntimeArgs(')[1].split('export function assertHostedBootstrapAllowed')[0];assert(parserSource);
+   const parser=new SourceTextModule('export function parseRuntimeArgs('+parserSource,{context:createContext({})});await parser.link(()=>{throw Error('Unexpected parser dependency');});await parser.evaluate();
+   assert.equal(parser.namespace.parseRuntimeArgs(['--suite','canvas-assistant-rate-tail'],{}).suite,'canvas-assistant-rate-tail');
+   for(const args of [['--suite','canvas-assistant-rate-tail-other'],['--suite','canvas-assistant-rate-tail','--suite','canvas']])assert.throws(()=>parser.namespace.parseRuntimeArgs(args,{}));
+   for(const suite of ['canvas-assistant-rate-tail','canvas-assistant-rate-tail-other'])for(const fault of [null,'platform','uid','gid']){
+    const calls=[],ctx=createContext({process:{platform:fault==='platform'?'darwin':'linux',getuid:()=>fault==='uid'?0:65534,getgid:()=>fault==='gid'?0:65534}});
+    const modules={'node:assert/strict':{default:assert},'node:fs':{readFileSync:file=>{assert.equal(file,'/runtime/boundary.json');calls.push('boundary');return JSON.stringify({suite});}},'./runner.mjs':{runQ2Runtime:async(args,selected)=>{assert.deepEqual(Array.from(args),['--artifacts','/artifacts']);assert.equal(selected,suite);calls.push('run');}}};
+    const load=name=>{assert(modules[name]);calls.push(name);return synthetic(modules[name],ctx);};const module=new SourceTextModule(sources['linux-runtime-child.mjs'],{context:ctx,importModuleDynamically:load});await module.link(load);
+    if(!fault&&suite==='canvas-assistant-rate-tail'){await module.evaluate();assert.deepEqual(calls,['node:assert/strict','node:fs','boundary','./runner.mjs','run']);}
+    else{await assert.rejects(module.evaluate());assert(!calls.includes('./runner.mjs'));if(fault)assert(!calls.includes('boundary'));}
+   }
+  `],{cwd:repositoryRoot,env:{...process.env,SCOPE_SOURCES:sourcesFile,SCOPE_DISCOVERY:discoveryFile},encoding:'utf8',timeout:15000});
+  assert.equal(child.status,0,child.stderr);const inventory=JSON.parse(fs.readFileSync(discoveryFile));
+  assert.equal(new Set(inventory).size,251);
+  const bootstrap=spawnSync('python3',['-c',`import argparse,ast,json,os
+source=json.load(open(os.environ['SCOPE_SOURCES']))['linux-bootstrap.py']
+calls=[node for node in ast.walk(ast.parse(source)) if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) and node.func.attr=='add_argument' and node.args and isinstance(node.args[0],ast.Constant) and node.args[0].value=='--suite']
+assert len(calls)==1
+parser=argparse.ArgumentParser(exit_on_error=False)
+exec(compile(ast.fix_missing_locations(ast.Module(body=[ast.Expr(value=calls[0])],type_ignores=[])),'reviewed-bootstrap','exec'),{'parser':parser})
+assert parser.parse_args(['--suite','canvas-assistant-rate-tail']).suite=='canvas-assistant-rate-tail'
+try: parser.parse_args(['--suite','canvas-assistant-rate-tail-other'])
+except argparse.ArgumentError: pass
+else: raise AssertionError('Foreign scope accepted')
+`],{env:{...process.env,SCOPE_SOURCES:sourcesFile},encoding:'utf8',timeout:10000});assert.equal(bootstrap.status,0,bootstrap.stderr);
+
+  const origin='.local-release',checkpoint=path.join(origin,'reuse/preflight-checkpoint.json'),hasOriginal=fs.existsSync(checkpoint)&&JSON.parse(fs.readFileSync(checkpoint)).sha===p.source;
+  assert(hasOriginal||!process.argv.includes('--assistant-native-rate-only'),'Focused native tail requires the actual failed original evidence');
+  let originalCommand=selectedCommands(selectCiTests(['workers/auth/src/lib/image-generation-capacity.js']),{GITHUB_SHA:accepted,CANDIDATE_BASE:p.source}).find(row=>row.name==='Run worker route tests')?.run;
+  if(hasOriginal){
+   const bytes=fs.readFileSync(checkpoint),original=JSON.parse(bytes),proof=path.join(temporary,'proof');fs.mkdirSync(proof);
+   fs.cpSync(path.join(origin,'reuse'),path.join(proof,'reuse'),{recursive:true});fs.mkdirSync(path.join(proof,'test-results'));process.env.GIT_DIR=bare;
+   const selection=gitSelection(original.base,accepted),commands=selectedCommands(selection,{GITHUB_SHA:accepted,CANDIDATE_BASE:original.base});
+   const context={sha:accepted,base:original.base,planHash:validationPlan().digest,selection,environment:original.environment,nativeBrowsers:original.nativeBrowsers,commands};
+   assert.equal(canvasPreflightPrefix(bytes,context).sha,p.source);
+   for(const mutate of [row=>row.status='passed',row=>row.commands[41].exitCode=0,row=>row.commands[40].exitCode=1,row=>row.commands.pop(),row=>delete row.preflightContinuation]){
+    const bad=structuredClone(original);mutate(bad);assert.throws(()=>canvasPreflightPrefix(Buffer.from(JSON.stringify(bad)),context));
+   }
+   for(const mutate of [row=>row.base='f'.repeat(40),row=>row.planHash='changed',row=>row.environment.key='changed',row=>row.environment.image='changed',row=>row.environment.inputs['package-lock.json']='changed',
+    row=>row.selection.full=!row.selection.full,row=>row.commands.pop(),row=>row.commands[41].run='echo skipped']){
+    const bad=structuredClone(context);mutate(bad);assert.throws(()=>canvasPreflightPrefix(bytes,bad));
+   }
+   const pending=verifyAssistantNativeRate(proof,accepted,{allowPending:true});assert.equal(pending.previous.passed,184);assert.equal(pending.previous.failedSuites,1);assert.equal(pending.partial.passed,142);assert.equal(pending.partial.failedSuites,1);assert.equal(pending.advanced.passed,8);assert.equal(pending.advanced.failedSuites,1);assert.equal(pending.result,null);
+   assert.throws(()=>verifyAssistantNativeRate(proof,accepted),'Missing fresh native scope cannot claim success');originalCommand=original.commands[41].command.run;
+   const previous=pending.previous,partial=pending.partial,advanced=pending.advanced,fresh={passed:100,failedSuites:0,reports:[{suite:'canvas',failure:null,records:inventory.slice(151).map(name=>({name,status:'PASS'})),
+    metrics:[{assistantRateTail:{retained:inventory.slice(0,151),discovery:inventory,currentfullcount:251,fresh:inventory.slice(151)}}]}]};
+   assert.deepEqual(verifyAssistantNativeRateUnion(previous,partial,advanced,fresh),{workerPassed:1630,processorPassed:true,launcherPassed:30,nativeRetained:334,nativeFresh:100,nativeTotal:434});
+   for(const mutate of [row=>row.passed=99,row=>row.failedSuites=1,row=>row.reports[0].failure={stage:'failed'},row=>row.reports[0].suite='foreign',row=>row.reports.push(structuredClone(row.reports[0])),
+    row=>row.reports[0].records.pop(),row=>row.reports[0].records.push(row.reports[0].records[0]),row=>row.reports[0].records.unshift({name:inventory[0],status:'PASS'}),
+    row=>row.reports[0].records[0].status='SKIP',row=>row.reports[0].records[0].status='FAIL',row=>row.reports[0].records[0].name='foreign',
+    row=>[row.reports[0].records[0],row.reports[0].records[1]]=[row.reports[0].records[1],row.reports[0].records[0]],row=>row.reports[0].metrics=[],row=>row.reports[0].metrics.push(row.reports[0].metrics[0]),
+    row=>row.reports[0].metrics[0].assistantRateTail.currentfullcount=250,row=>row.reports[0].metrics[0].assistantRateTail.retained=[],
+    row=>row.reports[0].metrics[0].assistantRateTail.discovery.pop(),row=>row.reports[0].metrics[0].assistantRateTail.discovery[20]='foreign',
+    row=>row.reports[0].metrics[0].assistantRateTail.fresh.pop()]){
+    const bad=structuredClone(fresh);mutate(bad);assert.throws(()=>verifyAssistantNativeRateUnion(previous,partial,advanced,bad));
+   }
+   for(const mutate of [row=>row.passed=7,row=>row.failedSuites=0,row=>row.reports=[],row=>row.reports.push(row.reports[0]),row=>row.reports[0].suite='foreign',
+    row=>row.reports[0].failure=null,row=>row.reports[0].failure.stage='different failure',row=>row.reports[0].records.pop(),row=>row.reports[0].records[0].status='FAIL',
+    row=>row.reports[0].records[1]=row.reports[0].records[0],row=>row.reports[0].records[0].name='foreign',
+    row=>[row.reports[0].records[0],row.reports[0].records[1]]=[row.reports[0].records[1],row.reports[0].records[0]]]){
+    const bad=structuredClone(advanced);mutate(bad);assert.throws(()=>verifyAssistantNativeRateUnion(previous,partial,bad,fresh));
+   }
+   for(const file of ['reuse/preflight-checkpoint.json','reuse/preflight-failed.log','reuse/hosting-manifest.json','reuse/hosting-proof.json',
+    'reuse/test-results/assistant-native-tail-origin/reuse/preflight-checkpoint.json','reuse/test-results/assistant-native-tail-origin/reuse/preflight-failed.log',
+    'reuse/test-results/assistant-native-tail-origin/logs/17.log','reuse/test-results/assistant-native-tail-origin/test-results/assistant-native-tail-discovery.json',
+    ...Object.keys(p.nativeProof).map(file=>'reuse/test-results/assistant-native-tail-original/'+file)]){
+    const target=path.join(proof,file),saved=fs.readFileSync(target);fs.unlinkSync(target);assert.throws(()=>verifyAssistantNativeRate(proof,accepted,{allowPending:true}));
+    fs.writeFileSync(target,'forged evidence');assert.throws(()=>verifyAssistantNativeRate(proof,accepted,{allowPending:true}));fs.writeFileSync(target,saved);
+   }
+   const originalDiscovery=fs.readFileSync(path.join(proof,'reuse/test-results/assistant-native-tail-origin/test-results/assistant-native-tail-discovery.json'));
+   const discovery=JSON.parse(originalDiscovery),currentDiscovery=path.join(proof,'test-results/assistant-native-rate-discovery.json');fs.writeFileSync(currentDiscovery,originalDiscovery);
+   verifyAssistantNativeRate(proof,accepted,{allowPending:true});
+   const firstSuite=report=>{const pending=[...report.suites];while(pending.length){const suite=pending.shift();if(suite.specs?.length)return suite;pending.push(...suite.suites||[]);}throw new Error('Missing original Worker discovery');};
+   for(const mutate of [row=>row.errors.push({message:'discovery failed'}),row=>firstSuite(row).specs.pop(),row=>firstSuite(row).specs.push(firstSuite(row).specs[0]),row=>firstSuite(row).specs[0].title='Changed retained case']){
+    const bad=structuredClone(discovery);mutate(bad);fs.writeFileSync(currentDiscovery,JSON.stringify(bad,null,2));assert.throws(()=>verifyAssistantNativeRate(proof,accepted,{allowPending:true}));
+   }
+   fs.writeFileSync(currentDiscovery,originalDiscovery);
+   const freshLog=path.join(proof,'test-results/assistant-native-rate.log');
+   for(const content of ['',JSON.stringify({q2LinuxEvidence:'/tmp/bitbi-release/q2-runtime-evidence/missing'}),JSON.stringify({q2LinuxEvidence:'/tmp/bitbi-release/../foreign'})]){
+    fs.writeFileSync(freshLog,content);assert.throws(()=>verifyAssistantNativeRate(proof,accepted),'Missing, foreign or unverified native receipts cannot pass');
+   }
+  }
+  const shell=assistantNativeRateContinuation(originalCommand);assert.throws(()=>assistantNativeRateContinuation('npm run test:workers'));
+  assert(!shell.includes('npm run test:workers')&&!shell.includes('npm run test:homepage-ffmpeg-processor')&&!shell.includes('--test-name-pattern'),'Passed Worker/media/launcher cases cannot execute again');
+  const flow=path.join(temporary,'flow');fs.mkdirSync(flow);const trace=path.join(flow,'trace');
+  const shim=`npx(){ printf '%s\\n' "discovery|$*" >> "$TRACE"; [ "$FAIL_STAGE" != discovery ]; }\nnode(){ case "$*" in *verify-assistant-native-rate-pending*) stage=pending;; *test-q2-runtime.mjs*) stage=native;; *verify-assistant-native-rate*) stage=verify;; *) return 98;; esac; printf '%s\\n' "$stage|$*" >> "$TRACE"; [ "$FAIL_STAGE" != "$stage" ]; }\ncp(){ printf '%s\\n' "copy|$*" >> "$TRACE"; [ "$FAIL_STAGE" != copy ]; }\ntee(){ cat > "$1"; [ "$FAIL_STAGE" != tee ]; }\n`;
+  const stages=['discovery','pending','native','copy','verify'];
+  for(const failed of ['',...stages,'tee']){
+   fs.rmSync(trace,{force:true});const result=spawnSync('/bin/bash',['--noprofile','--norc','-eu','-c',shim+shell],{cwd:flow,env:{...process.env,TRACE:trace,FAIL_STAGE:failed},encoding:'utf8',timeout:10000});
+   assert.equal(result.status,failed?1:0,result.stderr);
+   const rows=fs.readFileSync(trace,'utf8').trim().split('\n').map(line=>{const at=line.indexOf('|');return{stage:line.slice(0,at),args:line.slice(at+1)};});
+   assert.deepEqual(rows.map(row=>row.stage),failed?stages.slice(0,stages.indexOf(failed==='tee'?'native':failed)+1):stages,'Every failure stops downstream work, including piped native/tee failures');
+   if(!failed){assert.equal(rows[0].args,'playwright test -c playwright.workers.config.js --list --reporter=json');assert.equal(rows[1].args,'scripts/local-release.mjs verify-assistant-native-rate-pending .local-release');
+    assert.equal(rows[2].args,'scripts/test-q2-runtime.mjs --suite canvas-assistant-rate-tail');assert.equal(rows[3].args,'-a /tmp/bitbi-release/q2-runtime-evidence .local-release/runtime/');
+    assert.equal(rows[4].args,'scripts/local-release.mjs verify-assistant-native-rate .local-release');}
+  }
+ }finally{if(previousGitDir===undefined)delete process.env.GIT_DIR;else process.env.GIT_DIR=previousGitDir;fs.rmSync(temporary,{recursive:true,force:true});}
+ console.log(marker);
+}
+await testAssistantNativeRate();

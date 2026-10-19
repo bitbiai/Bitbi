@@ -36,6 +36,25 @@ import { generateTotpCode } from '../../../workers/auth/src/lib/admin-mfa.js';
 import { hashPassword } from '../../../workers/auth/src/lib/passwords.js';
 import { deleteUserAiImage } from '../../../workers/auth/src/routes/ai/lifecycle.js';
 import { putNewManagedR2Object } from '../../../workers/auth/src/lib/r2-cleanup.js';
+import { AuthPublicRateLimiterDurableObject } from '../../../workers/auth/src/lib/public-rate-limiter-do.js';
+const nativeRateFixtureNow=Date.now.bind(Date);
+// Only the isolated native rate fixture owns this binding. Normal /limit
+// requests use the production handler and real Durable Object storage.
+export class CanvasImageRateTestDurableObject extends AuthPublicRateLimiterDurableObject {
+  async fetch(request){
+    if(new URL(request.url).pathname!=='/q2-expire-image-window')return super.fetch(request);
+    const body=await request.json(),storage=this.state.storage;
+    const windowStart=await storage.get('window_start_ms'),count=await storage.get('count'),expires=await storage.get('expires_at_ms');
+    if(request.method!=='POST'||Object.keys(body).sort().join(',')!=='count,windowStart'
+      ||!Number.isSafeInteger(count)||count<21||count!==body.count||windowStart!==body.windowStart
+      ||expires!==windowStart+3600000)throw new Error('Synthetic image limiter expiry identity changed');
+    const now=nativeRateFixtureNow(),previous=now-now%3600000-3600000;
+    // Model an expired persisted counter, without changing the DO clock,
+    // shortening its hourly window, or replacing its object identity.
+    await storage.put({window_start_ms:previous,expires_at_ms:previous+3600000});
+    return Response.json({expired:true,count,windowStart:previous,expiresAt:previous+3600000});
+  }
+}
 const ADMIN='q2-workerd-admin';
 const MEMBER='q2-workerd-member';
 export default {
@@ -62,7 +81,18 @@ export default {
     if(path==='/canvas-agent-settlement-review'&&CANVAS_SETTLEMENT_CASES.includes(body.name))return Response.json(await canvasPlanningSettlementCase(env,body.name));
     if(path==='/canvas-image-scheduling'&&CANVAS_IMAGE_SCHEDULING_CASES.includes(body.name)){
       if(!env.CANVAS_IMAGE_TEST_DB)throw new Error('Native image scheduling requires its isolated D1 fixture');
-      return Response.json(await canvasImageSchedulingCase({...env,DB:env.CANVAS_IMAGE_TEST_DB},body));
+      const scoped={...env,DB:env.CANVAS_IMAGE_TEST_DB};
+      if(body.name==='rate-admission'){
+        if(!env.CANVAS_IMAGE_RATE_TEST)throw new Error('Native rate fixture requires its real clock-independent Durable Object');
+        scoped.PUBLIC_RATE_LIMITER=env.CANVAS_IMAGE_RATE_TEST;
+        scoped.__TEST_EXPIRE_IMAGE_RATE=async(key,expected)=>{
+          const stub=env.CANVAS_IMAGE_RATE_TEST.get(env.CANVAS_IMAGE_RATE_TEST.idFromName(key));
+          const response=await stub.fetch('https://rate-limit.internal/q2-expire-image-window',{method:'POST',body:JSON.stringify(expected)});
+          if(!response.ok)throw new Error('Synthetic owned rate counter expiry failed');
+          return response.json();
+        };
+      }
+      return Response.json(await canvasImageSchedulingCase(scoped,body));
     }
     if(path==='/canvas-agent-h3-recovery'&&H3_RECOVERY_CASES.includes(body.name))return Response.json(await canvasH3RecoveryCase(env,body.name,body));
     if(path==='/canvas-conversation-decision'&&CANVAS_CONVERSATION_DECISION_CASES.includes(body.name))return Response.json(await canvasConversationDecisionCase(env,body.name));

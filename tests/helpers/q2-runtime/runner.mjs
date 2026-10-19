@@ -2,7 +2,7 @@ import { runAppearanceTests } from '../../appearance-runtime.mjs';
 import { runWebsiteAssistantTests } from '../../website-assistant-runtime.mjs';
 import { runModelPricingTests } from '../../model-pricing-runtime.mjs';
 import { runCanvasTests, runCanvasCompletionTests, runCanvasAudioTests, runCanvasAudioFitTests, runCanvasTransitionTests, runCanvasRetentionTests } from './canvas.mjs';
-import { runCanvasPolicyTailTests, runCanvasActionsTailTests, runCanvasSettlementContinuationTests, runCanvasSettlementRecoveryTests, runCanvasAssistantContinuationTests, runCanvasAssistantTailTests } from './canvas-policy-tail.mjs';
+import { runCanvasPolicyTailTests, runCanvasActionsTailTests, runCanvasSettlementContinuationTests, runCanvasSettlementRecoveryTests, runCanvasAssistantContinuationTests, runCanvasAssistantTailTests, runCanvasAssistantRateTailTests } from './canvas-policy-tail.mjs';
 import { runModelStatusTests } from '../../admin-model-status-runtime.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -44,6 +44,7 @@ export function selectedRuntimeSuites(suite) {
   if(suite==='canvas-settlement-recovery')return [['canvas',runCanvasSettlementRecoveryTests,{}]];
   if(suite==='canvas-assistant-continuation')return [['canvas',runCanvasAssistantContinuationTests,{}]];
   if(suite==='canvas-assistant-tail')return [['canvas',runCanvasAssistantTailTests,{}]];
+  if(suite==='canvas-assistant-rate-tail')return [['canvas',runCanvasAssistantRateTailTests,{}]];
   if(suite==='canvas-policy-tail')return [['canvas',runCanvasPolicyTailTests,{}]];
   if(suite==='canvas-actions-tail')return [['canvas',runCanvasActionsTailTests,{}]];
   // Focused entry into the existing Canvas suite; Full still executes it once.

@@ -239,6 +239,18 @@ export async function canvasImageSchedulingCase(base,{name,...media}) {
     let f;
     try {
       f=await fixture(base,name,2,2);
+      const limiter=f.env.PUBLIC_RATE_LIMITER,limiterKey='ai-generate-user:'+f.owner,observed=[];
+      let target;
+      f.env.PUBLIC_RATE_LIMITER={idFromName(key){const id=limiter.idFromName(key);if(key===limiterKey)target=String(id);return id;},get(id){
+        const stub=limiter.get(id);return {async fetch(url,init){
+          const response=await stub.fetch(url,init);
+          if(String(id)===target){
+            const request=JSON.parse(init.body);check(request.maxRequests===20&&request.windowMs===3600000,'The actual limiter retains its twenty-per-hour contract');
+            observed.push(await response.clone().json());
+          }
+          return response;
+        }};
+      }};
       for(let i=0;i<20;i++)check(!(await evaluateSharedRateLimit(f.env,'ai-generate-user',f.owner,20,3600000,sensitiveRateLimitOptions())).limited,'Existing image hourly allowance remains twenty');
       f.env.AI={run(){throw new Error('Rate-limited admission must never dispatch');}};
       await queue(f,{type:'canvas_agent.process',run_id:f.run.id});
@@ -248,8 +260,16 @@ export async function canvasImageSchedulingCase(base,{name,...media}) {
       check(original&&!original.usage_attempt_id,'A genuine admission429 owns no paid attempt');
       check((await f.db.prepare('SELECT COUNT(*) n FROM member_generation_jobs WHERE user_id=?').bind(f.owner).first()).n===0,'Rate-limited work never masquerades as an accepted provider job');
       await queue(f,{type:'canvas_agent.process',run_id:f.run.id});
+      check((await evaluateSharedRateLimit(f.env,'ai-generate-user',f.owner,20,3600000,sensitiveRateLimitOptions())).limited,'The same real object remains closed before its persisted window expires');
+      const before=observed.at(-1);check(before.limited===true&&before.count>=21,'The blocked request preserves the exhausted counter');
+      if(f.env.__TEST_EXPIRE_IMAGE_RATE){
+        const expired=await f.env.__TEST_EXPIRE_IMAGE_RATE(limiterKey,{count:before.count,windowStart:before.window_start_ms});
+        check(expired.expired===true&&expired.count===before.count&&expired.expiresAt<=RealDate.now(),'Native fixture expires only its original persisted counter without clearing its count');
+      }
+      const observedBeforeReset=observed.length;
       clock=Date.parse(run.next_attempt_at)+1;
-      const jobs=await start(f);check(jobs.length===2,'Original bounded cohort is admitted after the real limiter boundary');
+      const jobs=await start(f);check(jobs.length===2,`Original bounded cohort is admitted after the real limiter boundary: jobs=${jobs.length}, limiter=${JSON.stringify(observed.slice(observedBeforeReset))}`);
+      check(observed[observedBeforeReset]?.count===1&&observed[observedBeforeReset]?.limited===false,'The unchanged limiter handler resets the expired original counter to one');
       const resumed=await f.db.prepare('SELECT id,idempotency_key FROM canvas_runs WHERE id=?').bind(original.id).first();
       check(resumed.idempotency_key===original.idempotency_key,'Backoff retains exact original node/request identity');
       return {hourlyAllowance:20,paidCalls:0,waitResumed:true,admittedAfterReset:2};

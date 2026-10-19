@@ -204,3 +204,25 @@ export async function runCanvasAssistantTailTests(f){
   assert.equal(fresh.length,108,'Every remaining assistant Canvas callback must execute');
   f.metrics.push({assistantTail:{retained:discovery.slice(0,canvasAssistantTailRetainedCount),discovery,currentfullcount:canvasAssistantTailCount,fresh}});
 }
+
+// e0405042 completed the first eight image callbacks. Keep their exact
+// evidence and execute the failed rate boundary plus every remaining callback.
+export const canvasAssistantRateTailRetainedCount=151;
+export const canvasAssistantRateTailCount=251;
+export const canvasAssistantRateTailHash='3bcde3da85495a7cfa8190ca3ad20f8f255c7b065941f88cfbf5d1c75cd3640f';
+export async function runCanvasAssistantRateTailTests(f){
+  const {createHash}=await import('node:crypto');
+  const discovery=[],fresh=[],scoped=Object.create(f);
+  scoped.test=async(name,operation)=>{
+    assert(!discovery.includes(name),'Duplicate assistant rate tail callback');
+    const position=discovery.length;discovery.push(name);
+    if(position<canvasAssistantRateTailRetainedCount)return;
+    if(position===canvasAssistantRateTailRetainedCount)assert.equal(name,'canvas_image_scheduling_rate_admission','Assistant rate tail failed boundary changed');
+    fresh.push(name);await f.test(name,operation);
+  };
+  await runCanvasTests(scoped);
+  assert.equal(discovery.length,canvasAssistantRateTailCount,'Complete assistant rate tail inventory changed');
+  assert.equal(createHash('sha256').update(JSON.stringify(discovery)).digest('hex'),canvasAssistantRateTailHash,'Assistant rate tail membership/order changed');
+  assert.equal(fresh.length,100,'Every remaining assistant rate Canvas callback must execute');
+  f.metrics.push({assistantRateTail:{retained:discovery.slice(0,canvasAssistantRateTailRetainedCount),discovery,currentfullcount:canvasAssistantRateTailCount,fresh}});
+}

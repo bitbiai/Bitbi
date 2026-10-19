@@ -179,7 +179,8 @@ export async function createRuntime(build, name, { restricted = false, reference
     assert.equal(control.outputFiles.length, 1);
     assert.ok(Object.values(control.metafile.outputs).every(output => output.imports.length === 0));
     fs.writeFileSync(path.join(executionDir, 'control-metafile.json'), JSON.stringify(control.metafile, null, 2), { flag: 'wx' });
-    workers.push({ ...shared, name: 'q2-control', script: control.outputFiles[0].text, durableObjects: limiter(limiterOwner), queueProducers:queues });
+    workers.push({ ...shared, name: 'q2-control', script: control.outputFiles[0].text,
+      durableObjects: {...limiter(limiterOwner),...(name==='canvas'?{CANVAS_IMAGE_RATE_TEST:{className:'CanvasImageRateTestDurableObject',useSQLite:true}}:{})}, queueProducers:queues });
   }
   if (name === 'native') workers.push({ name: 'q2-images', modules: true,
     compatibilityDate: build.config.compatibility_date, images: { binding: 'IMAGES' }, outboundService: deny,
