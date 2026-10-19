@@ -24,6 +24,11 @@ import {testLocalMediaProcess} from './test-local-media-process.mjs';
 const assistantPreflightTail=process.argv.includes('--assistant-preflight-only');
 if(assistantPreflightTail)assert.deepEqual(process.argv.slice(2),['--assistant-preflight-only']);
 
+if(process.argv.includes('--assistant-native-only')) {
+  assert.deepEqual(process.argv.slice(2),['--assistant-native-only']);
+  await testAssistantNativeContinuation();process.exit(0);
+}
+
 if(process.argv.includes('--assistant-worker-only')) {
   assert.deepEqual(process.argv.slice(2),['--assistant-worker-only']);
   await testAssistantWorkerContinuation();process.exit(0);
@@ -2502,3 +2507,111 @@ async function testAssistantWorkerContinuation() {
  console.log(marker);
 }
 await testAssistantWorkerContinuation();
+
+async function testAssistantNativeContinuation() {
+ const {ASSISTANT_NATIVE_PREFLIGHT:p,canvasPreflightProfile,assertCanvasPreflightTree,canvasPreflightPrefix,
+  assistantNativeGuardContinuation,assistantNativeContinuation,assistantLauncherFailures,
+  verifyAssistantNativeRepair,verifyAssistantLauncherUnion}=await import('./lib/local-release-evidence.mjs');
+ const marker='Assistant native continuation: 1630 Worker cases, real media checks and 26 launcher passes retained; four corrected launcher cases and the complete native runtime remain mandatory.';
+ assert.equal(canvasPreflightProfile(p.source),p);
+ assert.equal(assistantNativeGuardContinuation('npm run test:local-release'),'npm run test:local-release -- --assistant-native-only');
+ for(const command of ['echo skipped','npm run test:local-release -- --other','npm run test:local-release\nnpm run test:workers'])assert.throws(()=>assistantNativeGuardContinuation(command));
+ for(const index of [0,2,3,12,14,15,17,34,40,41,42,43,44,45,46,47,48,49,50,51])assert(!p.retain.includes(index),'Fresh candidate, affected gates and unexecuted native/browser checks cannot inherit passes');
+ assert(p.retain.includes(36),'Unchanged hosting evidence remains subject to exact-byte rebind after the mandatory fresh build');
+ const retained=Array.from({length:26},(_,index)=>({title:'Synthetic retained launcher '+index,status:'passed'}));
+ const before=[...retained,...assistantLauncherFailures.map(title=>({title,status:'failed'}))],after=assistantLauncherFailures.map(title=>({title,status:'passed'}));
+ verifyAssistantLauncherUnion(before,after);
+ for(const bad of [[],after.slice(1),[...after,after[0]],[...after,retained[0]],after.map((row,index)=>index?row:{...row,status:'failed'}),
+  after.map((row,index)=>index?row:{...row,status:'skipped'}),after.map((row,index)=>index?row:{...row,title:'Foreign launcher'})])assert.throws(()=>verifyAssistantLauncherUnion(before,bad));
+ for(const bad of [before.slice(1),[...before,before[0]],before.map((row,index)=>index?row:{...row,status:'failed'}),before.map(row=>row.title===assistantLauncherFailures[0]?{...row,status:'passed'}:row)])assert.throws(()=>verifyAssistantLauncherUnion(bad,after));
+ const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-assistant-native-')),bare=path.join(temporary,'git'),previousGitDir=process.env.GIT_DIR;
+ try {
+  execFileSync('git',['init','--bare',bare],{stdio:'pipe'});
+  fs.writeFileSync(path.join(bare,'objects/info/alternates'),path.resolve(execFileSync('git',['rev-parse','--git-path','objects'],{encoding:'utf8'}).trim())+'\n');
+  const env={...process.env,GIT_AUTHOR_NAME:'Synthetic',GIT_AUTHOR_EMAIL:'synthetic@example.invalid',GIT_COMMITTER_NAME:'Synthetic',GIT_COMMITTER_EMAIL:'synthetic@example.invalid'};
+  const read=(args,input)=>execFileSync('git',['--git-dir',bare,...args],{env,input,stdio:['pipe','pipe','pipe'],maxBuffer:64*1024*1024});
+  const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),reviewed=read(['rev-list','--ancestry-path','--reverse',`${p.source}..${head}`]).toString().trim().split('\n')[0];
+  assert(reviewed,'The closed native fixture requires its committed reviewed successor');
+  const tooling=['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs'];
+  const fixes=Object.fromEntries([...new Set([...Object.keys(p.specs),...tooling])].map(file=>[file,read(['show',`${reviewed}:${file}`])]));
+  for(const[file,hash]of Object.entries(p.specs))assert.equal(sha256(fixes[file]),hash,'Reviewed native correction must match its pin');
+  const commit=(changes,parent=p.source)=>{
+   read(['read-tree',p.source]);for(const[file,value]of Object.entries(changes)){
+    if(value===null){read(['update-index','--index-info'],Buffer.from(`0 ${'0'.repeat(40)}\t${file}\n`));continue;}
+    const blob=read(['hash-object','-w','--stdin'],value.content??value).toString().trim();read(['update-index','--add','--cacheinfo',`${value.mode||'100644'},${blob},${file}`]);
+   }return read(['commit-tree',read(['write-tree']).toString().trim(),'-p',parent],Buffer.from('Synthetic closed assistant native continuation\n')).toString().trim();
+  };
+  const accepted=commit(fixes);assertCanvasPreflightTree(accepted,read,p);
+  for(const file of Object.keys(p.specs))for(const value of [null,Buffer.from('Unreviewed fixture'),{mode:'120000',content:Buffer.from('outside')}])assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,[file]:value}),read,p));
+  for(const file of ['workers/auth/src/lib/image-generation-capacity.js','workers/auth/src/lib/canvas-agent-conversation.js','workers/auth/migrations/0112_canvas_assistant_models_and_scheduling.sql',
+   'js/shared/canvas-conversation-decision-intent.mjs','frontend/index.mjs','package-lock.json','.github/workflows/static.yml','config/release-validation.yml'])assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,[file]:Buffer.from('Unreviewed passed source')}),read,p));
+  for(const file of tooling)assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,[file]:{mode:'120000',content:Buffer.from('outside')}}),read,p));
+  assert.throws(()=>assertCanvasPreflightTree(commit(fixes,accepted),read,p),'A later successor cannot inherit this closed proof');
+  const origin='.local-release',checkpoint=path.join(origin,'reuse/preflight-checkpoint.json'),hasOriginal=fs.existsSync(checkpoint)&&JSON.parse(fs.readFileSync(checkpoint)).sha===p.source;
+  assert(hasOriginal||!process.argv.includes('--assistant-native-only'),'Focused native continuation requires actual failed-source evidence');
+  let originalCommand=selectedCommands(selectCiTests(['workers/auth/src/lib/image-generation-capacity.js']),{GITHUB_SHA:accepted,CANDIDATE_BASE:p.source}).find(row=>row.name==='Run worker route tests')?.run;
+  let originalLauncher=before;
+  if(hasOriginal){
+   const bytes=fs.readFileSync(checkpoint),original=JSON.parse(bytes),proof=path.join(temporary,'proof');
+   fs.mkdirSync(proof);fs.cpSync(path.join(origin,'reuse'),path.join(proof,'reuse'),{recursive:true});fs.mkdirSync(path.join(proof,'test-results'));
+   process.env.GIT_DIR=bare;
+   const selection=gitSelection(original.base,accepted),commands=selectedCommands(selection,{GITHUB_SHA:accepted,CANDIDATE_BASE:original.base});
+   const context={sha:accepted,base:original.base,planHash:validationPlan().digest,selection,environment:original.environment,nativeBrowsers:original.nativeBrowsers,commands};
+   assert.equal(canvasPreflightPrefix(bytes,context).sha,p.source);
+   for(const mutate of [row=>row.status='passed',row=>row.commands[41].exitCode=0,row=>row.commands[40].exitCode=1,row=>row.commands.pop(),row=>delete row.preflightContinuation]){
+    const bad=structuredClone(original);mutate(bad);assert.throws(()=>canvasPreflightPrefix(Buffer.from(JSON.stringify(bad)),context));
+   }
+   for(const mutate of [row=>row.base='f'.repeat(40),row=>row.planHash='changed',row=>row.environment.key='changed',row=>row.environment.image='changed',row=>row.environment.inputs['package-lock.json']='changed',
+    row=>row.selection.full=!row.selection.full,row=>row.commands.pop(),row=>row.commands[41].run='echo skipped']){
+    const bad=structuredClone(context);mutate(bad);assert.throws(()=>canvasPreflightPrefix(bytes,bad));
+   }
+   const pending=verifyAssistantNativeRepair(proof,accepted,{allowPending:true});
+   assert.equal(pending.before.length,30);assert.equal(pending.before.filter(row=>row.status==='passed').length,26);assert.equal(pending.result,null);
+   assert.throws(()=>verifyAssistantNativeRepair(proof,accepted),'Missing fresh launcher results are never success');
+   originalLauncher=pending.before;originalCommand=original.commands[41].command.run;
+   for(const file of ['reuse/preflight-checkpoint.json','reuse/preflight-failed.log','reuse/hosting-manifest.json','reuse/hosting-proof.json',
+    'reuse/test-results/assistant-worker-origin/reuse/preflight-checkpoint.json','reuse/test-results/assistant-worker-origin/reuse/preflight-failed.log',
+    'reuse/test-results/assistant-worker-origin/logs/17.log','reuse/test-results/assistant-worker-origin/test-results/assistant-worker-discovery.json',
+    'reuse/test-results/assistant-worker-origin/test-results/assistant-worker-fresh.json']){
+    const target=path.join(proof,file),saved=fs.readFileSync(target);fs.unlinkSync(target);assert.throws(()=>verifyAssistantNativeRepair(proof,accepted,{allowPending:true}));
+    fs.writeFileSync(target,'forged evidence');assert.throws(()=>verifyAssistantNativeRepair(proof,accepted,{allowPending:true}));fs.writeFileSync(target,saved);
+   }
+   const originalDiscovery=fs.readFileSync(path.join(proof,'reuse/test-results/assistant-worker-origin/test-results/assistant-worker-discovery.json'));
+   const discovery=JSON.parse(originalDiscovery),discoveryFile=path.join(proof,'test-results/assistant-native-worker-discovery.json');
+   fs.writeFileSync(discoveryFile,originalDiscovery);verifyAssistantNativeRepair(proof,accepted,{allowPending:true});
+   const firstSuite=report=>{const pending=[...report.suites];while(pending.length){const suite=pending.shift();if(suite.specs?.length)return suite;pending.push(...suite.suites||[]);}throw new Error('Missing original Worker discovery');};
+   for(const mutate of [row=>row.errors.push({message:'discovery failed'}),row=>firstSuite(row).specs.pop(),row=>firstSuite(row).specs.push(firstSuite(row).specs[0]),row=>firstSuite(row).specs[0].title='Changed retained case']){
+    const bad=structuredClone(discovery);mutate(bad);fs.writeFileSync(discoveryFile,JSON.stringify(bad,null,2));assert.throws(()=>verifyAssistantNativeRepair(proof,accepted,{allowPending:true}));
+   }
+   fs.writeFileSync(discoveryFile,originalDiscovery);
+   // Synthetic evidence calibrates validation, not actual execution. Canonical
+   // command 41 must produce the four real launcher outcomes and native result.
+   const tap=`TAP version 13\n${assistantLauncherFailures.map((title,index)=>`ok ${index+1} - ${title}`).join('\n')}\n1..4\n# tests 4\n# suites 0\n# pass 4\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n`;
+   const tapFile=path.join(proof,'test-results/assistant-launcher-fresh.tap');fs.writeFileSync(tapFile,tap);
+   assert.deepEqual(verifyAssistantNativeRepair(proof,accepted).result,{workerPassed:1630,processorPassed:true,launcherRetained:26,launcherFresh:4,launcherTotal:30});
+   for(const content of ['',tap.replace('ok 1 -','not ok 1 -'),tap.replaceAll(assistantLauncherFailures[0],'Foreign launcher case'),tap+`ok 5 - ${assistantLauncherFailures[0]}\n`,tap+`ok 5 - ${retained[0].title}\n`,tap.replace('ok 1 - '+assistantLauncherFailures[0],'ok 1 - '+assistantLauncherFailures[0]+' # SKIP')]){
+    fs.writeFileSync(tapFile,content);assert.throws(()=>verifyAssistantNativeRepair(proof,accepted));
+   }
+   fs.writeFileSync(tapFile,tap);
+  }
+  const shell=assistantNativeContinuation(originalCommand);assert(!shell.includes('npm run test:workers')&&!shell.includes('npm run test:homepage-ffmpeg-processor'),'Passed Worker/media suites cannot execute again');
+  assert.throws(()=>assistantNativeContinuation('npm run test:workers'));
+  const flow=path.join(temporary,'flow');fs.mkdirSync(flow);const trace=path.join(flow,'trace.jsonl');
+  const shim=`set -euo pipefail\nnpx(){ printf '%s\\n' "discovery|$*" >> "$TRACE"; [ "$FAIL_STAGE" != discovery ]; }\nnode(){ case "$*" in *verify-assistant-native-pending*) stage=pending;; *--test*) stage=launcher;; *verify-assistant-native-repair*) stage=verify;; *test-q2-runtime.mjs*) stage=native;; *) return 98;; esac; printf '%s\\n' "$stage|$*" >> "$TRACE"; [ "$FAIL_STAGE" != "$stage" ]; }\ncat(){ :; }\n`;
+  const stages=['discovery','pending','launcher','verify','native'];
+  for(const failed of ['',...stages]){
+   fs.rmSync(trace,{force:true});const result=spawnSync('/bin/bash',['--noprofile','--norc','-euo','pipefail','-c',shim+shell],{cwd:flow,env:{...process.env,TRACE:trace,FAIL_STAGE:failed},encoding:'utf8',timeout:10000});
+   assert.equal(result.status,failed?1:0,result.stderr);
+   const rows=fs.readFileSync(trace,'utf8').trim().split('\n').map(line=>{const at=line.indexOf('|');return {stage:line.slice(0,at),args:line.slice(at+1)};});
+   assert.deepEqual(rows.map(row=>row.stage),failed?stages.slice(0,stages.indexOf(failed)+1):stages,'No later work may run after a failed boundary');
+   if(!failed){
+    assert.equal(rows[0].args,'playwright test -c playwright.workers.config.js --list --reporter=json');
+    const launcher=rows[2].args,match=launcher.match(/^--test --test-name-pattern=(.*?) scripts\/test-q2-runtime-launcher\.mjs$/);assert(match,'Only the one launcher file and exact failed-name filter may execute');
+    assert.deepEqual(originalLauncher.filter(row=>new RegExp(match[1]).test(row.title)).map(row=>row.title),assistantLauncherFailures);
+    assert.equal(rows[4].args,'scripts/test-q2-runtime.mjs','The complete previously unexecuted native runtime remains required');
+   }
+  }
+ }finally{if(previousGitDir===undefined)delete process.env.GIT_DIR;else process.env.GIT_DIR=previousGitDir;fs.rmSync(temporary,{recursive:true,force:true});}
+ console.log(marker);
+}
+await testAssistantNativeContinuation();

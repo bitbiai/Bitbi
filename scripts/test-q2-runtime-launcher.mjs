@@ -482,7 +482,7 @@ test('Canvas rejected reference verifier preserves populated receipts and catche
     const ledger=[{id:'historical-debit',user_id:'historical-owner',amount:-78}];
     let requests=0,verified=false;
     const f={
-      migrations:['0108','0109','0110'].map(path=>({path,statements:[]})),
+      migrations:['0108','0109','0110','0112'].map(path=>({path,statements:[]})),
       db:{batch:async()=>{}},sql:()=>({run:async()=>{}}),
       control:async()=>Response.json({cookie:'synthetic'}),bucket:{put:async()=>{}},canvasProvider:{requests:[]},
       rows:async sql=>{
@@ -513,6 +513,10 @@ test('Canvas rejected reference verifier preserves populated receipts and catche
         return Response.json({code:'gpt_image_25_reference_pricing_unavailable'},{status:503});
       }},
     };
+    if(!broken){
+      await assert.rejects(()=>runCanvasTests({...f,migrations:f.migrations.filter(migration=>migration.path!=='0112')}),/Populated assistant migration must be exercised/);
+      assert.equal(requests,0,'Missing migration setup must fail before the selected rejection boundary');
+    }
     try{await runCanvasTests(f);}catch(error){
       assert.equal(requests,7,'The actual rejection verifier reaches every request before its durable checks');
       if(broken){assert.equal(verified,false);assert.notEqual(error,completed);assert.match(error.message,
@@ -542,10 +546,10 @@ test('Canvas reference fixture reads the staged bytes from a non-repository cwd'
     import { createHash } from 'node:crypto';
     const { runCanvasTests } = await import(process.argv[1]);
     const reached = new Error('fixture read reached');
-    let migrated=false;
+    let migrated=false,assistantSeed=0;
     const f = {
       migrations: [{path:'0108_canvas_creative_export_retention.sql',statements:[]},
-        {path:'0109_canvas_agent_conversations.sql',statements:[]},{path:'0110_canvas_agent_conversation_actions.sql',statements:[]}],
+        {path:'0109_canvas_agent_conversations.sql',statements:[]},{path:'0110_canvas_agent_conversation_actions.sql',statements:[]},{path:'0112_canvas_assistant_models_and_scheduling.sql',statements:[]}],
       db: {batch:async()=>{migrated=true;}},
       rows: async sql => sql.startsWith('SELECT sql FROM sqlite_schema') ? [{sql:migrated?${JSON.stringify(retentionSql)}:${JSON.stringify(retentionSql.replace('IN (7,8)','=7'))}}] : sql.includes('sqlite_schema') ? Array.from({length:sql.includes('canvas_agent_proposal_immutable')?8:sql.includes('canvas_preview_base_fence')?3:sql.includes('canvas_audio_timeline_immutable')?1:sql.includes('canvas_seam_result_immutable')?2:7},()=>({name:'synthetic-guard'})) : [],
       scalar: async sql => {
@@ -553,13 +557,15 @@ test('Canvas reference fixture reads the staged bytes from a non-repository cwd'
         return 7;
       },
       sql: () => ({ run: async () => {} }),
-      control: async () => Response.json({ cookie: 'synthetic' }),
+      control: async route => {if(route==='/canvas-assistant-migration-seed')assistantSeed++;return Response.json({ cookie: 'synthetic' });},
       test: async (name, operation) => {
+        if(name==='canvas_assistant_models_populated_migration')return; // This file-resolution spy does not replace the required native populated-migration callback.
         if(name==='canvas_assembly_retention_populated_migration')return; // This unit exercises fixture resolution; native D1 runs the migration proof.
         if(name==='canvas_conversation_populated_migration_preserves_historical_identity_without_transcript')return; // Native D1, not this filename-resolution fake, proves the new migration.
         if(name==='canvas_natural_chat_populated_migration_preserves_original_authority')return; // Actual native D1 owns the new authority-table proof.
         if(name==='canvas_export_release_schema_queries'){await operation();return;}
         assert.equal(name, 'image25_native_owned_reference_boundary_and_unverified_tariff_blocks_dispatch');
+        assert.equal(assistantSeed,1,'Current setup reaches the assistant migration before reading the staged reference');
         await operation();
       },
       bucket: { put: async (key, bytes) => {
@@ -791,12 +797,12 @@ function assertCurrentCanvasDiscovery(names,historical) {
   assert.deepEqual(names.filter(name=>retained.has(name)),historical,'Current Canvas must preserve the historical callbacks and order');
   for(const name of [
     ...['exact','unrelated','concurrent','debit-crash','graph-crash','cancelled','expired','taken-over','edited','invalid-plan','usage-invalid','raw-usage-contract','over-reservation','identity'].map(name=>'canvas_planning_settlement_'+name.replaceAll('-','_')),
-    'canvas_natural_chat_native_stale-metering-quote',
+    'canvas_natural_chat_native_stale-metering-quote','canvas_assistant_models_populated_migration',
   ])assert.equal(names.filter(value=>value===name).length,1,`Current Canvas omitted required ${name}`);
 }
 
 test('Canvas policy tail fixes the complete actual inventory and never repeats retained callbacks', async () => {
-  const {runCanvasTests}=await import('../tests/helpers/q2-runtime/canvas.mjs');
+  const {runCanvasTests,runCanvasAudioTests,runCanvasTransitionTests}=await import('../tests/helpers/q2-runtime/canvas.mjs');
   const {canvasPolicyPrefix,canvasPolicyTailInventory,runCanvasPolicyTailTests}=await import('../tests/helpers/q2-runtime/canvas-policy-tail.mjs');
   const {selectedRuntimeSuites,runtimeSuites}=await import('../tests/helpers/q2-runtime/runner.mjs');
   assert.equal(parseRuntimeArgs(['--suite','canvas-policy-tail'],{}).suite,'canvas-policy-tail');
@@ -815,10 +821,10 @@ test('Canvas policy tail fixes the complete actual inventory and never repeats r
   assert.equal(canvasPolicyTailInventory.at(-1),'canvas_conversational_action_recovery_native_immediate-duration-current');
   // Callback-name discovery only. No product callback, Miniflare, native binding
   // or provider executes; ordinary setup uses explicit synthetic boundaries.
-  const discover=async run=>{
+  const discover=async(run,{migrations=['0108','0109','0110']}={})=>{
     const names=[],setup=[];
     const headers=new Headers();headers.append('set-cookie','__Host-bitbi_session=synthetic; Secure');headers.append('set-cookie','__Host-bitbi_admin_mfa=synthetic; Secure');
-    const f={migrations:['0108','0109','0110'].map(path=>({path,statements:[]})),
+    const f={migrations:migrations.map(path=>({path,statements:[]})),
       db:{batch:async()=>{setup.push('migration');}},sql:()=>({run:async()=>{setup.push('sql');}}),
       rows:async()=>[{sql:'synthetic pre-migration schema'}],scalar:async()=>1,
       control:async route=>{setup.push(route);return Response.json({cookie:'synthetic',code:'synthetic'});},
@@ -830,8 +836,22 @@ test('Canvas policy tail fixes the complete actual inventory and never repeats r
   };
   const historical=await historicalCanvasContinuations();
   await assert.rejects(()=>historicalCanvasContinuations(()=>Buffer.from('Unreviewed historical caller')),/Historical Canvas callback body changed/);
-  const current=await discover(runCanvasTests);assertCurrentCanvasDiscovery(current.names,inventory);
-  for(const missing of [inventory[0],'canvas_planning_settlement_exact','canvas_natural_chat_native_stale-metering-quote'])
+  await assert.rejects(()=>discover(runCanvasTests),/Populated assistant migration must be exercised/);
+  const current=await discover(runCanvasTests,{migrations:['0108','0109','0110','0112']});assertCurrentCanvasDiscovery(current.names,inventory);
+  assert(current.setup.includes('/canvas-assistant-migration-seed'));
+  // Standalone audio/transition setup applies all migrations but must not copy
+  // the full Canvas suite's private migration snapshot into undeclared state.
+  const standaloneMigrations=['0100','0102','0112'];
+  const audio=await discover(runCanvasAudioTests,{migrations:standaloneMigrations});
+  const transitions=await discover(runCanvasTransitionTests,{migrations:standaloneMigrations});
+  assert(audio.setup.includes('/canvas-audio-migration-seed'));
+  assert(audio.names.includes('canvas_audio_populated_schema_preserves_exports_heads_claims_quota'));
+  assert(transitions.names.includes('canvas_workspace_populated_migration_preserves_legacy_positions'));
+  for(const result of [audio,transitions]){
+    assert.equal(result.setup.filter(step=>step==='migration').length,3);
+    assert(!result.setup.includes('/canvas-assistant-migration-seed'),'Standalone setup must not seed the full-suite assistant snapshot');
+  }
+  for(const missing of [inventory[0],'canvas_planning_settlement_exact','canvas_natural_chat_native_stale-metering-quote','canvas_assistant_models_populated_migration'])
     assert.throws(()=>assertCurrentCanvasDiscovery(current.names.filter(name=>name!==missing),inventory));
   assert.throws(()=>assertCurrentCanvasDiscovery([...current.names,current.names[0]],inventory));
   const full=await discover(historical.full.runCanvasTests),tail=await discover(historical.tail.runCanvasPolicyTailTests);
@@ -898,10 +918,10 @@ test('Canvas action tail preserves all setup and executes only the final fifteen
   assert.equal(canvasActionsTailInventory.at(-1),'canvas_conversational_action_recovery_native_immediate-duration-current');
   // Discover the actual full function's names and outside-callback setup only;
   // no product callback, binding, provider or retained test executes here.
-  const discover=async run=>{
+  const discover=async(run,{migrations=['0108','0109','0110']}={})=>{
     const names=[],setup=[];
     const headers=new Headers();headers.append('set-cookie','__Host-bitbi_session=synthetic; Secure');headers.append('set-cookie','__Host-bitbi_admin_mfa=synthetic; Secure');
-    const f={migrations:['0108','0109','0110'].map(path=>({path,statements:[]})),
+    const f={migrations:migrations.map(path=>({path,statements:[]})),
       db:{batch:async()=>{setup.push('migration');}},sql:()=>({run:async()=>{setup.push('sql');}}),
       rows:async()=>[{sql:'synthetic pre-migration schema'}],scalar:async()=>1,
       control:async route=>{setup.push(route);return Response.json({cookie:'synthetic',code:'synthetic'});},
@@ -912,7 +932,9 @@ test('Canvas action tail preserves all setup and executes only the final fifteen
     await run(f);return {names,setup};
   };
   const historical=await historicalCanvasContinuations();
-  assertCurrentCanvasDiscovery((await discover(runCanvasTests)).names,inventory);
+  await assert.rejects(()=>discover(runCanvasTests),/Populated assistant migration must be exercised/);
+  const current=await discover(runCanvasTests,{migrations:['0108','0109','0110','0112']});
+  assertCurrentCanvasDiscovery(current.names,inventory);assert(current.setup.includes('/canvas-assistant-migration-seed'));
   const full=await discover(historical.full.runCanvasTests),tail=await discover(historical.tail.runCanvasActionsTailTests);
   assert.deepEqual(full.names,inventory);assert.deepEqual(tail.names,canvasActionsTailInventory);
   assert.deepEqual(tail.setup,full.setup,'The action continuation preserves all outside-callback initialization');

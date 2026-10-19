@@ -103,11 +103,7 @@ export async function runCanvasAudioTests(f, {prepared=false}={}) {
       if(migration.path.startsWith('0100')) {
         const response=await f.control('/canvas-audio-migration-seed',{});assert.equal(response.status,200,await response.clone().text());snapshot=await response.json();
       }
-      if(migration.path.startsWith('0112')){
-      const response=await f.control('/canvas-assistant-migration-seed',{});
-      assert.equal(response.status,200,await response.clone().text());assistantSnapshot=await response.json();
-    }
-    await f.db.batch(migration.statements.map(s=>f.db.prepare(s)));
+      await f.db.batch(migration.statements.map(s=>f.db.prepare(s)));
     }
     await f.test('canvas_audio_populated_schema_preserves_exports_heads_claims_quota',async()=>{
       const response=await f.control('/canvas-audio-migration-verify',snapshot);assert.equal(response.status,200,await response.clone().text());
@@ -150,11 +146,7 @@ export async function runCanvasTransitionTests(f,{prepared=false}={}) {
         await f.sql("INSERT INTO canvas_projects(id,user_id,title,locale,created_at,updated_at) VALUES('workspace-legacy','workspace-legacy-user','Preserved','de','2026-10-01','2026-10-01')").run();
         await f.sql("INSERT INTO canvas_nodes(id,project_id,user_id,type,x,y,width,height,config_json,content_json,created_at,updated_at) VALUES('workspace-legacy-node','workspace-legacy','workspace-legacy-user','note',2500,1800,230,350,'{}','{}','2026-10-01','2026-10-01')").run();
       }
-      if(migration.path.startsWith('0112')){
-      const response=await f.control('/canvas-assistant-migration-seed',{});
-      assert.equal(response.status,200,await response.clone().text());assistantSnapshot=await response.json();
-    }
-    await f.db.batch(migration.statements.map(s=>f.db.prepare(s)));
+      await f.db.batch(migration.statements.map(s=>f.db.prepare(s)));
     }
     await f.test('canvas_workspace_populated_migration_preserves_legacy_positions',async()=>{
       const row=(await f.rows("SELECT p.title,p.workspace_width,p.workspace_height,n.x,n.y,n.width,n.height FROM canvas_projects p JOIN canvas_nodes n ON n.project_id=p.id WHERE p.id='workspace-legacy'"))[0];
