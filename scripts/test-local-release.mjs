@@ -3452,7 +3452,7 @@ async function testReadinessWorkerContinuation() {
 await testReadinessWorkerContinuation();
 
 async function testExportDeliveryContinuation(){
- const {EXPORT_DELIVERY_POLICY,EXPORT_DELIVERY_FILES,EXPORT_DELIVERY_PRIOR_FILES,EXPORT_DELIVERY_UNPUBLISHED_FILES,EXPORT_DELIVERY_PREFLIGHT:p,EXPORT_DELIVERY_SELECTION_PREFLIGHT:retryProfile,EXPORT_DELIVERY_DISCOVERY_PREFLIGHT:discoveryProfile,assertExportDeliverySelectionTree,validateExportDeliverySelectionPrefix,exportDeliverySelectionPrefix,assertExportDeliveryTree,exportDeliveryPrefix,validateExportDeliveryPrefix,validateExportDeliveryRows,exportDeliveryCommand}=await import('./lib/canvas-export-release.mjs');
+ const {EXPORT_DELIVERY_POLICY,EXPORT_DELIVERY_FILES,EXPORT_DELIVERY_PRIOR_FILES,EXPORT_DELIVERY_UNPUBLISHED_FILES,EXPORT_DELIVERY_PREFLIGHT:p,EXPORT_DELIVERY_SELECTION_PREFLIGHT:retryProfile,EXPORT_DELIVERY_DISCOVERY_PREFLIGHT:discoveryProfile,EXPORT_DELIVERY_HOSTING_PREFLIGHT:hostingProfile,assertExportDeliverySelectionTree,validateExportDeliverySelectionPrefix,exportDeliverySelectionPrefix,assertExportDeliveryTree,exportDeliveryPrefix,validateExportDeliveryPrefix,validateExportDeliveryRows,exportDeliveryCommand}=await import('./lib/canvas-export-release.mjs');
  const head='f'.repeat(40),selection=selectCiTests(EXPORT_DELIVERY_UNPUBLISHED_FILES),commands=selectedCommands(selection,{GITHUB_SHA:head,CANDIDATE_BASE:p.base});
  const read=args=>args[0]==='show'?fs.readFileSync(args[1].slice(head.length+1)):Buffer.from(args[0]==='rev-list'?`${head} ${p.source}\n`:(args[2]===p.base?EXPORT_DELIVERY_UNPUBLISHED_FILES:EXPORT_DELIVERY_FILES).join('\n'));
  assertExportDeliveryTree(head,read);
@@ -3509,6 +3509,32 @@ async function testExportDeliveryContinuation(){
  const discoveryEvidence={commands:commands.map((command,index)=>discoveryProfile.retain.includes(index)?{...discoveryFailed.commands[index],reusedFrom:discoveryFailed.commands[index].reusedFrom||discoveryFailed.sha}:{command,exitCode:0})};
  validateExportDeliveryRows(discoveryFailed,discoveryEvidence,commands,()=>log,discoveryProfile);
  assert.deepEqual(discoveryProfile.retain.filter(i=>!retryProfile.retain.includes(i)),[7]);
+
+ const hostingFailed={...structuredClone(failed),sha:hostingProfile.source,
+  selection:{...selection,files:selection.files.filter(file=>!hostingProfile.addedFiles.includes(file))},
+  preflightContinuation:{source:discoveryProfile.source,checkpoint:discoveryProfile.checkpoint},
+  commands:Array.from({length:46},(_,i)=>i<36||p.retain.includes(i)?structuredClone(old.commands[i]):i===36?{command:commands[i],exitCode:1,logHash:hostingProfile.failedLog}:null)};
+ assert.equal(hostingFailed.selection.files.length,49);assert.equal(selection.files.length,50);
+ assert.equal(validateExportDeliverySelectionPrefix(hostingFailed,context,hostingProfile),hostingFailed);
+ const hostingFiles=['scripts/lib/canvas-export-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs','scripts/test-ci-test-selection.mjs','scripts/test-frontend-review.mjs'];
+ const hostingRead=args=>args[0]==='rev-list'&&(args.at(-1)===head||args.at(-1)===hostingProfile.source)?Buffer.from(`${args.at(-1)} ${args.at(-1)===head?hostingProfile.source:discoveryProfile.source}\n`):args[0]==='diff'&&args[2]===hostingProfile.source?Buffer.from(hostingFiles.join('\n')):discoveryRead(args);
+ assertExportDeliverySelectionTree(head,hostingRead,hostingProfile);
+ assert.throws(()=>assertExportDeliverySelectionTree(head,args=>args[0]==='diff'&&args[2]===hostingProfile.source?Buffer.from(hostingFiles.filter(file=>file!=='scripts/test-frontend-review.mjs').join('\n')):hostingRead(args),hostingProfile),/Missing required hosting fixture/);
+ assert.throws(()=>assertExportDeliverySelectionTree(head,args=>args[0]==='diff'&&args[2]===hostingProfile.source?Buffer.from([...hostingFiles,'scripts/lib/frontend-hosting.mjs'].join('\n')):hostingRead(args),hostingProfile),/outside failed selection/);
+ assert.throws(()=>assertExportDeliverySelectionTree(head,args=>args[0]==='rev-list'&&args.at(-1)===hostingProfile.source?Buffer.from(`${hostingProfile.source} ${retryProfile.source}\n`):hostingRead(args),hostingProfile),'Every failed candidate must remain reachable in its original lineage');
+ assert.throws(()=>exportDeliverySelectionPrefix(Buffer.from(JSON.stringify(hostingFailed)),context,hostingRead,hostingProfile),/Changed failed selection checkpoint/);
+ for(const change of [row=>row.selection.files.push('scripts/test-frontend-review.mjs'),row=>row.commands[36].exitCode=0,row=>row.commands[36].logHash='0'.repeat(64),row=>row.commands[36].command.name='other failure',row=>row.commands[37]={exitCode:0},row=>row.commands[25].command.run+='\nfalse']){
+  const bad=structuredClone(hostingFailed);change(bad);assert.throws(()=>validateExportDeliverySelectionPrefix(bad,context,hostingProfile));
+ }
+ assert.throws(()=>validateExportDeliverySelectionPrefix(hostingFailed,{...context,selection:hostingFailed.selection},hostingProfile),/actual acceptance scope/,'The newly changed fixture must be included in complete unpublished discovery');
+ const hostingEvidence={commands:commands.map((command,index)=>hostingProfile.retain.includes(index)?{...hostingFailed.commands[index],reusedFrom:hostingFailed.commands[index].reusedFrom||hostingFailed.sha}:{command,exitCode:0})};
+ validateExportDeliveryRows(hostingFailed,hostingEvidence,commands,()=>log,hostingProfile);
+ assert.throws(()=>validateExportDeliveryRows(hostingFailed,hostingEvidence,commands,()=>Buffer.from('changed retained hosting prefix'),hostingProfile),/Changed retained log/);
+ for(const index of [16,17,34,35,36,41,44,45]){
+  const bad=structuredClone(hostingEvidence);bad.commands[index].reusedFrom=hostingFailed.sha;
+  assert.throws(()=>validateExportDeliveryRows(hostingFailed,bad,commands,()=>log,hostingProfile),/must execute/,'Changed verifier, candidate, failed hosting and unexecuted product checks remain fresh');
+ }
+ assert.deepEqual(hostingProfile.retain.filter(i=>!discoveryProfile.retain.includes(i)),[18,25,27,29,33]);
 
  const native=commands.find(c=>c.name==='Run worker route tests'),browser=commands.find(c=>c.name==='Run selected auth and admin tests');
  assert.match(native.run,/--suite canvas-export-delivery/);assert.match(native.run,/--retries=0/);assert(!native.run.includes('npm run test:workers'));

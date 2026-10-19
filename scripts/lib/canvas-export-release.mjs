@@ -25,6 +25,7 @@ export const EXPORT_DELIVERY_FILES=Object.freeze([
   'scripts/test-q2-runtime-launcher.mjs','scripts/lib/canvas-export-release.mjs',
   'scripts/lib/ci-test-selection.mjs','scripts/lib/local-release-plan.mjs','scripts/lib/local-release-evidence.mjs',
   'scripts/pages-candidate.mjs','scripts/select-ci-tests.mjs','scripts/test-ci-test-selection.mjs','scripts/test-local-release.mjs',
+  'scripts/test-frontend-review.mjs',
 ]);
 // Auth-only a4 retained the published frontend base below. These exact prior
 // inputs were already accepted; keep them in the complete unpublished range,
@@ -57,6 +58,7 @@ export const EXPORT_DELIVERY_PRIOR_FILES=Object.freeze([
 ]);
 export const EXPORT_DELIVERY_UNPUBLISHED_FILES=Object.freeze([...new Set([...EXPORT_DELIVERY_FILES,...EXPORT_DELIVERY_PRIOR_FILES])].sort());
 export const EXPORT_DELIVERY_INPUTS=Object.freeze({
+  "scripts/test-frontend-review.mjs": "004d71ce9e0c34b22e82b6bbde3287338978ebf2ed12972246d1df1ad7f48b1a",
   "scripts/lib/local-release-browser.mjs": "d4b09803a92664b519dd3d3cbd9163f3242dd66222a089bed5a6e515c58eb21d",
   "scripts/local-release.mjs": "3b70bcd75dbab472518fde29026cb376e8d767d812f5bcfb39753573737be863",
   "tests/helpers/canvas-agent-h3-recovery-control.mjs": "a55dc6ac891b71cb0043d4c1cc9b0390cf1a6d7f93ad4be6505c5477e35fb199",
@@ -156,7 +158,17 @@ export const EXPORT_DELIVERY_DISCOVERY_PREFLIGHT=Object.freeze({
   retain:Object.freeze([...EXPORT_DELIVERY_SELECTION_PREFLIGHT.retain,7].sort((a,b)=>a-b)),
   previous:EXPORT_DELIVERY_SELECTION_PREFLIGHT,
 });
-export const exportDeliveryCorrectionProfile=source=>[EXPORT_DELIVERY_DISCOVERY_PREFLIGHT,EXPORT_DELIVERY_SELECTION_PREFLIGHT].find(profile=>profile.source===source)||null;
+export const EXPORT_DELIVERY_HOSTING_PREFLIGHT=Object.freeze({
+  source:'fc1037ed814146ecd08b6ec5e0382b55e1fc5bcb',
+  base:EXPORT_DELIVERY_PREFLIGHT.base,
+  checkpoint:'d52b43be181046442b850fdf82dbf85905292d4c28694cd1830899bd2a1f00bc',
+  failedIndex:36,failedName:'Check frontend hosting package',
+  failedLog:'79113b7f4a512e45981c6e01f8ec4fdb50caff70c0ff3fbbabdf8a2479418d98',
+  addedFiles:Object.freeze(['scripts/test-frontend-review.mjs']),
+  retain:Object.freeze([...EXPORT_DELIVERY_DISCOVERY_PREFLIGHT.retain,18,25,27,29,33].sort((a,b)=>a-b)),
+  previous:EXPORT_DELIVERY_DISCOVERY_PREFLIGHT,
+});
+export const exportDeliveryCorrectionProfile=source=>[EXPORT_DELIVERY_HOSTING_PREFLIGHT,EXPORT_DELIVERY_DISCOVERY_PREFLIGHT,EXPORT_DELIVERY_SELECTION_PREFLIGHT].find(profile=>profile.source===source)||null;
 export function assertExportDeliveryTree(head,read,parent=EXPORT_DELIVERY_PREFLIGHT.source){
   const p=EXPORT_DELIVERY_PREFLIGHT;
   assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,parent],'Export delivery reuse requires the exact published successor');
@@ -193,8 +205,10 @@ export function assertExportDeliverySelectionTree(head,read,p=EXPORT_DELIVERY_SE
     assert.deepEqual(read(['rev-list','--parents','-n','1',current.source]).toString().trim().split(/\s+/),[current.source,current.previous.source]);
   const files=read(['diff','--name-only',p.source,head]).toString().trim().split('\n').filter(Boolean);
   const allowed=['scripts/lib/canvas-export-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs',
-    ...(p===EXPORT_DELIVERY_DISCOVERY_PREFLIGHT?['scripts/test-ci-test-selection.mjs']:['docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md'])];
+    ...(p===EXPORT_DELIVERY_HOSTING_PREFLIGHT?['scripts/test-frontend-review.mjs','scripts/test-ci-test-selection.mjs']:
+      p===EXPORT_DELIVERY_DISCOVERY_PREFLIGHT?['scripts/test-ci-test-selection.mjs']:['docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md'])];
   assert(files.includes('scripts/lib/canvas-export-release.mjs'));
+  assert((p.addedFiles||[]).every(file=>files.includes(file)),'Missing required hosting fixture correction');
   assert(files.every(file=>allowed.includes(file)),'Changed input outside failed selection correction');
   // This correction changes only expected documentation membership and the
   // proof of reuse. Selection implementation and product inputs stay exact.
@@ -205,12 +219,15 @@ export function validateExportDeliverySelectionPrefix(old,context,p=EXPORT_DELIV
   assert.equal(old.sha,p.source);assert.equal(old.status,'failed');assert.equal(old.base,p.base);assert.equal(context.base,p.base);
   assert.equal(old.planHash,context.planHash);assert.equal(old.environment.key,context.environment.key);
   assert.deepEqual(old.preflightContinuation,{source:p.previous.source,checkpoint:p.previous.checkpoint});
-  assert.deepEqual(old.selection,context.selection,'Failed selection correction cannot change actual acceptance scope');
+  const additions=p.addedFiles||[];
+  assert(additions.every(file=>!old.selection.files.includes(file)),'Fixture correction must be a new unpublished input');
+  assert.deepEqual({...old.selection,files:[...old.selection.files,...additions].sort()},context.selection,'Failed selection correction cannot change actual acceptance scope');
   assert.equal(old.commands.length,46);
-  assert(old.commands.slice(0,16).every(row=>row?.exitCode===0));
-  assert.equal(old.commands[16]?.exitCode,1);assert.equal(old.commands[16]?.logHash,p.failedLog);
-  assert.equal(old.commands[16]?.command.name,'Run CI test selection fixtures');
-  assert(old.commands.slice(17).every((row,i)=>EXPORT_DELIVERY_PREFLIGHT.retain.includes(i+17)?row?.exitCode===0:row===null),'Unexpected execution after failed selector');
+  const failedIndex=p.failedIndex??16;
+  assert(old.commands.slice(0,failedIndex).every(row=>row?.exitCode===0));
+  assert.equal(old.commands[failedIndex]?.exitCode,1);assert.equal(old.commands[failedIndex]?.logHash,p.failedLog);
+  assert.equal(old.commands[failedIndex]?.command.name,p.failedName||'Run CI test selection fixtures');
+  assert(old.commands.slice(failedIndex+1).every((row,i)=>EXPORT_DELIVERY_PREFLIGHT.retain.includes(i+failedIndex+1)?row?.exitCode===0:row===null),'Unexpected execution after failed command');
   for(const index of p.retain)assert.deepEqual(old.commands[index].command,context.commands[index],'Changed retained check inputs or command');
   return old;
 }

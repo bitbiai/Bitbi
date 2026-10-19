@@ -1465,6 +1465,8 @@ async function testExportDeliverySelection(){
  assert.notEqual(selectCiTests(EXPORT_DELIVERY_FILES,{exportSources:exportDeliverySources('0000000000000000000000000000000000000000')}).policy,EXPORT_DELIVERY_POLICY);
  const changedSource=exportDeliverySources();changedSource['workers/auth/src/lib/canvas-agent-graph.js']='0'.repeat(64);assert.notEqual(selectCiTests(EXPORT_DELIVERY_FILES,{exportSources:changedSource}).policy,EXPORT_DELIVERY_POLICY);
  assert.equal(selection.policy,EXPORT_DELIVERY_POLICY);assert(selection.workers&&selection.auth&&selection.canvasText&&!selection.full&&!selection.homepage&&!selection.canvasTransitions&&!selection.mediaLifecycle);
+ assert(EXPORT_DELIVERY_UNPUBLISHED_FILES.includes('scripts/test-frontend-review.mjs'));
+ const changedFixture=exportDeliverySources();changedFixture['scripts/test-frontend-review.mjs']='0'.repeat(64);assert.notEqual(selectCiTests(EXPORT_DELIVERY_UNPUBLISHED_FILES,{exportSources:changedFixture}).policy,EXPORT_DELIVERY_POLICY);
  const changedPrior=exportDeliverySources();changedPrior['workers/auth/src/lib/canvas-agent-planning.js']='0'.repeat(64);assert.notEqual(selectCiTests(EXPORT_DELIVERY_UNPUBLISHED_FILES,{exportSources:changedPrior}).policy,EXPORT_DELIVERY_POLICY);
  assert(requiresPrivateMediaImage(selection.files));
  for(const unknown of ['workers/media/src/unreviewed.js','scripts/lib/canvas-export-release.mjs.unreviewed','tests/helpers/q2-runtime/unreviewed.mjs','workers/auth/src/lib/model-tariffs.js'])assert.notEqual(selectCiTests([...EXPORT_DELIVERY_FILES,unknown]).policy,EXPORT_DELIVERY_POLICY);

@@ -35,20 +35,21 @@ try {
  }
  // Real CLI, real Git fixture and real ZIPs; only HTTP responses are synthetic.
  const fixture=path.join(temp,'checkout');fs.mkdirSync(fixture);
- const evidenceImports=['tests/helpers/q2-runtime/canvas-policy-tail.mjs','tests/helpers/q2-runtime/canvas.mjs'];
+ const evidenceImports=['tests/helpers/q2-runtime/canvas-policy-tail.mjs','tests/helpers/q2-runtime/canvas-readiness-recovery.mjs','tests/helpers/q2-runtime/canvas.mjs'];
  for(const file of ['scripts','frontend','config/static-hosting.json','workers/contact/package-lock.json',...evidenceImports]) {
   fs.mkdirSync(path.dirname(path.join(fixture,file)),{recursive:true});fs.cpSync(path.join(root,file),path.join(fixture,file),{recursive:true});
  }
  // The release CLI imports the evidence verifier, whose closed historical
- // inventory imports Canvas and the already-copied schema helper. Exercise this
- // real import closure before provenance failures could mask a broken fixture.
+ // inventories import Canvas and the already-copied schema helper. The export
+ // policy is included by the scripts copy. Exercise this real import closure
+ // before provenance failures could mask a broken fixture.
  const importEvidence=()=>spawnSync(process.execPath,['--input-type=module','-e',
   "globalThis.fetch=()=>{throw Error('Fixture import forbids network');}; await import('./scripts/lib/local-release-evidence.mjs');"],
   {cwd:fixture,env:{PATH:process.env.PATH,HOME:temp,TMPDIR:temp},encoding:'utf8',timeout:15000});
- for(const file of evidenceImports){
+ for(const file of [...evidenceImports,'scripts/lib/canvas-export-release.mjs']){
   const target=path.join(fixture,file),bytes=fs.readFileSync(target);fs.unlinkSync(target);
   try{const missing=importEvidence();assert.equal(missing.error,undefined);assert.notEqual(missing.status,0);
-   assert(missing.stderr.includes('ERR_MODULE_NOT_FOUND')&&missing.stderr.includes(file),'Missing fixture dependency must fail at the import boundary');
+   assert(missing.stderr.includes('ERR_MODULE_NOT_FOUND')&&missing.stderr.includes(file),`Missing fixture dependency must fail at the import boundary (${file}): ${missing.stderr}`);
   }finally{fs.writeFileSync(target,bytes);}
  }
  const complete=importEvidence();assert.equal(complete.error,undefined);assert.equal(complete.status,0,complete.stderr);
