@@ -6,11 +6,12 @@ import { publicAgentRun } from '../../workers/auth/src/lib/canvas-agent-store.js
 import { sha256Hex } from '../../workers/auth/src/lib/tokens.js';
 import { imageGenerationCapacity,registerImageGenerationSlot,acquireImageGenerationSlot,dispatchImageGenerationSlot,finishImageGenerationSlot,imageGenerationLegacyReviewFingerprint } from '../../workers/auth/src/lib/image-generation-capacity.js';
 import { beginMemberAiUsageAttempt,markMemberAiUsageAttemptProviderRunning,markMemberAiUsageAttemptUnknown } from '../../workers/auth/src/lib/member-ai-usage-attempts.js';
+import { claimAiDispatch,confirmAiDispatchSuccess,markAiDispatchUnknown,releaseExpiredAiDispatch } from '../../workers/auth/src/lib/ai-dispatch-state.js';
 import { evaluateSharedRateLimit,sensitiveRateLimitOptions } from '../../workers/auth/src/lib/rate-limit.js';
 
 const check=(value,message)=>{if(!value)throw new Error(message);};
 const MODEL='@cf/black-forest-labs/flux-1-schnell';
-export const CANVAS_IMAGE_SCHEDULING_CASES=['parallel-fifteen','capacity-fairness','unknown-fence','manual-revision','stop-budget','capacity-wait','capacity-recovery','out-of-order','rate-admission','scope-limits','claim-recovery','legacy-cutover'];
+export const CANVAS_IMAGE_SCHEDULING_CASES=['parallel-fifteen','capacity-fairness','unknown-fence','manual-revision','stop-budget','capacity-wait','capacity-recovery','out-of-order','rate-admission','scope-limits','claim-recovery','legacy-cutover','organization-recovery'];
 const policy=(overrides={})=>JSON.stringify({version:1,revision:'synthetic-verified-15',reviewRef:'fixture/account-capacity',
   verifiedUntil:new Date(Date.now()+3600000).toISOString(),global:15,user:15,project:15,providers:{'workers-ai':15,openai:15},...overrides});
 const queue=(f,body)=>worker.queue({queue:'bitbi-ai-video-jobs',messages:[{body,attempts:1,ack(){},retry({delaySeconds}){check(delaySeconds>0,'Bounded queue delay');}}]},f.env,
@@ -63,6 +64,61 @@ async function cleanup(f) {
 
 export async function canvasImageSchedulingCase(base,{name,...media}) {
   check(CANVAS_IMAGE_SCHEDULING_CASES.includes(name),'Known image scheduling control');
+  if(name==='organization-recovery') {
+    const f=await fixture(base,name,0,1),env=f.env,org='org_'+(await sha256Hex(name)).slice(0,32),now=new Date().toISOString();
+    try {
+      await f.db.prepare('INSERT INTO organizations(id,name,slug,created_by_user_id,created_at,updated_at) VALUES(?,?,?,?,?,?)')
+        .bind(org,'Synthetic image recovery',name,f.owner,now,now).run();
+      const member=await beginMemberAiUsageAttempt({env,userId:f.owner,featureKey:'ai.image.generate',operationKey:'member.image.generate',route:'/api/ai/generate-image',
+        idempotencyKey:'synthetic-org-collision',requestFingerprint:'e'.repeat(64),creditCost:1,metadata:{}});
+      const memberToken=await markMemberAiUsageAttemptProviderRunning(env,member.attempt.id);
+      await confirmAiDispatchSuccess(env,'member_ai_usage_attempts_v2',member.attempt.id,{dispatchToken:memberToken});
+      const insert=async(id,key)=>f.db.prepare(`INSERT INTO ai_usage_attempts_v2
+        (id,organization_id,user_id,feature_key,operation_key,route,idempotency_key,request_fingerprint,credit_cost,created_at,updated_at,expires_at)
+        VALUES(?,?,?,'ai.image.generate','member.image.generate','/api/ai/generate-image',?,?,1,?,?,?)`)
+        .bind(id,org,f.owner,key,'a'.repeat(64),now,now,new Date(Date.now()+3600000).toISOString()).run();
+      await insert(member.attempt.id,'synthetic-org-collision');
+      const owned=await registerImageGenerationSlot(env,{usagePolicy:{mode:'organization',attempt:{id:member.attempt.id}},userId:f.owner,modelId:MODEL});
+      const claim=await acquireImageGenerationSlot(env,owned);check(claim,'Organization request gets its own scoped capacity');
+      const token=await claimAiDispatch(env,'ai_usage_attempts_v2',member.attempt.id);
+      // Crash after the durable usage claim but before the slot dispatch marker.
+      await f.db.prepare('UPDATE image_generation_slots SET lease_until=? WHERE id=?').bind('2000-01-01T00:00:00Z',owned.id).run();
+      const waiting=await registerImageGenerationSlot(env,{usagePolicy:{mode:'admin'},userId:f.owner,modelId:MODEL});
+      check(!await acquireImageGenerationSlot(env,waiting),'Expired unmarked slot still counts its original dispatched organization usage');
+      const expired=await f.db.prepare('SELECT state,dispatched_at FROM image_generation_slots WHERE id=?').bind(owned.id).first();
+      check(expired.state==='unknown'&&expired.dispatched_at===null,'Usage dispatch proof fences the interrupted slot before a replacement claim');
+      await markAiDispatchUnknown(env,'ai_usage_attempts_v2',member.attempt.id,{dispatchToken:token});
+      check(!await acquireImageGenerationSlot(env,waiting),'Succeeded member row with the same id cannot release unknown organization capacity');
+      await f.db.prepare('UPDATE ai_usage_attempts_v2 SET expires_at=? WHERE id=?').bind('2000-01-01T00:00:00Z',member.attempt.id).run();
+      await releaseExpiredAiDispatch(env,'ai_usage_attempts_v2',member.attempt.id,new Date().toISOString());
+      const released=await f.db.prepare('SELECT * FROM ai_usage_attempts_v2 WHERE id=?').bind(member.attempt.id).first();
+      check(released.provider_outcome==='unknown'&&released.billing_status==='released','The existing expiry service preserves provider uncertainty independently from reservation release');
+      check(!await acquireImageGenerationSlot(env,waiting),'Released unknown organization usage still occupies physical capacity');
+      check(JSON.stringify(await f.db.prepare('SELECT * FROM ai_usage_attempts_v2 WHERE id=?').bind(member.attempt.id).first())===JSON.stringify(released),'Capacity observation never rewrites usage or accounting');
+      // Synthetic authenticated terminal receipt: actual metering remains unreconciled.
+      await f.db.prepare("UPDATE ai_usage_attempts_v2 SET provider_outcome='succeeded',provider_status='succeeded' WHERE id=? AND dispatch_token=?")
+        .bind(member.attempt.id,token).run();
+      const terminal=await f.db.prepare('SELECT * FROM ai_usage_attempts_v2 WHERE id=?').bind(member.attempt.id).first();
+      const admitted=await acquireImageGenerationSlot(env,waiting);check(admitted,'Original terminal organization receipt releases its capacity');
+      await finishImageGenerationSlot(env,admitted,{confirmed:true});
+      check(JSON.stringify(await f.db.prepare('SELECT * FROM ai_usage_attempts_v2 WHERE id=?').bind(member.attempt.id).first())===JSON.stringify(terminal),'Terminal capacity recovery leaves original financial facts intact');
+      const second='org-second-'+(await sha256Hex(name)).slice(0,16);await insert(second,'synthetic-org-direct-success');
+      const secondSlot=await registerImageGenerationSlot(env,{usagePolicy:{mode:'organization',attempt:{id:second}},userId:f.owner,modelId:MODEL});
+      const secondClaim=await acquireImageGenerationSlot(env,secondSlot);check(secondClaim,'Next independent organization request admitted');
+      const secondToken=await claimAiDispatch(env,'ai_usage_attempts_v2',second);
+      await dispatchImageGenerationSlot(env,secondClaim);await finishImageGenerationSlot(env,secondClaim);
+      await confirmAiDispatchSuccess(env,'ai_usage_attempts_v2',second,{dispatchToken:secondToken});
+      const last=await registerImageGenerationSlot(env,{usagePolicy:{mode:'admin'},userId:f.owner,modelId:MODEL});
+      const lastClaim=await acquireImageGenerationSlot(env,last);check(lastClaim,'Actual organization success helper supplies terminal recovery evidence');
+      await finishImageGenerationSlot(env,lastClaim,{confirmed:true});
+      check((await f.db.prepare('SELECT COUNT(*) n FROM credit_ledger WHERE organization_id=?').bind(org).first()).n===0,'Capacity recovery never creates an organization debit');
+      return {organizationRecovery:true,scopedCollisionGuard:true,releasedUnknownHeld:true,originalUsageUnchanged:true,providerCalls:0};
+    } finally {
+      await cleanup(f);
+      await f.db.prepare('DELETE FROM ai_usage_attempts_v2 WHERE organization_id=?').bind(org).run();
+      await f.db.prepare('DELETE FROM organizations WHERE id=?').bind(org).run();
+    }
+  }
   if(name==='legacy-cutover') {
     const f=await fixture(base,name,1,1),barrier=providerBarrier(f,media);
     try {

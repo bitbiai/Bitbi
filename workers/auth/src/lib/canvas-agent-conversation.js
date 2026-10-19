@@ -235,7 +235,9 @@ export async function createConversationTurn(env,view,row,input,key) {
     const policy=await canvasAgentPolicyIdentity('briefing');
     const payload={version:CANVAS_AGENT_DIALOGUE_VERSION,model:modelId,requestId:runId,locale:input.locale,
         conversationRevision:row.revision+1,briefRevision:row.brief_revision+(duration||delegateOptional?1:0),projectRevision:view.project.revision,
-        message:{id,text:input.text},brief,recentMessages:recent.flatMap(t=>[{id:t.id,role:'user',text:t.user_text},...(t.assistant_text?[{id:`${t.id}_reply`,role:'assistant',text:t.assistant_text.slice(0,6000)}]:[])]),
+        // A server-originated budget question has no user message. Preserve its
+        // real assistant text without inventing an empty user history entry.
+        message:{id,text:input.text},brief,recentMessages:recent.flatMap(t=>[...(t.user_text?[{id:t.id,role:'user',text:t.user_text}]:[]),...(t.assistant_text?[{id:`${t.id}_reply`,role:'assistant',text:t.assistant_text.slice(0,6000)}]:[])]),
         capabilities:inventory,currentProject:project,policy,
         privacyUser:`cau_${await sha256Hex(`canvas-agent-user:${row.user_id}`)}`,promptCacheKey:`cap_${await sha256Hex(`canvas-agent-project:${row.user_id}:${row.project_id}`)}`};
     while(payload.recentMessages.length&&new TextEncoder().encode(JSON.stringify(payload)).byteLength>CANVAS_AGENT_DIALOGUE_INPUT_MAX_BYTES)payload.recentMessages.splice(0,2);

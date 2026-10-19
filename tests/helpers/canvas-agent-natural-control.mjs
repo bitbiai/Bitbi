@@ -271,7 +271,8 @@ export async function canvasActionCase(base,{name,...media}){
     await agentTransition(f.env,leased,{status:'planning'});
     return requestCanvasAgentBudget(f.env,leased,{requiredCredits:leased.budget_credits+1000,reasonKey:key,reasonCode:'canvas_agent_budget_exceeded',model:'minimax/h3',action:'media.generate'});
    };
-   const first=await ask('actions-budget-accept'),rows=await perform('Please approve the displayed project budget proposal.',[await action('budget_accept')]);
+   const first=await ask('actions-budget-accept'),callsBeforeBudget=c.calls.length,rows=await perform('Please approve the displayed project budget proposal.',[await action('budget_accept')]);
+   check(c.calls.length===callsBeforeBudget+1,'A request about the real existing budget proposal reaches one signed dialogue instead of an unrelated numeric clarification');
    check(rows[0].state==='confirmation_required'&&(await f.db.prepare('SELECT budget_credits FROM canvas_agent_runs WHERE id=?').bind(run.id).first()).budget_credits===5000,'Model-proposed budget acceptance still requires an exact visible user decision');
    await expected(await confirm(rows[0],{capCredits:rows[0].confirmation.capCredits+1}),409,'canvas_agent_action_confirmation_changed');
    await expected(await confirm(rows[0]),200);
@@ -331,7 +332,13 @@ export async function canvasActionCase(base,{name,...media}){
    const completed=(await c.read()).actions.find(row=>row.id===proposal.id);check(completed.state==='completed'&&f.calls.length===1,'Original job identity settles one intentional generation');
    check((await f.db.prepare("SELECT COUNT(*) AS n FROM canvas_runs WHERE project_id=? AND idempotency_key LIKE 'canvas_action_%'").bind(f.project).first()).n===1,'Duplicate confirmation cannot create unrelated or repeated variants');
   }else if(name==='consent'){
-   const initial=(await c.read()).allowance.capCredits,rows=await perform('Please set the conversation allowance to 5000 credits.',[await action('allowance_propose',{number:5000})]);
+   const initial=(await c.read()).allowance.capCredits,callsBeforeAllowance=c.calls.length;
+   await expected((await c.send('3000.5 credits')).response,202);
+   const clarified=await c.read();
+   check(c.calls.length===callsBeforeAllowance&&!await c.pending()&&clarified.allowance.capCredits===initial&&clarified.actions.length===0,
+    'A malformed monetary amount still gets free clarification without authorizing or proposing any action');
+   const rows=await perform('Please set the conversation allowance to 5000 credits.',[await action('allowance_propose',{number:5000})]);
+   check(c.calls.length===callsBeforeAllowance+1,'An explicit allowance action request reaches the signed action proposal path once');
    check(rows[0].state==='confirmation_required'&&(await c.read()).allowance.capCredits===initial,'Model output proposes and cannot grant spending');
    await expected(await confirm(rows[0],{capCredits:99999}),409,'canvas_agent_action_confirmation_changed');
    await expected(await confirm(rows[0]),200);check((await c.read()).allowance.capCredits===5000,'Real explicit approval reuses the existing allowance service');

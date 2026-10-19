@@ -47,7 +47,7 @@ function publicJob(row) {
 
 // Called only after the existing route has validated the input, role, price and
 // credit reservation. The browser never supplies an execution context or owner.
-export async function acceptMemberGeneration(ctx, { usagePolicy, body, mediaType, sourceRefs = [], forceAsync = false }) {
+export async function acceptMemberGeneration(ctx, { usagePolicy, body, mediaType, modelId = body.model, sourceRefs = [], forceAsync = false }) {
   if (generationExecution(ctx.env) || usagePolicy.mode !== 'member') return null;
   const { env, request } = ctx;
   if (!forceAsync && !request.headers.get('Prefer')?.split(',').some(value => value.trim() === 'respond-async')) return null;
@@ -55,7 +55,13 @@ export async function acceptMemberGeneration(ctx, { usagePolicy, body, mediaType
   const attempt = usagePolicy.attempt;
   const existing = await env.DB.prepare('SELECT * FROM member_generation_jobs WHERE usage_attempt_id = ? AND user_id = ?')
     .bind(attempt.id, attempt.userId).first();
-  if (existing) return json({ ok: true, data: { job: publicJob({...existing,model_id:body.model}) } }, { status: 202, headers: { 'Cache-Control': 'no-store' } });
+  if (existing) {
+    // A lost response after job insertion may precede capacity registration.
+    // Reuse the validated model and original job/usage identity without changing
+    // the retained request body or submitting paid work.
+    if(mediaType==='image')await registerImageGenerationSlot(env,{usagePolicy,userId:existing.user_id,modelId,jobId:existing.id,canvasRunId:existing.canvas_run_id});
+    return json({ ok: true, data: { job: publicJob({...existing,model_id:modelId}) } }, { status: 202, headers: { 'Cache-Control': 'no-store' } });
+  }
   if (!['reserved', 'retryable'].includes(usagePolicy.attemptKind)
     && !(usagePolicy.attemptKind === 'in_progress' && attempt.providerOutcome === 'not_dispatched' && attempt.billingStatus === 'reserved')) return null;
   const id = randomTokenHex(16), now = nowIso();
@@ -71,10 +77,10 @@ export async function acceptMemberGeneration(ctx, { usagePolicy, body, mediaType
     .bind(attempt.id, attempt.userId).first();
   if (!row) throw jobError('generation_acceptance_not_confirmed');
   if (row.id !== id) await env.USER_IMAGES.delete(inputKey);
-  if(mediaType==='image')await registerImageGenerationSlot(env,{usagePolicy,userId:row.user_id,modelId:body.model,jobId:row.id,canvasRunId:row.canvas_run_id});
+  if(mediaType==='image')await registerImageGenerationSlot(env,{usagePolicy,userId:row.user_id,modelId,jobId:row.id,canvasRunId:row.canvas_run_id});
   try { await env.AI_VIDEO_JOBS_QUEUE.send({ type: MEMBER_GENERATION_MESSAGE, job_id: row.id }); }
   catch { /* The scheduled outbox repair reads this durable queued row. */ }
-  return json({ ok: true, data: { job: publicJob({...row,model_id:body.model}) } }, { status: 202, headers: { 'Cache-Control': 'no-store' } });
+  return json({ ok: true, data: { job: publicJob({...row,model_id:modelId}) } }, { status: 202, headers: { 'Cache-Control': 'no-store' } });
 }
 
 export async function readMemberGenerationJobs(ctx, id = null) {

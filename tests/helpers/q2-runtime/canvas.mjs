@@ -620,7 +620,7 @@ export async function runCanvasTests(f) {
     const result=await response.json();assert.equal(result.case,name);assert.equal(result.planningCalls,0);
     f.metrics.push(result);assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
   });
-  for(const name of ['parallel-fifteen','capacity-fairness','unknown-fence','manual-revision','stop-budget','capacity-wait','capacity-recovery','out-of-order','rate-admission','scope-limits','claim-recovery','legacy-cutover'])await f.test(`canvas_image_scheduling_${name.replaceAll('-','_')}`,async()=>{
+  for(const name of ['parallel-fifteen','capacity-fairness','unknown-fence','manual-revision','stop-budget','capacity-wait','capacity-recovery','out-of-order','rate-admission','scope-limits','claim-recovery','legacy-cutover','organization-recovery'])await f.test(`canvas_image_scheduling_${name.replaceAll('-','_')}`,async()=>{
     const response=await f.control('/canvas-image-scheduling',{name,imageBase64:fs.readFileSync(new URL('../../fixtures/media/member-image.png',import.meta.url)).toString('base64')});
     assert.equal(response.status,200,await response.clone().text());f.metrics.push(await response.json());
     assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);

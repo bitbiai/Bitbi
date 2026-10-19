@@ -6511,8 +6511,18 @@ test.describe('BITBI Canvas authenticated project and model contract', () => {
     expect(stored.prompt_source).toBe('connected');
     expect(stored.connected_input_kinds).toEqual(['prompt']);
     expect(providerInput).toMatchObject({ modelId: '@cf/black-forest-labs/flux-1-schnell', input: { prompt: generatedPrompt } });
+    const originalAttempt=env.DB.state.memberAiUsageAttempts[0];
+    expect(originalAttempt.provider_outcome).toBe('unknown');
+    // This prompt-composition fixture deliberately returns no image. Admit the
+    // independent next request explicitly without releasing its unknown sibling.
+    env.IMAGE_GENERATION_CAPACITY_JSON=JSON.stringify({version:1,revision:'synthetic-prompt-two',reviewRef:'fixture/connected-prompt',
+      verifiedUntil:new Date(Date.now()+3600000).toISOString(),global:2,user:2,project:2,providers:{'workers-ai':2}});
     env.DB.state.canvasNodes.find(n=>n.id===targetId).config_json=JSON.stringify({prompt:'Additional lighting'});
-    await worker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}/nodes/${targetId}/run`,'POST',{}, {Origin:'https://bitbi.ai',Cookie:`bitbi_session=${token}`,'Idempotency-Key':'canvas-additional'}),env,createExecutionContext().execCtx);
+    const additional=await worker.fetch(authJsonRequest(`/api/account/canvas/projects/${projectId}/nodes/${targetId}/run`,'POST',{}, {Origin:'https://bitbi.ai',Cookie:`bitbi_session=${token}`,'Idempotency-Key':'canvas-additional'}),env,createExecutionContext().execCtx);
+    expect(additional.status).toBe(502);
+    expect(originalAttempt.provider_outcome).toBe('unknown');
+    expect(env.DB.state.memberAiUsageAttempts).toHaveLength(2);
+    expect(env.DB.state.memberCreditLedger.filter(row=>row.amount<0)).toHaveLength(0);
     expect(providerInput.input.prompt).toBe(generatedPrompt+'\n\nAdditional lighting');
     expect(JSON.parse(env.DB.state.canvasRuns.at(-1).input_json).prompt_source).toBe('combined');
 

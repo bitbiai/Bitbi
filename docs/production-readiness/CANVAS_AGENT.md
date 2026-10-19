@@ -55,7 +55,11 @@ tariffs remain pinned to their original model. Older replies retain attribution.
 Provider-private reasoning and response state never transfer between models.
 
 Policy package v3 has provider-neutral identity. Accepted v1/v2 policy content and
-hashes remain unchanged. Fable uses native schema output with strict application
+hashes remain unchanged. The legacy v1 dialogue contract requires policy v1;
+action-capable v2 dialogue accepts its original policy v2 or current v3, never
+the no-action v1 policy. Server-originated budget questions contribute only their
+actual assistant message to history, without an invented empty user message.
+Fable uses native schema output with strict application
 validation, its own metering and tariff; no cache is requested. Unexpected cache
 or tool charges require review rather than being omitted. Fable visual review is
 currently unavailable, so its productions disclose technical-only review. Grok
@@ -451,6 +455,12 @@ identities bind the original usage/job; unknown acceptance retains capacity and
 never permits another inference. Existing hourly rate, budget, quota and ownership
 gates still apply. Queue batch size is not concurrency evidence. The UI reports
 persisted waiting, generating, saved and blocked media counts.
+
+Capacity registration receives the route's validated effective model, including
+the existing default, while retaining the original request fingerprint. Member
+and organization slots reconcile only against their own usage ledger. A terminal
+provider success can free capacity independently of accounting reconciliation;
+released reservations with unknown provider outcomes still occupy their slots.
 
 `IMAGE_GENERATION_CAPACITY_JSON` is an operator-reviewed allocation: `version:1`,
 `revision`, `reviewRef`, future `verifiedUntil`, and integer `global`, `user`,

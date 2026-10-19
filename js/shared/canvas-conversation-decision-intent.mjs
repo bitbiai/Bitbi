@@ -23,6 +23,10 @@ export function canvasConversationDecisionIntent(text,{locale='en',budgetAsked=f
 }
 export function canvasConversationBudgetClarification(text){
   if(typeof text!=='string'||text.length>240||/["“”«»‘’`\n\r]/u.test(text))return false;
-  return /(?:credits?|budget|allowance|euros?|dollars?|€|\$)/iu.test(text)
-    &&!/(?:\b(?:film|video|story|geschichte|sagt|says|hypothetical|hypothetisch|if|wenn)\b)/iu.test(text);
+  if(!/(?:credits?|budget|allowance|euros?|dollars?|€|\$)/iu.test(text)
+    ||/(?:\b(?:film|video|story|geschichte|sagt|says|hypothetical|hypothetisch|if|wenn)\b)/iu.test(text))return false;
+  // Clarify an unparseable monetary reply, not every conversation mentioning
+  // money. Ordinary requests to explain, propose or decline an existing limit
+  // still use the signed dialogue/action path and its explicit consent guards.
+  return /^(?:(?:(?:mein\s+)?(?:projektbudget|gesprächsbudget|budget)|(?:my\s+)?(?:(?:project|briefing|conversation)\s+)?(?:budget|allowance))(?:\s+(?:ist|beträgt|is))?\s*:?\s*)?(?:(?:noch|zusätzlich|weitere|vielleicht|maximal|höchstens|additional|another|maybe|up\s+to|at\s+most)\s+)?[€$]?\s*\d/iu.test(text.normalize('NFKC').trim());
 }

@@ -140,6 +140,10 @@ export function normalizeCanvasAgentPlanResponse(raw, input) {
 
 async function checkedPolicy(input, phase) {
   const version = input.policy?.version || (phase === 'briefing' && input.version === 1 ? 'canvas-policy-1' : CANVAS_AGENT_POLICY_VERSION);
+  // The no-action v1 contract and the action-capable v2 contract are distinct.
+  // Preserve accepted v2/policy-2 requests without pairing a newer schema with
+  // the historical policy that explicitly grants no action proposals.
+  if (phase === 'briefing' && (input.version === 1 ? version !== 'canvas-policy-1' : version === 'canvas-policy-1')) invalid('canvas_agent_policy_changed');
   if (input.model === CANVAS_FABLE_MODEL && version !== CANVAS_AGENT_POLICY_VERSION) invalid('canvas_agent_policy_changed');
   let policy;
   try { policy = await canvasAgentPolicyIdentity(phase, version); } catch { invalid('canvas_agent_policy_changed'); }

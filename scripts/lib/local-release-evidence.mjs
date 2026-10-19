@@ -816,6 +816,126 @@ export function settlementNativeContinuation(command){
   ].map(line=>'  '+line).join('\n');
   return command.replace('  npm run test:workers',()=>fresh);
 }
+// Exact failed assistant candidate: immutable Linux passes are retained while
+// the twelve failed cases and the unexecuted media/native tail must complete.
+export const ASSISTANT_WORKER_PREFLIGHT=Object.freeze({
+  source:'f530bcff45bb177ff8ef567751bcf6b3d107f9d6',
+  checkpoint:'785fae86dd50aafbec41ffe5de89df431d63121b5a7ada92cb9bc5a8bf38e27a',
+  failedLog:'689f204b68d97586e37d6c7c71ca2fe0cf0d51ae75ec070d8b83c63b973c9d0c',
+  completedGuardLog:'b813077d8ff69b9b643d418210e1785a866c49f1d7673666e72361f69772aafd',
+  lastRun:'50ffe121db4db4587d182032bc6e26f7103e2d666229fa91496972fa258381b0',
+  discovery:'6bc5b466de483c4b26b5b6d909f3bdfd83957118749e17bd3bdc1b0f60a464f2',
+  specs:Object.freeze({
+    'workers/ai/src/lib/canvas-agent-plan.js':'0cbff6a86456060647194f482c9c804cb1ac5243fa1394b86d028509d7da5064',
+    'workers/auth/src/lib/canvas-agent-conversation.js':'ade4600f0cf83715a4f024601a1e395fc8b643a9d8a1e11029559b9b1b3ea6e3',
+    'js/shared/canvas-conversation-decision-intent.mjs':'27bc7b57d347b4d56584f1f3adc604f929a08f010aaf022d110653a4532ffb7b',
+    'tests/helpers/canvas-agent-conversation-control.mjs':'c34d6eca95ecbca19db71ab4a0dea00919e51927b20a6ea1bd2748839d126442',
+    'tests/helpers/canvas-agent-natural-control.mjs':'ea8edb6413d3391dfedca3426b0c3be6cb61a038b7f2d067e51124d8383998dd',
+    'workers/auth/src/lib/member-generation-jobs.js':'8e0fe734d16e33f66b9712ee3a43bf4d5a2b747a0fc5117ab480bfc8e7d54b6e',
+    'workers/auth/src/routes/ai/images-write.js':'3cb2e83704205e00190fe42ad13148cbb31a9d79c0ff7c9f6980ca0ea06c16a2',
+    'tests/helpers/member-generation-control.mjs':'3cd97f3c4f7ad1f69213aa6557b8b724f24c036cac0802e50f69d56e934ef73f',
+    'tests/rel01/routes/workers.spec.js':'1b6efcdd7299571c7e49a3380ec4c5f71abcd518ad152ad0cd20cce0f5886a82',
+    'tests/helpers/release-transition-legacy-contract.cjs':'4d93f64b8b0d14d43da91c46ebcdf0d6e532c38a8f4d81faef1bbd1d198213c1',
+    'tests/workers.spec.js':'6f57c6433e56319dc78500c5446556567af2ca8f2b3b6f72d85e32a89daa0431',
+    'workers/auth/src/lib/image-generation-capacity.js':'aa589011d819492946ac17c8810e5bd9efe565cb49e9df2b728360d6dabd5031',
+    'tests/helpers/canvas-image-scheduling-control.mjs':'9a7052f77e769e0f08dd3da83c372927601846113fff211af1aba49f63f007e2',
+    'tests/q2-canvas-image-scheduling.spec.js':'bae02899922677f36f017af5f610d14d384f4d9e3138b023ebfb74123a7379b2',
+    'tests/helpers/q2-runtime/canvas.mjs':'1e62dfa85e7371ef325260237d5f794d5630c2264ef892e35f46d77f12bc6f5f',
+    'docs/production-readiness/CANVAS_AGENT.md':'5d2e18eb5c3330c068130fb27e9b5443dcb442e371eef9a7b30671ec34421480',
+    'scripts/lib/ci-test-selection.mjs':'9cd67a10a945f7123214cdc6e039a63360cf0f805ef3c1ca318991775d463519',
+    'scripts/test-ci-test-selection.mjs':'eff7710d9e212802af27f325db6809b3652e8c1352df61cd202b1106c5d79863',
+    'scripts/test-local-release.mjs':'7208cc9da48c13e8f572a5e41b10b66fd7c7d616902d66c0af4d69d10c0f0a6f',
+  }),
+  retain:[1,4,5,6,8,9,10,11,13,18,19,20,21,22,23,24,25,26,27,28,30,31,32,33],
+});
+export const assistantWorkerFailures=Object.freeze([
+  'Canvas conversation briefing through authenticated durable production boundaries',
+  'Canvas conversation isolation through authenticated durable production boundaries',
+  'Canvas conversational actions consent update ordinary owned project services',
+  'Canvas conversational actions budget-controls update ordinary owned project services',
+  'Canvas queued legacy v1 dialogue prepares its exact approved old prompt and quote after the action policy release',
+  'REL-01 actual member image route: unknown timeout blocks replay with late success',
+  'REL-01 actual member image route: unknown timeout blocks replay with late failure',
+  'Release transition: already completed old marker may continue once; its migrated receipt blocks new work and settlement',
+  'connected text output becomes the authoritative image prompt when the target has no override',
+  'durable member generation: asset-naming-image',
+  'durable member generation: asset-naming-image-manual',
+  'durable member generation: image',
+]);
+export const assistantWorkerNewCase=Object.freeze({file:'q2-canvas-image-scheduling.spec.js',title:'Canvas image durable scheduling organization-recovery'});
+export function assistantWorkerGuardContinuation(command) {
+  assert.equal(command,'npm run test:local-release');return command+' -- --assistant-worker-only';
+}
+export function assistantWorkerContinuation(command) {
+  assert.equal(JSON.parse(fs.readFileSync('package.json')).scripts['test:workers'],
+    'node scripts/check-media-tools.mjs && npm run test:website-assistant && node scripts/check-q4-selection.mjs && playwright test -c playwright.workers.config.js && npm run test:homepage-ffmpeg-processor && npm run test:q2-runtime','Worker chain changed');
+  assert.equal(command.split('  npm run test:workers').length,2);
+  assert(command.endsWith('else\n  npm run test:workers\nfi\n'),'Missing complete ordinary Worker branch');
+  const fresh=[
+    'mkdir -p .local-release/test-results',
+    'PLAYWRIGHT_JSON_OUTPUT_NAME= npx playwright test -c playwright.workers.config.js --list --reporter=json > .local-release/test-results/assistant-worker-discovery.json',
+    'node scripts/local-release.mjs verify-assistant-worker-pending .local-release',
+    `PLAYWRIGHT_JSON_OUTPUT_NAME=.local-release/test-results/assistant-worker-fresh.json npx playwright test -c playwright.workers.config.js --grep '(?:${[...assistantWorkerFailures,assistantWorkerNewCase.title].join('|')})$' --output=test-results/assistant-worker-artifacts --workers=1 --retries=0 --reporter=list,json`,
+    'node scripts/local-release.mjs verify-assistant-worker-repair .local-release',
+    'npm run test:homepage-ffmpeg-processor',
+    'npm run test:q2-runtime',
+  ].map(line=>'  '+line).join('\n');
+  return command.replace('  npm run test:workers',()=>fresh);
+}
+export function verifyAssistantWorkerRepair(directory,head,{allowPending=false}={}) {
+  const p=ASSISTANT_WORKER_PREFLIGHT;assertCanvasPreflightTree(head,gitBytes,p);
+  const pinned=(file,hash)=>{const bytes=fs.readFileSync(path.join(directory,'reuse',file));assert.equal(sha256(bytes),hash,`Changed original assistant evidence: ${file}`);return bytes;};
+  const original=JSON.parse(pinned('preflight-checkpoint.json',p.checkpoint));
+  assert.equal(original.sha,p.source);assert.equal(original.status,'failed');assert.equal(original.commands.length,42);
+  assert(original.commands.slice(0,41).every(row=>row.exitCode===0));assert.equal(original.commands[41].exitCode,1);
+  const origin=path.join(directory,'reuse/test-results/assistant-preflight-origin');
+  verifyCanvasPreflight(origin,original,selectedCommands(original.selection,{GITHUB_SHA:original.sha,CANDIDATE_BASE:original.base}));
+  assert.equal(sha256(fs.readFileSync(path.join(origin,'logs/17.log'))),p.completedGuardLog,'Changed completed verifier tail');
+  const log=pinned('preflight-failed.log',p.failedLog).toString(),last=JSON.parse(pinned('original-worker-last-run.json',p.lastRun));
+  const before=workerDiscovery(parseDiscovery(pinned('original-worker-discovery.json',p.discovery).toString()));
+  assert.equal(before.length,1629);assert(log.includes('Running 1629 tests using 1 worker'));
+  assert.match(log,/\n\s+12 failed\n/);assert.match(log,/\n\s+1617 passed \(3\.1m\)/);
+  const prefix=log.split('Running 1629 tests using 1 worker')[0];
+  assert.match(prefix,/# tests 61\n# suites 0\n# pass 61\n# fail 0\n# cancelled 0\n# skipped 0/);
+  assert.match(prefix,/Q4 normal Worker discovery:/);assert.match(prefix,/"mediaTools":\{"ffmpeg":"6\.1\.1-3ubuntu5","ffprobe":"6\.1\.1-3ubuntu5"\}/);
+  assert(!log.includes('> test:homepage-ffmpeg-processor\n')&&!log.includes('> test:q2-runtime\n'),'Original media/native tail was never executed');
+  const previous=workerListResults(log,before),failed=previous.filter(row=>!passedOnce(row));
+  assert.deepEqual(failed.map(row=>row.title).sort(),[...assistantWorkerFailures].sort());
+  assert(failed.every(row=>row.results.length===2&&row.results.every((result,index)=>result.status==='failed'&&result.retry===index)),'Both original failures remain failed');
+  assert.equal(last.status,'failed');assert.deepEqual(failed.map(row=>row.id).sort(),[...last.failedTests].sort());
+  const discoveryFile=path.join(directory,'test-results/assistant-worker-discovery.json');let discovery=null;
+  if(fs.existsSync(discoveryFile)){
+    const report=parseDiscovery(fs.readFileSync(discoveryFile,'utf8'));assert.deepEqual(report.errors,[]);discovery=workerDiscovery(report);
+    assistantWorkerDiscovery(before,discovery);
+  }
+  if(allowPending)return {original,previous,discovery,result:null};
+  assert(discovery,'Missing fresh full Worker discovery');
+  const fresh=JSON.parse(fs.readFileSync(path.join(directory,'test-results/assistant-worker-fresh.json')));
+  assert.deepEqual(fresh.errors,[]);assert.equal(fresh.config.workers,1);
+  assert.equal(fresh.stats.expected,13);assert.equal(fresh.stats.unexpected,0);assert.equal(fresh.stats.flaky,0);assert.equal(fresh.stats.skipped,0);
+  const result=verifyAssistantWorkerUnion({previous,discovery,progress:executedWorkers(fresh)});
+  assert.deepEqual(result,{originalPassed:1617,correctedPassed:12,newPassed:1,total:1630});
+  return {original,previous,discovery,result};
+}
+function assistantWorkerDiscovery(previous,discovery) {
+  const identities=rows=>rows.map(({id,file,title})=>({id,file,title})).sort((a,b)=>a.id.localeCompare(b.id));
+  const originalIds=new Set(previous.map(row=>row.id));
+  assert.equal(originalIds.size,previous.length,'Duplicate original Worker identity');
+  assert.equal(new Set(discovery.map(row=>row.id)).size,discovery.length,'Duplicate current Worker identity');
+  const added=discovery.filter(row=>!originalIds.has(row.id));
+  assert.equal(added.length,1,'Only the reviewed organization case may enter discovery');
+  assert.deepEqual({file:added[0].file,title:added[0].title},assistantWorkerNewCase);
+  assert.deepEqual(identities(discovery.filter(row=>originalIds.has(row.id))),identities(previous),'Changed existing Worker discovery cannot inherit cases');
+  return added[0];
+}
+export function verifyAssistantWorkerUnion({previous,discovery,progress}) {
+  const added=assistantWorkerDiscovery(previous,discovery),fresh=progress.filter(row=>row.id===added.id);
+  assert.equal(fresh.length,1,'New organization case needs exactly one result');
+  assert.deepEqual({file:fresh[0].file,title:fresh[0].title},assistantWorkerNewCase);
+  assert(passedOnce(fresh[0]),'New organization case must pass once without retries');
+  const result=verifyWorkerUnion({previous,discovery:discovery.filter(row=>row.id!==added.id),progress:progress.filter(row=>row.id!==added.id),corrected:[]});
+  return {originalPassed:result.originalPassed,correctedPassed:result.progressPassed,newPassed:1,total:result.total+1};
+}
 export const MODEL_WORKER_PREFLIGHT=Object.freeze({
   source:'51fb4088d317baea440d037d9301c7f48e07e41e',
   checkpoint:'f2b17d5c79fc4413132c88f71967bf41e4d70c595e9b8c750270509cd1b7d9a6',
@@ -1372,8 +1492,19 @@ export function canvasExampleBrowserContinuation(command){
   assert.equal(command.split(passed).length,2);assert(command.includes("--grep 'Canvas transition examples'"));
   return command.replace(passed,''); // Pinned decoded-asset pass remains in the archived original log.
 }
-export const canvasPreflightProfile=source=>[ASSISTANT_PREFLIGHT,SETTLEMENT_BROWSER_PREFLIGHT,SETTLEMENT_NATIVE_PROGRESS,SETTLEMENT_NATIVE_PREFLIGHT,SETTLEMENT_HOSTING_PREFLIGHT,SETTLEMENT_PREFLIGHT,CANVAS_POLICY_NATIVE_PREFLIGHT,CANVAS_POLICY_WORKER_PREFLIGHT,AUTONOMY_BROWSER_PREFLIGHT,AUTONOMY_NATIVE_PREFLIGHT,CANVAS_PREFLIGHT,EXPORT_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,EXAMPLE_PREFLIGHT,EXAMPLE_BROWSER_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].find(p=>p.source===source)||null;
+export const canvasPreflightProfile=source=>[ASSISTANT_WORKER_PREFLIGHT,ASSISTANT_PREFLIGHT,SETTLEMENT_BROWSER_PREFLIGHT,SETTLEMENT_NATIVE_PROGRESS,SETTLEMENT_NATIVE_PREFLIGHT,SETTLEMENT_HOSTING_PREFLIGHT,SETTLEMENT_PREFLIGHT,CANVAS_POLICY_NATIVE_PREFLIGHT,CANVAS_POLICY_WORKER_PREFLIGHT,AUTONOMY_BROWSER_PREFLIGHT,AUTONOMY_NATIVE_PREFLIGHT,CANVAS_PREFLIGHT,EXPORT_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,EXAMPLE_PREFLIGHT,EXAMPLE_BROWSER_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].find(p=>p.source===source)||null;
 export function assertCanvasPreflightTree(head,read=gitBytes,profile=CANVAS_PREFLIGHT){
+  if(profile===ASSISTANT_WORKER_PREFLIGHT){
+    assertCanvasPreflightTree(profile.source,read,ASSISTANT_PREFLIGHT);
+    assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,profile.source],'Assistant Worker continuation requires the direct reviewed successor');
+    const files=read(['diff','--name-only',profile.source,head]).toString().trim().split('\n').filter(Boolean);
+    assert(files.every(file=>[...Object.keys(profile.specs),'scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs'].includes(file)),'Assistant Worker continuation changed an unreviewed product, test, schema or environment');
+    for(const [file,hash]of Object.entries(profile.specs)){
+      assert(files.includes(file),'Missing reviewed assistant correction');assert.equal(sha256(read(['show',`${head}:${file}`])),hash,'Unreviewed assistant correction');
+    }
+    for(const file of files)assert(/^100644 blob [0-9a-f]{40}\t/.test(read(['ls-tree',head,'--',file]).toString()),'Continuation input must remain an ordinary file');
+    return;
+  }
   if(profile===ASSISTANT_PREFLIGHT){
     assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,profile.source],'Assistant preflight requires the direct reviewed successor');
     const files=read(['diff','--name-only',profile.source,head]).toString().trim().split('\n').filter(Boolean);
@@ -1622,7 +1753,14 @@ export function canvasPreflightPrefix(bytes,{sha,base,planHash,environment,comma
   assertCanvasPreflightTree(sha,read,profile);assert.equal(sha256(bytes),profile.checkpoint,'Changed failed preflight checkpoint');
   assert.equal(original.sha,profile.source);assert.equal(original.status,'failed');
   assert.equal(original.base,base);assert.equal(original.planHash,planHash);assert.equal(original.environment.key,environment.key);
-  assert.equal(original.commands.length,profile===AUTONOMY_BROWSER_PREFLIGHT?51:[SETTLEMENT_BROWSER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].includes(profile)?50:profile===MODEL_WORKER_PREFLIGHT?42:[SETTLEMENT_NATIVE_PROGRESS,SETTLEMENT_NATIVE_PREFLIGHT].includes(profile)?42:profile===SETTLEMENT_HOSTING_PREFLIGHT?37:[ASSISTANT_PREFLIGHT,SETTLEMENT_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT].includes(profile)?18:profile===MODEL_SELECTION_PREFLIGHT?17:profile===MODEL_OPERATION_PREFLIGHT?14:profile===EXAMPLE_BROWSER_PREFLIGHT?42:profile===EXAMPLE_PREFLIGHT?18:profile===EXPORT_PREFLIGHT?16:profile===EXPORT_MEDIA_PREFLIGHT?43:42);assert.equal(original.commands[profile===AUTONOMY_BROWSER_PREFLIGHT?50:[SETTLEMENT_BROWSER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].includes(profile)?49:profile===MODEL_WORKER_PREFLIGHT?41:[SETTLEMENT_NATIVE_PROGRESS,SETTLEMENT_NATIVE_PREFLIGHT].includes(profile)?41:profile===SETTLEMENT_HOSTING_PREFLIGHT?36:[ASSISTANT_PREFLIGHT,SETTLEMENT_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT].includes(profile)?17:profile===MODEL_SELECTION_PREFLIGHT?16:profile===MODEL_OPERATION_PREFLIGHT?13:profile===EXAMPLE_BROWSER_PREFLIGHT?41:profile===EXAMPLE_PREFLIGHT?17:profile===EXPORT_PREFLIGHT?15:profile===EXPORT_MEDIA_PREFLIGHT?42:41].exitCode,1);
+  assert.equal(original.commands.length,profile===AUTONOMY_BROWSER_PREFLIGHT?51:[SETTLEMENT_BROWSER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].includes(profile)?50:[ASSISTANT_WORKER_PREFLIGHT,MODEL_WORKER_PREFLIGHT].includes(profile)?42:[SETTLEMENT_NATIVE_PROGRESS,SETTLEMENT_NATIVE_PREFLIGHT].includes(profile)?42:profile===SETTLEMENT_HOSTING_PREFLIGHT?37:[ASSISTANT_PREFLIGHT,SETTLEMENT_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT].includes(profile)?18:profile===MODEL_SELECTION_PREFLIGHT?17:profile===MODEL_OPERATION_PREFLIGHT?14:profile===EXAMPLE_BROWSER_PREFLIGHT?42:profile===EXAMPLE_PREFLIGHT?18:profile===EXPORT_PREFLIGHT?16:profile===EXPORT_MEDIA_PREFLIGHT?43:42);assert.equal(original.commands[profile===AUTONOMY_BROWSER_PREFLIGHT?50:[SETTLEMENT_BROWSER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].includes(profile)?49:[ASSISTANT_WORKER_PREFLIGHT,MODEL_WORKER_PREFLIGHT].includes(profile)?41:[SETTLEMENT_NATIVE_PROGRESS,SETTLEMENT_NATIVE_PREFLIGHT].includes(profile)?41:profile===SETTLEMENT_HOSTING_PREFLIGHT?36:[ASSISTANT_PREFLIGHT,SETTLEMENT_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT].includes(profile)?17:profile===MODEL_SELECTION_PREFLIGHT?16:profile===MODEL_OPERATION_PREFLIGHT?13:profile===EXAMPLE_BROWSER_PREFLIGHT?41:profile===EXAMPLE_PREFLIGHT?17:profile===EXPORT_PREFLIGHT?15:profile===EXPORT_MEDIA_PREFLIGHT?42:41].exitCode,1);
+  if(profile===ASSISTANT_WORKER_PREFLIGHT){
+    assert.deepEqual(original.preflightContinuation,{source:ASSISTANT_PREFLIGHT.source,checkpoint:ASSISTANT_PREFLIGHT.checkpoint});
+    assert(!original.preflightProgress&&!original.permissionContinuation&&!original.repair);
+    assert(original.commands.slice(0,41).every(row=>row.exitCode===0));
+    assert.equal(original.commands[41].command.name,'Run worker route tests');assert.equal(original.commands[41].logHash,profile.failedLog);
+    assert.equal(original.commands[17].logHash,profile.completedGuardLog,'Changed completed verifier tail');
+  }
   if([ASSISTANT_PREFLIGHT,SETTLEMENT_PREFLIGHT].includes(profile)){
     assert(!original.preflightContinuation&&!original.preflightProgress&&!original.permissionContinuation&&!original.repair,'Unexpected earlier settlement continuation');
     assert(original.commands.slice(0,17).every(row=>row.exitCode===0&&!row.reusedFrom&&!row.continuation),'Original passing prefix changed');
@@ -1653,11 +1791,11 @@ export function canvasPreflightPrefix(bytes,{sha,base,planHash,environment,comma
   if(profile===MODEL_WORKER_PREFLIGHT)assert.deepEqual(original.preflightContinuation,{source:MODEL_WORKFLOW_PREFLIGHT.source,checkpoint:MODEL_WORKFLOW_PREFLIGHT.checkpoint},'Missing original preflight chain');
   if(profile===AUTONOMY_BROWSER_PREFLIGHT)assert.deepEqual(original.preflightContinuation,{source:AUTONOMY_NATIVE_PREFLIGHT.source,checkpoint:AUTONOMY_NATIVE_PREFLIGHT.checkpoint},'Missing original preflight chain');
   if(profile===MODEL_BROWSER_PREFLIGHT)assert.deepEqual(original.preflightContinuation,{source:MODEL_WORKER_PREFLIGHT.source,checkpoint:MODEL_WORKER_PREFLIGHT.checkpoint},'Missing original preflight chain');
-  if([ASSISTANT_PREFLIGHT,SETTLEMENT_BROWSER_PREFLIGHT,SETTLEMENT_NATIVE_PROGRESS,SETTLEMENT_NATIVE_PREFLIGHT,SETTLEMENT_HOSTING_PREFLIGHT,SETTLEMENT_PREFLIGHT,CANVAS_POLICY_NATIVE_PREFLIGHT,CANVAS_POLICY_WORKER_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].includes(profile)){
+  if([ASSISTANT_WORKER_PREFLIGHT,ASSISTANT_PREFLIGHT,SETTLEMENT_BROWSER_PREFLIGHT,SETTLEMENT_NATIVE_PROGRESS,SETTLEMENT_NATIVE_PREFLIGHT,SETTLEMENT_HOSTING_PREFLIGHT,SETTLEMENT_PREFLIGHT,CANVAS_POLICY_NATIVE_PREFLIGHT,CANVAS_POLICY_WORKER_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].includes(profile)){
     const flags=({files,reasons,...metadata})=>metadata;
     assert.deepEqual(flags(selection),flags(original.selection),'Changed selection cannot inherit preflight evidence');
     assert.equal(environment.image,original.environment.image,'Changed execution image');
-    if([ASSISTANT_PREFLIGHT,SETTLEMENT_BROWSER_PREFLIGHT,SETTLEMENT_NATIVE_PROGRESS,SETTLEMENT_NATIVE_PREFLIGHT,SETTLEMENT_HOSTING_PREFLIGHT,SETTLEMENT_PREFLIGHT,CANVAS_POLICY_NATIVE_PREFLIGHT,CANVAS_POLICY_WORKER_PREFLIGHT].includes(profile))assert.deepEqual(environment.inputs,original.environment.inputs,'Changed execution inputs');
+    if([ASSISTANT_WORKER_PREFLIGHT,ASSISTANT_PREFLIGHT,SETTLEMENT_BROWSER_PREFLIGHT,SETTLEMENT_NATIVE_PROGRESS,SETTLEMENT_NATIVE_PREFLIGHT,SETTLEMENT_HOSTING_PREFLIGHT,SETTLEMENT_PREFLIGHT,CANVAS_POLICY_NATIVE_PREFLIGHT,CANVAS_POLICY_WORKER_PREFLIGHT].includes(profile))assert.deepEqual(environment.inputs,original.environment.inputs,'Changed execution inputs');
     assert.equal(commands.length,52,'Changed release command closure');
     assert.deepEqual(commands,selectedCommands(original.selection,{GITHUB_SHA:sha,CANDIDATE_BASE:base}),'Changed release command closure');
   }
@@ -1701,13 +1839,14 @@ export function verifyCanvasPreflight(directory,evidence,commands){
     assert.equal(sha256(fs.readFileSync(path.join(directory,'test-results/frontend-runtime.log'))),profile.hostingLog);
   }
   if(profile===SETTLEMENT_BROWSER_PREFLIGHT){verifyModelBrowserRepair(directory,evidence.sha,{profile});restoreCanvasHostingProof(directory,{verifyOnly:true});}
-  if([ASSISTANT_PREFLIGHT,SETTLEMENT_BROWSER_PREFLIGHT,SETTLEMENT_NATIVE_PROGRESS,SETTLEMENT_NATIVE_PREFLIGHT,SETTLEMENT_HOSTING_PREFLIGHT,SETTLEMENT_PREFLIGHT,CANVAS_POLICY_NATIVE_PREFLIGHT,CANVAS_POLICY_WORKER_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].includes(profile))assert.equal(sha256(fs.readFileSync(path.join(directory,'reuse/preflight-failed.log'))),profile.failedLog,'Changed original failed preflight log');
+  if([ASSISTANT_WORKER_PREFLIGHT,ASSISTANT_PREFLIGHT,SETTLEMENT_BROWSER_PREFLIGHT,SETTLEMENT_NATIVE_PROGRESS,SETTLEMENT_NATIVE_PREFLIGHT,SETTLEMENT_HOSTING_PREFLIGHT,SETTLEMENT_PREFLIGHT,CANVAS_POLICY_NATIVE_PREFLIGHT,CANVAS_POLICY_WORKER_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].includes(profile))assert.equal(sha256(fs.readFileSync(path.join(directory,'reuse/preflight-failed.log'))),profile.failedLog,'Changed original failed preflight log');
   if(profile===AUTONOMY_NATIVE_PREFLIGHT){
     verifyAutonomyNativeRepair(directory,evidence.sha);restoreCanvasHostingProof(directory,{verifyOnly:true});
     assert.equal(sha256(fs.readFileSync(path.join(directory,'test-results/frontend-runtime.log'))),profile.hostingLog,'Changed retained hosting log');
   }
   if(profile===AUTONOMY_BROWSER_PREFLIGHT){verifyAutonomyBrowserRepair(directory,evidence.sha);restoreCanvasHostingProof(directory,{verifyOnly:true});}
   if(profile===MODEL_BROWSER_PREFLIGHT){verifyModelBrowserRepair(directory,evidence.sha);restoreCanvasHostingProof(directory,{verifyOnly:true});}
+  if(profile===ASSISTANT_WORKER_PREFLIGHT)verifyAssistantWorkerRepair(directory,evidence.sha);
   if(profile===MODEL_WORKER_PREFLIGHT)verifyModelWorkerRepair(directory,evidence.sha);
   if(profile===CANVAS_POLICY_NATIVE_PREFLIGHT){
     verifyCanvasPolicyNativeRepair(directory,evidence.sha);restoreCanvasHostingProof(directory,{verifyOnly:true});
@@ -1737,6 +1876,13 @@ export function verifyCanvasPreflight(directory,evidence,commands){
     if(progress&&progress.retained.includes(i)){
       assert.deepEqual(row,{...progress.original.commands[i],reusedFrom:progress.original.commands[i].reusedFrom||progress.original.sha});
       assert.equal(sha256(fs.readFileSync(path.join(directory,row.log))),row.logHash);
+    }else if(profile===ASSISTANT_WORKER_PREFLIGHT&&i===17){
+      assert(!row.reusedFrom);assert.equal(row.continuation,assistantWorkerGuardContinuation(commands[i].run));
+      const log=fs.readFileSync(path.join(directory,row.log),'utf8');
+      assert(log.includes('Assistant Worker continuation: 1617 original passes, 12 corrected cases and one new organization case require exact-source receipts; missing, forged, retried, duplicate and changed-discovery controls reject.'));
+      for(const completed of ['Local command mapping, no hosted duplicate suites','Permission continuation: exact failed checkpoint/tree','Assistant preflight continuation: historical fixture pinned'])assert(!log.includes(completed),'Completed verifier groups repeated');
+    }else if(profile===ASSISTANT_WORKER_PREFLIGHT&&i===41){
+      assert(!row.reusedFrom);assert.equal(row.continuation,assistantWorkerContinuation(commands[i].run));
     }else if(profile===ASSISTANT_PREFLIGHT&&i===17){
       assert(!row.reusedFrom);assert.equal(row.continuation,assistantPreflightGuardContinuation(commands[i].run));
       const log=fs.readFileSync(path.join(directory,row.log),'utf8');

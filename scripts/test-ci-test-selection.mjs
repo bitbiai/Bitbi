@@ -18,6 +18,33 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 
 {
+ const files=['tests/rel01/routes/workers.spec.js','tests/helpers/release-transition-legacy-contract.cjs'];
+ const read=file=>fs.readFileSync(path.join(repoRoot,file),'utf8');
+ const config=createRequire(import.meta.url)('../playwright.workers.config.js');
+ assert.equal(config.testDir,'./tests');
+ assert(config.testMatch.includes('**/workers.spec.js'),'Both real route callers remain in ordinary Worker discovery');
+ for(const caller of [files[0],'tests/release-transition/workers.spec.js']){
+  assert(caller.startsWith('tests/')&&caller.endsWith('/workers.spec.js'));
+  assert(read(caller).includes("require('@playwright/test')"),'The discovered caller registers actual Playwright cases');
+ }
+ assert(read('tests/release-transition/workers.spec.js').includes("require('../helpers/release-transition-legacy-contract.cjs')"));
+ assert.match(read('tests/release-transition/workers.spec.js'),/register\(\(name, options, run\) =>/);
+ const commands=JSON.parse(read('package.json')).scripts;
+ assert.match(commands['test:workers'],/playwright test -c playwright\.workers\.config\.js/);
+ for(const file of files){
+  const selected=selectCiTests([file]);
+  assert.equal(selected.policy,'impact-v1');assert(selected.workers&&selected.runtime&&!selected.full,file);
+  assert(requiredJobs(selected)['worker-validation'].includes('Run worker route tests'));
+ }
+ const mixed=[...files,'workers/auth/src/lib/member-generation-jobs.js','js/shared/canvas-conversation-decision-intent.mjs','scripts/lib/ci-test-selection.mjs'];
+ const selected=selectCiTests(mixed);assert(selected.workers&&selected.auth&&selected.homepage&&!selected.full,'Mixed release inputs retain every existing affected caller');
+ for(const unknown of ['tests/rel01/routes/unreviewed.spec.js','tests/rel01/routes/workers.spec.js.unreviewed',
+  'tests/helpers/release-transition-unknown-contract.cjs','tests/helpers/release-transition-legacy-contract.cjs.unreviewed'])
+  assert(selectCiTests([...mixed,unknown]).full,unknown+': exact mappings must not accept unknown neighbors');
+ assert(selectCiTests(files,{forceFull:true}).full,'Explicit full selection remains authoritative');
+}
+
+{
  const scoped=['tests/q2-canvas-h3-operator.spec.js','scripts/canvas-h3-recovery.mjs','tests/q2-canvas-agent-h3-recovery.spec.js',
  'tests/helpers/canvas-agent-h3-recovery-control.mjs','tests/q2-canvas-assistant-migration.spec.js','tests/helpers/canvas-assistant-migration-control.mjs',
  'tests/helpers/canvas-assistant-model-control.mjs','tests/q2-canvas-conversation-decisions.spec.js','tests/helpers/canvas-conversation-decisions-control.mjs',

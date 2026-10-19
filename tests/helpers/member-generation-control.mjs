@@ -222,6 +222,11 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     check((await db.prepare('SELECT COUNT(*) AS n FROM member_ai_usage_attempts_v2 WHERE user_id=?').bind(owner).first()).n===0,'OFF reserves no credit');
     await toggleArea(true);
   }
+  if(name==='image') {
+    const unsupported=await fetch('/api/ai/generate-image',{method:'POST',headers:{...headers,'Idempotency-Key':'unsupported-image-model'},body:JSON.stringify({...input,model:'unsupported/image-model'})});
+    check(unsupported.status===400&&calls.provider===0&&messages.length===0,'Unsupported explicit model is rejected before durable admission');
+    check((await db.prepare('SELECT COUNT(*) AS n FROM member_generation_jobs WHERE user_id=?').bind(owner).first()).n===0,'Malformed model cannot create a durable job');
+  }
   const accepted=await fetch(`/api/ai/generate-${kind}`,{method:'POST',headers,body,signal:abort.signal});
   const acceptance=await accepted.json();
   if (input.model?.startsWith('xai/grok-imagine-video') && ['edit','extend'].includes(input._operation)) {
@@ -235,6 +240,14 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
   const duplicateAcceptance=await fetch(`/api/ai/generate-${kind}`,{method:'POST',headers,body});
   check(duplicateAcceptance.status===202 && (await duplicateAcceptance.json()).data.job.id===id,'Same accepted intent has one durable job');
   check(calls.provider===0,'HTTP acceptance must not dispatch provider');
+  if(['image','asset-naming-image','asset-naming-image-manual'].includes(name)) {
+    check(acceptance.data.job.model_id==='@cf/black-forest-labs/flux-1-schnell','Omitted model exposes the actual resolved default at acceptance');
+    const job=await db.prepare('SELECT * FROM member_generation_jobs WHERE id=?').bind(id).first();
+    const slots=(await db.prepare('SELECT * FROM image_generation_slots WHERE usage_id=?').bind(job.usage_attempt_id).all()).results;
+    check(slots.length===1&&slots[0].job_id===id&&slots[0].model_id===acceptance.data.job.model_id,'Repeated default-model acceptance preserves one owned capacity slot');
+    const original=await env.USER_IMAGES.get(job.input_r2_key);
+    check(await new Response(original.body).text()===body,'Resolving the model must not rewrite original input or its replay fingerprint');
+  }
   if(input.source_video) {
     const other={...input,source_video:{source_type:'saved_asset',asset_id:'foreign-missing'}};
     const denied=await fetch('/api/ai/generate-video',{method:'POST',headers:{...headers,'Idempotency-Key':`${name}-foreign`},body:JSON.stringify(other)});

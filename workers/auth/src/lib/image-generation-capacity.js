@@ -57,14 +57,18 @@ export async function registerImageGenerationSlot(env,{usagePolicy,userId,modelI
 // proves a terminal response. Waiting is independent of paid retry counters.
 async function recoverSlots(env,now) {
   await env.DB.prepare(`UPDATE image_generation_slots SET state=CASE WHEN dispatched_at IS NULL
-    AND NOT EXISTS(SELECT 1 FROM member_ai_usage_attempts_v2 u WHERE u.id=image_generation_slots.usage_id AND u.provider_outcome IN ('dispatched','unknown'))
+    AND NOT EXISTS(SELECT 1 FROM member_ai_usage_attempts_v2 u WHERE image_generation_slots.usage_scope='member' AND u.id=image_generation_slots.usage_id AND u.provider_outcome IN ('dispatched','unknown'))
+    AND NOT EXISTS(SELECT 1 FROM ai_usage_attempts_v2 u WHERE image_generation_slots.usage_scope='organization' AND u.id=image_generation_slots.usage_id AND u.provider_outcome IN ('dispatched','unknown'))
     THEN 'waiting' ELSE 'unknown' END,token=NULL,updated_at=?
     WHERE state='active' AND lease_until<=?`).bind(now,now).run();
   await env.DB.prepare(`UPDATE image_generation_slots SET state='finished',finished_at=?,updated_at=?
-    WHERE state IN ('waiting','unknown') AND usage_scope='member' AND EXISTS(
+    WHERE state IN ('waiting','unknown') AND ((usage_scope='member' AND EXISTS(
       SELECT 1 FROM member_ai_usage_attempts_v2 u WHERE u.id=image_generation_slots.usage_id
       AND ((u.provider_outcome='not_dispatched' AND u.billing_status='released')
-        OR u.provider_outcome='succeeded'))`).bind(now,now).run();
+        OR u.provider_outcome='succeeded'))) OR (usage_scope='organization' AND EXISTS(
+      SELECT 1 FROM ai_usage_attempts_v2 u WHERE u.id=image_generation_slots.usage_id
+      AND ((u.provider_outcome='not_dispatched' AND u.billing_status='released')
+        OR u.provider_outcome='succeeded'))))`).bind(now,now).run();
 }
 
 const active="state IN ('active','unknown')";

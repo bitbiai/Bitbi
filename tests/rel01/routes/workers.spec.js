@@ -53,6 +53,15 @@ for (const late of ['success', 'failure']) {
       expect(env.USER_IMAGES.objects.size).toBe(0);
       // Identical input is not deduplicated forever: the user can explicitly
       // request a separate operation under the existing rate/credit guards.
+      const capacityBlocked = await send('rel01-explicit-new-operation');
+      expect(capacityBlocked.status).toBe(429);
+      expect((await capacityBlocked.json()).code).toBe('image_generation_capacity_wait');
+      expect(calls).toBe(1);
+      expect(env.DB.state.memberCreditLedger.filter(row => row.amount < 0)).toHaveLength(0);
+      // Explicit synthetic account review permits a second operation while the
+      // original uncertainty continues to occupy its own physical capacity.
+      env.IMAGE_GENERATION_CAPACITY_JSON=JSON.stringify({version:1,revision:'synthetic-rel01-two',reviewRef:'fixture/rel01',
+        verifiedUntil:new Date(Date.now()+3600000).toISOString(),global:2,user:2,project:2,providers:{'workers-ai':2}});
       const next = await send('rel01-explicit-new-operation');
       expect(next.status).toBe(200);
       expect(calls).toBe(2);

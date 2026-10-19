@@ -585,6 +585,14 @@ const AUTH_TEST_FILES = new Set([
   "tests/oma2-q3-auth-lifecycle.spec.js",
 ]);
 
+// Both execute through the existing **/workers.spec.js discovery: one directly,
+// the other via tests/release-transition/workers.spec.js. Keep these identities
+// exact; an unreviewed neighboring fixture must retain full selection.
+const EXACT_WORKER_TEST_FILES = new Set([
+  'tests/rel01/routes/workers.spec.js',
+  'tests/helpers/release-transition-legacy-contract.cjs',
+]);
+
 const WORKER_TEST_PREFIXES = [
   "tests/grok-chat-workers.spec.js",
   "tests/q2-canvas-agent-provider.spec.js", "tests/q2-canvas-agent.spec.js", "tests/q2-processor-capability.spec.js", "tests/canvas-assembly.test.mjs",
@@ -744,6 +752,7 @@ function isStaticSource(file) {
 }
 
 function isWorkerTest(file) {
+  if (EXACT_WORKER_TEST_FILES.has(file)) return true;
   if (['scripts/test-q2-runtime.mjs', 'scripts/test-q2-runtime-launcher.mjs',
     'scripts/setup-media-tools.sh', 'scripts/check-media-tools.mjs'].includes(file)) return true;
   return WORKER_TEST_PREFIXES.some((entry) => (

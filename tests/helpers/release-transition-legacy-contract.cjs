@@ -203,7 +203,17 @@ for (const scenario of scenarios) {
       assert.equal(f.providerCalls(), 1, 'A stale quote cannot add a provider call.');
       const freshRequest = f.request('explicit-new-logical-operation');
       freshRequest.headers.set('X-Bitbi-Tariff-Revision', String(currentRevision));
-      const fresh = await route.handleGenerateImage({ request: freshRequest, env: f.env,
+      const capacityBlocked = await route.handleGenerateImage({ request: freshRequest, env: f.env,
+        correlationId: 'local-candidate-capacity-blocked' });
+      assert.equal(capacityBlocked.status, 429);
+      assert.equal((await capacityBlocked.json()).code, 'image_generation_capacity_wait');
+      assert.equal(f.providerCalls(), 1, 'Unknown legacy dispatch occupies the conservative single capacity.');
+      assert.deepEqual(await f.accounting(), accountingAfterMigration, 'Capacity waiting cannot charge or release old accounting.');
+      f.env.IMAGE_GENERATION_CAPACITY_JSON=JSON.stringify({version:1,revision:'synthetic-transition-two',reviewRef:'fixture/legacy-transition',
+        verifiedUntil:new Date(Date.now()+3600000).toISOString(),global:2,user:2,project:2,providers:{'workers-ai':2}});
+      const admittedRequest = f.request('explicit-new-logical-operation');
+      admittedRequest.headers.set('X-Bitbi-Tariff-Revision', String(currentRevision));
+      const fresh = await route.handleGenerateImage({ request: admittedRequest, env: f.env,
         correlationId: 'local-candidate-new-operation' });
       assert.equal(fresh.status, 200, 'Explicitly new work remains possible under the existing member policy.');
       assert.equal(f.providerCalls(), 2, 'Exactly one new mock invocation belongs to the explicitly new operation.');

@@ -943,7 +943,7 @@ export async function handleGenerateImage(ctx) {
     return respond(policyError.body, { status: policyError.status });
   }
   ctx.captureCanvasUsageAttemptId?.(usagePolicy.attempt?.id || null);
-  const accepted = await acceptMemberGeneration(ctx, { usagePolicy, body: body, mediaType: 'image', sourceRefs: gptImage25 ? gptRequest.sourceRefs : [] });
+  const accepted = await acceptMemberGeneration(ctx, { usagePolicy, body: body, mediaType: 'image', modelId: modelConfig.id, sourceRefs: gptImage25 ? gptRequest.sourceRefs : [] });
   if (accepted) return accepted;
   const waitingCapacity=usagePolicy.attemptKind==='in_progress'&&usagePolicy.attempt?.providerOutcome==='not_dispatched'
     &&await env.DB.prepare("SELECT id FROM image_generation_slots WHERE id=? AND user_id=? AND state='waiting' AND dispatched_at IS NULL")
@@ -1052,7 +1052,7 @@ export async function handleGenerateImage(ctx) {
   if(!capacityClaim) {
     // A synchronous member request retains its exact reservation as an ordinary
     // durable job. Capacity waiting never asks for a new paid request identity.
-    const queued=canvasMediaRun(env)?await acceptMemberGeneration(ctx,{usagePolicy,body,mediaType:'image',sourceRefs:gptImage25?gptRequest.sourceRefs:[],forceAsync:true}):null;
+    const queued=canvasMediaRun(env)?await acceptMemberGeneration(ctx,{usagePolicy,body,mediaType:'image',modelId:modelConfig.id,sourceRefs:gptImage25?gptRequest.sourceRefs:[],forceAsync:true}):null;
     if(queued)return queued;
     return respond({ok:false,code:'image_generation_capacity_wait',error:'Image generation is waiting for available account capacity.'},{status:429,headers:{'Retry-After':'10'}});
   }

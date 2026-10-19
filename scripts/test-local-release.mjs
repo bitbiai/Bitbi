@@ -24,6 +24,11 @@ import {testLocalMediaProcess} from './test-local-media-process.mjs';
 const assistantPreflightTail=process.argv.includes('--assistant-preflight-only');
 if(assistantPreflightTail)assert.deepEqual(process.argv.slice(2),['--assistant-preflight-only']);
 
+if(process.argv.includes('--assistant-worker-only')) {
+  assert.deepEqual(process.argv.slice(2),['--assistant-worker-only']);
+  await testAssistantWorkerContinuation();process.exit(0);
+}
+
 if(process.argv.includes('--stored-plan-worker-only')) {
   assert.deepEqual(process.argv.slice(2),['--stored-plan-worker-only']);
   await testStoredPlanWorkerContinuation();process.exit(0);
@@ -2400,3 +2405,100 @@ async function testAssistantPreflightContinuation() {
  console.log(marker);
 }
 await testAssistantPreflightContinuation();
+
+async function testAssistantWorkerContinuation() {
+ const {ASSISTANT_WORKER_PREFLIGHT:p,canvasPreflightProfile,assertCanvasPreflightTree,canvasPreflightPrefix,
+  assistantWorkerFailures,assistantWorkerNewCase,assistantWorkerGuardContinuation,assistantWorkerContinuation,
+  verifyAssistantWorkerRepair,verifyAssistantWorkerUnion}=await import('./lib/local-release-evidence.mjs');
+ const marker='Assistant Worker continuation: 1617 original passes, 12 corrected cases and one new organization case require exact-source receipts; missing, forged, retried, duplicate and changed-discovery controls reject.';
+ assert.equal(canvasPreflightProfile(p.source),p);
+ assert.equal(assistantWorkerGuardContinuation('npm run test:local-release'),'npm run test:local-release -- --assistant-worker-only');
+ for(const command of ['echo skipped','npm run test:local-release -- --other','npm run test:local-release\nnpm run test:workers'])assert.throws(()=>assistantWorkerGuardContinuation(command));
+ for(const index of [0,2,3,7,12,14,15,16,17,29,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51])assert(!p.retain.includes(index),'Changed source gates and unfinished media/native/browser tail cannot inherit passes');
+ const passed=Array.from({length:1617},(_,index)=>({id:'synthetic-passed-'+index,file:'unchanged.spec.js',title:'Synthetic retained '+index,results:[{status:'passed',retry:0}]}));
+ const failed=assistantWorkerFailures.map((title,index)=>({id:'synthetic-failed-'+index,file:'failed.spec.js',title,results:[{status:'failed',retry:0},{status:'failed',retry:1}]}));
+ const added={id:'synthetic-organization',...assistantWorkerNewCase},previous=[...passed,...failed],discovery=[...previous,added];
+ const fresh=[...failed,added].map(row=>({...row,results:[{status:'passed',retry:0}]}));
+ const union=(progress=fresh,required=discovery,prior=previous)=>verifyAssistantWorkerUnion({previous:prior,discovery:required,progress});
+ assert.deepEqual(union(),{originalPassed:1617,correctedPassed:12,newPassed:1,total:1630});
+ for(const bad of [fresh.slice(1),fresh.slice(0,-1),[...fresh,fresh[0]],[...fresh,passed[0]],fresh.map((row,index)=>index?row:{...row,results:[{status:'failed',retry:0}]}),
+  fresh.map((row,index)=>index?row:{...row,results:[{status:'passed',retry:1}]}),fresh.map(row=>row.id===added.id?{...row,results:[{status:'passed',retry:1}]}:row),
+  fresh.map(row=>row.id===added.id?{...row,title:'Wrong organization assertion'}:row)])assert.throws(()=>union(bad));
+ for(const bad of [discovery.slice(1),discovery.slice(0,-1),[...discovery,added],[...discovery,{...added,id:'unreviewed'}],discovery.map((row,index)=>index?row:{...row,title:'Changed retained input'})])assert.throws(()=>union(fresh,bad));
+ const brokenPrior=structuredClone(previous);brokenPrior[0].results=[{status:'failed',retry:0}];assert.throws(()=>union(fresh,discovery,brokenPrior));
+ const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-assistant-worker-')),bare=path.join(temporary,'git'),previousGitDir=process.env.GIT_DIR;
+ try {
+  execFileSync('git',['init','--bare',bare],{stdio:'pipe'});
+  fs.writeFileSync(path.join(bare,'objects/info/alternates'),path.resolve(execFileSync('git',['rev-parse','--git-path','objects'],{encoding:'utf8'}).trim())+'\n');
+  const env={...process.env,GIT_AUTHOR_NAME:'Synthetic',GIT_AUTHOR_EMAIL:'synthetic@example.invalid',GIT_COMMITTER_NAME:'Synthetic',GIT_COMMITTER_EMAIL:'synthetic@example.invalid'};
+  const read=(args,input)=>execFileSync('git',['--git-dir',bare,...args],{env,input,stdio:['pipe','pipe','pipe'],maxBuffer:64*1024*1024});
+  const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),reviewed=read(['rev-list','--ancestry-path','--reverse',`${p.source}..${head}`]).toString().trim().split('\n')[0];
+  assert(reviewed,'The closed Worker fixture requires its committed reviewed successor');
+  const tooling=['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs'];
+  const fixes=Object.fromEntries([...new Set([...Object.keys(p.specs),...tooling])].map(file=>[file,read(['show',`${reviewed}:${file}`])]));
+  for(const [file,hash]of Object.entries(p.specs))assert.equal(sha256(fixes[file]),hash,'Reviewed correction must match its exact pin');
+  const commit=(changes,parent=p.source)=>{
+   read(['read-tree',p.source]);for(const [file,value]of Object.entries(changes)){
+    if(value===null){read(['update-index','--index-info'],Buffer.from(`0 ${'0'.repeat(40)}\t${file}\n`));continue;}
+    const blob=read(['hash-object','-w','--stdin'],value.content??value).toString().trim();read(['update-index','--add','--cacheinfo',`${value.mode||'100644'},${blob},${file}`]);
+   }return read(['commit-tree',read(['write-tree']).toString().trim(),'-p',parent],Buffer.from('Synthetic closed assistant Worker continuation\n')).toString().trim();
+  };
+  const accepted=commit(fixes);assertCanvasPreflightTree(accepted,read,p);
+  for(const file of Object.keys(p.specs))for(const value of [null,Buffer.from('Unreviewed correction'),{mode:'120000',content:Buffer.from('outside')}])assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,[file]:value}),read,p));
+  for(const file of ['workers/auth/migrations/0112_canvas_assistant_models_and_scheduling.sql','frontend/index.mjs','services/homepage-ffmpeg-processor/index.mjs','package-lock.json','.github/workflows/static.yml','config/release-validation.yml'])assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,[file]:Buffer.from('Unreviewed retained source')}),read,p));
+  for(const file of tooling)assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,[file]:{mode:'120000',content:Buffer.from('outside')}}),read,p));
+  assert.throws(()=>assertCanvasPreflightTree(commit(fixes,accepted),read,p),'A later successor must not inherit the closed proof');
+  const origin='.local-release',checkpoint=path.join(origin,'reuse/preflight-checkpoint.json');
+  const hasOriginal=fs.existsSync(checkpoint)&&JSON.parse(fs.readFileSync(checkpoint)).sha===p.source;
+  assert(hasOriginal||!process.argv.includes('--assistant-worker-only'),'Focused Worker continuation requires actual failed-source evidence');
+  let originalCommand=selectedCommands(selectCiTests(['workers/auth/src/lib/image-generation-capacity.js']),{GITHUB_SHA:accepted,CANDIDATE_BASE:p.source}).find(row=>row.name==='Run worker route tests')?.run;
+  let selectionRows=discovery;
+  if(hasOriginal){
+   const bytes=fs.readFileSync(checkpoint),original=JSON.parse(bytes),proof=path.join(temporary,'proof');
+   fs.mkdirSync(proof);fs.cpSync(path.join(origin,'reuse'),path.join(proof,'reuse'),{recursive:true});fs.mkdirSync(path.join(proof,'test-results'));
+   process.env.GIT_DIR=bare;
+   const selection=gitSelection(original.base,accepted),commands=selectedCommands(selection,{GITHUB_SHA:accepted,CANDIDATE_BASE:original.base});
+   const context={sha:accepted,base:original.base,planHash:validationPlan().digest,selection,environment:original.environment,nativeBrowsers:original.nativeBrowsers,commands};
+   assert.equal(canvasPreflightPrefix(bytes,context).sha,p.source);
+   for(const mutate of [row=>row.status='passed',row=>row.commands[41].exitCode=0,row=>row.commands[1].exitCode=1,row=>row.commands.pop(),row=>delete row.preflightContinuation]){
+    const bad=structuredClone(original);mutate(bad);assert.throws(()=>canvasPreflightPrefix(Buffer.from(JSON.stringify(bad)),context));
+   }
+   for(const mutate of [row=>row.base='f'.repeat(40),row=>row.planHash='changed',row=>row.environment.key='changed',row=>row.environment.image='changed',row=>row.environment.inputs['package-lock.json']='changed',row=>row.selection.full=!row.selection.full,row=>row.commands.pop(),row=>row.commands[41].run='echo skipped']){
+    const bad=structuredClone(context);mutate(bad);assert.throws(()=>canvasPreflightPrefix(bytes,bad));
+   }
+   const pending=verifyAssistantWorkerRepair(proof,accepted,{allowPending:true});
+   assert.equal(pending.previous.length,1629);assert.equal(pending.result,null);assert.equal(pending.previous.filter(row=>row.results.length===1&&row.results[0].status==='passed').length,1617);
+   assert.throws(()=>verifyAssistantWorkerRepair(proof,accepted),'Missing fresh execution is never a completed repair');
+   originalCommand=original.commands[41].command.run;selectionRows=[...pending.previous,added];
+   for(const file of ['reuse/preflight-checkpoint.json','reuse/preflight-failed.log','reuse/original-worker-last-run.json','reuse/original-worker-discovery.json','reuse/test-results/assistant-preflight-origin/reuse/preflight-checkpoint.json','reuse/test-results/assistant-preflight-origin/logs/17.log']){
+    const target=path.join(proof,file),saved=fs.readFileSync(target);fs.unlinkSync(target);assert.throws(()=>verifyAssistantWorkerRepair(proof,accepted,{allowPending:true}));
+    fs.writeFileSync(target,'forged evidence');assert.throws(()=>verifyAssistantWorkerRepair(proof,accepted,{allowPending:true}));fs.writeFileSync(target,saved);
+   }
+   verifyAssistantWorkerRepair(proof,accepted,{allowPending:true});
+  }
+  const command=assistantWorkerContinuation(originalCommand);
+  const observe=script=>{
+   const directory=fs.mkdtempSync(path.join(temporary,'commands-')),bin=path.join(directory,'bin'),trace=path.join(directory,'trace.jsonl');fs.mkdirSync(bin);
+   const shim='#!'+process.execPath+'\n'+"const fs=require('node:fs'),path=require('node:path');fs.appendFileSync(process.env.BITBI_COMMAND_TRACE,JSON.stringify({tool:path.basename(process.argv[1]),args:process.argv.slice(2)})+'\\n');\n";
+   for(const tool of ['npx','node','npm'])fs.writeFileSync(path.join(bin,tool),shim,{mode:0o700});
+   const observed=spawnSync('/bin/bash',['--noprofile','--norc','-euo','pipefail','-c',script],{cwd:directory,env:{PATH:bin+':/usr/bin:/bin',BITBI_COMMAND_TRACE:trace,CI_MEMBER_ASSETS:'true',Q2_RUNTIME_ARTIFACTS:path.join(directory,'native')},encoding:'utf8',timeout:10000});
+   assert.equal(observed.status,0,observed.stderr);
+   return fs.existsSync(trace)?fs.readFileSync(trace,'utf8').trim().split('\n').filter(Boolean).map(line=>JSON.parse(line)):[];
+  };
+  const assertSelected=calls=>{
+   assert.equal(calls.length,6,'Missing or extra observed Worker command');
+   const npx=calls.filter(row=>row.tool==='npx');assert.equal(npx.length,2);
+   assert(npx[0].args.includes('--list')&&npx[0].args.includes('--reporter=json'),'Full discovery must run before execution');
+   const args=npx[1].args,filter=args[args.indexOf('--grep')+1];assert(args.includes('--retries=0')&&args.includes('--workers=1')&&args.includes('--reporter=list,json')&&args.includes('--output=test-results/assistant-worker-artifacts'));
+   assert.deepEqual(selectionRows.filter(row=>new RegExp(filter).test(row.label||row.title)).map(row=>row.title).sort(),[...assistantWorkerFailures,assistantWorkerNewCase.title].sort(),'Rendered selection must execute exactly the twelve failed cases plus the new organization control');
+   assert.deepEqual(calls.filter(row=>row.tool==='node').map(row=>row.args),[['scripts/local-release.mjs','verify-assistant-worker-pending','.local-release'],['scripts/local-release.mjs','verify-assistant-worker-repair','.local-release']]);
+   assert.deepEqual(calls.filter(row=>row.tool==='npm').map(row=>row.args),[['run','test:homepage-ffmpeg-processor'],['run','test:q2-runtime']],'Unexecuted real media/native chain remains mandatory');
+  };
+  assertSelected(observe(command));
+  assert.throws(()=>assertSelected(observe('true')));
+  assert.throws(()=>assertSelected(observe(command+'\nnpx playwright test -c playwright.workers.config.js --retries=0\n')));
+  assert.throws(()=>assertSelected(observe(command.replace('npm run test:q2-runtime','true'))));
+ }finally{if(previousGitDir===undefined)delete process.env.GIT_DIR;else process.env.GIT_DIR=previousGitDir;fs.rmSync(temporary,{recursive:true,force:true});}
+ console.log(marker);
+}
+await testAssistantWorkerContinuation();
