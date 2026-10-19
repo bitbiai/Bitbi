@@ -7,6 +7,7 @@ import {createHash} from 'node:crypto';
 // neighbours retain the ordinary fail-closed Full selection.
 export const EXPORT_DELIVERY_POLICY='canvas-export-delivery-v1';
 export const EXPORT_DELIVERY_FILES=Object.freeze([
+  'docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md',
   'js/pages/canvas/export-observer.js','js/pages/canvas/full-video.js',
   'workers/media/src/index.js','scripts/test-private-media-lifecycle.mjs',
   'workers/auth/src/lib/private-media-service.js','workers/auth/src/routes/private-media-service.js',
@@ -134,9 +135,18 @@ export const EXPORT_DELIVERY_PREFLIGHT=Object.freeze({
   // proof, native runtime, browser and AMD64 image result is fresh.
   retain:Object.freeze([1,6,8,9,10,11,13,19,20,21,22,23,24,26,28,30,31,32,39]),
 });
-export function assertExportDeliveryTree(head,read){
+export const EXPORT_DELIVERY_SELECTION_PREFLIGHT=Object.freeze({
+  source:'ffb4f0403aeefb559b15ca4ab95d65bed758068b',
+  base:EXPORT_DELIVERY_PREFLIGHT.base,
+  checkpoint:'b52d593308b62aa077a04bcdd78982164ec46b71cfad1d715373fbf844048ec1',
+  failedLog:'248d70dbbe4804f8b3a3ba7a43266dbb2519088c27d9f5a7b9b7b2f26662293b',
+  // DOM/routes and planner/safety callers see unchanged inputs and the exact
+  // same real selection. Changed source/scanning/docs/verifiers remain fresh.
+  retain:Object.freeze([...EXPORT_DELIVERY_PREFLIGHT.retain,4,5,14,15].sort((a,b)=>a-b)),
+});
+export function assertExportDeliveryTree(head,read,parent=EXPORT_DELIVERY_PREFLIGHT.source){
   const p=EXPORT_DELIVERY_PREFLIGHT;
-  assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,p.source],'Export delivery reuse requires the exact published successor');
+  assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,parent],'Export delivery reuse requires the exact published successor');
   const files=read(['diff','--name-only',p.source,head]).toString().trim().split('\n').filter(Boolean);
   assert(files.includes('workers/media/src/index.js')&&files.includes('js/pages/canvas/export-observer.js'),'Missing reviewed export repair');
   assert(files.every(file=>EXPORT_DELIVERY_FILES.includes(file)||['docs/runbooks/REGRESSION_REGISTER.md','docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md'].includes(file)),'Changed input outside export delivery reuse closure');
@@ -162,14 +172,50 @@ export function validateExportDeliveryPrefix(old,context){
   for(const index of p.retain)assert.deepEqual(old.commands[index].command,context.commands[index],'Changed retained check inputs or command');
   return old;
 }
-export function verifyExportDeliveryReuse(directory,evidence,commands,{read,readFile}){
-  const p=EXPORT_DELIVERY_PREFLIGHT;
-  assert.deepEqual(evidence.preflightContinuation,{source:p.source,checkpoint:p.checkpoint});
-  const old=exportDeliveryPrefix(readFile(`${directory}/reuse/preflight-checkpoint.json`),{...evidence,commands},read);
-  validateExportDeliveryRows(old,evidence,commands,file=>readFile(`${directory}/${file}`));
+export function assertExportDeliverySelectionTree(head,read){
+  const p=EXPORT_DELIVERY_SELECTION_PREFLIGHT;
+  // Keep the failed candidate reachable in the pushed ancestry. Evidence
+  // archives contain reports, not orphan Git objects for the hosted verifier.
+  assertExportDeliveryTree(head,read,p.source);
+  assert.deepEqual(read(['rev-list','--parents','-n','1',p.source]).toString().trim().split(/\s+/),[p.source,EXPORT_DELIVERY_PREFLIGHT.source]);
+  const files=read(['diff','--name-only',p.source,head]).toString().trim().split('\n').filter(Boolean);
+  const allowed=['scripts/lib/canvas-export-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs','docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md'];
+  assert(files.includes('scripts/lib/canvas-export-release.mjs'));
+  assert(files.every(file=>allowed.includes(file)),'Changed input outside failed selection correction');
+  // This correction changes only expected documentation membership and the
+  // proof of reuse. Selection implementation and product inputs stay exact.
+  for(const file of ['scripts/lib/ci-test-selection.mjs','scripts/lib/release-plan.mjs','scripts/test-release-plan.mjs','scripts/test-static-deploy-safety.mjs'])
+    assert.equal(digest(read(['show',`${head}:${file}`])),digest(read(['show',`${p.source}:${file}`])),'Changed retained planner input');
 }
-export function validateExportDeliveryRows(old,evidence,commands,readLog){
-  const p=EXPORT_DELIVERY_PREFLIGHT;
+export function validateExportDeliverySelectionPrefix(old,context){
+  const p=EXPORT_DELIVERY_SELECTION_PREFLIGHT;
+  assert.equal(old.sha,p.source);assert.equal(old.status,'failed');assert.equal(old.base,p.base);assert.equal(context.base,p.base);
+  assert.equal(old.planHash,context.planHash);assert.equal(old.environment.key,context.environment.key);
+  assert.deepEqual(old.preflightContinuation,{source:EXPORT_DELIVERY_PREFLIGHT.source,checkpoint:EXPORT_DELIVERY_PREFLIGHT.checkpoint});
+  assert.deepEqual(old.selection,context.selection,'Failed selection correction cannot change actual acceptance scope');
+  assert.equal(old.commands.length,46);
+  assert(old.commands.slice(0,16).every(row=>row?.exitCode===0));
+  assert.equal(old.commands[16]?.exitCode,1);assert.equal(old.commands[16]?.logHash,p.failedLog);
+  assert.equal(old.commands[16]?.command.name,'Run CI test selection fixtures');
+  assert(old.commands.slice(17).every((row,i)=>EXPORT_DELIVERY_PREFLIGHT.retain.includes(i+17)?row?.exitCode===0:row===null),'Unexpected execution after failed selector');
+  for(const index of p.retain)assert.deepEqual(old.commands[index].command,context.commands[index],'Changed retained check inputs or command');
+  return old;
+}
+export function exportDeliverySelectionPrefix(bytes,context,read){
+  assertExportDeliverySelectionTree(context.sha,read);
+  const p=EXPORT_DELIVERY_SELECTION_PREFLIGHT;
+  assert.equal(digest(bytes),p.checkpoint,'Changed failed selection checkpoint');
+  assert.deepEqual(context.selection.files,read(['diff','--name-only',p.base,context.sha]).toString().trim().split('\n').filter(Boolean).sort(),'Incomplete unpublished export selection');
+  return validateExportDeliverySelectionPrefix(JSON.parse(bytes),context);
+}
+export function verifyExportDeliveryReuse(directory,evidence,commands,{read,readFile}){
+  const p=evidence.preflightContinuation?.source===EXPORT_DELIVERY_SELECTION_PREFLIGHT.source?EXPORT_DELIVERY_SELECTION_PREFLIGHT:EXPORT_DELIVERY_PREFLIGHT;
+  assert.deepEqual(evidence.preflightContinuation,{source:p.source,checkpoint:p.checkpoint});
+  const prefix=p===EXPORT_DELIVERY_SELECTION_PREFLIGHT?exportDeliverySelectionPrefix:exportDeliveryPrefix;
+  const old=prefix(readFile(`${directory}/reuse/preflight-checkpoint.json`),{...evidence,commands},read);
+  validateExportDeliveryRows(old,evidence,commands,file=>readFile(`${directory}/${file}`),p);
+}
+export function validateExportDeliveryRows(old,evidence,commands,readLog,p=EXPORT_DELIVERY_PREFLIGHT){
   assert.equal(evidence.commands.length,commands.length);
   for(const [index,row]of evidence.commands.entries()){
     if(p.retain.includes(index)){

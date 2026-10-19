@@ -921,8 +921,10 @@ resize-race, admission/immutability/protocol cases; all offered effects with dec
 frames, audio, short-middle and mixed cut/effect cumulative counterchecks in the
 target AMD64 image. Export-only repairs select eight EN/DE Chromium/WebKit real
 preview/cumulative-export/download/save and observation/recovery cases; workspace
-changes retain the workspace interaction cases. Observation stops explicitly after
-120 reads per job; Refresh reconnects without declaring backend failure. Unconfirmed
+changes retain the workspace interaction cases. Export observation reconnects after
+transient read failures and browser visibility/network changes using the same request
+identity. After 120 reads it slows polling; it does not abandon accepted work or
+submit another render. Permanent access errors and terminal jobs stop observation. Unconfirmed
 submissions retain one request identity and are reconciled through an owner-scoped
 read before another new export. Previous completed artifacts remain separately
 labelled. Deterministic render failures terminate once; classified transient export

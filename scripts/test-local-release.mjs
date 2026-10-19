@@ -3452,7 +3452,7 @@ async function testReadinessWorkerContinuation() {
 await testReadinessWorkerContinuation();
 
 async function testExportDeliveryContinuation(){
- const {EXPORT_DELIVERY_POLICY,EXPORT_DELIVERY_FILES,EXPORT_DELIVERY_PRIOR_FILES,EXPORT_DELIVERY_UNPUBLISHED_FILES,EXPORT_DELIVERY_PREFLIGHT:p,assertExportDeliveryTree,exportDeliveryPrefix,validateExportDeliveryPrefix,validateExportDeliveryRows,exportDeliveryCommand}=await import('./lib/canvas-export-release.mjs');
+ const {EXPORT_DELIVERY_POLICY,EXPORT_DELIVERY_FILES,EXPORT_DELIVERY_PRIOR_FILES,EXPORT_DELIVERY_UNPUBLISHED_FILES,EXPORT_DELIVERY_PREFLIGHT:p,EXPORT_DELIVERY_SELECTION_PREFLIGHT:retryProfile,assertExportDeliverySelectionTree,validateExportDeliverySelectionPrefix,exportDeliverySelectionPrefix,assertExportDeliveryTree,exportDeliveryPrefix,validateExportDeliveryPrefix,validateExportDeliveryRows,exportDeliveryCommand}=await import('./lib/canvas-export-release.mjs');
  const head='f'.repeat(40),selection=selectCiTests(EXPORT_DELIVERY_UNPUBLISHED_FILES),commands=selectedCommands(selection,{GITHUB_SHA:head,CANDIDATE_BASE:p.base});
  const read=args=>args[0]==='show'?fs.readFileSync(args[1].slice(head.length+1)):Buffer.from(args[0]==='rev-list'?`${head} ${p.source}\n`:(args[2]===p.base?EXPORT_DELIVERY_UNPUBLISHED_FILES:EXPORT_DELIVERY_FILES).join('\n'));
  assertExportDeliveryTree(head,read);
@@ -3479,6 +3479,23 @@ async function testExportDeliveryContinuation(){
  const changedHash=structuredClone(evidence);changedHash.commands[p.retain[0]].logHash='0'.repeat(64);assert.throws(()=>validateExportDeliveryRows(old,changedHash,commands,()=>log));
  const fakeProduct=structuredClone(evidence);fakeProduct.commands[41].reusedFrom=old.sha;assert.throws(()=>validateExportDeliveryRows(old,fakeProduct,commands,()=>log),/must execute/);
 
+ const failed={...structuredClone(old),sha:retryProfile.source,status:'failed',selection,
+  preflightContinuation:{source:p.source,checkpoint:p.checkpoint},commands:Array.from({length:46},(_,i)=>i<16||p.retain.includes(i)?structuredClone(old.commands[i]):i===16?{command:commands[i],exitCode:1,logHash:retryProfile.failedLog}:null)};
+ assert.equal(validateExportDeliverySelectionPrefix(failed,context),failed);
+ const retryRead=args=>args[0]==='rev-list'?Buffer.from(`${args.at(-1)} ${args.at(-1)===head?retryProfile.source:p.source}\n`):args[0]==='diff'&&args[2]===retryProfile.source?Buffer.from('scripts/lib/canvas-export-release.mjs\nscripts/lib/local-release-evidence.mjs\nscripts/test-local-release.mjs\ndocs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md'):read(args);
+ assertExportDeliverySelectionTree(head,retryRead);
+ assert.throws(()=>assertExportDeliverySelectionTree(head,args=>args[0]==='rev-list'&&args.at(-1)===head?Buffer.from(`${head} ${p.source}\n`):retryRead(args)),/exact published successor/,'An amended sibling must not depend on an unreachable failed candidate');
+ assert.throws(()=>assertExportDeliverySelectionTree(head,args=>args[0]==='rev-list'&&args.at(-1)===retryProfile.source?Buffer.from(`${retryProfile.source} ${'e'.repeat(40)}\n`):retryRead(args)),'Failed candidate must preserve its exact accepted Auth parent');
+ assert.throws(()=>assertExportDeliverySelectionTree(head,args=>args[0]==='diff'&&args[2]===retryProfile.source?Buffer.from('scripts/lib/canvas-export-release.mjs\nworkers/auth/src/lib/canvas-agent-execution.js'):retryRead(args)),/outside failed selection/);
+ assert.throws(()=>exportDeliverySelectionPrefix(Buffer.from(JSON.stringify(failed)),context,retryRead),/Changed failed selection checkpoint/);
+ for(const change of [row=>row.commands[16].exitCode=0,row=>row.commands[16].logHash='0'.repeat(64),row=>row.commands[17]={exitCode:0},row=>row.selection={...selection,files:selection.files.filter(file=>file!=='docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md')}]){
+  const bad=structuredClone(failed);change(bad);assert.throws(()=>validateExportDeliverySelectionPrefix(bad,context));
+ }
+ const retried={commands:commands.map((command,index)=>retryProfile.retain.includes(index)?{...failed.commands[index],reusedFrom:failed.commands[index].reusedFrom||failed.sha}:{command,exitCode:0})};
+ validateExportDeliveryRows(failed,retried,commands,()=>log,retryProfile);
+ assert.throws(()=>validateExportDeliveryRows(failed,retried,commands,()=>Buffer.from('changed retained progress'),retryProfile),/Changed retained log/);
+ const falselyPassed=structuredClone(retried);falselyPassed.commands[16].reusedFrom=failed.sha;assert.throws(()=>validateExportDeliveryRows(failed,falselyPassed,commands,()=>log,retryProfile),/must execute/);
+ assert.deepEqual(retryProfile.retain.filter(i=>!p.retain.includes(i)),[4,5,14,15]);
  const native=commands.find(c=>c.name==='Run worker route tests'),browser=commands.find(c=>c.name==='Run selected auth and admin tests');
  assert.match(native.run,/--suite canvas-export-delivery/);assert.match(native.run,/--retries=0/);assert(!native.run.includes('npm run test:workers'));
  assert.match(browser.run,/Canvas export lifecycle\|Canvas editable film/);assert.match(browser.run,/--project=chromium --project=webkit-canvas/);
