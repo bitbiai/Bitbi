@@ -1439,6 +1439,17 @@ function testCanvasReadinessSelection() {
 }
 testCanvasReadinessSelection();
 
+function parseExportDiscovery(result){
+ let report;try{report=JSON.parse(result.stdout);}catch{}
+ const errors=Array.isArray(report?.errors)?report.errors:[];
+ const diagnostic=errors.slice(0,3).map(error=>String(error.message||'Discovery error').slice(0,1800)).join('\n')
+  ||String(result.stderr||result.error?.message||'No valid discovery JSON').slice(0,1800);
+ assert.equal(result.status,0,`Playwright discovery failed: ${diagnostic}`);
+ assert(report&&Array.isArray(report.suites),'Playwright discovery returned malformed JSON');
+ assert.equal(errors.length,0,`Playwright discovery reported errors: ${diagnostic}`);
+ return report;
+}
+
 async function testExportDeliverySelection(){
  const {EXPORT_DELIVERY_POLICY,EXPORT_DELIVERY_FILES,EXPORT_DELIVERY_UNPUBLISHED_FILES,EXPORT_DELIVERY_PRIOR_FILES,EXPORT_DELIVERY_BROWSER_GREP,EXPORT_DELIVERY_WORKER_GREP,verifyExportDeliveryDiscovery,exportDeliverySources}=await import('./lib/canvas-export-release.mjs');
  const {selectedCommands}=await import('./lib/local-release-plan.mjs');
@@ -1460,7 +1471,10 @@ async function testExportDeliverySelection(){
  assert(selectCiTests(EXPORT_DELIVERY_FILES,{forceFull:true}).full);
  const commands=selectedCommands(selection,{GITHUB_SHA:'a'.repeat(40),CANDIDATE_BASE:'b'.repeat(40)});
  for(const name of ['Verify native Linux isolation before Worker tests','Run worker route tests','Run private media lifecycle tests','Build and test private media Linux image','Run selected auth and admin tests'])assert.equal(commands.filter(c=>c.name===name).length,1);
- const discover=args=>{const result=spawnSync(process.execPath,['node_modules/@playwright/test/cli.js','test',...args,'--list','--reporter=json'],{cwd:repoRoot,encoding:'utf8',timeout:60000,env:{...process.env,PLAYWRIGHT_JSON_OUTPUT_NAME:'',PLAYWRIGHT_JSON_OUTPUT_FILE:''},maxBuffer:20*1024*1024});assert.equal(result.status,0,result.stderr);return JSON.parse(result.stdout);};
+ const discover=args=>parseExportDiscovery(spawnSync(process.execPath,['node_modules/@playwright/test/cli.js','test',...args,'--list','--reporter=json'],{cwd:repoRoot,encoding:'utf8',timeout:60000,env:{...process.env,PLAYWRIGHT_JSON_OUTPUT_NAME:'',PLAYWRIGHT_JSON_OUTPUT_FILE:''},maxBuffer:20*1024*1024}));
+ assert.throws(()=>parseExportDiscovery({status:1,stdout:JSON.stringify({errors:[{message:'Synthetic missing named export'}]}),stderr:'SQLite warning'}),/Synthetic missing named export/);
+ assert.throws(()=>parseExportDiscovery({status:0,stdout:JSON.stringify({suites:[],errors:[{message:'Synthetic discovery error'}]}),stderr:''}),/Synthetic discovery error/);
+ assert.throws(()=>parseExportDiscovery({status:1,stdout:'invalid JSON',stderr:'Synthetic loader error'}),/Synthetic loader error/);
  const discovery=discover(['tests/canvas.spec.js','--project=chromium','--project=webkit-canvas','--grep',EXPORT_DELIVERY_BROWSER_GREP]),browser=flattenHomepageDiscovery(discovery);
  verifyExportDeliveryDiscovery(browser);
  const {candidateProof}=await import('./pages-candidate.mjs');
