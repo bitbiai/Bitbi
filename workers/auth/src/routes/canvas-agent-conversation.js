@@ -127,14 +127,14 @@ export async function handleCanvasAgentConversation(ctx,session) {
     const body=parsed.body,key=keyFor(ctx.request),row=await ensureConversation(ctx.env,projectId,session.user.id);
     try {
     // route-policy: account.canvas.agent.conversation.model
-    if(match[2]==='model'){
+    if(match[2]==='model'&&ctx.method==='POST'){
         check(body,['modelId','expectedConversationRevision','expectedModelRevision']);
         const {changeCanvasAssistantModel}=await import('../lib/canvas-agent-conversation.js');
         await changeCanvasAssistantModel(ctx.env,session.user.id,projectId,{modelId:body.modelId,conversationRevision:body.expectedConversationRevision,modelRevision:body.expectedModelRevision,key});
         return respond(await conversationView(ctx.env,projectId,session.user.id));
     }
     // route-policy: account.canvas.agent.conversation.decision
-    if(match[2]==='decision'){
+    if(match[2]==='decision'&&ctx.method==='POST'){
         await confirmCanvasConversationDecision(ctx,session,projectId,body,key);
         return respond(await conversationView(ctx.env,projectId,session.user.id),202);
     }
