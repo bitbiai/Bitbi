@@ -26,6 +26,7 @@ export const EXPORT_DELIVERY_FILES=Object.freeze([
   'scripts/lib/ci-test-selection.mjs','scripts/lib/local-release-plan.mjs','scripts/lib/local-release-evidence.mjs',
   'scripts/pages-candidate.mjs','scripts/select-ci-tests.mjs','scripts/test-ci-test-selection.mjs','scripts/test-local-release.mjs',
   'scripts/test-frontend-review.mjs',
+  'scripts/lib/local-release-transport.mjs','scripts/lib/media-publication.mjs','scripts/local-release.mjs','scripts/test-media-activation-reuse.mjs',
 ]);
 // Auth-only a4 retained the published frontend base below. These exact prior
 // inputs were already accepted; keep them in the complete unpublished range,
@@ -58,9 +59,12 @@ export const EXPORT_DELIVERY_PRIOR_FILES=Object.freeze([
 ]);
 export const EXPORT_DELIVERY_UNPUBLISHED_FILES=Object.freeze([...new Set([...EXPORT_DELIVERY_FILES,...EXPORT_DELIVERY_PRIOR_FILES])].sort());
 export const EXPORT_DELIVERY_INPUTS=Object.freeze({
+  "scripts/lib/local-release-transport.mjs": "36344658208cdc13e0f9a9af211ccaa79d17a09f7919b51b6cd2342a04eab6e2",
+  "scripts/lib/media-publication.mjs": "d109bae0eab0ce718e7daed21f09bc66f7160a87c349c4d0efbb77e756904bf9",
+  "scripts/test-media-activation-reuse.mjs": "3942978a1407f213f8da0583f292153480f35fb1ff3342d18434645d331bf142",
   "scripts/test-frontend-review.mjs": "004d71ce9e0c34b22e82b6bbde3287338978ebf2ed12972246d1df1ad7f48b1a",
   "scripts/lib/local-release-browser.mjs": "d4b09803a92664b519dd3d3cbd9163f3242dd66222a089bed5a6e515c58eb21d",
-  "scripts/local-release.mjs": "3b70bcd75dbab472518fde29026cb376e8d767d812f5bcfb39753573737be863",
+  "scripts/local-release.mjs": "ad709768f38b16ed268d340602fea513de0dfcdef560babe81ff57510695b01d",
   "tests/helpers/canvas-agent-h3-recovery-control.mjs": "a55dc6ac891b71cb0043d4c1cc9b0390cf1a6d7f93ad4be6505c5477e35fb199",
   "tests/helpers/canvas-agent-readiness-control.mjs": "b9aa7f996ab253b21cffc4fc75a8b588568400c1cfdb5748a6555eeca48b2bdd",
   "tests/q2-canvas-agent-h3-recovery.spec.js": "84f460ad33ee19a6b5acb4a94d5c819604a3fb2b4135118c8ee7d327b96e9a56",
@@ -73,7 +77,7 @@ export const EXPORT_DELIVERY_INPUTS=Object.freeze({
   "js/pages/canvas/export-observer.js": "c681d8dee52dcc4f825f49529be626e138107abf81d47aa6867319ae44dbdcda",
   "js/pages/canvas/full-video.js": "8ac26198ea9d88829d725409eaba6c8c3d0f7476603ce780dc940758641e469a",
   "workers/media/src/index.js": "856e8fa091f9f37e13a4dbc3cd14c626a090e3c45dab5c4f862f4486cb4d4723",
-  "scripts/test-private-media-lifecycle.mjs": "1cad7bc467b7e8c2290aa1d4e034ecd996ca7fdd85313b49d82e0ec8c4719d13",
+  "scripts/test-private-media-lifecycle.mjs": "fb6c59fb7389094396c2cb9f1f82f9ae59c5cbda4164e1f71665c9988faa3ef9",
   "workers/auth/src/lib/private-media-service.js": "228e5fcb8733904aaf1b6474a35af2d1d968f49cf9e6d7c4d04db2361d203a7e",
   "workers/auth/src/routes/private-media-service.js": "802eb1e6e98a90a63c80f49e2e61c82b283e273b31cdcf12992ca8db456b5c95",
   "workers/auth/src/lib/canvas-video-processing.js": "119ef20ca76be346dcd98efa7ec6732825d313ce97a65aac35eeef7220d22f90",
@@ -168,7 +172,37 @@ export const EXPORT_DELIVERY_HOSTING_PREFLIGHT=Object.freeze({
   retain:Object.freeze([...EXPORT_DELIVERY_DISCOVERY_PREFLIGHT.retain,18,25,27,29,33].sort((a,b)=>a-b)),
   previous:EXPORT_DELIVERY_DISCOVERY_PREFLIGHT,
 });
-export const exportDeliveryCorrectionProfile=source=>[EXPORT_DELIVERY_HOSTING_PREFLIGHT,EXPORT_DELIVERY_DISCOVERY_PREFLIGHT,EXPORT_DELIVERY_SELECTION_PREFLIGHT].find(profile=>profile.source===source)||null;
+export const EXPORT_DELIVERY_SDK_PREFLIGHT=Object.freeze({
+  source:'8d62a01ecd7c2cd00bb942ab309df5985d493f8e',
+  base:EXPORT_DELIVERY_PREFLIGHT.base,
+  checkpoint:'4fa92f6424354bce02b64029a4f9d3c1f62a86a5ec93684dd007f2e5be8ffc80',
+  failedIndex:43,failedName:'Run private media lifecycle tests',
+  failedLog:'1f992230314a8e5518298e339420dffd437364e4b5b70921862c84ca765984f8',
+  addedFiles:Object.freeze(['scripts/lib/local-release-transport.mjs','scripts/lib/media-publication.mjs','scripts/test-media-activation-reuse.mjs']),
+  retain:Object.freeze([...EXPORT_DELIVERY_HOSTING_PREFLIGHT.retain,38,40,41,42].sort((a,b)=>a-b)),
+  previous:EXPORT_DELIVERY_HOSTING_PREFLIGHT,
+  run:'8d62a01ecd7c2cd00bb942ab309df5985d493f8e-36a7e6f7-e2fb-425d-ad5b-23ad9fac1d2a',
+  image:'a6340e816010c8769a370fe57c51be532ac7562d9442a543cfa3c6f515eeb5a1',
+  nativeProof:Object.freeze({
+    'q2-runtime-evidence/native-vOBUdk/launcher-result.json':'17e457ded792c100d887d08ea54f8bb03ec9b958136b00d94cd02b6d719b4947',
+    'q2-runtime-evidence/native-vOBUdk/reports/bitbi-q2-runtime-NlOeml__build-provenance.json':'5000ebd91062b9a8e948cb2be97c2090717bb89c71775d505dae43bdd930852a',
+    'q2-runtime-evidence/native-vOBUdk/reports/bitbi-q2-runtime-NlOeml__canvas-result.json':'d199b7572eda3446b2e3df2ea51f2c483b3004e5bdbe91c46f7e62c3a1a79edb',
+    'q2-runtime-evidence/native-vOBUdk/reports/bitbi-q2-runtime-NlOeml__result.json':'65e538ca55495fa6820f5c54d0e76ac5a17fab82739409c328a5eef9923f7512',
+    'q2-runtime-evidence/native-vOBUdk/reports/bitbi-q2-runtime-NlOeml__wrangler-build.log':'f3076909712dd4b2748dad1730ffe482438ea9a5220e9856f208cbded934c291',
+    'q2-runtime-evidence/native-vOBUdk/reports/bootstrap-result.json':'0c3c6fbacee12be915466a9365db36746c99991d42edddaa0016efbd1e20712e',
+    'q2-runtime-evidence/native-vOBUdk/reports/isolation-final.json':'3722a729b374515d022042aa6df90f8f984b91c3086a0a52d42884219ce98055',
+    'q2-runtime-evidence/native-vOBUdk/reports/isolation-result.json':'c609013b5a939b464aaa1834e97286e6ec5c0f4eb4c069f1af40770a6527b11e',
+    'q2-runtime-evidence/native-vOBUdk/reports/linux-child-probe-final.json':'d5e3d737202540db0e1f80c0c0d59fc16fb00fef350fbcb602b8ff2f242d3797',
+    'q2-runtime-evidence/native-vOBUdk/reports/linux-child-probe.json':'d5e3d737202540db0e1f80c0c0d59fc16fb00fef350fbcb602b8ff2f242d3797',
+    'q2-runtime-evidence/preflight-CD8RJ3/launcher-result.json':'e8c7a9386d596b2aec108077978c6e48a0b00da3f83a20d405b054f44f08694a',
+    'q2-runtime-evidence/preflight-CD8RJ3/reports/bootstrap-result.json':'0c3c6fbacee12be915466a9365db36746c99991d42edddaa0016efbd1e20712e',
+    'q2-runtime-evidence/preflight-CD8RJ3/reports/isolation-final.json':'3722a729b374515d022042aa6df90f8f984b91c3086a0a52d42884219ce98055',
+    'q2-runtime-evidence/preflight-CD8RJ3/reports/isolation-result.json':'c609013b5a939b464aaa1834e97286e6ec5c0f4eb4c069f1af40770a6527b11e',
+    'q2-runtime-evidence/preflight-CD8RJ3/reports/linux-child-probe-final.json':'d5e3d737202540db0e1f80c0c0d59fc16fb00fef350fbcb602b8ff2f242d3797',
+    'q2-runtime-evidence/preflight-CD8RJ3/reports/linux-child-probe.json':'d5e3d737202540db0e1f80c0c0d59fc16fb00fef350fbcb602b8ff2f242d3797',
+  }),
+});
+export const exportDeliveryCorrectionProfile=source=>[EXPORT_DELIVERY_SDK_PREFLIGHT,EXPORT_DELIVERY_HOSTING_PREFLIGHT,EXPORT_DELIVERY_DISCOVERY_PREFLIGHT,EXPORT_DELIVERY_SELECTION_PREFLIGHT].find(profile=>profile.source===source)||null;
 export function assertExportDeliveryTree(head,read,parent=EXPORT_DELIVERY_PREFLIGHT.source){
   const p=EXPORT_DELIVERY_PREFLIGHT;
   assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,parent],'Export delivery reuse requires the exact published successor');
@@ -205,19 +239,25 @@ export function assertExportDeliverySelectionTree(head,read,p=EXPORT_DELIVERY_SE
     assert.deepEqual(read(['rev-list','--parents','-n','1',current.source]).toString().trim().split(/\s+/),[current.source,current.previous.source]);
   const files=read(['diff','--name-only',p.source,head]).toString().trim().split('\n').filter(Boolean);
   const allowed=['scripts/lib/canvas-export-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs',
-    ...(p===EXPORT_DELIVERY_HOSTING_PREFLIGHT?['scripts/test-frontend-review.mjs','scripts/test-ci-test-selection.mjs']:
+    ...(p===EXPORT_DELIVERY_SDK_PREFLIGHT?['scripts/test-private-media-lifecycle.mjs','scripts/test-ci-test-selection.mjs','scripts/local-release.mjs','scripts/lib/local-release-transport.mjs','scripts/lib/media-publication.mjs','scripts/test-media-activation-reuse.mjs']:
+      p===EXPORT_DELIVERY_HOSTING_PREFLIGHT?['scripts/test-frontend-review.mjs','scripts/test-ci-test-selection.mjs']:
       p===EXPORT_DELIVERY_DISCOVERY_PREFLIGHT?['scripts/test-ci-test-selection.mjs']:['docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md'])];
   assert(files.includes('scripts/lib/canvas-export-release.mjs'));
   assert((p.addedFiles||[]).every(file=>files.includes(file)),'Missing required hosting fixture correction');
   assert(files.every(file=>allowed.includes(file)),'Changed input outside failed selection correction');
-  // This correction changes only expected documentation membership and the
-  // proof of reuse. Selection implementation and product inputs stay exact.
+  // Correction scopes preserve the selection algorithm, product inputs and
+  // retained release planner. SDK repair changes only its synthetic fixture.
   for(const file of ['scripts/lib/ci-test-selection.mjs','scripts/lib/release-plan.mjs','scripts/test-release-plan.mjs','scripts/test-static-deploy-safety.mjs'])
     assert.equal(digest(read(['show',`${head}:${file}`])),digest(read(['show',`${p.source}:${file}`])),'Changed retained planner input');
 }
 export function validateExportDeliverySelectionPrefix(old,context,p=EXPORT_DELIVERY_SELECTION_PREFLIGHT){
   assert.equal(old.sha,p.source);assert.equal(old.status,'failed');assert.equal(old.base,p.base);assert.equal(context.base,p.base);
   assert.equal(old.planHash,context.planHash);assert.equal(old.environment.key,context.environment.key);
+  if(p===EXPORT_DELIVERY_SDK_PREFLIGHT){
+    assert.deepEqual(old.environment.inputs,context.environment.inputs,'Changed retained native runtime inputs');
+    assert.equal(old.environment.image,context.environment.image,'Changed retained native runtime image');
+    assert.equal(old.nativeBrowsers?.key,context.nativeBrowsers?.key,'Changed retained browser environment');
+  }
   assert.deepEqual(old.preflightContinuation,{source:p.previous.source,checkpoint:p.previous.checkpoint});
   const additions=p.addedFiles||[];
   assert(additions.every(file=>!old.selection.files.includes(file)),'Fixture correction must be a new unpublished input');
@@ -243,6 +283,16 @@ export function verifyExportDeliveryReuse(directory,evidence,commands,{read,read
   const prefix=p===EXPORT_DELIVERY_PREFLIGHT?exportDeliveryPrefix:exportDeliverySelectionPrefix;
   const old=prefix(readFile(`${directory}/reuse/preflight-checkpoint.json`),{...evidence,commands},read,p);
   validateExportDeliveryRows(old,evidence,commands,file=>readFile(`${directory}/${file}`),p);
+  if(p===EXPORT_DELIVERY_SDK_PREFLIGHT){
+    verifyExportDeliveryNative(file=>readFile(`${directory}/runtime/${file}`));
+    const image=JSON.parse(readFile(`${directory}/test-results/private-media-image/image.json`));
+    assert.equal(digest(JSON.stringify(image)),p.image,'Changed retained image receipt');
+    assert.equal(digest(readFile(`${directory}/test-results/private-media-image/image.tar`)),image.archiveDigest,'Changed retained image archive');
+    assert.equal(digest(readFile(`${directory}/test-results/private-media-image/test.log`)),image.testLogDigest,'Changed retained image test output');
+  }
+}
+export function verifyExportDeliveryNative(read){
+  for(const[file,hash]of Object.entries(EXPORT_DELIVERY_SDK_PREFLIGHT.nativeProof))assert.equal(digest(read(file)),hash,'Changed retained native evidence: '+file);
 }
 export function validateExportDeliveryRows(old,evidence,commands,readLog,p=EXPORT_DELIVERY_PREFLIGHT){
   assert.equal(evidence.commands.length,commands.length);
@@ -252,4 +302,30 @@ export function validateExportDeliveryRows(old,evidence,commands,readLog,p=EXPOR
       assert.equal(digest(readLog(row.log)),row.logHash,'Changed retained log');
     }else assert(!row.reusedFrom&&!row.continuation&&!row.browserContinuation,'Affected export acceptance must execute on candidate bytes');
   }
+}
+
+// The failed SDK fixture is outside the tested container inputs. Preserve the
+// accepted image and local run; the Actions envelope only identifies import.
+export function verifyExportDeliveryImageReuse(record,sha,{read=args=>execFileSync('git',args,{stdio:['ignore','pipe','pipe']})}={}){
+  const p=EXPORT_DELIVERY_SDK_PREFLIGHT;
+  assert.equal(record.sha,p.source);assert.equal(record.run,p.run);assert.equal(record.attempt,'1');
+  assert.equal(digest(JSON.stringify(record)),p.image,'Changed retained export image receipt');
+  assertExportDeliverySelectionTree(sha,read,p);
+  return record.sha;
+}
+export function verifyImportedExportDeliveryImage(record,{sha,run,attempt},options){
+  assert.equal(record.run,String(run));assert.equal(record.attempt,String(attempt));
+  const {localValidation,...original}=record;
+  assert.equal(localValidation?.policy,'development-mac-v1');
+  assert.equal(localValidation.publicationSha,sha);assert.match(localValidation.evidence,/^[a-f0-9]{64}$/);
+  original.run=localValidation.run;original.attempt=localValidation.attempt;
+  assert.equal(digest(JSON.stringify(original)),localValidation.recordHash,'Changed imported export image receipt');
+  return verifyExportDeliveryImageReuse(original,sha,options);
+}
+export function exportDeliveryReceiptImageSource(media,sha,{read=args=>execFileSync('git',args,{stdio:['ignore','pipe','pipe']})}={}){
+  if(media.imageSourceSha===sha)return sha;
+  const p=EXPORT_DELIVERY_SDK_PREFLIGHT;
+  assert.equal(media.imageSourceSha,p.source);
+  assertExportDeliverySelectionTree(sha,read,p);
+  return media.imageSourceSha;
 }

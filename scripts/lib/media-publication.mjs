@@ -1,5 +1,6 @@
 import {normalizeCanvasAgentConfigDelta} from './canvas-agent-release.mjs';
 import {verifyImportedSmoothImage,smoothReceiptImageSource,AUTONOMY_BROWSER_PREFLIGHT,verifyImportedAutonomyImage,autonomyReceiptImageSource} from './local-release-browser.mjs';
+import {EXPORT_DELIVERY_SDK_PREFLIGHT,verifyImportedExportDeliveryImage,exportDeliveryReceiptImageSource} from './canvas-export-release.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -220,11 +221,13 @@ export function verifyLoadedMediaImage(record,image,identity) {
 // Cross-source reuse is admitted only by a closed, source-bound repair proof.
 export function publicationImageSource(record,context,options) {
   if(record.sha===context.sha)return record.sha;
+  if(record.sha===EXPORT_DELIVERY_SDK_PREFLIGHT.source)return verifyImportedExportDeliveryImage(record,context,options);
   return record.sha===AUTONOMY_BROWSER_PREFLIGHT.source
     ?verifyImportedAutonomyImage(record,context,options)
     :verifyImportedSmoothImage(record,context,options);
 }
 export function receiptImageSource(media,sha) {
+  if(media.imageSourceSha===EXPORT_DELIVERY_SDK_PREFLIGHT.source)return exportDeliveryReceiptImageSource(media,sha);
   return media.imageSourceSha===AUTONOMY_BROWSER_PREFLIGHT.source
     ?autonomyReceiptImageSource(media,sha)
     :smoothReceiptImageSource(media,sha);

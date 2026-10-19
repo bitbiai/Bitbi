@@ -3,6 +3,8 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
 import {DatabaseSync} from 'node:sqlite';
 import {build} from '../workers/auth/node_modules/esbuild/lib/main.js';
 
@@ -53,6 +55,58 @@ async function fixture({realSchedules=false}={}) {
   fixtures.push(f);return f;
 }
 const expire=f=>{clock.now+=31_000;return f.object.isActivityExpired();};
+
+// SDK 0.3.7 detaches pipeTo(...).finally(decrementInflight). A failed source
+// body reaches deliver's catch AND rejects that detached promise. Strict Node
+// terminates on the latter, unlike an awaited application exception. Preserve
+// this real SDK boundary in an isolated process; never suppress rejections or
+// turn a process failure alone into evidence that durable recovery succeeded.
+const bodyMarker='private-media-sdk-body-recovery';
+function verifyBodyFailureChild(result) {
+  assert.equal(result.error,undefined);assert.equal(result.signal,null);assert.equal(result.status,1);
+  const markers=result.stdout.split('\n').flatMap(line=>{try{const row=JSON.parse(line);return row.test===bodyMarker?[row]:[];}catch{return [];}});
+  assert.deepEqual(markers,[{test:bodyMarker,state:'retrying',stage:'acknowledgement',httpStatus:202,errorCode:'media_delivery_transport',attempt:1,schedules:1,inflight:0}],
+    'Body interruption must preserve its exact durable recovery before the detached SDK rejection');
+  assert.match(result.stderr,/Error: body interrupted/);
+  assert.match(result.stderr,/at PrivateMediaContainer\.containerFetch/);
+  assert(!result.stderr.includes('AssertionError'),'A failed recovery assertion is not an expected SDK rejection');
+}
+function verifyBodyFailure() {
+  const child=broken=>spawnSync(process.execPath,['--unhandled-rejections=strict',fileURLToPath(import.meta.url),'--sdk-body-child',...(broken?['--missing-retry']:[])],{
+    cwd:process.cwd(),encoding:'utf8',timeout:30000,env:{...process.env,NODE_OPTIONS:''},
+  });
+  verifyBodyFailureChild(child(false));
+  const broken=child(true);
+  assert.equal(broken.error,undefined);assert.equal(broken.status,1);
+  assert.match(broken.stderr,/Body interruption replacement schedule is required/);
+  assert.throws(()=>verifyBodyFailureChild(broken),/exact durable recovery/);
+  console.log(JSON.stringify({test:'private-media-sdk-body-failure',sdk:'0.3.7',durableRetry:true,inflightReleased:true,detachedRejectionObserved:true,missingRetryRejected:true}));
+}
+if(process.argv.includes('--sdk-body-child')) {
+  const f=await fixture({realSchedules:true});
+  await f.object.fetch(new Request('http://actor/wake',{method:'POST',body:JSON.stringify({token:'2'.repeat(32)})}));
+  if(process.argv.includes('--missing-retry'))f.object.schedule=async()=>{};
+  f.container.getTcpPort=()=>({fetch:async()=>new PlatformResponse(new ReadableStream({start(controller){controller.error(Error('body interrupted'));}}),{status:202})});
+  const activityExpired=f.object.isActivityExpired.bind(f.object);
+  f.object.isActivityExpired=()=>{
+    // This actual SDK boundary follows callback completion and deletion of its
+    // original SQL schedule, before the alarm's idle timer yields to Node's
+    // rejection reporting. Observe it without changing the idle decision.
+    const state=f.state(),schedules=f.db.prepare("SELECT payload FROM container_schedules WHERE callback='deliver'").all();
+    assert.equal(schedules.length,1,'Body interruption replacement schedule is required');
+    assert.equal(JSON.parse(schedules[0].payload).token,'2'.repeat(32),'Retry must retain the original activation');
+    console.log(JSON.stringify({test:bodyMarker,state:state.state,stage:state.stage,httpStatus:state.httpStatus,errorCode:state.errorCode,attempt:state.attempt,schedules:schedules.length,inflight:f.object.inflightRequests}));
+    return activityExpired();
+  };
+  await f.object.alarm();
+  // Let strict Node report the exact SDK promise. Returning early or forcing
+  // a successful process exit would conceal the independently observed defect.
+  await new Promise(setImmediate);
+  throw Error('Expected detached SDK body rejection was not observed');
+} else if(process.argv.includes('--body-fault-only')) {
+  assert.deepEqual(process.argv.slice(2),['--body-fault-only']);
+  verifyBodyFailure();
+} else {
 
 // Red control reproduces the original deliver method, including its unconsumed
 // response: successful HTTP != completed SDK request, even after hours idle.
@@ -116,11 +170,11 @@ await wake(scheduled,token);assert.equal((await scheduled.object.listSchedules('
 const safe=await (await scheduled.object.fetch(new Request('http://actor/status'))).json();
 assert(safe.delivery.reference);assert(!JSON.stringify(safe).includes(token),'Status excludes dispatch credentials');
 
-for(const fault of ['http503','fetch','body','startup']) {
+verifyBodyFailure();
+for(const fault of ['http503','fetch','startup']) {
   const f=await fixture({realSchedules:true});await wake(f,'2'.repeat(32));
   if(fault==='http503')f.status=503;
   if(fault==='fetch')f.transportError=Error('untrusted secret payload must not be logged');
-  if(fault==='body') {f.container.getTcpPort=()=>({fetch:async()=>new PlatformResponse(new ReadableStream({start(controller){controller.error(Error('body interrupted'));}}),{status:202})});}
   if(fault==='startup'){f.container.running=false;f.object.startAndWaitForPorts=async()=>{throw Error('port not ready');};}
   await f.object.alarm();assert.equal(f.state().state,'retrying',fault);
   assert.equal((await f.object.listSchedules('deliver')).length,1,fault);
@@ -168,3 +222,4 @@ assert.equal(exhausted.state().state,'running');assert.equal(exhausted.state().f
 
 for(const f of fixtures)f.db.close();
 console.log(JSON.stringify({test:'private-media-durable-delivery',sdk:'0.3.7',failedCallbackControl:true,duplicate:true,busyRetry:true,transientRetry:true,exhaustedBound:6,staleFenced:true,ackReconciled:true,oldAuthCompatible:true}));
+}

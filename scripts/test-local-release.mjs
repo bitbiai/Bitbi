@@ -3452,7 +3452,7 @@ async function testReadinessWorkerContinuation() {
 await testReadinessWorkerContinuation();
 
 async function testExportDeliveryContinuation(){
- const {EXPORT_DELIVERY_POLICY,EXPORT_DELIVERY_FILES,EXPORT_DELIVERY_PRIOR_FILES,EXPORT_DELIVERY_UNPUBLISHED_FILES,EXPORT_DELIVERY_PREFLIGHT:p,EXPORT_DELIVERY_SELECTION_PREFLIGHT:retryProfile,EXPORT_DELIVERY_DISCOVERY_PREFLIGHT:discoveryProfile,EXPORT_DELIVERY_HOSTING_PREFLIGHT:hostingProfile,assertExportDeliverySelectionTree,validateExportDeliverySelectionPrefix,exportDeliverySelectionPrefix,assertExportDeliveryTree,exportDeliveryPrefix,validateExportDeliveryPrefix,validateExportDeliveryRows,exportDeliveryCommand}=await import('./lib/canvas-export-release.mjs');
+ const {EXPORT_DELIVERY_POLICY,EXPORT_DELIVERY_FILES,EXPORT_DELIVERY_PRIOR_FILES,EXPORT_DELIVERY_UNPUBLISHED_FILES,EXPORT_DELIVERY_PREFLIGHT:p,EXPORT_DELIVERY_SELECTION_PREFLIGHT:retryProfile,EXPORT_DELIVERY_DISCOVERY_PREFLIGHT:discoveryProfile,EXPORT_DELIVERY_HOSTING_PREFLIGHT:hostingProfile,EXPORT_DELIVERY_SDK_PREFLIGHT:sdkProfile,verifyExportDeliveryNative,assertExportDeliverySelectionTree,validateExportDeliverySelectionPrefix,exportDeliverySelectionPrefix,assertExportDeliveryTree,exportDeliveryPrefix,validateExportDeliveryPrefix,validateExportDeliveryRows,exportDeliveryCommand}=await import('./lib/canvas-export-release.mjs');
  const head='f'.repeat(40),selection=selectCiTests(EXPORT_DELIVERY_UNPUBLISHED_FILES),commands=selectedCommands(selection,{GITHUB_SHA:head,CANDIDATE_BASE:p.base});
  const read=args=>args[0]==='show'?fs.readFileSync(args[1].slice(head.length+1)):Buffer.from(args[0]==='rev-list'?`${head} ${p.source}\n`:(args[2]===p.base?EXPORT_DELIVERY_UNPUBLISHED_FILES:EXPORT_DELIVERY_FILES).join('\n'));
  assertExportDeliveryTree(head,read);
@@ -3510,21 +3510,22 @@ async function testExportDeliveryContinuation(){
  validateExportDeliveryRows(discoveryFailed,discoveryEvidence,commands,()=>log,discoveryProfile);
  assert.deepEqual(discoveryProfile.retain.filter(i=>!retryProfile.retain.includes(i)),[7]);
 
+ const hostingContext={...context,selection:{...selection,files:selection.files.filter(file=>!sdkProfile.addedFiles.includes(file))}};
  const hostingFailed={...structuredClone(failed),sha:hostingProfile.source,
-  selection:{...selection,files:selection.files.filter(file=>!hostingProfile.addedFiles.includes(file))},
+  selection:{...hostingContext.selection,files:hostingContext.selection.files.filter(file=>!hostingProfile.addedFiles.includes(file))},
   preflightContinuation:{source:discoveryProfile.source,checkpoint:discoveryProfile.checkpoint},
   commands:Array.from({length:46},(_,i)=>i<36||p.retain.includes(i)?structuredClone(old.commands[i]):i===36?{command:commands[i],exitCode:1,logHash:hostingProfile.failedLog}:null)};
- assert.equal(hostingFailed.selection.files.length,49);assert.equal(selection.files.length,50);
- assert.equal(validateExportDeliverySelectionPrefix(hostingFailed,context,hostingProfile),hostingFailed);
+ assert.equal(hostingFailed.selection.files.length,49);assert.equal(hostingContext.selection.files.length,50);
+ assert.equal(validateExportDeliverySelectionPrefix(hostingFailed,hostingContext,hostingProfile),hostingFailed);
  const hostingFiles=['scripts/lib/canvas-export-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs','scripts/test-ci-test-selection.mjs','scripts/test-frontend-review.mjs'];
  const hostingRead=args=>args[0]==='rev-list'&&(args.at(-1)===head||args.at(-1)===hostingProfile.source)?Buffer.from(`${args.at(-1)} ${args.at(-1)===head?hostingProfile.source:discoveryProfile.source}\n`):args[0]==='diff'&&args[2]===hostingProfile.source?Buffer.from(hostingFiles.join('\n')):discoveryRead(args);
  assertExportDeliverySelectionTree(head,hostingRead,hostingProfile);
  assert.throws(()=>assertExportDeliverySelectionTree(head,args=>args[0]==='diff'&&args[2]===hostingProfile.source?Buffer.from(hostingFiles.filter(file=>file!=='scripts/test-frontend-review.mjs').join('\n')):hostingRead(args),hostingProfile),/Missing required hosting fixture/);
  assert.throws(()=>assertExportDeliverySelectionTree(head,args=>args[0]==='diff'&&args[2]===hostingProfile.source?Buffer.from([...hostingFiles,'scripts/lib/frontend-hosting.mjs'].join('\n')):hostingRead(args),hostingProfile),/outside failed selection/);
  assert.throws(()=>assertExportDeliverySelectionTree(head,args=>args[0]==='rev-list'&&args.at(-1)===hostingProfile.source?Buffer.from(`${hostingProfile.source} ${retryProfile.source}\n`):hostingRead(args),hostingProfile),'Every failed candidate must remain reachable in its original lineage');
- assert.throws(()=>exportDeliverySelectionPrefix(Buffer.from(JSON.stringify(hostingFailed)),context,hostingRead,hostingProfile),/Changed failed selection checkpoint/);
+ assert.throws(()=>exportDeliverySelectionPrefix(Buffer.from(JSON.stringify(hostingFailed)),hostingContext,hostingRead,hostingProfile),/Changed failed selection checkpoint/);
  for(const change of [row=>row.selection.files.push('scripts/test-frontend-review.mjs'),row=>row.commands[36].exitCode=0,row=>row.commands[36].logHash='0'.repeat(64),row=>row.commands[36].command.name='other failure',row=>row.commands[37]={exitCode:0},row=>row.commands[25].command.run+='\nfalse']){
-  const bad=structuredClone(hostingFailed);change(bad);assert.throws(()=>validateExportDeliverySelectionPrefix(bad,context,hostingProfile));
+  const bad=structuredClone(hostingFailed);change(bad);assert.throws(()=>validateExportDeliverySelectionPrefix(bad,hostingContext,hostingProfile));
  }
  assert.throws(()=>validateExportDeliverySelectionPrefix(hostingFailed,{...context,selection:hostingFailed.selection},hostingProfile),/actual acceptance scope/,'The newly changed fixture must be included in complete unpublished discovery');
  const hostingEvidence={commands:commands.map((command,index)=>hostingProfile.retain.includes(index)?{...hostingFailed.commands[index],reusedFrom:hostingFailed.commands[index].reusedFrom||hostingFailed.sha}:{command,exitCode:0})};
@@ -3535,6 +3536,38 @@ async function testExportDeliveryContinuation(){
   assert.throws(()=>validateExportDeliveryRows(hostingFailed,bad,commands,()=>log,hostingProfile),/must execute/,'Changed verifier, candidate, failed hosting and unexecuted product checks remain fresh');
  }
  assert.deepEqual(hostingProfile.retain.filter(i=>!discoveryProfile.retain.includes(i)),[18,25,27,29,33]);
+
+ const sdkContext={...context,environment:{...context.environment,image:'same-native-image',inputs:{runtime:'pinned'}},nativeBrowsers:{key:'same-native-browser'}};
+ const sdkFailed={...structuredClone(hostingFailed),sha:sdkProfile.source,
+  environment:sdkContext.environment,nativeBrowsers:sdkContext.nativeBrowsers,
+  selection:{...selection,files:selection.files.filter(file=>!sdkProfile.addedFiles.includes(file))},
+  preflightContinuation:{source:hostingProfile.source,checkpoint:hostingProfile.checkpoint},
+  commands:Array.from({length:46},(_,i)=>i<43?structuredClone(old.commands[i]):i===43?{command:commands[i],exitCode:1,logHash:sdkProfile.failedLog}:null)};
+ assert.equal(sdkFailed.selection.files.length,50);assert.equal(selection.files.length,53);
+ assert.equal(validateExportDeliverySelectionPrefix(sdkFailed,sdkContext,sdkProfile),sdkFailed);
+ const sdkFiles=['scripts/lib/canvas-export-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs','scripts/test-ci-test-selection.mjs','scripts/test-private-media-lifecycle.mjs','scripts/local-release.mjs',...sdkProfile.addedFiles];
+ const sdkRead=args=>args[0]==='rev-list'&&(args.at(-1)===head||args.at(-1)===sdkProfile.source)?Buffer.from(`${args.at(-1)} ${args.at(-1)===head?sdkProfile.source:hostingProfile.source}\n`):args[0]==='diff'&&args[2]===sdkProfile.source?Buffer.from(sdkFiles.join('\n')):hostingRead(args);
+ assertExportDeliverySelectionTree(head,sdkRead,sdkProfile);
+ assert.throws(()=>assertExportDeliverySelectionTree(head,args=>args[0]==='diff'&&args[2]===sdkProfile.source?Buffer.from([...sdkFiles,'workers/media/src/index.js'].join('\n')):sdkRead(args),sdkProfile),/outside failed selection/,'A product change cannot inherit SDK-fixture-only native/image acceptance');
+ assert.throws(()=>assertExportDeliverySelectionTree(head,args=>args[0]==='rev-list'&&args.at(-1)===sdkProfile.source?Buffer.from(`${sdkProfile.source} ${discoveryProfile.source}\n`):sdkRead(args),sdkProfile));
+ assert.throws(()=>exportDeliverySelectionPrefix(Buffer.from(JSON.stringify(sdkFailed)),sdkContext,sdkRead,sdkProfile),/Changed failed selection checkpoint/);
+ for(const change of [row=>row.commands[43].exitCode=0,row=>row.commands[43].logHash='0'.repeat(64),row=>row.commands[44]={exitCode:0},row=>row.commands[41].command.run+='\nfalse',row=>row.environment.image='different',row=>row.environment.inputs.runtime='different',row=>row.nativeBrowsers.key='different']){
+  const bad=structuredClone(sdkFailed);change(bad);assert.throws(()=>validateExportDeliverySelectionPrefix(bad,sdkContext,sdkProfile));
+ }
+ const sdkEvidence={commands:commands.map((command,index)=>sdkProfile.retain.includes(index)?{...sdkFailed.commands[index],reusedFrom:sdkFailed.commands[index].reusedFrom||sdkFailed.sha}:{command,exitCode:0})};
+ validateExportDeliveryRows(sdkFailed,sdkEvidence,commands,()=>log,sdkProfile);
+ assert.throws(()=>validateExportDeliveryRows(sdkFailed,sdkEvidence,commands,()=>Buffer.from('changed native/image log'),sdkProfile),/Changed retained log/);
+ for(const index of [16,17,34,35,36,37,43,45]){const bad=structuredClone(sdkEvidence);bad.commands[index].reusedFrom=sdkFailed.sha;assert.throws(()=>validateExportDeliveryRows(sdkFailed,bad,commands,()=>log,sdkProfile),/must execute/);}
+ assert.deepEqual(sdkProfile.retain.filter(i=>!hostingProfile.retain.includes(i)),[38,40,41,42]);
+ assert.throws(()=>verifyExportDeliveryNative(()=>Buffer.from('changed actual native report')),/Changed retained native/);
+ assert.throws(()=>verifyExportDeliveryNative(()=>{throw Error('Missing actual native report');}),/Missing actual native/);
+ // The closed release caller requires the archived proofs, without rerunning
+ // their product suites. Ordinary standalone tooling tests have no archive.
+ if(process.argv.includes('--export-delivery-only')){
+  verifyExportDeliveryNative(file=>fs.readFileSync(path.join('.local-release/runtime',file)));
+  const imageGuards=spawnSync(process.execPath,['scripts/test-media-activation-reuse.mjs','--export-delivery-sdk-only'],{encoding:'utf8',maxBuffer:4*1024*1024});
+  assert.equal(imageGuards.status,0,imageGuards.stderr||imageGuards.stdout);
+ }
 
  const native=commands.find(c=>c.name==='Run worker route tests'),browser=commands.find(c=>c.name==='Run selected auth and admin tests');
  assert.match(native.run,/--suite canvas-export-delivery/);assert.match(native.run,/--retries=0/);assert(!native.run.includes('npm run test:workers'));

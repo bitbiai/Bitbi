@@ -1,5 +1,6 @@
 import {stageMediaPublication} from './media-publication.mjs';
 import {smoothProfile,isSmoothContinuation,verifySmoothImageReuse,AUTONOMY_BROWSER_PREFLIGHT,verifyAutonomyImageReuse} from './local-release-browser.mjs';
+import {EXPORT_DELIVERY_SDK_PREFLIGHT,verifyExportDeliveryImageReuse} from './canvas-export-release.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -142,10 +143,12 @@ export async function importLocalEvidence(expected, { token = process.env.GH_TOK
       const original=JSON.parse(fs.readFileSync(path.join(mediaDir,'image.json')));
       const smooth=isSmoothContinuation(verified.evidence.permissionContinuation?.source);
       const autonomy=verified.evidence.preflightContinuation?.source===AUTONOMY_BROWSER_PREFLIGHT.source;
-      const retained=smooth||autonomy;
+      const exportDelivery=verified.evidence.preflightContinuation?.source===EXPORT_DELIVERY_SDK_PREFLIGHT.source;
+      const retained=smooth||autonomy||exportDelivery;
       if(smooth)verifySmoothImageReuse(original,expected.sha);
       if(autonomy)verifyAutonomyImageReuse(original,expected.sha);
-      verifyMediaImage(original,{base:expected.base,sha:retained?original.sha:expected.sha,run:autonomy?AUTONOMY_BROWSER_PREFLIGHT.run:smooth?smoothProfile(verified.evidence.permissionContinuation.source).run:verified.evidence.id,attempt:'1',archive:path.join(mediaDir,'image.tar')});
+      if(exportDelivery)verifyExportDeliveryImageReuse(original,expected.sha);
+      verifyMediaImage(original,{base:expected.base,sha:retained?original.sha:expected.sha,run:exportDelivery?EXPORT_DELIVERY_SDK_PREFLIGHT.run:autonomy?AUTONOMY_BROWSER_PREFLIGHT.run:smooth?smoothProfile(verified.evidence.permissionContinuation.source).run:verified.evidence.id,attempt:'1',archive:path.join(mediaDir,'image.tar')});
       stageMediaPublication(mediaDir,'test-results/private-media-image');
       fs.writeFileSync('test-results/private-media-image/image.json',JSON.stringify({...original,run:String(run),attempt:String(attempt),
         localValidation:{policy:LOCAL_POLICY,...(retained?{publicationSha:expected.sha}:{}),run:original.run,attempt:original.attempt,evidence:verified.digest,recordHash:sha256(JSON.stringify(original))}}));

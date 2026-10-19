@@ -10,6 +10,12 @@ import {hash} from './lib/frontend-hosting.mjs';
 import {publishMedia,mediaSmoke,mediaArchiveIdentity,verifyLoadedMediaImage,stageMediaPublication,publicationImageSource,receiptImageSource} from './lib/media-publication.mjs';
 import {AUTONOMY_BROWSER_PREFLIGHT} from './lib/local-release-browser.mjs';
 
+if(process.argv.includes('--export-delivery-sdk-only')){
+  assert.deepEqual(process.argv.slice(2),['--export-delivery-sdk-only']);
+  testExportDeliveryImageReuse();
+  process.exit(0);
+}
+
 const repoRoot=process.cwd(),root=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-media-reuse-'));
 const git=args=>execFileSync('git',args,{cwd:root,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
 const write=(file,value)=>{fs.mkdirSync(path.dirname(path.join(root,file)),{recursive:true});fs.writeFileSync(path.join(root,file),value);};
@@ -188,4 +194,50 @@ if(fs.existsSync(path.join(retained,'image.tar'))) {
     assert.throws(()=>receiptImageSource({imageSourceSha:record.sha},'f'.repeat(40)));
     console.log('Autonomy repair media caller: actual immutable image preserved across publication; wrong source, archive, test groups, import envelope and receipt lineage rejected. No image rebuild or media test replay.');
   }
+}
+
+function testExportDeliveryImageReuse(){
+  // This focused caller does not rerun the already accepted media activation
+  // suite or any container tests. The exact retained receipt is required.
+  const record=JSON.parse(fs.readFileSync('.local-release/test-results/private-media-image/image.json'));
+  const sha=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+  const context={sha,run:'123',attempt:'1'},originalJson=JSON.stringify(record);
+  const imported={...record,run:context.run,attempt:context.attempt,localValidation:{
+    policy:'development-mac-v1',publicationSha:sha,run:record.run,attempt:record.attempt,
+    evidence:'a'.repeat(64),recordHash:hash(originalJson),
+  }};
+  assert.notEqual(record.sha,sha,'This fixture must exercise the cross-source publication path');
+  assert.equal(publicationImageSource(imported,context),record.sha);
+  assert.equal(receiptImageSource({imageSourceSha:record.sha},sha),record.sha);
+  assert.equal(receiptImageSource({imageSourceSha:record.sha},record.sha),record.sha,'Historical same-source receipt behavior remains intact');
+  assert.equal(publicationImageSource({sha},context),sha,'Ordinary same-source image behavior remains intact');
+  assert.equal(receiptImageSource({imageSourceSha:sha},sha),sha);
+  for(const mutate of [
+    r=>r.run='124',r=>r.attempt='2',r=>delete r.localValidation,
+    r=>r.localValidation.policy='unreviewed',r=>r.localValidation.publicationSha='f'.repeat(40),
+    r=>r.localValidation.evidence='absent',r=>r.localValidation.recordHash='f'.repeat(64),
+    r=>r.localValidation.run='foreign-local-run',r=>r.localValidation.attempt='2',
+    r=>r.sha='f'.repeat(40),r=>r.image='sha256:'+'f'.repeat(64),r=>r.tag='foreign-image',
+    r=>r.archiveDigest='f'.repeat(64),r=>r.testLogDigest='f'.repeat(64),
+    r=>r.sourceFiles['services/homepage-ffmpeg-processor/processor.mjs']='f'.repeat(64),
+    r=>r.testGroups.pop(),r=>r.tests.pop(),r=>r.dirty=true,
+  ]){
+    const bad=structuredClone(imported);mutate(bad);
+    assert.throws(()=>publicationImageSource(bad,context),'Changed import envelope or accepted image evidence must reject');
+  }
+  // Recomputing the outer import digest cannot legitimize a different archive,
+  // passing-group claim or source. The original receipt stays independently pinned.
+  for(const mutate of [r=>r.archiveDigest='f'.repeat(64),r=>r.testGroups[0].outputDigest='f'.repeat(64),r=>r.run='foreign-local-run']){
+    const original=structuredClone(record);mutate(original);
+    const forged={...original,run:context.run,attempt:context.attempt,localValidation:{...imported.localValidation,
+      run:original.run,attempt:original.attempt,recordHash:hash(JSON.stringify(original)),
+    }};
+    assert.throws(()=>publicationImageSource(forged,context),'A self-consistent forged import still fails the pinned original receipt');
+  }
+  assert.throws(()=>receiptImageSource({imageSourceSha:'f'.repeat(40)},sha));
+  assert.throws(()=>receiptImageSource({imageSourceSha:record.sha},'f'.repeat(40)));
+  const wrongPublication={...imported,localValidation:{...imported.localValidation,publicationSha:record.sha}};
+  assert.throws(()=>publicationImageSource(wrongPublication,context));
+  assert.equal(JSON.stringify(record),originalJson,'Verification preserves the original source/run/image receipt');
+  console.log('Export SDK continuation: actual pinned image, Actions import and receipt lineage accepted; substituted source, run, archive, tests and recomputed-digest controls rejected. No image build or media tests repeated.');
 }

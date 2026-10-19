@@ -1468,6 +1468,7 @@ async function testExportDeliverySelection(){
  assert(EXPORT_DELIVERY_UNPUBLISHED_FILES.includes('scripts/test-frontend-review.mjs'));
  const changedFixture=exportDeliverySources();changedFixture['scripts/test-frontend-review.mjs']='0'.repeat(64);assert.notEqual(selectCiTests(EXPORT_DELIVERY_UNPUBLISHED_FILES,{exportSources:changedFixture}).policy,EXPORT_DELIVERY_POLICY);
  const changedPrior=exportDeliverySources();changedPrior['workers/auth/src/lib/canvas-agent-planning.js']='0'.repeat(64);assert.notEqual(selectCiTests(EXPORT_DELIVERY_UNPUBLISHED_FILES,{exportSources:changedPrior}).policy,EXPORT_DELIVERY_POLICY);
+ for(const file of ['scripts/local-release.mjs','scripts/lib/local-release-transport.mjs','scripts/lib/media-publication.mjs','scripts/test-media-activation-reuse.mjs']){const changed=exportDeliverySources();changed[file]='0'.repeat(64);assert.notEqual(selectCiTests(EXPORT_DELIVERY_UNPUBLISHED_FILES,{exportSources:changed}).policy,EXPORT_DELIVERY_POLICY,'Changed closed image/continuation input must widen: '+file);}
  assert(requiresPrivateMediaImage(selection.files));
  for(const unknown of ['workers/media/src/unreviewed.js','scripts/lib/canvas-export-release.mjs.unreviewed','tests/helpers/q2-runtime/unreviewed.mjs','workers/auth/src/lib/model-tariffs.js'])assert.notEqual(selectCiTests([...EXPORT_DELIVERY_FILES,unknown]).policy,EXPORT_DELIVERY_POLICY);
  assert(selectCiTests(EXPORT_DELIVERY_FILES,{forceFull:true}).full);
