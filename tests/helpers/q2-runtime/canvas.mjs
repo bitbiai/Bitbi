@@ -626,9 +626,15 @@ export async function runCanvasTests(f) {
     const result=await response.json();assert.equal(result.case,name);assert.equal(result.planningCalls,0);
     f.metrics.push(result);assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
   });
+  // Capacity is global to its database. Earlier recovery cases deliberately
+  // retain uncertain requests; preserve them in the main fixture and give this
+  // independent scheduling group its own real native D1 account boundary.
+  if(f.imageDb)for(const migration of f.migrations)await f.imageDb.batch(migration.statements.map(statement=>f.imageDb.prepare(statement)));
   for(const name of ['parallel-fifteen','capacity-fairness','unknown-fence','manual-revision','stop-budget','capacity-wait','capacity-recovery','out-of-order','rate-admission','scope-limits','claim-recovery','legacy-cutover','organization-recovery'])await f.test(`canvas_image_scheduling_${name.replaceAll('-','_')}`,async()=>{
+    assert(f.imageDb,'Image scheduling must use its independently initialized native D1 binding');
     const response=await f.control('/canvas-image-scheduling',{name,imageBase64:fs.readFileSync(new URL('../../fixtures/media/member-image.png',import.meta.url)).toString('base64')});
     assert.equal(response.status,200,await response.clone().text());f.metrics.push(await response.json());
+    assert.deepEqual((await f.imageDb.prepare('PRAGMA foreign_key_check').all()).results,[]);
     assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
   });
   for(const name of ['bootstrap','duration','explicit','button','stale-graph','stale-model','stale-price','expired','isolation','allowance','money-clarification','long-brief','stale-admission','intervening-question'])await f.test(`canvas_conversation_decision_${name.replaceAll('-','_')}`,async()=>{

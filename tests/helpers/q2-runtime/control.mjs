@@ -60,7 +60,10 @@ export default {
     if(path==='/canvas-agent-autonomy'&&CANVAS_AGENT_AUTONOMY_CASES.includes(body.name))return Response.json(await canvasAgentAutonomyCase(env,body.name));
     if(path==='/canvas-agent-model-operation'&&CANVAS_MODEL_CASES.includes(body.name))return Response.json(await canvasModelOperationCase(env,body.name));
     if(path==='/canvas-agent-settlement-review'&&CANVAS_SETTLEMENT_CASES.includes(body.name))return Response.json(await canvasPlanningSettlementCase(env,body.name));
-    if(path==='/canvas-image-scheduling'&&CANVAS_IMAGE_SCHEDULING_CASES.includes(body.name))return Response.json(await canvasImageSchedulingCase(env,body));
+    if(path==='/canvas-image-scheduling'&&CANVAS_IMAGE_SCHEDULING_CASES.includes(body.name)){
+      if(!env.CANVAS_IMAGE_TEST_DB)throw new Error('Native image scheduling requires its isolated D1 fixture');
+      return Response.json(await canvasImageSchedulingCase({...env,DB:env.CANVAS_IMAGE_TEST_DB},body));
+    }
     if(path==='/canvas-agent-h3-recovery'&&H3_RECOVERY_CASES.includes(body.name))return Response.json(await canvasH3RecoveryCase(env,body.name,body));
     if(path==='/canvas-conversation-decision'&&CANVAS_CONVERSATION_DECISION_CASES.includes(body.name))return Response.json(await canvasConversationDecisionCase(env,body.name));
     if (path === '/canvas-agent-authority') return Response.json(await canvasAgentAuthorityCase(env));

@@ -45,7 +45,16 @@ function providerBarrier(f,media) {
     const previous=calls.length,entered=new Promise(resolve=>{notify=resolve;});
     const task=queue(f,{type:'member_generation.process',job_id:job.id});tasks.push(task);
     let timer;
-    try {await Promise.race([entered,task.then(async()=>{const row=await f.db.prepare('SELECT status,error_code FROM member_generation_jobs WHERE id=?').bind(job.id).first();throw new Error(`Queue returned before provider acceptance: ${row.status}/${row.error_code}`);}),
+    try {await Promise.race([entered,task.then(async()=>{
+      const row=await f.db.prepare('SELECT status,error_code FROM member_generation_jobs WHERE id=?').bind(job.id).first();
+      const slots=(await f.db.prepare('SELECT usage_scope,provider_key,state,COUNT(*) n FROM image_generation_slots GROUP BY usage_scope,provider_key,state ORDER BY usage_scope,provider_key,state LIMIT 72').all()).results;
+      const legacy=(await f.db.prepare(`SELECT 'member' scope,u.provider_outcome,COUNT(*) n FROM member_ai_usage_attempts_v2 u
+        WHERE operation_key='member.image.generate' AND provider_outcome IN ('dispatched','unknown') AND NOT EXISTS(SELECT 1 FROM image_generation_slots s WHERE s.id='member:'||u.id) GROUP BY provider_outcome
+        UNION ALL SELECT 'organization' scope,u.provider_outcome,COUNT(*) n FROM ai_usage_attempts_v2 u
+        WHERE operation_key='member.image.generate' AND provider_outcome IN ('dispatched','unknown') AND NOT EXISTS(SELECT 1 FROM image_generation_slots s WHERE s.id='organization:'||u.id) GROUP BY provider_outcome`).all()).results;
+      const {global,user,project,providers,verified,reason}=imageGenerationCapacity(f.env);
+      throw new Error(`Queue returned before provider acceptance: ${row.status}/${row.error_code}; ${JSON.stringify({accepted:calls.length,policy:{global,user,project,providers,verified,reason},slots,legacy})}`);
+    }),
       new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('Actual queue did not reach synthetic provider')),10000);})]);}
     finally {clearTimeout(timer);notify=null;}
     check(calls.length===previous+1,'One original dispatch per independent job');
@@ -348,8 +357,21 @@ export async function canvasImageSchedulingCase(base,{name,...media}) {
     } finally {await cleanup(f);}
   }
   const count=name==='parallel-fifteen'?16:name==='manual-revision'?2:3,capacity=name==='parallel-fifteen'?15:2;
-  const f=await fixture(base,name,count,capacity),barrier=providerBarrier(f,media);
+  const f=await fixture(base,name,count,capacity),barrier=providerBarrier(f,media);let foreign=null,foreignUsage=null,foreignToken=null;
   try {
+    if(name==='parallel-fifteen'){
+      foreign=await fixture(base,name+'-foreign',0,capacity);
+      const reserved=await beginMemberAiUsageAttempt({env:foreign.env,userId:foreign.owner,featureKey:'ai.image.generate',operationKey:'member.image.generate',route:'/api/ai/generate-image',
+        idempotencyKey:'parallel-foreign-dispatched',requestFingerprint:'d'.repeat(64),creditCost:1,metadata:{image_request:{model_id:MODEL}}});
+      const slot=await registerImageGenerationSlot(foreign.env,{usagePolicy:{mode:'member',attempt:reserved.attempt},userId:foreign.owner,modelId:MODEL}),claim=await acquireImageGenerationSlot(foreign.env,slot);
+      check(claim,'Controlled foreign request occupies one real global slot');
+      foreignToken=await markMemberAiUsageAttemptProviderRunning(foreign.env,reserved.attempt.id);
+      await dispatchImageGenerationSlot(foreign.env,claim);
+      await finishImageGenerationSlot(foreign.env,claim);
+      foreignUsage=await f.db.prepare('SELECT * FROM member_ai_usage_attempts_v2 WHERE id=?').bind(reserved.attempt.id).first();
+      check(foreignUsage.provider_outcome==='dispatched'&&(await f.db.prepare('SELECT state FROM image_generation_slots WHERE id=?').bind(slot.id).first()).state==='unknown',
+        'Interrupted slot ownership preserves the still-dispatched original provider request');
+    }
     const jobs=await start(f);check(jobs.length===capacity,'Scheduler enqueues only the bounded independent cohort');
     check(barrier.calls.length===0,'Scheduler admission never invokes providers in its own request');
     if(name==='stop-budget') {
@@ -363,7 +385,20 @@ export async function canvasImageSchedulingCase(base,{name,...media}) {
       check(budget.chargedCredits===0&&budget.committedCredits<=f.run.budget_credits,'No cancelled work consumes unapproved budget');
       return {acceptedJobs:capacity,providerCalls:0,stoppedBeforeDispatch:true};
     }
-    for(const job of jobs)await barrier.begin(job);
+    if(foreign){
+      for(const job of jobs.slice(0,-1))await barrier.begin(job);
+      await queue(f,{type:'member_generation.process',job_id:jobs.at(-1).id});
+      const waiting=await f.db.prepare('SELECT status,error_code,attempt_count FROM member_generation_jobs WHERE id=?').bind(jobs.at(-1).id).first();
+      check(barrier.calls.length===14&&waiting.status==='queued'&&waiting.error_code==='image_generation_capacity_wait'&&waiting.attempt_count===0,'A different user’s dispatched request blocks the fifteenth dispatch without consuming an attempt');
+      check(JSON.stringify(await f.db.prepare('SELECT * FROM member_ai_usage_attempts_v2 WHERE id=?').bind(foreignUsage.id).first())===JSON.stringify(foreignUsage),'Waiting preserves the foreign dispatch identity and reserved credits');
+      // Normal success uses the original still-dispatched token. A genuinely
+      // unknown provider outcome cannot use this helper and remains held in the
+      // independent unknown-fence and organization-recovery controls.
+      await confirmAiDispatchSuccess(foreign.env,'member_ai_usage_attempts_v2',foreignUsage.id,{dispatchToken:foreignToken});
+      await f.db.prepare('UPDATE member_generation_jobs SET next_attempt_at=? WHERE id=?').bind('2000-01-01T00:00:00Z',jobs.at(-1).id).run();
+      await barrier.begin(jobs.at(-1));
+      check((await f.db.prepare('SELECT COUNT(*) n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(foreign.owner).first()).n===0,'Capacity reconciliation creates no foreign debit');
+    }else for(const job of jobs)await barrier.begin(job);
     check(barrier.calls.length===capacity,'All independent provider operations overlap before any finishes');
     check((await f.db.prepare("SELECT COUNT(*) n FROM image_generation_slots WHERE user_id=? AND state='active'").bind(f.owner).first()).n===capacity,'Durable capacity matches real in-flight provider calls');
     // Duplicate queue delivery and a duplicate agent wake cannot re-dispatch.
@@ -400,5 +435,5 @@ export async function canvasImageSchedulingCase(base,{name,...media}) {
     check(nodes.filter(row=>row.asset_id).length===15&&current.status==='running','Independent sibling results attach to ordinary editable nodes without pausing one another');
     check((await f.db.prepare('SELECT revision FROM canvas_projects WHERE id=?').bind(f.project).first()).revision===f.run.expected_revision,'Output completion does not invent a creative revision');
     return {overlappingAccepted:15,persistedImages:15,originalJobs:15,duplicateCalls:0,budgetCharged:budget.chargedCredits};
-  } finally {for(const call of barrier.calls)call.resolve({image:media.imageBase64});await Promise.allSettled(barrier.tasks);await cleanup(f);}
+  } finally {for(const call of barrier.calls)call.resolve({image:media.imageBase64});await Promise.allSettled(barrier.tasks);await cleanup(f);if(foreign)await cleanup(foreign);}
 }
