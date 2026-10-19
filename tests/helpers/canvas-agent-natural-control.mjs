@@ -40,7 +40,16 @@ async function naturalMigrationSnapshot(env,seed){
   return result;
 }
 export async function verifyCanvasNaturalChatMigration(env,seed){
-  check(JSON.stringify(await naturalMigrationSnapshot(env,seed))===JSON.stringify(seed.before),'Forward migration preserves exact paid identities, original ledger, transcript, brief and graph bytes');
+  const snapshot=await naturalMigrationSnapshot(env,seed),expected=structuredClone(seed.before);
+  // Native acceptance applies the complete forward migration chain. 0112 adds
+  // these exact historical Grok defaults; every pre-existing field remains an
+  // exact comparison, and unknown/missing additions are never discarded.
+  if(['model_id','model_revision'].some(key=>Object.hasOwn(snapshot.run,key))
+    ||['assistant_model_id','assistant_model_revision'].some(key=>Object.hasOwn(snapshot.conversation,key))){
+    Object.assign(expected.run,{model_id:'xai/grok-4.7',model_revision:0});
+    Object.assign(expected.conversation,{assistant_model_id:'xai/grok-4.7',assistant_model_revision:0});
+  }
+  check(JSON.stringify(snapshot)===JSON.stringify(expected),'Forward migration preserves exact paid identities, original ledger, transcript, brief and graph bytes');
   const debit=(await env.DB.prepare('SELECT COALESCE(SUM(-amount),0) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(seed.owner).first()).n;
   check(debit===78,'The original actual debit is preserved');
   for(const table of ['canvas_agent_start_intents','canvas_agent_action_receipts'])check((await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first()).n===0,'Migration cannot invent start or action authorization');

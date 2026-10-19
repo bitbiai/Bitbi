@@ -159,3 +159,26 @@ export async function runCanvasSettlementRecoveryTests(f) {
   assert.equal(createHash('sha256').update(JSON.stringify(retained)).digest('hex'),'c290462654cea41829df297fa023cfe646942878d90fc6f6a397d43265deada5','Original retained native membership/order changed');
   f.metrics.push({settlementContinuation:{retained,discovery:seen,inventory:continuation,retainedContinuation:canvasSettlementRecoveryRetainedInventory,fresh}});
 }
+
+// Closed continuation of 0870426f: the first populated-0112 callback passed;
+// the following historical snapshot assertion failed before any other Canvas
+// callback ran. Keep every migration and seed, and execute the complete tail.
+export const canvasAssistantContinuationRetained=Object.freeze(['canvas_assistant_models_populated_migration']);
+export const canvasAssistantContinuationCount=251;
+export const canvasAssistantContinuationHash='3bcde3da85495a7cfa8190ca3ad20f8f255c7b065941f88cfbf5d1c75cd3640f';
+export async function runCanvasAssistantContinuationTests(f){
+  const {createHash}=await import('node:crypto');
+  const discovery=[],fresh=[],scoped=Object.create(f);
+  scoped.test=async(name,operation)=>{
+    assert(!discovery.includes(name),'Duplicate assistant continuation callback');
+    const position=discovery.length;discovery.push(name);
+    if(position<canvasAssistantContinuationRetained.length)
+      assert.equal(name,canvasAssistantContinuationRetained[position],'Retained assistant callback boundary changed');
+    else{fresh.push(name);await f.test(name,operation);}
+  };
+  await runCanvasTests(scoped);
+  assert.equal(discovery.length,canvasAssistantContinuationCount,'Complete assistant Canvas inventory changed');
+  assert.equal(createHash('sha256').update(JSON.stringify(discovery)).digest('hex'),canvasAssistantContinuationHash,'Assistant Canvas membership/order changed');
+  assert.equal(fresh.length,250,'Every pending assistant Canvas callback must execute');
+  f.metrics.push({assistantContinuation:{retained:canvasAssistantContinuationRetained,discovery,currentfullcount:canvasAssistantContinuationCount,fresh}});
+}

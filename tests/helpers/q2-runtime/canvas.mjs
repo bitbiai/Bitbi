@@ -37,6 +37,20 @@ async function migrateCanvasRetention(f) {
     const response=await f.control('/canvas-natural-migration-verify',naturalSnapshot);
     assert.equal(response.status,200,await response.clone().text());
     assert.deepEqual(await response.json(),{originalDebit:78,originalConversationPreserved:true,newAuthorizations:0});
+    for(const mutate of [seed=>seed.before.run.input_json+=' ',seed=>seed.before.usage.id+='-changed',
+      seed=>seed.before.ledger.find(row=>row.amount<0).amount--,seed=>seed.before.conversation.brief_json+=' ',
+      seed=>seed.before.turn.user_text+=' changed',seed=>seed.before.project.revision++]){
+      const changed=structuredClone(naturalSnapshot);mutate(changed);
+      await assert.rejects(()=>f.control('/canvas-natural-migration-verify',changed),/Forward migration preserves exact paid identities/);
+    }
+    // A legitimate additive column is not permission to reinterpret an old
+    // assistant choice. This synthetic project's changed default must fail.
+    await f.db.prepare("UPDATE canvas_agent_conversations SET assistant_model_id='anthropic/claude-fable-5' WHERE project_id=?").bind(naturalSnapshot.project).run();
+    try{await assert.rejects(()=>f.control('/canvas-natural-migration-verify',naturalSnapshot),/Forward migration preserves exact paid identities/);}
+    finally{await f.db.prepare("UPDATE canvas_agent_conversations SET assistant_model_id='xai/grok-4.7' WHERE project_id=?").bind(naturalSnapshot.project).run();}
+    const restored=await f.control('/canvas-natural-migration-verify',naturalSnapshot);
+    assert.equal(restored.status,200,await restored.clone().text());
+    assert.deepEqual(await restored.json(),{originalDebit:78,originalConversationPreserved:true,newAuthorizations:0});
   });
   await f.test('canvas_conversation_populated_migration_preserves_historical_identity_without_transcript',async()=>{
     const response=await f.control('/canvas-conversation-migration-verify',conversationSnapshot);
