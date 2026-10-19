@@ -642,12 +642,21 @@ export async function runCanvasTests(f) {
     assert.equal(response.status,200,await response.clone().text());f.metrics.push(await response.json());
     assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
   });
-  for(const name of ['late','operator','duplicate','cancelled','expired','edited','missing-storage','wrong-owner','unknown','binding','concurrent','crash'])await f.test(`canvas_h3_original_recovery_${name.replaceAll('-','_')}`,async()=>{
+  for(const name of ['late','operator','duplicate','cancelled','expired','edited','missing-storage','wrong-owner','unknown','binding','concurrent','crash',
+    'readiness-operator','readiness-stale-control','readiness-cancelled','readiness-expired','readiness-edited'])await f.test(`canvas_h3_original_recovery_${name.replaceAll('-','_')}`,async()=>{
     const response=await f.control('/canvas-agent-h3-recovery',{name,
       videoBase64:fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4',import.meta.url)).toString('base64'),
       imageBase64:fs.readFileSync(new URL('../../fixtures/media/h3-frame.png',import.meta.url)).toString('base64'),
       musicBase64:fs.readFileSync(new URL('../../fixtures/media/member-music.mp3',import.meta.url)).toString('base64')});
     assert.equal(response.status,200,await response.clone().text());f.metrics.push(await response.json());
+    assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
+  });
+  for(const name of ['accepted-pending','accepted-saved','retry-recover','retry-exhausted','disabled','model-disabled','revoked','expired','edited','unknown'])await f.test(`canvas_agent_readiness_${name.replaceAll('-','_')}`,async()=>{
+    const response=await f.control('/canvas-agent-readiness',{name,
+      videoBase64:fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4',import.meta.url)).toString('base64'),
+      imageBase64:fs.readFileSync(new URL('../../fixtures/media/h3-frame.png',import.meta.url)).toString('base64'),
+      musicBase64:fs.readFileSync(new URL('../../fixtures/media/member-music.mp3',import.meta.url)).toString('base64')});
+    assert.equal(response.status,200,await response.clone().text());const result=await response.json();assert.equal(result.name,name);f.metrics.push(result);
     assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
   });
   for (const path of ['/canvas-agent-preflight', '/canvas-assembly', '/canvas-inspection', '/canvas-agent-dispatch', '/canvas-agent-capabilities', '/canvas-agent-late-completion','/canvas-agent-unknown-provider']) await f.test('canvas_native' + path.replaceAll('-', '_').replace('/', '_'), async () => {

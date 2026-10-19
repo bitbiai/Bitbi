@@ -24,6 +24,16 @@ import {testLocalMediaProcess} from './test-local-media-process.mjs';
 const assistantPreflightTail=process.argv.includes('--assistant-preflight-only');
 if(assistantPreflightTail)assert.deepEqual(process.argv.slice(2),['--assistant-preflight-only']);
 
+if(process.argv.includes('--readiness-worker-only')) {
+  assert.deepEqual(process.argv.slice(2),['--readiness-worker-only']);
+  await testReadinessWorkerContinuation();process.exit(0);
+}
+
+if(process.argv.includes('--readiness-only')) {
+  assert.deepEqual(process.argv.slice(2),['--readiness-only']);
+  await testReadinessContinuation();process.exit(0);
+}
+
 if(process.argv.includes('--assistant-browser-only')) {
   assert.deepEqual(process.argv.slice(2),['--assistant-browser-only']);
   await testAssistantBrowserContinuation();process.exit(0);
@@ -3299,3 +3309,139 @@ async function testAssistantBrowserContinuation() {
  console.log(marker);
 }
 await testAssistantBrowserContinuation();
+
+async function testReadinessContinuation() {
+ const {READINESS_CONTINUATION:p,assertReadinessTree,verifyModelBrowserReport}=await import('./lib/local-release-browser.mjs');
+ const {readinessPrefix,readinessCommand,readinessWorkerNames,readinessLauncherName,verifyReadinessWorkerUnion,verifyReadinessNativeUnion,verifyReadinessOrigin,verifyReadinessProgress,READINESS_PROGRESS_RETAIN,workerDiscovery}=await import('./lib/local-release-evidence.mjs');
+ const {parseRuntimeArgs}=await import('../tests/helpers/q2-runtime/linux-hosted.mjs');
+ const {selectedRuntimeSuites,runtimeSuites}=await import('../tests/helpers/q2-runtime/runner.mjs');
+ const {canvasReadinessRecoveryInventory,runCanvasReadinessRecoveryTests}=await import('../tests/helpers/q2-runtime/canvas-readiness-recovery.mjs');
+ assert.equal(parseRuntimeArgs(['--suite','canvas-readiness-recovery'],{}).suite,'canvas-readiness-recovery');
+ assert.throws(()=>parseRuntimeArgs(['--suite','canvas-readiness-recovery-other'],{}));assert.throws(()=>parseRuntimeArgs(['--suite','canvas-readiness-recovery','--suite','canvas'],{}));
+ assert.equal(selectedRuntimeSuites('canvas-readiness-recovery')[0][1],runCanvasReadinessRecoveryTests);assert(!runtimeSuites.some(([,run])=>run===runCanvasReadinessRecoveryTests));assert.deepEqual(selectedRuntimeSuites(),runtimeSuites);
+ assert.equal(readinessCommand({name:'Test local release evidence and orchestration',run:'npm run test:local-release'}),'npm run test:local-release -- --readiness-only');
+ assert.equal(readinessCommand({name:'Run CI test selection fixtures',run:'npm run test:ci-selection'}),'npm run test:ci-selection -- --canvas-readiness-only');
+ const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-readiness-proof-')),bare=path.join(temporary,'git'),previousGitDir=process.env.GIT_DIR;
+ try {
+  execFileSync('git',['init','--bare',bare],{stdio:'pipe'});fs.writeFileSync(path.join(bare,'objects/info/alternates'),path.resolve(execFileSync('git',['rev-parse','--git-path','objects'],{encoding:'utf8'}).trim())+'\n');
+  const env={...process.env,GIT_AUTHOR_NAME:'Synthetic',GIT_AUTHOR_EMAIL:'synthetic@example.invalid',GIT_COMMITTER_NAME:'Synthetic',GIT_COMMITTER_EMAIL:'synthetic@example.invalid'},read=(args,input)=>execFileSync('git',['--git-dir',bare,...args],{env,input,stdio:['pipe','pipe','pipe'],maxBuffer:64*1024*1024});
+  const tooling=['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/lib/local-release-browser.mjs','scripts/test-local-release.mjs'];
+  const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),reviewed=read(['rev-list','--ancestry-path','--reverse',`${p.source}..${head}`]).toString().trim().split('\n')[0];
+  const fixes=Object.fromEntries([...Object.keys(p.specs),...tooling].map(file=>[file,reviewed?read(['show',`${reviewed}:${file}`]):fs.readFileSync(file)]));
+  const commit=(changes,parent=p.source)=>{read(['read-tree',p.source]);for(const[file,value]of Object.entries(changes)){
+   if(value===null){read(['update-index','--index-info'],Buffer.from(`0 ${'0'.repeat(40)}\t${file}\n`));continue;}
+   const blob=read(['hash-object','-w','--stdin'],value.content??value).toString().trim();read(['update-index','--add','--cacheinfo',`${value.mode||'100644'},${blob},${file}`]);
+  }return read(['commit-tree',read(['write-tree']).toString().trim(),'-p',parent],Buffer.from('Synthetic readiness continuation\n')).toString().trim();};
+  const accepted=commit(fixes);assertReadinessTree(accepted,read);
+  for(const file of Object.keys(p.specs))for(const value of [null,Buffer.from('Unreviewed input'),{mode:'120000',content:Buffer.from('outside')}])assert.throws(()=>assertReadinessTree(commit({...fixes,[file]:value}),read));
+  for(const file of ['workers/ai/src/lib/canvas-agent-plan.js','js/pages/canvas/agent.js','package-lock.json','config/release-validation.yml','tests/canvas.spec.js'])assert.throws(()=>assertReadinessTree(commit({...fixes,[file]:Buffer.from('Changed retained input')}),read));
+  assert.throws(()=>assertReadinessTree(commit(fixes,accepted),read));assert.throws(()=>assertReadinessTree(commit({...fixes,'scripts/test-local-release.mjs':Buffer.from('Removed previous assertions')}),read));
+  const root='.local-release',origin=path.join(root,'reuse/test-results/readiness-origin');
+  if(!fs.existsSync(path.join(origin,'evidence.json'))){assert(!process.argv.includes('--readiness-only'),'Readiness verifier requires actual preserved source evidence');return;}
+  process.env.GIT_DIR=bare;
+  const original=JSON.parse(fs.readFileSync(path.join(origin,'evidence.json'))),selection=gitSelection(p.source,accepted),commands=selectedCommands(selection,{GITHUB_SHA:accepted,CANDIDATE_BASE:p.source});
+  const context={sha:accepted,base:p.source,planHash:validationPlan().digest,environment:original.environment,nativeBrowsers:original.nativeBrowsers,commands,selection};
+  assert.equal(readinessPrefix(fs.readFileSync(path.join(origin,'evidence.json')),context).sha,p.source);
+  for(const patch of [{base:original.base},{environment:{...original.environment,image:'sha256:'+'0'.repeat(64)}},{commands:commands.slice(1)},{selection:{...selection,full:true}},{selection:{...selection,homepage:true}}])assert.throws(()=>readinessPrefix(fs.readFileSync(path.join(origin,'evidence.json')),{...context,...patch}));
+  verifyReadinessOrigin(root,accepted);
+  const scan=path.join(temporary,'scan');copyEvidenceToolInputs(root,scan);assert.deepEqual(scanRepoForSecrets(scan),[],'Preserved operational evidence must stay under the existing results boundary');
+  fs.writeFileSync(path.join(scan,'ordinary-source.mjs'),'const apiKey = '+JSON.stringify('X'.repeat(40))+';');assert(scanRepoForSecrets(scan).some(row=>row.file==='ordinary-source.mjs'&&row.rule==='generic-secret-assignment'));fs.unlinkSync(path.join(scan,'ordinary-source.mjs'));
+  const old=workerDiscovery(JSON.parse(fs.readFileSync(path.join(origin,'test-results/assistant-native-rate-discovery.json'))));
+  const fresh=readinessWorkerNames.map((title,i)=>({id:'synthetic-'+i,file:title.startsWith('Canvas H3 ')?'q2-canvas-agent-h3-recovery.spec.js':'q2-canvas-agent-readiness.spec.js',title,results:[{status:'passed',retry:0}]})),discovery=[...old,...fresh];
+  assert.deepEqual(verifyReadinessWorkerUnion(old,discovery,fresh),{retained:1630,executed:16,required:1646});
+  for(const broken of [fresh.slice(1),[...fresh,fresh[0]],fresh.map((r,i)=>i?r:{...r,results:[{status:'failed',retry:0}]}),fresh.map((r,i)=>i?r:{...r,results:[{status:'passed',retry:1}]}),[...fresh,{...old[0],results:[{status:'passed',retry:0}]}]])assert.throws(()=>verifyReadinessWorkerUnion(old,discovery,broken));
+  assert.throws(()=>verifyReadinessWorkerUnion(old,discovery.slice(1),fresh));assert.throws(()=>verifyReadinessWorkerUnion(old,[...discovery,{...fresh[0],id:'foreign',title:'Unreviewed additional case'}],fresh));
+  const priorNative=JSON.parse(fs.readFileSync(path.join(origin,'runtime/q2-runtime-evidence/native-ILK5Yo/reports/bitbi-q2-runtime-ZXIurt__result.json'))),oldNames=priorNative.reports[0].metrics.find(row=>row.assistantRateTail).assistantRateTail.discovery;
+  const names=[...oldNames,...canvasReadinessRecoveryInventory],result={passed:15,failedSuites:0,reports:[{suite:'canvas',records:canvasReadinessRecoveryInventory.map(name=>({name,status:'PASS'})),metrics:[{readinessRecovery:{retained:oldNames,discovery:names,fresh:[...canvasReadinessRecoveryInventory]}}],failure:null}]};
+  assert.deepEqual(verifyReadinessNativeUnion(oldNames,result,canvasReadinessRecoveryInventory),{retained:434,executed:15,required:449});
+  for(const mutate of [r=>r.reports[0].records.pop(),r=>r.reports[0].records[0].status='FAIL',r=>r.reports[0].metrics[0].readinessRecovery.retained.pop(),r=>r.reports[0].metrics[0].readinessRecovery.discovery.pop(),r=>r.reports[0].records.push(r.reports[0].records[0])]){const bad=structuredClone(result);mutate(bad);assert.throws(()=>verifyReadinessNativeUnion(oldNames,bad,canvasReadinessRecoveryInventory));}
+  const worker=commands.find(row=>row.name==='Run worker route tests'),actual=readinessCommand(worker);assert(actual.includes('--retries=0'));assert(actual.includes('--suite canvas-readiness-recovery'));assert(actual.includes('--list --reporter=json'));assert(!actual.includes('npm run test:workers'));
+  // Observe the actual rendered shell, including its active non-Full branch.
+  // Command shims cannot execute tests, providers or external network calls.
+  const observe=(script,{resume=false}={})=>{
+   const dir=fs.mkdtempSync(path.join(temporary,'commands-')),bin=path.join(dir,'bin'),trace=path.join(dir,'trace.jsonl');fs.mkdirSync(bin);
+   const shim='#!'+process.execPath+'\n'+"const fs=require('node:fs'),path=require('node:path');const args=process.argv.slice(2);fs.appendFileSync(process.env.BITBI_COMMAND_TRACE,JSON.stringify({tool:path.basename(process.argv[1]),args})+'\\n');if(process.env.PLAYWRIGHT_JSON_OUTPUT_NAME&&!args.includes('--list'))fs.writeFileSync(process.env.PLAYWRIGHT_JSON_OUTPUT_NAME,'{}');\n";
+   for(const tool of ['npx','node','npm'])fs.writeFileSync(path.join(bin,tool),shim,{mode:0o700});
+   if(resume){fs.mkdirSync(path.join(dir,'test-results'));for(const file of ['readiness-worker-fresh.json','readiness-launcher.tap','readiness-native.log'])fs.writeFileSync(path.join(dir,'test-results',file),'original preserved fixture');}
+   const outcome=spawnSync('/bin/bash',['--noprofile','--norc','-euo','pipefail','-c',script],{cwd:dir,env:{PATH:bin+':/usr/bin:/bin',BITBI_COMMAND_TRACE:trace},encoding:'utf8',timeout:10000});assert.equal(outcome.status,0,outcome.stderr);
+   return fs.readFileSync(trace,'utf8').trim().split('\n').map(line=>JSON.parse(line));
+  };
+  const assertCalls=(calls,resume=false)=>{
+   const npx=calls.filter(row=>row.tool==='npx');assert.equal(npx.length,resume?2:3);assert.equal(npx.filter(row=>row.args.includes('--list')).length,2);
+   const executed=npx.filter(row=>!row.args.includes('--list'));assert.equal(executed.length,resume?0:1);if(!resume){assert(executed[0].args.includes('--retries=0'));assert(executed[0].args.includes('--reporter=list,json'));}
+   assert.deepEqual(calls.filter(row=>row.tool==='node').map(row=>row.args),[
+    ['scripts/local-release.mjs','verify-readiness-workers','.local-release','pending'],['scripts/local-release.mjs','verify-readiness-workers','.local-release'],
+    ...(resume?[]:[['--test','--test-name-pattern=^'+readinessLauncherName+'$','scripts/test-q2-runtime-launcher.mjs'],['scripts/test-q2-runtime.mjs','--suite','canvas-readiness-recovery']]),
+    ['scripts/local-release.mjs','verify-readiness-native','.local-release'],
+   ]);
+   assert.deepEqual(calls.filter(row=>row.tool==='npm').map(row=>row.args),[['run','test:auth','--','--list','--reporter=json']]);
+  };
+  assertCalls(observe(actual));assertCalls(observe(actual,{resume:true}),true);
+  assert.throws(()=>assertCalls(observe(actual.replace('npm run test:auth -- --list --reporter=json','npm run test:auth -- --reporter=json'))));
+  const execution=' --retries=0 --output=test-results/readiness-worker-artifacts --reporter=list,json';
+  assert.equal(actual.split(execution).length,2,'Retry countercontrol must select the executed Worker call exactly once');
+  const retried=actual.replace(execution,execution.replace('--retries=0','--retries=1'));
+  assert.notEqual(retried,actual);assert.throws(()=>assertCalls(observe(retried)));
+  for(const scope of ['auth','homepage']){const oldReport=JSON.parse(fs.readFileSync(path.join(origin,`test-results/candidate-${scope}.json`))),report={...oldReport,sha:accepted,retainedSource:p.source};verifyModelBrowserReport(report,accepted);for(const mutate of [r=>r.fresh.pop(),r=>r.discovery.pop(),r=>r.retainedSource='a'.repeat(40),r=>r.previous[0].title='forged']){const bad=structuredClone(report);mutate(bad);assert.throws(()=>verifyModelBrowserReport(bad,accepted));}}
+  if(fs.existsSync(path.join(root,'reuse/test-results/readiness-progress/checkpoint.json'))){
+   assert.deepEqual(READINESS_PROGRESS_RETAIN,[7,16]);const progress=verifyReadinessProgress(root,accepted,commands);
+   assert.equal(progress.commands[17].exitCode,1,'The failed source guard must remain failed');assert.equal(progress.commands[41],null,'No product execution can be inherited from the guard failure');
+   assert.deepEqual(progress.commands[16].command,commands[16]);assert.equal(progress.commands[16].exitCode,0);
+   for(const file of ['checkpoint.json','logs/7.log','logs/16.log','logs/17.log',...Object.keys(p.progress.tools).map(name=>'source/'+name)]){
+    const target=path.join(scan,'reuse/test-results/readiness-progress',file),bytes=fs.readFileSync(target);fs.writeFileSync(target,'forged');assert.throws(()=>verifyReadinessProgress(scan,accepted,commands));fs.writeFileSync(target,bytes);
+   }
+   assert.throws(()=>verifyReadinessProgress(root,accepted,commands.map((row,i)=>i===16?{...row,run:row.run+' --unreviewed'}:row)));
+  }
+  const proofOrigin=path.join(scan,'reuse/test-results/readiness-origin');
+  for(const file of ['evidence.json','candidate/site/index.html','logs/41.log','test-results/candidate-auth.json','runtime/q2-runtime-evidence/native-ILK5Yo/reports/bitbi-q2-runtime-ZXIurt__result.json']){const target=path.join(proofOrigin,file),bytes=fs.readFileSync(target);fs.writeFileSync(target,'forged');assert.throws(()=>verifyReadinessOrigin(scan,accepted));fs.writeFileSync(target,bytes);}
+ }finally{if(previousGitDir===undefined)delete process.env.GIT_DIR;else process.env.GIT_DIR=previousGitDir;fs.rmSync(temporary,{recursive:true,force:true});}
+ console.log('Readiness continuation: published 4dd source, current base, retained 1630 Worker/434 native/browser/media outcomes verified;16 new Worker,15 native and1 launcher cases required; real shell discovery/execution/resume and changed-source/forged-proof controls reject.');
+}
+await testReadinessContinuation();
+
+async function testReadinessWorkerContinuation() {
+ const {READINESS_CONTINUATION:p,assertReadinessTree}=await import('./lib/local-release-browser.mjs');
+ const {verifyReadinessWorkerProgress,verifyReadinessStaleFixture,READINESS_WORKER_RETAIN,readinessCommand,verifyReadinessWorkerUnion,workerDiscovery}=await import('./lib/local-release-evidence.mjs');
+ const root='.local-release',relative='reuse/test-results/readiness-worker-progress';
+ if(!fs.existsSync(path.join(root,relative,'checkpoint.json'))){assert(!process.argv.includes('--readiness-worker-only'),'Actual failed Worker evidence is required');return;}
+ const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();assertReadinessTree(head);
+ const progress=verifyReadinessWorkerProgress(root,head);assert.deepEqual(READINESS_WORKER_RETAIN,[7,16,29,35,37,38,39,40]);assert.equal(progress.passed.length,15);assert.equal(progress.failed.length,1);
+ const helper='tests/helpers/canvas-agent-h3-recovery-control.mjs',before=fs.readFileSync(path.join(root,relative,'source',helper),'utf8'),after=fs.readFileSync(helper,'utf8');verifyReadinessStaleFixture(before,after);
+ for(const value of [after+'\n// Unreviewed other branch change\n',after.replace("name==='readiness-cancelled'","name==='readiness-unknown'"),after.replace('SET updated_at=?','SET budget_revision=?')])assert.throws(()=>verifyReadinessStaleFixture(before,value));
+ const previous=workerDiscovery(JSON.parse(fs.readFileSync(path.join(root,'reuse/test-results/readiness-origin/test-results/assistant-native-rate-discovery.json'))));
+ const replacement={...progress.failed[0],results:[{status:'passed',retry:0}]};
+ assert.deepEqual(verifyReadinessWorkerUnion(previous,progress.discovery,[...progress.passed,replacement]),{retained:1630,executed:16,required:1646});
+ for(const rows of [[replacement],progress.passed,[...progress.passed,replacement,replacement],[...progress.passed,{...replacement,results:[{status:'passed',retry:1}]}],[...progress.passed,{...replacement,results:[{status:'failed',retry:0}]}]])assert.throws(()=>verifyReadinessWorkerUnion(previous,progress.discovery,rows));
+ const actual=readinessCommand(progress.partial.commands[41].command,{workerProgress:true});assert(actual.includes('readiness-worker-corrected.json'));assert(!actual.includes('readiness-worker-fresh.json'));assert(!actual.includes('npm run test:workers'));
+ assert.equal(readinessCommand(progress.partial.commands[17].command,{workerProgress:true}),'npm run test:local-release -- --readiness-worker-only');
+ const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-readiness-worker-proof-'));
+ try{
+  const observe=(script,resume=false)=>{
+   const dir=fs.mkdtempSync(path.join(temporary,'commands-')),bin=path.join(dir,'bin'),trace=path.join(dir,'trace');fs.mkdirSync(bin);
+   const shim='#!'+process.execPath+'\n'+"const fs=require('node:fs'),path=require('node:path');const args=process.argv.slice(2);fs.appendFileSync(process.env.BITBI_COMMAND_TRACE,JSON.stringify({tool:path.basename(process.argv[1]),args})+'\\n');if(process.env.PLAYWRIGHT_JSON_OUTPUT_NAME&&!args.includes('--list'))fs.writeFileSync(process.env.PLAYWRIGHT_JSON_OUTPUT_NAME,'{}');\n";
+   for(const tool of ['npx','node','npm'])fs.writeFileSync(path.join(bin,tool),shim,{mode:0o700});
+   if(resume){fs.mkdirSync(path.join(dir,'test-results'));for(const file of ['readiness-worker-corrected.json','readiness-launcher.tap','readiness-native.log'])fs.writeFileSync(path.join(dir,'test-results',file),'retained');}
+   const result=spawnSync('/bin/bash',['--noprofile','--norc','-euo','pipefail','-c',script],{cwd:dir,env:{PATH:bin+':/usr/bin:/bin',BITBI_COMMAND_TRACE:trace},encoding:'utf8',timeout:10000});assert.equal(result.status,0,result.stderr);
+   return fs.readFileSync(trace,'utf8').trim().split('\n').map(line=>JSON.parse(line));
+  };
+  const check=(calls,resume=false)=>{
+   const requests=calls.filter(row=>row.tool==='npx');assert.equal(requests.length,resume?2:3);assert.equal(requests.filter(row=>row.args.includes('--list')).length,2);
+   const filtered=requests.filter(row=>row.args.includes('--grep'));assert.equal(filtered.length,resume?1:2);
+   for(const row of filtered){assert.equal(row.args[row.args.indexOf('--grep')+1],'(?:Canvas H3 settled late receipt readiness-stale-control)$');assert(row.args.includes('--retries=0'));}
+   const execution=requests.filter(row=>!row.args.includes('--list'));assert.equal(execution.length,resume?0:1);if(!resume)assert(execution[0].args.includes('--reporter=list,json'));
+   const node=calls.filter(row=>row.tool==='node');assert.equal(node.filter(row=>row.args[0]==='scripts/test-q2-runtime.mjs').length,resume?0:1);
+   if(!resume)assert.deepEqual(node.find(row=>row.args[0]==='scripts/test-q2-runtime.mjs').args,['scripts/test-q2-runtime.mjs','--suite','canvas-readiness-recovery']);
+   assert.equal(node.filter(row=>row.args.includes('--test')).length,resume?0:1);assert(node.some(row=>row.args[1]==='verify-readiness-workers'&&row.args[3]==='pending'));assert(node.some(row=>row.args[1]==='verify-readiness-native'));
+   assert.deepEqual(calls.filter(row=>row.tool==='npm').map(row=>row.args),[['run','test:auth','--','--list','--reporter=json']]);
+  };
+  check(observe(actual));check(observe(actual,true),true);
+  const pattern='(?:Canvas H3 settled late receipt readiness-stale-control)$';assert(actual.includes(pattern));const all=actual.replaceAll(pattern,'(?:Canvas H3 settled late receipt readiness-stale-control|Canvas readiness recovery disabled)$');assert.notEqual(all,actual);assert.throws(()=>check(observe(all)));
+  const execution=' --retries=0 --output=test-results/readiness-worker-artifacts --reporter=list,json';assert.equal(actual.split(execution).length,2);const retry=actual.replace(execution,execution.replace('--retries=0','--retries=1'));assert.notEqual(retry,actual);assert.throws(()=>check(observe(retry)));
+  const snapshot=path.join(temporary,'proof');copyEvidenceToolInputs(root,snapshot);
+  for(const file of ['checkpoint.json','logs/17.log','logs/41.log','logs/40.log','worker-failed.json','worker-discovery.json','selected-discovery.json',...Object.keys(p.worker.tools).map(file=>'source/'+file)]){
+   const target=path.join(snapshot,relative,file),bytes=fs.readFileSync(target);fs.writeFileSync(target,'forged');assert.throws(()=>verifyReadinessWorkerProgress(snapshot,head));fs.writeFileSync(target,bytes);
+  }
+ }finally{fs.rmSync(temporary,{recursive:true,force:true});}
+ console.log('Readiness Worker continuation:15 first-attempt passes and completed guards retained;only original stale-control failure executes, then first native/launcher acceptance; raw failure, unchanged helper branches, exact query/retry/resume and tampered-proof controls enforced.');
+}
+await testReadinessWorkerContinuation();

@@ -5,10 +5,11 @@ import {previewCanvasMediaRecovery,authorizeCanvasMediaRecovery,recoverCanvasAge
 import {readCanvasAgentBudget} from '../../workers/auth/src/lib/canvas-agent-budget.js';
 import {processCanvasAgent} from '../../workers/auth/src/lib/canvas-agent-execution.js';
 const check=(condition,message)=>{if(!condition)throw new Error(message);};
-export const H3_RECOVERY_CASES=['late','operator','duplicate','cancelled','expired','edited','missing-storage','wrong-owner','unknown','binding','concurrent','crash'];
+export const H3_RECOVERY_CASES=['late','operator','duplicate','cancelled','expired','edited','missing-storage','wrong-owner','unknown','binding','concurrent','crash',
+  'readiness-operator','readiness-stale-control','readiness-cancelled','readiness-expired','readiness-edited'];
 export async function canvasH3RecoveryCase(env,name,media){
   const f=await canvasAudioFixture(env,{...media,scope:`h3-recovery-${name}`}),original=f.env.__TEST_FETCH;
-  let callback,submissions=0;
+  let callback,submissions=0,readinessLedger;
   f.env.__TEST_FETCH=async(url,init)=>{
     const body=init?.body?JSON.parse(init.body):null;
     if(body?.model==='minimax/h3'&&submissions++===0){
@@ -42,6 +43,50 @@ export async function canvasH3RecoveryCase(env,name,media){
   check(usage.billing_status==='finalized'&&JSON.parse(usage.metadata_json).canvas_agent?.run_id===runId,'Completion retains original project budget binding');
   const budget=await readCanvasAgentBudget(f.env,await current());check(budget.chargedCredits>=usage.credit_cost,'Late finalized cost remains visible before agent resumes');
   if(name==='binding')return {name,submissions,recovered:false};
+  if(name.startsWith('readiness-')){
+    const consent=preview=>({...identity,recoveryDigest:preview.recoveryDigest,projectCapCredits:5000,actor:'synthetic-owner',authorizationRef:'synthetic-readiness-approval'});
+    const ledgerBefore=(await f.db.prepare('SELECT * FROM member_credit_ledger WHERE user_id=? ORDER BY id').bind(f.owner).all()).results;
+    readinessLedger=ledgerBefore;
+    // A recovery approved for the older provider-review state must not authorize
+    // a later readiness hold, even though the stored job and asset are the same.
+    const older=await previewCanvasMediaRecovery(f.env,identity);
+    check((await authorizeCanvasMediaRecovery(f.env,consent(older))).authorized,'Original review control exists before readiness changes');
+    await f.db.prepare("UPDATE canvas_agent_runs SET status='blocked',error_code='canvas_agent_provider_unavailable',cause_json=?,updated_at=? WHERE id=?")
+      .bind(JSON.stringify({code:'canvas_agent_provider_unavailable',recovery:'receipt'}),new Date(Date.now()+1).toISOString(),runId).run();
+    const held=await current();
+    check((await recoverCanvasAgentMedia(f.env,identity)).every(item=>!item.recovered),'Readiness hold rejects automatic receipt recovery and prior-state consent');
+    check(JSON.stringify(await current())===JSON.stringify(held),'Unapproved readiness recovery cannot change the production');
+    const preview=await previewCanvasMediaRecovery(f.env,identity);
+    check(preview.priorStatus==='blocked'&&preview.priorError==='canvas_agent_provider_unavailable','Readiness proof binds the exact hold');
+    check(preview.recoveryDigest!==older.recoveryDigest,'State transition invalidates earlier recovery identity');
+    const input=consent(preview);
+    check((await authorizeCanvasMediaRecovery(f.env,input)).authorized,'Exact readiness recovery receives explicit consent');
+    check((await authorizeCanvasMediaRecovery(f.env,input)).idempotentReplay,'Repeated readiness consent is idempotent');
+    if(name==='readiness-stale-control'){
+      // A newer observed hold invalidates the earlier reviewed snapshot without
+      // changing spending authorization or bypassing the budget-consent trigger.
+      const updatedAt=new Date(Date.parse(preview.priorUpdatedAt)+1000).toISOString();
+      await f.db.prepare('UPDATE canvas_agent_runs SET updated_at=? WHERE id=?').bind(updatedAt,runId).run();
+      const newer=await previewCanvasMediaRecovery(f.env,identity);
+      check(newer.priorUpdatedAt===updatedAt&&newer.priorUpdatedAt>preview.priorUpdatedAt&&newer.recoveryDigest!==preview.recoveryDigest,'A newer held-state snapshot invalidates the exact previous recovery digest');
+      check(newer.capCredits===preview.capCredits&&newer.budgetRevision===preview.budgetRevision&&newer.receiptDigest===preview.receiptDigest,'Stale-consent control preserves the authorized budget and original paid receipt');
+    }
+    if(name==='readiness-cancelled')await f.db.prepare("UPDATE canvas_agent_runs SET status='cancelled' WHERE id=?").bind(runId).run();
+    if(name==='readiness-expired')await f.db.prepare("UPDATE canvas_agent_runs SET expires_at='2000-01-01T00:00:00.000Z' WHERE id=?").bind(runId).run();
+    if(name==='readiness-edited')await f.db.prepare('UPDATE canvas_projects SET revision=revision+1 WHERE id=?').bind(f.project).run();
+    if(name!=='readiness-operator'){
+      const before=await current(),result=await recoverCanvasAgentMedia(f.env,identity);
+      check(result.every(item=>!item.recovered),'Stale consent or changed authority cannot resume readiness-blocked media');
+      if(name==='readiness-edited')check(result[0]?.code==='canvas_agent_project_changed','Readiness edit reaches the current project revision guard');
+      check(JSON.stringify(await current())===JSON.stringify(before),'Rejected readiness recovery leaves the run unchanged');
+      const jobs=await f.db.prepare('SELECT COUNT(*) AS n FROM member_generation_jobs WHERE canvas_run_id IN (SELECT id FROM canvas_runs WHERE project_id=?)').bind(f.project).first();
+      check(jobs.n===1&&submissions===1,'Rejected readiness recovery never queues or submits another generation');
+      check(JSON.stringify((await f.db.prepare('SELECT * FROM member_credit_ledger WHERE user_id=? ORDER BY id').bind(f.owner).all()).results)===JSON.stringify(ledgerBefore),'Rejected recovery preserves original accounting');
+      const retained=await f.db.prepare('SELECT asset_id,provider_receipts_json,result_r2_key FROM member_generation_jobs WHERE id=?').bind(job.id).first();
+      check(retained.asset_id===saved.asset_id&&retained.provider_receipts_json===saved.provider_receipts_json&&retained.result_r2_key===saved.result_r2_key,'Stopped recovery preserves the original saved result and provider receipt');
+      return {name,submissions,recovered:false};
+    }
+  }
   if(name==='operator'){
     // Retained historical metadata was replaced by the old result writer. The
     // reviewed recovery binds the original owned job, never rewrites its tariff.
@@ -79,6 +124,11 @@ export async function canvasH3RecoveryCase(env,name,media){
   }
   check(recovered.length===1&&recovered[0].recovered,`Late result resumes exact production: ${JSON.stringify(recovered)}`);
   check((await current()).status==='running','Original production resumes only after persisted receipt validation');
+  if(name==='readiness-operator'){
+    check(JSON.stringify((await f.db.prepare('SELECT * FROM member_credit_ledger WHERE user_id=? ORDER BY id').bind(f.owner).all()).results)===JSON.stringify(readinessLedger),'Readiness recovery has no credit writer or second debit');
+    const retained=await f.db.prepare('SELECT asset_id,provider_receipts_json,result_r2_key FROM member_generation_jobs WHERE id=?').bind(job.id).first();
+    check(retained.asset_id===saved.asset_id&&retained.provider_receipts_json===saved.provider_receipts_json&&retained.result_r2_key===saved.result_r2_key,'Successful recovery reuses immutable original result evidence');
+  }
   const count=await f.db.prepare('SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND idempotency_key=? AND amount<0').bind(f.owner,usage.idempotency_key).first();
   check(count.n===1,'Exactly one original debit');
   check((await recoverCanvasAgentMedia(f.env,identity)).length===0,'Duplicate cron or operator delivery does not duplicate recovery');

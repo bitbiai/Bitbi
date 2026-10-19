@@ -251,11 +251,87 @@ export function assertStoredPlanTree(head,read=args=>execFileSync('git',args,{ma
   const entry="if(process.argv.includes('--stored-plan-only')) {\n  assert.deepEqual(process.argv.slice(2),['--stored-plan-only']);\n  await testStoredPlanContinuation();process.exit(0);\n}\n\n",tail='\nasync function testStoredPlanContinuation() {';
   assert.equal(after.split(tail).length,2,'Missing unique continuation countercheck');assert.equal(after.split(tail)[0].replace(entry,''),before,'Existing release assertions changed');assert(after.endsWith('\nawait testStoredPlanContinuation();\n'));
 }
+// The published assistant candidate already completed its whole selected matrix.
+// This closed successor changes only the reviewed readiness/recovery boundary;
+// its newly affected Worker/native cases execute, while the unchanged browser
+// result retains its original source identity and complete discovery.
+export const READINESS_CONTINUATION=Object.freeze({
+  source:'4dd1caccca2d05a3e69e61ed3f9fe0db67bbefd5',
+  run:'4dd1caccca2d05a3e69e61ed3f9fe0db67bbefd5-08d85e3d-b2b1-4686-9128-a177dabffa5b',
+  checkpoint:'cac6ef5365d0a678450df347da5c2add97515e665905d7fd242514f06c18aeaa',
+  worker:Object.freeze({
+    source:'b2a79cc43daee125e1269c7ac34c00cc4b33b733',tree:'53ac6f80df14fa0275421bee6a07e3a695140b7c',
+    checkpoint:'c428cecf7dbc4a5a6a2a2fcef310eb8bedace76614b27d72ac3aa37b63623d36',
+    failed:'48ac66f9fbd56688254b90a71cce8997a76bc569ebbd873ede2582ed84cd8a7a',
+    report:'cefad8dda9df2eda74c3c6821dce515af8b76b4aef641ccca5434d112156cec5',
+    discovery:'3560d29c656e424fe6a52aa2a7d2dce78f0e5a5824ce7d895dded00c45e45fca',
+    selected:'c62457d6d8317020baf5a7a74ef6d35393d1a8bf0cd1d9b56f2188b4e8d72e94',
+    fixedTest:'652fde1b71836ba5b0eb538e581ee4ce695fa909e8a64bf64e27db005595bb8d',
+    tools:Object.freeze({
+      'scripts/local-release.mjs':'00b995bf4909e34a2ad216ad738b587d28ae1e95f9b768914d7f6c567ca682d7',
+      'scripts/lib/local-release-evidence.mjs':'fe65021422f02a7e852241c8a6c881f9832165f4e67a88a69a9a719f9d9cecbb',
+      'scripts/lib/local-release-browser.mjs':'0cea884dd573fe97b7b4229e25c482b502313ba5739a8c42c77f8a4837a567bd',
+      'scripts/test-local-release.mjs':'b035be34bd3b49468db48f51baf61546c85ce19f59976d02a7f96075705e0013',
+      'tests/helpers/canvas-agent-h3-recovery-control.mjs':'a72752e7aa2cae1a25bd719d625325862867c0e7d3521d70923fcbf9dfd96c37',
+    }),
+  }),
+  progress:Object.freeze({
+    source:'436f69b941994e3fa07840036cb3f8de628db120',
+    tree:'24ea4c53f1397e81fcc3b310333aca9c2a732dc7',
+    checkpoint:'cae7d04223d2a46a46dd2d67004d8aa4d365ebbb4e800028cf007228c6253712',
+    failed:'0fafeb89bed906220b260b01b928125b4acf5fcc24b97a63bffe92517735ed9f',
+    fixedTest:'b035be34bd3b49468db48f51baf61546c85ce19f59976d02a7f96075705e0013',
+    tools:Object.freeze({
+      'scripts/local-release.mjs':'a914ca401e7e6175ada4680b42345b57e1a73a8205d87740df6c763e5620408d',
+      'scripts/lib/local-release-evidence.mjs':'6751057611e129b4cc8a3a08e7418ff6503dad18a7d2c00ddfb0be9ae77b333a',
+      'scripts/lib/local-release-browser.mjs':'055daec209e6be41573436daa6fdbfe1881416378d68f4f03813d2fe8f3f098a',
+      'scripts/test-local-release.mjs':'9f4d2e5267ee66347623f80254039b35602ad4fff2d8909e7d77f4cb1d3f994f',
+    }),
+  }),
+  reports:Object.freeze({homepage:'40a594ce19d27ff5e99d41d7dd550c9144c28fe93baa7e2d0cd64b69c4766b7d',auth:'06c10f1bbd2405d1c8abe9f4a3db30393005af5ed6595b3a425a74113982343f'}),
+  specs:Object.freeze({
+    "docs/production-readiness/CANVAS_AGENT.md": "7beb63d480c49dc11f7a5e97330708af5fbd653f7fffb7b083a3af83eb2d4b4e",
+    "docs/runbooks/REGRESSION_REGISTER.md": "1b1e39ea952e41c21292c559c14975bdfcdc8f29ec668e4fdbab07d44d82bba4",
+    "scripts/lib/ci-test-selection.mjs": "03f72a4d242b1adf5a16319be236505bbc2d0cfda4785229e7ded983f93d408e",
+    "scripts/test-ci-test-selection.mjs": "906300dfb36f08e56fa9e16aa509b878938db6932dd0b01876b4b1392c117104",
+    "scripts/test-q2-runtime-launcher.mjs": "cca8e4bfcadfae45f262ab93c5fe7accb50f34b0134b234cb0b5927d7bcc5404",
+    "tests/helpers/canvas-agent-h3-recovery-control.mjs": "a55dc6ac891b71cb0043d4c1cc9b0390cf1a6d7f93ad4be6505c5477e35fb199",
+    "tests/helpers/canvas-agent-readiness-control.mjs": "b9aa7f996ab253b21cffc4fc75a8b588568400c1cfdb5748a6555eeca48b2bdd",
+    "tests/helpers/q2-runtime/canvas-readiness-recovery.mjs": "a1926efd7da844b185653be8f9bca79ea6763cc5a8e9e9eeea41d480bf57d146",
+    "tests/helpers/q2-runtime/canvas.mjs": "cb8be5985b0c4e503db77aea3354a86a625647185fe5b44a9c96ebd177b9e2d7",
+    "tests/helpers/q2-runtime/control.mjs": "63c5742f636ec8dfee355bf00abbb6b946722da92cd6a0b866fd8ada9fb97e43",
+    "tests/helpers/q2-runtime/linux-bootstrap.py": "8129decb2006c452b0aa05e7faa78ced68b60e3d4f83c1db685d95264d951083",
+    "tests/helpers/q2-runtime/linux-hosted.mjs": "631f70dc5692204825f7d7fc1dc00d49f45df348788f08511685d7229412a514",
+    "tests/helpers/q2-runtime/linux-runtime-child.mjs": "39755b27806eedf563bf06cbbf76fe457c27b6223d991e061a873967010c8061",
+    "tests/helpers/q2-runtime/runner.mjs": "1dde4216d7e428c92ae544339e393ae04d104d64e1e0abaab60782f03fd8a22f",
+    "tests/q2-canvas-agent-h3-recovery.spec.js": "84f460ad33ee19a6b5acb4a94d5c819604a3fb2b4135118c8ee7d327b96e9a56",
+    "tests/q2-canvas-agent-readiness.spec.js": "dd6cbbeac4d7efc6a3feae1fed94b307663ccc27906769777bb3839ea73e2ba3",
+    "workers/auth/src/lib/canvas-agent-assistant-models.js": "eec3d1761b695c8fdf41443284767d3c0a8604e76dddea54362ab609e533be31",
+    "workers/auth/src/lib/canvas-agent-execution.js": "a79eb0e46ac16047f4a84066e4267578aa5dab31ffd7fea26bb6df589f104b2c",
+    "workers/auth/src/lib/canvas-agent-media-recovery.js": "4f90e4510c173878ebaee41b491737729c7cf63a579cb347d275fd2b93547d0c",
+    "workers/auth/src/lib/canvas-agent-planning.js": "a22b1e03c04b0e9d9e04a0bc3a42fbdb501d3668bbfce1ce30612e37a694cfdf",
+  }),
+});
+export function assertReadinessTree(head,read=args=>execFileSync('git',args,{maxBuffer:64*1024*1024})) {
+  const p=READINESS_CONTINUATION,tooling=['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/lib/local-release-browser.mjs','scripts/test-local-release.mjs'];
+  assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,p.source],'Readiness recovery requires the exact published parent');
+  const files=read(['diff','--name-only',p.source,head]).toString().trim().split('\n').filter(Boolean);
+  assert(Object.keys(p.specs).length>0,'Missing reviewed readiness input hashes');
+  assert(files.length&&files.every(file=>tooling.includes(file)||Object.hasOwn(p.specs,file)),'Unreviewed runtime, frontend, dependency, policy or test change');
+  for(const[file,hash]of Object.entries(p.specs)){assert(files.includes(file),`Missing reviewed readiness change: ${file}`);assert.equal(sha256(read(['show',`${head}:${file}`])),hash,`Changed reviewed readiness input: ${file}`);}
+  for(const file of files)assert.match(read(['ls-tree',head,'--',file]).toString(),/^100644 blob /,'Readiness continuation requires ordinary committed files');
+  const before=read(['show',`${p.source}:scripts/test-local-release.mjs`]).toString();let after=read(['show',`${head}:scripts/test-local-release.mjs`]).toString();
+  const workerEntry="if(process.argv.includes('--readiness-worker-only')) {\n  assert.deepEqual(process.argv.slice(2),['--readiness-worker-only']);\n  await testReadinessWorkerContinuation();process.exit(0);\n}\n\n",workerTail='\nasync function testReadinessWorkerContinuation() {';
+  if(after.includes(workerTail)){assert.equal(after.split(workerTail).length,2);assert(after.endsWith('\nawait testReadinessWorkerContinuation();\n'));after=after.split(workerTail)[0].replace(workerEntry,'');assert.equal(sha256(after),p.worker.tools['scripts/test-local-release.mjs'],'Previously passed readiness assertions changed');}
+  const entry="if(process.argv.includes('--readiness-only')) {\n  assert.deepEqual(process.argv.slice(2),['--readiness-only']);\n  await testReadinessContinuation();process.exit(0);\n}\n\n",tail='\nasync function testReadinessContinuation() {';
+  assert.equal(after.split(tail).length,2);assert.equal(after.split(tail)[0].replace(entry,''),before,'Existing release assertions changed');assert(after.endsWith('\nawait testReadinessContinuation();\n'));
+}
 export function verifyModelBrowserReport(report,sha) {
   if(report.retainedSource){
-    assert.equal(report.retainedSource,STORED_PLAN_CONTINUATION.source);assertStoredPlanTree(sha);
+    const p=report.retainedSource===READINESS_CONTINUATION.source?READINESS_CONTINUATION:STORED_PLAN_CONTINUATION;
+    assert.equal(report.retainedSource,p.source);if(p===READINESS_CONTINUATION)assertReadinessTree(sha);else assertStoredPlanTree(sha);
     const {retainedSource,...original}=report;original.sha=retainedSource;
-    assert.equal(sha256(JSON.stringify(original)),STORED_PLAN_CONTINUATION.reports[report.scope],'Retained complete browser evidence changed');
+    assert.equal(sha256(JSON.stringify(original)),p.reports[report.scope],'Retained complete browser evidence changed');
   }
   const p=report.source===ASSISTANT_BROWSER_PREFLIGHT.source?ASSISTANT_BROWSER_PREFLIGHT:report.source===SETTLEMENT_BROWSER_PREFLIGHT.source?SETTLEMENT_BROWSER_PREFLIGHT:MODEL_BROWSER_PREFLIGHT;
   assert.equal(report.policy,MODEL_BROWSER_POLICY);assert.equal(report.sha,sha);assert.equal(report.source,p.source);assert(['homepage','auth'].includes(report.scope));

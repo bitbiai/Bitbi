@@ -11,6 +11,7 @@ import {CANVAS_MODEL_CASES,canvasModelOperationCase} from '../canvas-agent-model
 import {CANVAS_SETTLEMENT_CASES,canvasPlanningSettlementCase} from '../canvas-agent-settlement-review-control.mjs';
 import {CANVAS_IMAGE_SCHEDULING_CASES,canvasImageSchedulingCase} from '../canvas-image-scheduling-control.mjs';
 import {H3_RECOVERY_CASES,canvasH3RecoveryCase} from '../canvas-agent-h3-recovery-control.mjs';
+import {READINESS_CASES,canvasAgentReadinessCase} from '../canvas-agent-readiness-control.mjs';
 import {CANVAS_CONVERSATION_DECISION_CASES,canvasConversationDecisionCase} from '../canvas-conversation-decisions-control.mjs';
 import { canvasAgentAuthorityCase, canvasAgentApiCase, canvasAgentDispatchCase, canvasAgentCapabilityCase, canvasAgentLateCompletionCase,canvasAgentUnknownProviderCase, canvasAgentManualTakeoverCase } from '../canvas-agent-control.mjs';
 import { canvasAssemblyCase, canvasInspectionCase, canvasAssemblyRetentionCase, seedCanvasAssemblyRetentionMigration, verifyCanvasAssemblyRetentionMigration } from '../canvas-assembly-control.mjs';
@@ -95,6 +96,7 @@ export default {
       return Response.json(await canvasImageSchedulingCase(scoped,body));
     }
     if(path==='/canvas-agent-h3-recovery'&&H3_RECOVERY_CASES.includes(body.name))return Response.json(await canvasH3RecoveryCase(env,body.name,body));
+    if(path==='/canvas-agent-readiness'&&READINESS_CASES.includes(body.name))return Response.json(await canvasAgentReadinessCase(env,body.name,body));
     if(path==='/canvas-conversation-decision'&&CANVAS_CONVERSATION_DECISION_CASES.includes(body.name))return Response.json(await canvasConversationDecisionCase(env,body.name));
     if (path === '/canvas-agent-authority') return Response.json(await canvasAgentAuthorityCase(env));
     if (path === '/canvas-agent-api') return Response.json(await canvasAgentApiCase(env));

@@ -6,7 +6,7 @@ import { publicModelAvailability } from './model-availability.js';
 import { quoteModelTariff } from './model-tariffs.js';
 import { readCanvasAgentProviderReadiness } from './canvas-agent-planning.js';
 
-export async function canvasAssistantAvailability(env, modelId, { dialogue = false } = {}) {
+export async function canvasAssistantAvailability(env, modelId, { dialogue = false, providerReadiness = true } = {}) {
     const model = canvasAssistantModel(modelId);
     if (!model) return { available:false,code:'canvas_agent_model_adapter_unavailable',model:modelId,providerAccess:'not_live_verified' };
     let code = null;
@@ -26,11 +26,13 @@ export async function canvasAssistantAvailability(env, modelId, { dialogue = fal
             if (!Number.isSafeInteger(price.credits) || price.credits < 1) code = 'model_pricing_unavailable';
         } catch { code = 'model_pricing_unavailable'; }
     }
-    if (!code) {
+    let diagnostic;
+    if (!code && providerReadiness) {
         const readiness = await readCanvasAgentProviderReadiness(env,{dialogue,modelId});
         if (!readiness.available) code = readiness.reason || 'canvas_agent_provider_unavailable';
+        diagnostic = readiness.diagnostic;
     }
-    return {available:!code,code,model:modelId,providerAccess:'not_live_verified'};
+    return {available:!code,code,model:modelId,providerAccess:'not_live_verified',...(diagnostic?{diagnostic}:{})};
 }
 export async function canvasAssistantModelInventory(env) {
     const eligible = await Promise.all(CANVAS_ASSISTANT_MODELS.map(async model => {

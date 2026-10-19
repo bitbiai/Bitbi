@@ -53,9 +53,9 @@ export function parseRuntimeArgs(args, env = {}) {
     if (args[i] === '--preflight' && !result.preflight) result.preflight = true;
     else if (args[i] === '--artifacts' && !explicitArtifacts && args[i + 1] && !args[i + 1].startsWith('--')) {
       result.artifacts = args[++i]; explicitArtifacts = true;
-    } else if (args[i] === '--suite' && !result.suite && ['member-generation','model-status','model-pricing','appearance','canvas','canvas-settlement-continuation','canvas-settlement-recovery','canvas-assistant-continuation','canvas-assistant-tail','canvas-assistant-rate-tail','canvas-policy-tail','canvas-actions-tail','canvas-completion','canvas-audio','canvas-audio-fit','canvas-transitions','canvas-retention','q4-stream','website-assistant'].includes(args[i+1])) {
+    } else if (args[i] === '--suite' && !result.suite && ['member-generation','model-status','model-pricing','appearance','canvas','canvas-settlement-continuation','canvas-settlement-recovery','canvas-assistant-continuation','canvas-assistant-tail','canvas-assistant-rate-tail','canvas-readiness-recovery','canvas-policy-tail','canvas-actions-tail','canvas-completion','canvas-audio','canvas-audio-fit','canvas-transitions','canvas-retention','q4-stream','website-assistant'].includes(args[i+1])) {
       result.suite = args[++i];
-    } else throw new Error('Usage: test-q2-runtime [--preflight] [--suite member-generation|model-status|model-pricing|appearance|canvas|canvas-settlement-continuation|canvas-settlement-recovery|canvas-assistant-continuation|canvas-assistant-tail|canvas-assistant-rate-tail|canvas-policy-tail|canvas-actions-tail|canvas-completion|canvas-audio|canvas-audio-fit|canvas-transitions|canvas-retention|q4-stream|website-assistant] [--artifacts <outside-repository-directory>]');
+    } else throw new Error('Usage: test-q2-runtime [--preflight] [--suite member-generation|model-status|model-pricing|appearance|canvas|canvas-settlement-continuation|canvas-settlement-recovery|canvas-assistant-continuation|canvas-assistant-tail|canvas-assistant-rate-tail|canvas-readiness-recovery|canvas-policy-tail|canvas-actions-tail|canvas-completion|canvas-audio|canvas-audio-fit|canvas-transitions|canvas-retention|q4-stream|website-assistant] [--artifacts <outside-repository-directory>]');
   }
   return result;
 }
@@ -95,6 +95,7 @@ export function stageInputPlan() {
     'tests/helpers/canvas-agent-control.mjs',
     'tests/helpers/canvas-agent-settlement-review-control.mjs',
     'tests/helpers/canvas-image-scheduling-control.mjs',
+    'tests/helpers/canvas-agent-readiness-control.mjs',
     'tests/helpers/canvas-agent-h3-recovery-control.mjs','tests/helpers/canvas-assistant-migration-control.mjs','tests/helpers/canvas-assistant-model-control.mjs',
     'tests/helpers/canvas-conversation-decisions-control.mjs',
     'tests/helpers/canvas-agent-conversation-control.mjs',

@@ -1060,6 +1060,19 @@ required. Focused synthetic controls passed locally; final release/native/live
 recovery evidence must identify the candidate and actual serving versions. Keep
 production IDs, receipts and before/after records in private operational storage.
 
+The protected `4dd1cacc` follow-up recovered the stored H3 result and accepted the
+next real provider task. A subsequent configuration-only Auth-to-AI readiness
+GET produced the generic `canvas_agent_provider_unavailable`; the scheduler
+persisted `blocked` before observing accepted media. Its original diagnostic
+cannot establish timeout versus HTTP/protocol failure or an upstream outage.
+Separate accepted-result observation from new-dispatch readiness, preserve local
+authority/availability checks, and bound retries only for classified temporary
+readiness failures. A historical readiness hold needs a fresh digest-bound
+operator decision against its own saved/settled H3 result; an earlier clip's
+authorization is not reusable. New synthetic Node/native controls cover signed
+readiness failures, bounded waiting, retained receipts, stale authorization and
+stop/revision guards. Live identities and accounting remain in private evidence.
+
 2026-09-25 REST workaround: Cloudflare support recommends REST after the retained
 official input succeeded directly (task 444983054504211) but failed in BITBI
 (dispatch ae92d9fd0945a07bab3291db88d83d1c, 400/7003). Source URL, callback and

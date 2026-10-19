@@ -591,6 +591,8 @@ const AUTH_TEST_FILES = new Set([
 const EXACT_WORKER_TEST_FILES = new Set([
   'tests/rel01/routes/workers.spec.js',
   'tests/helpers/release-transition-legacy-contract.cjs',
+  'tests/q2-canvas-agent-readiness.spec.js',
+  'tests/helpers/canvas-agent-readiness-control.mjs',
 ]);
 
 const WORKER_TEST_PREFIXES = [

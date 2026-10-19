@@ -1,4 +1,5 @@
-import {STORED_PLAN_CONTINUATION,assertStoredPlanTree} from './local-release-browser.mjs';
+import {READINESS_CONTINUATION,assertReadinessTree,STORED_PLAN_CONTINUATION,assertStoredPlanTree} from './local-release-browser.mjs';
+import {canvasReadinessRecoveryInventory} from '../../tests/helpers/q2-runtime/canvas-readiness-recovery.mjs';
 import {canvasSettlementContinuationInventory,canvasSettlementRecoveryRetainedInventory,canvasSettlementRecoveryInventory} from '../../tests/helpers/q2-runtime/canvas-policy-tail.mjs';
 import {canvasPolicyPrefix,canvasPolicyTailInventory} from '../../tests/helpers/q2-runtime/canvas-policy-tail.mjs';
 // Local execution is trusted only through authenticated repository-writer
@@ -505,7 +506,8 @@ export function verifyLocalEvidence(directory, expected, { now = Date.now(), sel
   assert.equal(evidence.ci, true); assert.equal(evidence.origin, 'development-mac');
   const env = { GITHUB_SHA: expected.sha, CANDIDATE_BASE: expected.base };
   const commands = selectedCommands(selection, env);
-  if(evidence.storedPlanContinuation)verifyStoredPlanContinuation(directory,evidence,commands);
+  if(evidence.readinessContinuation)verifyReadinessContinuation(directory,evidence,commands);
+  else if(evidence.storedPlanContinuation)verifyStoredPlanContinuation(directory,evidence,commands);
   else if(evidence.preflightContinuation)verifyCanvasPreflight(directory,evidence,commands);
   else if(evidence.permissionContinuation)verifyPermissionContinuation(directory,evidence,commands);
   else if(evidence.repair)verifyLocalReuse(directory,evidence);
@@ -521,7 +523,7 @@ export function verifyLocalEvidence(directory, expected, { now = Date.now(), sel
     if(runtimes.includes('native-browser-v1'))assert.deepEqual(result.runtimes,runtimes,'Missing/mismatched browser execution environment');
     if(evidence.repair&&['Run selected auth and admin tests','Run selected homepage core tests'].includes(command.name))assert.equal(result.browserContinuation,LOCAL_BROWSER_POLICY);
     else if(evidence.preflightContinuation?.source===AUTONOMY_BROWSER_PREFLIGHT.source&&['Run selected homepage core tests','Run selected auth and admin tests'].includes(command.name))assert.equal(result.browserContinuation,AUTONOMY_BROWSER_POLICY);
-    else if((evidence.storedPlanContinuation||[ASSISTANT_BROWSER_PREFLIGHT.source,SETTLEMENT_BROWSER_PREFLIGHT.source,MODEL_BROWSER_PREFLIGHT.source].includes(evidence.preflightContinuation?.source))&&['Run selected homepage core tests','Run selected auth and admin tests'].includes(command.name))assert.equal(result.browserContinuation,MODEL_BROWSER_POLICY);
+    else if((evidence.readinessContinuation||evidence.storedPlanContinuation||[ASSISTANT_BROWSER_PREFLIGHT.source,SETTLEMENT_BROWSER_PREFLIGHT.source,MODEL_BROWSER_PREFLIGHT.source].includes(evidence.preflightContinuation?.source))&&['Run selected homepage core tests','Run selected auth and admin tests'].includes(command.name))assert.equal(result.browserContinuation,MODEL_BROWSER_POLICY);
     else if(isSmoothContinuation(evidence.permissionContinuation?.source)&&command.name==='Run selected auth and admin tests')assert.equal(result.browserContinuation,SMOOTH_BROWSER_POLICY);
     else assert(!result.browserContinuation,'Unreviewed browser continuation');
     assert(result.durationMs >= 0 && Number.isFinite(result.durationMs));
@@ -2693,4 +2695,193 @@ export function verifyStoredPlanNativeReceipt(directory,head,log){
   const progress=fs.existsSync(path.join(directory,'reuse/test-results/stored-plan-native-progress/checkpoint.json'))?verifyStoredPlanWorkerProgress(directory,head):null,result=JSON.parse(fs.readFileSync(path.join(reports,files[0])));
   if(progress){const launcher=JSON.parse(fs.readFileSync(path.join(reports,'../launcher-result.json')));assert.equal(launcher.hostedImage.GITHUB_SHA,head);assert.equal(result.provenance.sourceLedger.find(row=>row.path==='workers/auth/src/lib/canvas-agent-settlement-review.js')?.sha256,progress.profile.specs['workers/auth/src/lib/canvas-agent-settlement-review.js']);}
   return verifyStoredPlanNative(native,result,progress?.native||[]);
+}
+
+// A successful published source may retain unchanged acceptance only through
+// this exact reviewed successor. This is not a general cross-source cache.
+export const READINESS_REFRESH=new Set([
+  'Preflight complete static release plan','Run quality gate tests','Check committed secrets',
+  'Check operational readiness docs','Check targeted JavaScript syntax','Run CI test selection fixtures','Test local release evidence and orchestration',
+  'Check documentation currentness','Record candidate build','Validate static website references','Validate JS import paths',
+  'Check target="_blank" links have rel="noopener"','Validate page metadata',
+  'Verify native Linux isolation before Worker tests','Run worker route tests',
+  'Restore exact candidate static site','Confirm tested browser candidate bytes',
+]);
+export const readinessWorkerNames=Object.freeze([
+  ...['accepted-pending','accepted-saved','retry-recover','retry-exhausted','disabled','model-disabled','revoked','expired','edited','unknown'].map(name=>'Canvas readiness recovery '+name),
+  'Canvas readiness diagnostics distinguish configuration, authentication, protocol and temporary observation failures',
+  ...['operator','stale-control','cancelled','expired','edited'].map(name=>'Canvas H3 settled late receipt readiness-'+name),
+]);
+export const readinessLauncherName='Canvas readiness recovery pins retained discovery and admits only fresh native callbacks';
+export function readinessPrefix(bytes,{sha,base,planHash,environment,nativeBrowsers,commands,selection},read=gitBytes){
+  const p=READINESS_CONTINUATION;assertReadinessTree(sha,read);assert.equal(sha256(bytes),p.checkpoint,'Changed completed readiness source proof');
+  const original=JSON.parse(bytes);assert.equal(original.sha,p.source);assert.equal(original.status,'passed');assert.equal(base,p.source,'Readiness release must use the currently published base');
+  assert.equal(original.planHash,planHash);assert.equal(original.environment.key,environment.key);assert.equal(original.environment.image,environment.image);assert.deepEqual(original.environment.inputs,environment.inputs);assert.equal(original.nativeBrowsers.key,nativeBrowsers?.key);verifyNativeBrowserEnvironment(nativeBrowsers);
+  assert.equal(original.commands.length,52);assert(original.commands.every(row=>row.exitCode===0));
+  assert.equal(selection.full,false);assert.equal(selection.workers,true);assert.equal(selection.auth,true);assert.equal(selection.homepage,false);assert.equal(commands.length,46,'Changed scoped readiness command closure');
+  const prior=new Map(original.commands.map(row=>[storedPlanKey(row.command),row]));
+  for(const command of commands){assert(prior.has(storedPlanKey(command)),'New command needs explicit readiness evidence');if(!READINESS_REFRESH.has(command.name))assert.deepEqual(command,prior.get(storedPlanKey(command)).command,'Changed retained command');}
+  return original;
+}
+export function verifyReadinessOrigin(directory,head){
+  assertReadinessTree(head);const origin=path.join(directory,'reuse/test-results/readiness-origin'),bytes=fs.readFileSync(path.join(origin,'evidence.json'));
+  assert.equal(sha256(bytes),READINESS_CONTINUATION.checkpoint);const original=JSON.parse(bytes);
+  verifyLocalEvidence(origin,{sha:original.sha,base:original.base});return {origin,original};
+}
+export const READINESS_PROGRESS_RETAIN=Object.freeze([7,16]);
+export function verifyReadinessProgress(directory,head,commands){
+  const p=READINESS_CONTINUATION.progress,root=path.join(directory,'reuse/test-results/readiness-progress');assertReadinessTree(head);
+  assert([p.fixedTest,READINESS_CONTINUATION.worker.fixedTest].includes(sha256(gitBytes(['show',`${head}:scripts/test-local-release.mjs`]))),'Changed reviewed retry countercontrol');
+  const pinned=(file,hash)=>{const bytes=fs.readFileSync(path.join(root,file));assert.equal(sha256(bytes),hash,'Changed original readiness progress evidence: '+file);return bytes;};
+  const partial=JSON.parse(pinned('checkpoint.json',p.checkpoint));assert.equal(partial.sha,p.source);assert.equal(partial.sourceTree,p.tree);assert.equal(partial.base,READINESS_CONTINUATION.source);assert.equal(partial.status,'failed');assert.equal(partial.commands.length,46);
+  assert.deepEqual(partial.readinessContinuation,{source:READINESS_CONTINUATION.source,checkpoint:READINESS_CONTINUATION.checkpoint});assert(!partial.readinessProgress);
+  assert.equal(partial.planHash,validationPlan().digest);assert.deepEqual(partial.selection.files,gitSelection(READINESS_CONTINUATION.source,head).files);
+  for(const[file,hash]of Object.entries(p.tools))pinned('source/'+file,hash);
+  const original=JSON.parse(fs.readFileSync(path.join(directory,'reuse/test-results/readiness-origin/evidence.json')));assert.equal(partial.environment.key,original.environment.key);assert.equal(partial.nativeBrowsers.key,original.nativeBrowsers.key);
+  assert(partial.commands.slice(0,17).every(row=>row?.exitCode===0));assert.equal(partial.commands[17].exitCode,1);assert.equal(partial.commands[17].logHash,p.failed);pinned('logs/17.log',p.failed);
+  assert.equal(partial.commands[17].continuation,'npm run test:local-release -- --readiness-only');
+  for(const i of READINESS_PROGRESS_RETAIN){const row=partial.commands[i];assert.equal(row.exitCode,0);assert(!row.reusedFrom);assert.deepEqual(row.command,commands[i]);pinned(row.log,row.logHash);}
+  assert.equal(partial.commands[7].command.name,'Check operational readiness docs');assert.equal(partial.commands[16].continuation,'npm run test:ci-selection -- --canvas-readiness-only');
+  return partial;
+}
+export const READINESS_WORKER_RETAIN=Object.freeze([7,16,29,35,37,38,39,40]);
+export function verifyReadinessStaleFixture(before,after){
+  const start="    if(name==='readiness-stale-control'){",end="    if(name==='readiness-cancelled')";
+  const split=value=>{assert.equal(value.split(start).length,2);assert.equal(value.split(end).length,2);const a=value.indexOf(start),b=value.indexOf(end);assert(b>a);return [value.slice(0,a),value.slice(a,b),value.slice(b)];};
+  const a=split(before),b=split(after);assert.equal(a[0],b[0]);assert.equal(a[2],b[2],'An already passed helper branch changed');assert(a[1].includes('SET budget_revision=budget_revision+1'));assert(b[1].includes('SET updated_at=?')&&!b[1].includes('SET budget_revision='));
+}
+export function verifyReadinessWorkerProgress(directory,head){
+  const p=READINESS_CONTINUATION.worker,root=path.join(directory,'reuse/test-results/readiness-worker-progress');assertReadinessTree(head);
+  assert.equal(sha256(gitBytes(['show',`${head}:scripts/test-local-release.mjs`])),p.fixedTest,'Changed reviewed readiness Worker verifier');
+  const pinned=(file,hash)=>{const bytes=fs.readFileSync(path.join(root,file));assert.equal(sha256(bytes),hash,'Changed readiness Worker progress evidence: '+file);return bytes;};
+  const partial=JSON.parse(pinned('checkpoint.json',p.checkpoint));assert.equal(partial.sha,p.source);assert.equal(partial.sourceTree,p.tree);assert.equal(partial.base,READINESS_CONTINUATION.source);assert.equal(partial.status,'failed');assert.equal(partial.commands.length,46);
+  assert.deepEqual(partial.readinessContinuation,{source:READINESS_CONTINUATION.source,checkpoint:READINESS_CONTINUATION.checkpoint});assert.deepEqual(partial.readinessProgress,{source:READINESS_CONTINUATION.progress.source,checkpoint:READINESS_CONTINUATION.progress.checkpoint});assert(!partial.readinessWorkerProgress);
+  const commands=selectedCommands(partial.selection,{GITHUB_SHA:p.source,CANDIDATE_BASE:partial.base}),current=selectedCommands(gitSelection(partial.base,head),{GITHUB_SHA:head,CANDIDATE_BASE:partial.base});
+  verifyReadinessProgress(directory,head,current);assert.equal(partial.planHash,validationPlan().digest);assert.deepEqual(partial.selection.files,gitSelection(partial.base,head).files);
+  const original=JSON.parse(fs.readFileSync(path.join(directory,'reuse/test-results/readiness-origin/evidence.json')));assert.equal(partial.environment.key,original.environment.key);assert.equal(partial.nativeBrowsers.key,original.nativeBrowsers.key);
+  for(const[file,hash]of Object.entries(p.tools))pinned('source/'+file,hash);
+  const helper='tests/helpers/canvas-agent-h3-recovery-control.mjs',before=fs.readFileSync(path.join(root,'source',helper),'utf8'),after=gitBytes(['show',`${head}:${helper}`]).toString();
+  verifyReadinessStaleFixture(before,after);
+  assert(partial.commands.slice(0,41).every(row=>row?.exitCode===0));assert.equal(partial.commands[41].exitCode,1);assert.equal(partial.commands[41].logHash,p.failed);pinned('logs/41.log',p.failed);pinned('logs/17.log',partial.commands[17].logHash);
+  assert.equal(partial.commands[17].continuation,'npm run test:local-release -- --readiness-only');assert.equal(partial.commands[41].continuation,readinessWorkerCommand(commands[41].run));
+  for(const i of READINESS_WORKER_RETAIN){const row=partial.commands[i];assert.deepEqual(row.command,commands[i]);assert.deepEqual(row.command,current[i]);pinned(row.log,row.logHash);}
+  verifyNativeLocalReports(directory,fs.readFileSync(path.join(root,'logs/40.log'),'utf8'),{preflight:true});
+  const raw=parseDiscovery(pinned('worker-failed.json',p.report).toString()),full=parseDiscovery(pinned('worker-discovery.json',p.discovery).toString()),selected=parseDiscovery(pinned('selected-discovery.json',p.selected).toString());
+  assert.deepEqual(raw.errors,[]);assert.deepEqual(full.errors,[]);assert.deepEqual(selected.errors,[]);assert.equal(raw.config.workers,1);assert.equal(raw.stats.expected,15);assert.equal(raw.stats.unexpected,1);assert.equal(raw.stats.flaky,0);assert.equal(raw.stats.skipped,0);
+  const rows=executedWorkers(raw),passed=rows.filter(passedOnce),failed=rows.filter(row=>!passedOnce(row));assert.equal(passed.length,15);assert.equal(failed.length,1);assert.equal(failed[0].title,'Canvas H3 settled late receipt readiness-stale-control');assert.equal(failed[0].results.length,1);assert.equal(failed[0].results[0].status,'failed');assert.equal(failed[0].results[0].retry,0);assert(JSON.stringify(raw).includes('canvas_agent_budget_consent_required'));
+  const ids=values=>values.map(({id,file,title})=>({id,file,title})).sort((a,b)=>a.id.localeCompare(b.id));assert.deepEqual(ids(rows),ids(workerDiscovery(selected)));
+  const previous=workerDiscovery(parseDiscovery(fs.readFileSync(path.join(directory,'reuse/test-results/readiness-origin/test-results/assistant-native-rate-discovery.json'),'utf8')));
+  verifyReadinessWorkerUnion(previous,workerDiscovery(full),rows.map(row=>({...row,results:[{status:'passed',retry:0}]})));
+  return {partial,passed,failed,discovery:workerDiscovery(full)};
+}
+export function restoreReadinessProofs(directory,head,{browser=false,verifyOnly=false}={}){
+  const {origin}=verifyReadinessOrigin(directory,head),read=file=>JSON.parse(fs.readFileSync(path.join(origin,file)));
+  const original=read('candidate/manifest.json'),manifest=JSON.parse(fs.readFileSync(path.join(directory,'candidate/manifest.json')));
+  assert.equal(manifest.sha,head);verifyMigrationCandidateBytes(directory,original,manifest,{allowLabGuard:false});assert.deepEqual(manifest.hosting,original.hosting);
+  const old=read('candidate/proof-frontend-runtime.json'),proof={...old,manifestHash:sha256(JSON.stringify(manifest)),reusedFrom:{sha:original.sha,manifestHash:old.manifestHash}};
+  if(verifyOnly)assert.deepEqual(JSON.parse(fs.readFileSync(path.join(directory,'candidate/proof-frontend-runtime.json'))),proof);
+  else fs.writeFileSync(path.join(directory,'candidate/proof-frontend-runtime.json'),JSON.stringify(proof));
+  if(browser){
+    const current=browserRows(parseDiscovery(fs.readFileSync(path.join(directory,'test-results/readiness-auth-discovery.json'),'utf8')),{discovery:true});
+    const previous=read('test-results/candidate-auth.json');assert.deepEqual(current,previous.discovery,'Current Auth discovery changed');
+    const report={...previous,sha:head,retainedSource:original.sha};verifyModelBrowserReport(report,head);
+    if(verifyOnly)assert.deepEqual(JSON.parse(fs.readFileSync(path.join(directory,'test-results/candidate-auth.json'))),report);
+    else fs.writeFileSync(path.join(directory,'test-results/candidate-auth.json'),JSON.stringify(report));
+  }
+}
+export function verifyReadinessWorkerUnion(previous,discovery,fresh){
+  const key=row=>row.file+':'+row.title,keys=rows=>rows.map(key).sort();
+  for(const rows of [previous,discovery,fresh])assert.equal(new Set(keys(rows)).size,rows.length,'Duplicate readiness Worker identity');
+  assert.equal(previous.length,1630);assert(readinessWorkerNames.length>0,'Missing readiness Worker inventory');
+  const old=new Set(keys(previous)),added=discovery.filter(row=>!old.has(key(row)));
+  assert.deepEqual(discovery.filter(row=>old.has(key(row))).map(row=>[row.id,key(row)]).sort(),previous.map(row=>[row.id,key(row)]).sort(),'Retained Worker discovery changed');
+  assert.deepEqual(added.map(row=>row.title).sort(),[...readinessWorkerNames].sort(),'Unreviewed or missing new Worker case');
+  assert(added.every(row=>['q2-canvas-agent-readiness.spec.js','q2-canvas-agent-h3-recovery.spec.js'].includes(row.file)));
+  assert.deepEqual(keys(fresh),keys(added),'Only the new readiness Worker cases may execute');assert(fresh.every(passedOnce),'New readiness case failed, skipped or retried');
+  for(const row of fresh)assert.equal(row.id,added.find(other=>key(other)===key(row)).id);
+  return {retained:previous.length,executed:fresh.length,required:discovery.length};
+}
+export function verifyReadinessWorkers(directory,head,{pending=false}={}){
+  const {origin}=verifyReadinessOrigin(directory,head),read=name=>parseDiscovery(fs.readFileSync(path.join(directory,'test-results',name),'utf8'));
+  const previous=workerDiscovery(parseDiscovery(fs.readFileSync(path.join(origin,'test-results/assistant-native-rate-discovery.json'),'utf8')));
+  const full=read('readiness-worker-discovery.json'),selected=read('readiness-selected-discovery.json');assert.deepEqual(full.errors,[]);assert.deepEqual(selected.errors,[]);
+  const discovery=workerDiscovery(full),chosen=workerDiscovery(selected);
+  const progress=fs.existsSync(path.join(directory,'reuse/test-results/readiness-worker-progress/checkpoint.json'))?verifyReadinessWorkerProgress(directory,head):null;
+  if(progress)assert.deepEqual(chosen.map(row=>[row.id,row.file,row.title]),progress.failed.map(row=>[row.id,row.file,row.title]),'Only the original failed readiness identity may execute');
+  // Validate the real query before dispatch. These disposable outcomes are
+  // selection counterchecks only and are never recorded as acceptance.
+  verifyReadinessWorkerUnion(previous,discovery,[...(progress?.passed||[]),...chosen.map(row=>({...row,results:[{status:'passed',retry:0}]}))]);
+  if(pending)return {retained:previous.length+(progress?.passed.length||0),pending:chosen.length};
+  const raw=read(progress?'readiness-worker-corrected.json':'readiness-worker-fresh.json');assert.deepEqual(raw.errors,[]);assert.equal(raw.config.workers,1);assert.equal(raw.stats.unexpected,0);assert.equal(raw.stats.flaky,0);assert.equal(raw.stats.skipped,0);
+  const fresh=executedWorkers(raw);assert.equal(raw.stats.expected,fresh.length);
+  if(progress)assert.deepEqual(fresh.map(row=>[row.id,row.file,row.title]),progress.failed.map(row=>[row.id,row.file,row.title]));
+  const counts=verifyReadinessWorkerUnion(previous,discovery,[...(progress?.passed||[]),...fresh]);
+  return progress?{retained:counts.retained+progress.passed.length,executed:fresh.length,required:counts.required}:counts;
+}
+export function verifyReadinessNativeUnion(previous,result,inventory){
+  assert.equal(previous.length,251);assert.equal(sha256(JSON.stringify(previous)),'3bcde3da85495a7cfa8190ca3ad20f8f255c7b065941f88cfbf5d1c75cd3640f');
+  assert(inventory.length>0);assert.equal(result.failedSuites,0);assert.equal(result.reports.length,1);assert.equal(result.passed,inventory.length);
+  const report=result.reports[0];assert.equal(report.suite,'canvas');assert(!report.failure);assert.deepEqual(report.records,inventory.map(name=>({name,status:'PASS'})));
+  const metrics=report.metrics.filter(row=>row.readinessRecovery);assert.equal(metrics.length,1);const actual=metrics[0].readinessRecovery;
+  assert.deepEqual(actual.retained,previous);assert.deepEqual(actual.fresh,inventory);assert.equal(new Set(actual.discovery).size,actual.discovery.length);
+  assert.deepEqual(actual.discovery.filter(name=>!inventory.includes(name)),previous);assert.deepEqual(actual.discovery.filter(name=>inventory.includes(name)),inventory);
+  return {retained:434,executed:inventory.length,required:434+inventory.length};
+}
+export function verifyReadinessNativeReceipt(directory,head,log){
+  const {origin}=verifyReadinessOrigin(directory,head);
+  const previous=JSON.parse(fs.readFileSync(path.join(origin,'runtime/q2-runtime-evidence/native-ILK5Yo/reports/bitbi-q2-runtime-ZXIurt__result.json'))).reports[0].metrics.find(row=>row.assistantRateTail).assistantRateTail.discovery;
+  verifyNativeLocalReports(directory,log);
+  const refs=log.split('\n').flatMap(line=>{try{const row=JSON.parse(line);return row.q2LinuxEvidence?[row.q2LinuxEvidence]:[];}catch{return [];}});assert.equal(refs.length,1,'Readiness native scope must execute once');
+  const folder=path.join(directory,'runtime',refs[0].slice('/tmp/bitbi-release/'.length)),launcher=JSON.parse(fs.readFileSync(path.join(folder,'launcher-result.json')));assert.equal(launcher.hostedImage.GITHUB_SHA,head);
+  const reports=path.join(folder,'reports'),files=fs.readdirSync(reports).filter(file=>file==='result.json'||file.endsWith('__result.json'));assert.equal(files.length,1);
+  const result=JSON.parse(fs.readFileSync(path.join(reports,files[0])));
+  for(const[file,hash]of Object.entries(READINESS_CONTINUATION.specs).filter(([file])=>file.startsWith('workers/auth/src/')))assert.equal(result.provenance.sourceLedger.find(row=>row.path===file)?.sha256,hash,'Native readiness runtime source changed');
+  return verifyReadinessNativeUnion(previous,result,canvasReadinessRecoveryInventory);
+}
+export function readinessWorkerCommand(command,{progress=false}={}){
+  assert(command.endsWith('else\n  npm run test:workers\nfi\n'));assert.equal(command.split('  npm run test:workers').length,2);
+  const names=progress?['Canvas H3 settled late receipt readiness-stale-control']:readinessWorkerNames,file=progress?'readiness-worker-corrected.json':'readiness-worker-fresh.json';
+  const pattern='(?:'+names.map(name=>name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|')+')$';
+  const args='npx playwright test -c playwright.workers.config.js tests/q2-canvas-agent-readiness.spec.js tests/q2-canvas-agent-h3-recovery.spec.js --grep '+JSON.stringify(pattern)+' --workers=1 --retries=0 --output=test-results/readiness-worker-artifacts';
+  return command.replace('  npm run test:workers',()=>[
+    'mkdir -p test-results',
+    'PLAYWRIGHT_JSON_OUTPUT_NAME= npx playwright test -c playwright.workers.config.js --list --reporter=json > test-results/readiness-worker-discovery.json',
+    'PLAYWRIGHT_JSON_OUTPUT_NAME= '+args+' --list --reporter=json > test-results/readiness-selected-discovery.json',
+    'node scripts/local-release.mjs verify-readiness-workers .local-release pending',
+    'if [ ! -f test-results/'+file+' ]; then PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/'+file+' '+args+' --reporter=list,json; fi',
+    'node scripts/local-release.mjs verify-readiness-workers .local-release',
+    'if [ ! -f test-results/readiness-launcher.tap ]; then node --test --test-name-pattern='+JSON.stringify('^'+readinessLauncherName+'$')+' scripts/test-q2-runtime-launcher.mjs > test-results/readiness-launcher.tap 2>&1 || { status=$?; cat test-results/readiness-launcher.tap; exit "$status"; }; fi',
+    'cat test-results/readiness-launcher.tap',
+    'if [ ! -f test-results/readiness-native.log ]; then node scripts/test-q2-runtime.mjs --suite canvas-readiness-recovery > test-results/readiness-native.log 2>&1 || { status=$?; cat test-results/readiness-native.log; exit "$status"; }; fi',
+    'node scripts/local-release.mjs verify-readiness-native .local-release',
+    'cat test-results/readiness-native.log',
+    'PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/readiness-auth-discovery.json npm run test:auth -- --list --reporter=json',
+  ].map(line=>'  '+line).join('\n'));
+}
+export function readinessCommand(command,{workerProgress=false}={}){
+  if(command.name==='Run CI test selection fixtures'){assert.equal(command.run,'npm run test:ci-selection');return command.run+' -- --canvas-readiness-only';}
+  if(command.name==='Test local release evidence and orchestration'){assert.equal(command.run,'npm run test:local-release');return command.run+(workerProgress?' -- --readiness-worker-only':' -- --readiness-only');}
+  if(command.name==='Run worker route tests')return readinessWorkerCommand(command.run,{progress:workerProgress});
+  return command.run;
+}
+export function verifyReadinessContinuation(directory,evidence,commands){
+  const p=READINESS_CONTINUATION;assert.deepEqual(evidence.readinessContinuation,{source:p.source,checkpoint:p.checkpoint});
+  const {origin,original}=verifyReadinessOrigin(directory,evidence.sha);readinessPrefix(fs.readFileSync(path.join(origin,'evidence.json')),{...evidence,commands});
+  const progress=evidence.readinessProgress?verifyReadinessProgress(directory,evidence.sha,commands):null;
+  if(progress)assert.deepEqual(evidence.readinessProgress,{source:progress.sha,checkpoint:READINESS_CONTINUATION.progress.checkpoint});
+  const workerProgress=evidence.readinessWorkerProgress?verifyReadinessWorkerProgress(directory,evidence.sha):null;
+  if(workerProgress)assert.deepEqual(evidence.readinessWorkerProgress,{source:workerProgress.partial.sha,checkpoint:READINESS_CONTINUATION.worker.checkpoint});
+  const old=new Map(original.commands.map(row=>[storedPlanKey(row.command),row]));
+  for(const[i,command]of commands.entries()){
+    const row=evidence.commands[i];
+    if(workerProgress&&READINESS_WORKER_RETAIN.includes(i))assert.deepEqual(row,{...workerProgress.partial.commands[i],command,reusedFrom:workerProgress.partial.sha},'Changed retained readiness Worker prefix');
+    else if(progress&&READINESS_PROGRESS_RETAIN.includes(i))assert.deepEqual(row,{...progress.commands[i],command,reusedFrom:progress.sha},'Changed retained passed readiness check');
+    else if(READINESS_REFRESH.has(command.name)){assert(!row.reusedFrom);const effective=readinessCommand(command,{workerProgress:!!workerProgress});if(effective!==command.run)assert.equal(row.continuation,effective);else assert(!row.continuation);}
+    else assert.deepEqual(row,{...old.get(storedPlanKey(command)),command,log:`logs/${i}.log`,reusedFrom:p.source},'Changed retained readiness evidence');
+  }
+  restoreReadinessProofs(directory,evidence.sha,{browser:true,verifyOnly:true});verifyReadinessWorkers(directory,evidence.sha);
+  const unit=fs.readFileSync(path.join(directory,'test-results/readiness-launcher.tap'),'utf8'),rows=tapResults(unit);assert.deepEqual(rows.filter(row=>row.status!=='skipped'),[{title:readinessLauncherName,status:'passed'}]);assert.match(unit,/# pass 1\n# fail 0\n# cancelled 0\n# skipped \d+\n# todo 0/);
+  const worker=commands.findIndex(row=>row.name==='Run worker route tests'),log=fs.readFileSync(path.join(directory,evidence.commands[worker].log),'utf8');
+  // Synchronous import verification must not leave a floating async check.
+  verifyReadinessNativeReceipt(directory,evidence.sha,log);
 }

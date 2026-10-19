@@ -262,7 +262,8 @@ Creative targets use the versioned recipe/processor compatibility boundary.
 coordinates the existing generation queue and private media processor. D1 stores
 runs, immutable intended steps, allocations, original job identities and receipts.
 The existing queue wakes runs; the existing five-minute scheduled task recovers
-missed wakes. A leased coordinator admits one generation at a time. The browser
+missed wakes. A leased coordinator admits dependency-ready images within the
+shared capacity bounds; dependent video operations remain ordered. The browser
 only observes status. No new Workflow, queue, provider account or billing ledger
 is provisioned.
 
@@ -493,6 +494,18 @@ Recovery makes no provider request and writes no credit ledger. Historical holds
 require an explicit digest-bound operator decision; newly classified receipt
 holds are eligible for the same guarded cron reconciliation. Expired, edited,
 paused, cancelled, taken-over or unverifiable work stays held.
+
+The signed Auth-to-AI readiness request checks configuration, not upstream model
+availability. A historical `canvas_agent_provider_unavailable` alone cannot
+distinguish a timeout, service authentication failure or invalid response.
+Accepted media receipts are observed independently of that network check; new
+paid dispatch still requires readiness and the current account, model-area,
+project, price and spending gates. Confirmed temporary readiness failures have
+bounded durable observation retries, never inference retries. Deterministic
+configuration/protocol failures remain blocked with safe diagnostic metadata.
+A historical readiness-blocked H3 production requires a new exact digest-bound
+operator authorization after its original result is saved and settled. An older
+recovery decision for a different clip cannot authorize this transition.
 
 The sanctioned operator entry is `node scripts/canvas-h3-recovery.mjs --input
 <private-0600-json> --output <new-private-evidence-path>` (dry-run by default).

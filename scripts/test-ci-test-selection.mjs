@@ -17,6 +17,11 @@ import {isCanvasInspectorChange,isCanvasTransitionExampleChange} from './lib/can
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 
+if(process.argv.includes('--canvas-readiness-only')) {
+  assert.deepEqual(process.argv.slice(2),['--canvas-readiness-only']);
+  testCanvasReadinessSelection();process.exit(0);
+}
+
 {
  const files=['tests/rel01/routes/workers.spec.js','tests/helpers/release-transition-legacy-contract.cjs'];
  const read=file=>fs.readFileSync(path.join(repoRoot,file),'utf8');
@@ -1412,3 +1417,19 @@ console.log('Seedance: real durable Worker/native and workspace/pricing callers 
   const wrong=structuredClone(sources);wrong[file].after+='\n/* changed actual control */';assert(!isCanvasTransitionExampleChange(wrong));assert.notEqual(selectCiTests(files,{inspectorSources:wrong}).canvasExamples,true);
  }
 }
+
+function testCanvasReadinessSelection() {
+ const files=['tests/q2-canvas-agent-readiness.spec.js','tests/helpers/canvas-agent-readiness-control.mjs'];
+ const config=createRequire(import.meta.url)('../playwright.workers.config.js');
+ assert.equal(config.testDir,'./tests');assert(config.testMatch.includes('**/q2-*.spec.js'));
+ const caller=fs.readFileSync(path.join(repoRoot,files[0]),'utf8');
+ assert(caller.includes("require('@playwright/test')"));assert(caller.includes("import('./helpers/canvas-agent-readiness-control.mjs')"));
+ assert(caller.includes('canvasAgentReadinessCase('));assert(caller.includes("DB.prepare('PRAGMA foreign_key_check')"));
+ for(const file of files){const selected=selectCiTests([file]);assert(selected.workers&&selected.runtime&&!selected.full,file);assert(requiredJobs(selected)['worker-validation'].includes('Run worker route tests'));}
+ const mixed=[...files,'workers/auth/src/lib/canvas-agent-planning.js','workers/auth/src/lib/canvas-agent-execution.js','workers/auth/src/lib/canvas-agent-assistant-models.js','workers/auth/src/lib/canvas-agent-media-recovery.js','tests/helpers/q2-runtime/canvas-readiness-recovery.mjs','scripts/lib/ci-test-selection.mjs'];
+ const selected=selectCiTests(mixed);assert(selected.workers&&selected.auth&&selected.static&&selected.runtime&&!selected.homepage&&!selected.full);
+ for(const unknown of ['tests/q2-canvas-agent-readiness.spec.js.unreviewed','tests/q2-canvas-agent-readiness-other.spec.js','tests/helpers/canvas-agent-readiness-control.mjs.unreviewed','tests/helpers/canvas-agent-readiness-unknown.mjs'])assert(selectCiTests([...mixed,unknown]).full,'Unreviewed readiness neighbor must retain Full selection: '+unknown);
+ assert(selectCiTests(mixed,{forceFull:true}).full);assert(selectCiTests([...mixed,'js/pages/canvas/agent.js']).homepage,'An actual UI change retains browser coverage');
+ console.log('Canvas readiness selection: exact discovered Worker caller and native helper select Workers/Auth; unknown neighbors, explicit Full and changed UI retain their gates.');
+}
+testCanvasReadinessSelection();

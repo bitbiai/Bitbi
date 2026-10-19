@@ -3,6 +3,7 @@ import { runWebsiteAssistantTests } from '../../website-assistant-runtime.mjs';
 import { runModelPricingTests } from '../../model-pricing-runtime.mjs';
 import { runCanvasTests, runCanvasCompletionTests, runCanvasAudioTests, runCanvasAudioFitTests, runCanvasTransitionTests, runCanvasRetentionTests } from './canvas.mjs';
 import { runCanvasPolicyTailTests, runCanvasActionsTailTests, runCanvasSettlementContinuationTests, runCanvasSettlementRecoveryTests, runCanvasAssistantContinuationTests, runCanvasAssistantTailTests, runCanvasAssistantRateTailTests } from './canvas-policy-tail.mjs';
+import {runCanvasReadinessRecoveryTests} from './canvas-readiness-recovery.mjs';
 import { runModelStatusTests } from '../../admin-model-status-runtime.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -40,6 +41,7 @@ export const runtimeSuites = Object.freeze([
 // invented attestation of that external OS boundary.
 export function selectedRuntimeSuites(suite) {
   // Preserve the normal Canvas D1/Images/AI bindings and result identity.
+  if(suite==='canvas-readiness-recovery')return [['canvas',runCanvasReadinessRecoveryTests,{}]];
   if(suite==='canvas-settlement-continuation')return [['canvas',runCanvasSettlementContinuationTests,{}]];
   if(suite==='canvas-settlement-recovery')return [['canvas',runCanvasSettlementRecoveryTests,{}]];
   if(suite==='canvas-assistant-continuation')return [['canvas',runCanvasAssistantContinuationTests,{}]];

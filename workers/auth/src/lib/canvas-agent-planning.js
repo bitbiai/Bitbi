@@ -28,20 +28,38 @@ export const EVALUATE_PATH='/internal/ai/canvas-agent/evaluate';
 export async function readCanvasAgentProviderReadiness(env,{dialogue=false,modelId=CANVAS_AGENT_MODEL}={}) {
     modelId=canvasAssistantModelId(modelId);
     const unavailable={available:false,reason:'canvas_agent_provider_unavailable',model:modelId,accountAccess:'unverified'};
-    if(!canvasModelTransportReady(env)||typeof env.AI_LAB?.fetch!=='function'||String(env.AI_SERVICE_AUTH_SECRET||'').trim().length<16)return unavailable;
+    const failed=(code,retryable=false,httpStatus=null)=>({...unavailable,diagnostic:{stage:'assistant_readiness',code,retryable,...(httpStatus?{httpStatus}:{})}});
+    if(!canvasModelTransportReady(env)||typeof env.AI_LAB?.fetch!=='function'||String(env.AI_SERVICE_AUTH_SECRET||'').trim().length<16)
+        return failed('canvas_agent_readiness_configuration');
     const path='/internal/ai/canvas-agent/readiness';
+    let stage='signing',httpStatus=null;
     try {
         const headers=await buildServiceAuthHeaders({secret:env.AI_SERVICE_AUTH_SECRET,method:'GET',path,body:''});
-        let payload;
+        let payload;stage='transport';
         const response=await fetchWithGenerationTimeout(env.AI_LAB.fetch.bind(env.AI_LAB),new Request(`https://bitbi-ai.internal${path}`,{headers}),undefined,
-            {timeoutMs:5000,consumeResponse:async(response,signal)=>{payload=await readGenerationResponseJson(response,signal);return response;}});
+            {timeoutMs:5000,consumeResponse:async(response,signal)=>{httpStatus=response.status;stage='body';payload=await readGenerationResponseJson(response,signal);return response;}});
+        // This is a signed configuration probe, never an inference. A retry is
+        // safe only for this observation; it says nothing about provider acceptance.
+        if(!response.ok)return failed(response.status===401||response.status===403?'canvas_agent_readiness_service_auth':'canvas_agent_readiness_http',response.status===429||response.status>=500,response.status);
         if(payload?.models)payload={...payload,...payload.models.find(item=>item.model===modelId)};
-        if(!response.ok||!payload?.ok||payload.protocolVersion!==1||payload.transport!=='cloudflare-background'||payload.model!==modelId||typeof payload.available!=='boolean'||payload.accountAccess!=='unverified')return unavailable;
+        if(!payload?.ok||payload.protocolVersion!==1||payload.transport!=='cloudflare-background'||payload.model!==modelId||typeof payload.available!=='boolean'||payload.accountAccess!=='unverified')return failed('canvas_agent_readiness_contract',false,httpStatus);
         if(dialogue&&(payload.dialogueVersion!==CANVAS_AGENT_DIALOGUE_VERSION||payload.policyVersion!==CANVAS_AGENT_POLICY_VERSION))
             return {...unavailable,reason:'canvas_agent_dialogue_unavailable'};
         return {available:payload.available,reason:payload.available?null:/^[a-z0-9_]{1,80}$/.test(payload.reason||'')?payload.reason:unavailable.reason,
             model:modelId,accountAccess:'unverified',...(dialogue?{dialogueVersion:payload.dialogueVersion,policyVersion:payload.policyVersion}:{})};
-    } catch {return unavailable;}
+    } catch(error) {
+        if(error?.code==='generation_timeout')return failed('canvas_agent_readiness_timeout',true,httpStatus);
+        if(httpStatus===429||httpStatus>=500)return failed('canvas_agent_readiness_http',true,httpStatus);
+        return failed(stage==='transport'?'canvas_agent_readiness_transport':stage==='signing'?'canvas_agent_readiness_configuration':'canvas_agent_readiness_contract',stage==='transport',httpStatus);
+    }
+}
+export async function requireCanvasAgentProviderReadiness(env,run) {
+    const readiness=await readCanvasAgentProviderReadiness(env,{dialogue:run.purpose==='briefing',modelId:canvasAssistantModelId(run.model_id)});
+    if(!readiness.available)throw Object.assign(new Error(readiness.reason),{code:readiness.reason,status:503,readinessDiagnostic:readiness.diagnostic||null});
+    if(JSON.parse(run.cause_json||'{}').recovery==='readiness'){
+        const {agentTransition}=await import('./canvas-agent-store.js');
+        await agentTransition(env,run,{cause_json:null,error_code:null});
+    }
 }
 const AGENT_ROUTE='/api/account/canvas/projects/:projectId/agent';
 export function plannerPriceInput(payload) {
@@ -197,7 +215,7 @@ export async function executeCanvasAgentModel(env,run,step,user,suppliedPayload)
     const version=payload.policy?.version||(kind==='dialogue'&&payload.version===1?'canvas-policy-1':CANVAS_AGENT_POLICY_VERSION);
     let effectivePolicy;try { effectivePolicy=await canvasAgentPolicyIdentity(phase,version); } catch { fail('canvas_agent_policy_review_required'); }
     if(!payload.policy||JSON.stringify(payload.policy)!==JSON.stringify(effectivePolicy))fail('canvas_agent_policy_review_required');
-    if(!canvasModelTransportReady(env)||typeof env.AI_LAB?.fetch!=='function'||String(env.AI_SERVICE_AUTH_SECRET||'').trim().length<16)fail('canvas_agent_provider_unavailable');
+    await requireCanvasAgentProviderReadiness(env,run);
     const policy=await prepareAiUsagePolicy({env:scoped,request,user,body:pricingInput,
         operation:{...AI_USAGE_OPERATIONS.MEMBER_TEXT_GENERATE,modelId,credits:step.allocation_credits,source:'canvas_agent_'+step.kind},
         route:new URL(request.url).pathname,allowAdminMemberCredits:true});

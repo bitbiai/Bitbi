@@ -7,6 +7,9 @@ import { canvasAgentAvailability } from './canvas-agent-capabilities.js';
 import { readCanvasAgentBudget } from './canvas-agent-budget.js';
 const fail=code=>{throw Object.assign(new Error(code),{code,status:409});};
 const errorCode='canvas_agent_provider_review_required';
+const readinessError='canvas_agent_provider_unavailable';
+const recoverableState=run=>run.status==='review_required'&&run.error_code===errorCode
+    ||run.status==='blocked'&&run.error_code===readinessError;
 const recoverKey=digest=>`media-recovery:${digest}`;
 
 async function evidence(env,{runId,userId,projectId}) {
@@ -16,7 +19,7 @@ async function evidence(env,{runId,userId,projectId}) {
       FROM canvas_projects p JOIN users u ON u.id=p.user_id LEFT JOIN canvas_agent_conversations c ON c.project_id=p.id
       WHERE p.id=? AND p.user_id=?`).bind(projectId,userId).first();
     if(!context||context.deleted_at||context.status!=='active')fail('canvas_agent_authority_revoked');
-    if(run.status!=='review_required'||run.error_code!==errorCode||run.phase!=='generating')fail('canvas_agent_media_recovery_state_changed');
+    if(!recoverableState(run)||run.phase!=='generating')fail('canvas_agent_media_recovery_state_changed');
     if(run.expires_at<=nowIso())fail('canvas_agent_authorization_expired');
     if(context.revision!==run.expected_revision||run.brief_revision!==null&&context.brief_revision!==run.brief_revision)fail('canvas_agent_project_changed');
     if(run.lease_until&&run.lease_until>nowIso())fail('canvas_agent_claim_lost');
@@ -55,7 +58,9 @@ async function evidence(env,{runId,userId,projectId}) {
     const remaining=(await env.DB.prepare("SELECT COALESCE(SUM(allocation_credits),0) AS credits FROM canvas_agent_steps WHERE run_id=? AND status='ready'").bind(runId).first()).credits;
     if(correctedCharged+remaining>run.budget_credits)fail('canvas_agent_budget_exceeded');
     const receiptDigest=await sha256Hex(row.provider_receipts_json);
-    const proof={version:1,runId,userId,projectId,stepId:step.id,canvasRunId:row.canvas_run_id,jobId:row.job_id,assetId:row.asset_id,
+    // Keep existing v1 authorizations byte-for-byte valid. A historical generic
+    // readiness block is a distinct reviewed state, never proof of an outage.
+    const proof={version:run.status==='blocked'?2:1,...(run.status==='blocked'?{priorStatus:run.status}:{}),runId,userId,projectId,stepId:step.id,canvasRunId:row.canvas_run_id,jobId:row.job_id,assetId:row.asset_id,
       usageAttemptId:row.job_usage,receiptDigest,projectRevision:run.expected_revision,briefRevision:run.brief_revision,
       capCredits:run.budget_credits,budgetRevision:run.budget_revision,planningModel:run.model_id||'xai/grok-4.7',
       actualCredits:row.charged,correctedProjectCharged:correctedCharged,remainingAllocation:remaining,
@@ -75,8 +80,8 @@ export async function authorizeCanvasMediaRecovery(env,input) {
     const now=nowIso();
     await env.DB.batch([
       env.DB.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM canvas_agent_runs r JOIN canvas_projects p ON p.id=r.project_id
-        WHERE r.id=? AND r.user_id=? AND r.status='review_required' AND r.error_code=? AND r.updated_at=?
-        AND p.revision=r.expected_revision AND p.deleted_at IS NULL AND r.expires_at>?) THEN 1 ELSE json_extract('[]','$[') END`).bind(run.id,run.user_id,errorCode,run.updated_at,now),
+        WHERE r.id=? AND r.user_id=? AND r.status=? AND r.error_code=? AND r.updated_at=?
+        AND p.revision=r.expected_revision AND p.deleted_at IS NULL AND r.expires_at>?) THEN 1 ELSE json_extract('[]','$[') END`).bind(run.id,run.user_id,run.status,run.error_code,run.updated_at,now),
       env.DB.prepare("INSERT INTO canvas_agent_controls(run_id,request_key,action,created_at) VALUES(?,?,'recover_media',?)").bind(run.id,recoverKey(digest),now),
       env.DB.prepare("INSERT INTO canvas_agent_events(run_id,event_key,type,payload_json,created_at) VALUES(?,?,'decision_summary',?,?)")
         .bind(run.id,recoverKey(digest),JSON.stringify({code:'media_recovery_authorized',recoveryDigest:digest,actor:input.actor,authorizationRef:input.authorizationRef,...proof}),now),
@@ -84,15 +89,18 @@ export async function authorizeCanvasMediaRecovery(env,input) {
     return {authorized:true,recoveryDigest:digest};
 }
 export async function recoverCanvasAgentMedia(env,scope=null) {
-    const rows=(await env.DB.prepare(`SELECT id,user_id,project_id FROM canvas_agent_runs r WHERE purpose='production' AND status='review_required'
-      AND error_code=? AND expires_at>? AND (? IS NULL OR id=?) AND
-      (json_extract(cause_json,'$.recovery')='receipt' OR EXISTS(SELECT 1 FROM canvas_agent_controls c WHERE c.run_id=r.id AND c.action='recover_media'))
-      ORDER BY updated_at LIMIT 10`).bind(errorCode,nowIso(),scope?.runId??null,scope?.runId??null).all()).results;
+    const rows=(await env.DB.prepare(`SELECT id,user_id,project_id FROM canvas_agent_runs r WHERE purpose='production'
+      AND ((status='review_required' AND error_code=?) OR (status='blocked' AND error_code=?))
+      AND expires_at>? AND (? IS NULL OR id=?) AND
+      ((status='review_required' AND json_extract(cause_json,'$.recovery')='receipt')
+        OR EXISTS(SELECT 1 FROM canvas_agent_controls c WHERE c.run_id=r.id AND c.action='recover_media'))
+      ORDER BY updated_at LIMIT 10`).bind(errorCode,readinessError,nowIso(),scope?.runId??null,scope?.runId??null).all()).results;
     const results=[];
     for(const identity of rows){
       try{
         const data=await evidence(env,{runId:identity.id,userId:identity.user_id,projectId:identity.project_id}),{run,step,row,proof,digest}=data;
-        if(JSON.parse(run.cause_json||'{}').recovery!=='receipt'&&!await env.DB.prepare("SELECT 1 FROM canvas_agent_controls WHERE run_id=? AND request_key=? AND action='recover_media'").bind(run.id,recoverKey(digest)).first())continue;
+        if((run.status!=='review_required'||JSON.parse(run.cause_json||'{}').recovery!=='receipt')
+          &&!await env.DB.prepare("SELECT 1 FROM canvas_agent_controls WHERE run_id=? AND request_key=? AND action='recover_media'").bind(run.id,recoverKey(digest)).first())continue;
         const available=await canvasAgentAvailability(env,{modelId:run.model_id});if(!available.available)fail(available.code);
         const [stored,original]=await Promise.all([env.USER_IMAGES.get(row.result_r2_key),env.USER_IMAGES.head(row.r2_key)]);
         if(!stored||!original||original.size!==row.size_bytes)fail('canvas_agent_media_recovery_storage_missing');
@@ -103,12 +111,12 @@ export async function recoverCanvasAgentMedia(env,scope=null) {
           env.DB.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM canvas_agent_runs r JOIN canvas_projects p ON p.id=r.project_id JOIN users u ON u.id=r.user_id
             LEFT JOIN canvas_agent_conversations c ON c.project_id=p.id JOIN canvas_agent_steps s ON s.run_id=r.id
             JOIN member_generation_jobs j ON j.id=? JOIN canvas_nodes n ON n.id=s.node_id
-            WHERE r.id=? AND r.user_id=? AND r.status='review_required' AND r.error_code=? AND r.updated_at=? AND r.budget_credits=?
+            WHERE r.id=? AND r.user_id=? AND r.status=? AND r.error_code=? AND r.updated_at=? AND r.budget_credits=?
             AND r.expires_at>? AND (r.lease_until IS NULL OR r.lease_until<=?) AND p.revision=r.expected_revision AND p.deleted_at IS NULL
             AND u.status='active' AND (r.brief_revision IS NULL OR c.brief_revision=r.brief_revision)
             AND s.id=? AND s.status='accepted' AND j.provider_receipts_json=? AND j.status IN ('succeeded','preview_pending')
             AND j.result_r2_key=? AND n.deleted_at IS NULL AND n.creative_revision=? AND n.asset_id=?) THEN 1 ELSE json_extract('[]','$[') END`)
-            .bind(row.job_id,run.id,run.user_id,errorCode,run.updated_at,run.budget_credits,now,now,step.id,row.provider_receipts_json,row.result_r2_key,row.node_revision,row.asset_id),
+            .bind(row.job_id,run.id,run.user_id,run.status,run.error_code,run.updated_at,run.budget_credits,now,now,step.id,row.provider_receipts_json,row.result_r2_key,row.node_revision,row.asset_id),
           env.DB.prepare("UPDATE canvas_agent_steps SET status='completed',usage_attempt_id=?,receipt_json=?,updated_at=? WHERE id=?")
             .bind(row.job_usage,JSON.stringify({canvasRunId:row.canvas_run_id,assetId:row.asset_id}),now,step.id),
           env.DB.prepare("UPDATE canvas_agent_runs SET status='running',phase='generating',error_code=NULL,cause_json=?,lease_token=NULL,lease_until=NULL,next_attempt_at=?,updated_at=? WHERE id=?")

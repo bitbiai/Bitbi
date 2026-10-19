@@ -978,6 +978,79 @@ test('Canvas action tail preserves all setup and executes only the final fifteen
   assert.equal(child.status,0,child.stderr);
 });
 
+test('Canvas readiness recovery pins retained discovery and admits only fresh native callbacks',async()=>{
+  const {runCanvasTests}=await import('../tests/helpers/q2-runtime/canvas.mjs');
+  const {canvasReadinessRecoveryInventory,runCanvasReadinessRecoveryTests}=await import('../tests/helpers/q2-runtime/canvas-readiness-recovery.mjs');
+  const {selectedRuntimeSuites,runtimeSuites}=await import('../tests/helpers/q2-runtime/runner.mjs');
+  const fresh=[
+    ...['operator','stale_control','cancelled','expired','edited'].map(name=>'canvas_h3_original_recovery_readiness_'+name),
+    ...['accepted_pending','accepted_saved','retry_recover','retry_exhausted','disabled','model_disabled','revoked','expired','edited','unknown'].map(name=>'canvas_agent_readiness_'+name),
+  ];
+  assert.deepEqual(canvasReadinessRecoveryInventory,fresh);
+  assert.equal(parseRuntimeArgs(['--suite','canvas-readiness-recovery'],{}).suite,'canvas-readiness-recovery');
+  assert.throws(()=>parseRuntimeArgs(['--suite','canvas-readiness-recovery','--suite','canvas'],{}));
+  assert.throws(()=>parseRuntimeArgs(['--suite','canvas-readiness-recovery-other'],{}));
+  assert.deepEqual(selectedRuntimeSuites('canvas-readiness-recovery').map(([name])=>name),['canvas']);
+  assert.equal(selectedRuntimeSuites('canvas-readiness-recovery')[0][1],runCanvasReadinessRecoveryTests);
+  assert.equal(selectedRuntimeSuites('canvas')[0][1],runCanvasTests);
+  assert(!runtimeSuites.some(([,run])=>run===runCanvasReadinessRecoveryTests),'Full acceptance must retain every ordinary Canvas callback');
+  assert.match(read('tests/helpers/q2-runtime/linux-bootstrap.py'),/\+ \["canvas-readiness-recovery"\]/);
+  const required='tests/helpers/canvas-agent-readiness-control.mjs',plan=stageInputPlan();
+  const checkStage=inputs=>assert(inputs.includes(required),'Readiness native helper must be staged');
+  checkStage(plan);assert.throws(()=>checkStage(plan.filter(item=>item!==required)),/must be staged/);
+  const discover=async run=>{
+    const names=[],setup=[],headers=new Headers();headers.append('set-cookie','__Host-bitbi_session=synthetic; Secure');headers.append('set-cookie','__Host-bitbi_admin_mfa=synthetic; Secure');
+    const f={migrations:['0108','0109','0110','0112'].map(path=>({path,statements:[]})),
+      db:{batch:async()=>{setup.push('migration');}},sql:()=>({run:async()=>{setup.push('sql');}}),
+      rows:async()=>[{sql:'synthetic pre-migration schema'}],scalar:async()=>1,
+      control:async route=>{setup.push(route);return Response.json({cookie:'synthetic',code:'synthetic'});},
+      mf:{dispatchFetch:async()=>Response.json({setup:{secret:'synthetic'}},{headers})},
+      canvasProvider:{requests:[]},counters:{outboundDenied:0},metrics:[],test:async name=>{names.push(name);}};
+    await run(f);return {names,setup,metrics:f.metrics};
+  };
+  const full=await discover(runCanvasTests),selected=await discover(runCanvasReadinessRecoveryTests);
+  assert.equal(full.names.length,266);assert.deepEqual(selected.names,fresh);assert.deepEqual(selected.setup,full.setup);
+  const metric=selected.metrics.find(item=>item.readinessRecovery).readinessRecovery;
+  assert.deepEqual(metric.discovery,full.names);assert.deepEqual(metric.fresh,fresh);assert.equal(metric.retained.length,251);
+  assert.equal(createHash('sha256').update(JSON.stringify(metric.retained)).digest('hex'),'3bcde3da85495a7cfa8190ca3ad20f8f255c7b065941f88cfbf5d1c75cd3640f');
+  const child=spawnSync(process.execPath,['--experimental-vm-modules','--input-type=module','-e',`
+    import assert from 'node:assert/strict';import {createHash} from 'node:crypto';
+    import {readFileSync} from 'node:fs';import {SourceTextModule,SyntheticModule,createContext} from 'node:vm';
+    const source=readFileSync('tests/helpers/q2-runtime/canvas-readiness-recovery.mjs','utf8');
+    const expected=${JSON.stringify(full.names)},fresh=${JSON.stringify(fresh)};
+    for(const fault of [null,'retained-missing','retained-order','fresh-missing','fresh-duplicate','fresh-order','foreign','extra','operation-failed']){
+      const names=[...expected],executed=[],metrics=[],context=createContext({});
+      const at=names.indexOf(fresh[0]);
+      if(fault==='retained-missing')names.splice(50,1);
+      if(fault==='retained-order')[names[50],names[51]]=[names[51],names[50]];
+      if(fault==='fresh-missing')names.splice(at,1);
+      if(fault==='fresh-duplicate')names.splice(at,0,fresh[0]);
+      if(fault==='fresh-order')[names[at],names[at+1]]=[names[at+1],names[at]];
+      if(fault==='foreign')names[at]='foreign-case';
+      if(fault==='extra')names.push('extra-case');
+      const modules={'node:assert/strict':{default:assert},'node:crypto':{createHash},'./canvas.mjs':{runCanvasTests:async f=>{
+        for(const name of names)await f.test(name,async()=>{executed.push(name);if(fault==='operation-failed')throw Error('Synthetic required readiness failure');});
+      }}};
+      const load=async name=>{assert(modules[name]);const m=new SyntheticModule(Object.keys(modules[name]),function(){for(const [key,value]of Object.entries(modules[name]))this.setExport(key,value);},{context});await m.link(()=>{});await m.evaluate();return m;};
+      const module=new SourceTextModule(source,{context});await module.link(load);await module.evaluate();
+      const run=()=>module.namespace.runCanvasReadinessRecoveryTests({test:async(name,operation)=>{await operation();},metrics});
+      if(fault)await assert.rejects(run);else{await run();assert.deepEqual(executed,fresh);assert.equal(metrics.length,1);}
+      assert(executed.every(name=>fresh.includes(name)),'Retained successful callbacks must never execute');
+      if(fault==='operation-failed')assert.deepEqual(executed,[fresh[0]]);
+    }
+    const childSource=readFileSync('tests/helpers/q2-runtime/linux-runtime-child.mjs','utf8');
+    for(const suite of ['canvas-readiness-recovery','canvas-readiness-recovery-other'])for(const fault of [null,'platform','uid','gid']){
+      const calls=[],context=createContext({process:{platform:fault==='platform'?'darwin':'linux',getuid:()=>fault==='uid'?0:65534,getgid:()=>fault==='gid'?0:65534}});
+      const modules={'node:assert/strict':{default:assert},'node:fs':{readFileSync:file=>{assert.equal(file,'/runtime/boundary.json');calls.push('boundary');return JSON.stringify({suite});}},'./runner.mjs':{runQ2Runtime:async(args,selected)=>{assert.deepEqual(Array.from(args),['--artifacts','/artifacts']);assert.equal(selected,suite);calls.push('run');}}};
+      const load=async name=>{assert(modules[name]);calls.push(name);const m=new SyntheticModule(Object.keys(modules[name]),function(){for(const [key,value]of Object.entries(modules[name]))this.setExport(key,value);},{context});await m.link(()=>{});await m.evaluate();return m;};
+      const module=new SourceTextModule(childSource,{context,importModuleDynamically:load});await module.link(load);
+      if(!fault&&suite==='canvas-readiness-recovery'){await module.evaluate();assert.deepEqual(calls,['node:assert/strict','node:fs','boundary','./runner.mjs','run']);}
+      else{await assert.rejects(module.evaluate());assert(!calls.includes('./runner.mjs'));if(fault)assert(!calls.includes('boundary'));}
+    }
+  `],{cwd:root,encoding:'utf8',timeout:15000});
+  assert.equal(child.status,0,child.stderr);
+});
+
 test('actual selected Worker shell stops before downstream work on every failure', t => {
   const f=fixture(t),bin=path.join(f.base,'bin'),trace=path.join(f.base,'trace');fs.mkdirSync(bin);
   for(const name of ['node','npx','npm'])fs.writeFileSync(path.join(bin,name),'#!/bin/sh\ncommand="${0##*/} $*"\nprintf "%s\\n" "$command" >> "$TRACE"\n[ "$command" != "$FAIL_COMMAND" ] || exit 37\n',{mode:0o700});
