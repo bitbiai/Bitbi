@@ -27,7 +27,8 @@ through a separate in-chat decision before any paid inference.
 Negations, save-only requests, quoted story dialogue, euros and ambiguous amounts
 do not authorize spend. Locale-specific grouping is validated; a bare number is
 a budget only when the server is currently asking for one. Decisions expire and
-pin the actor, brief, graph, selected model, tariff and total cap. Changes invalidate
+pin the actor, current question/conversation revision, brief, graph, selected model,
+tariff and total cap. An intervening exchange makes a short affirmation stale. Changes invalidate
 unaccepted decisions; replay retains the original request identity. The server binds the conversation, brief,
 current creative graph and tariff revisions to the normal production route.
 Previous briefing charges count once within that project ceiling. Revisions

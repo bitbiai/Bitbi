@@ -625,7 +625,7 @@ export async function runCanvasTests(f) {
     assert.equal(response.status,200,await response.clone().text());f.metrics.push(await response.json());
     assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
   });
-  for(const name of ['bootstrap','duration','explicit','button','stale-graph','stale-model','stale-price','expired','isolation','allowance','money-clarification','long-brief','stale-admission'])await f.test(`canvas_conversation_decision_${name.replaceAll('-','_')}`,async()=>{
+  for(const name of ['bootstrap','duration','explicit','button','stale-graph','stale-model','stale-price','expired','isolation','allowance','money-clarification','long-brief','stale-admission','intervening-question'])await f.test(`canvas_conversation_decision_${name.replaceAll('-','_')}`,async()=>{
     const response=await f.control('/canvas-conversation-decision',{name});
     assert.equal(response.status,200,await response.clone().text());f.metrics.push(await response.json());
     assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);

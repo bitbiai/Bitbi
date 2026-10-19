@@ -21,9 +21,9 @@ function turnStatement(env,row,input,key,id,text,briefRevision=row.brief_revisio
  return env.DB.prepare(`INSERT INTO canvas_agent_turns(id,project_id,request_key,input_json,conversation_revision,brief_revision,user_text,assistant_text,state,created_at,updated_at)
  VALUES(?,?,?,?,?,?,?,?,'completed',?,?)`).bind(id,row.project_id,key,stablePricingJson(input),row.revision+1,briefRevision,input.text,text,nowIso(),nowIso());
 }
-async function localReply(env,row,input,key,text,{brief=null,statements=[],id=randomTokenHex(16)}={}){
+async function localReply(env,row,input,key,text,{brief=null,guard=[],statements=[],id=randomTokenHex(16)}={}){
  const next=brief?.revision??row.brief_revision;
- await env.DB.batch([conversationGuard(env,row),env.DB.prepare('UPDATE canvas_agent_conversations SET revision=revision+1,brief_revision=?,brief_json=?,draft=\'\',updated_at=? WHERE project_id=?').bind(next,brief?JSON.stringify(brief):row.brief_json,nowIso(),row.project_id),
+ await env.DB.batch([conversationGuard(env,row),...guard,env.DB.prepare('UPDATE canvas_agent_conversations SET revision=revision+1,brief_revision=?,brief_json=?,draft=\'\',updated_at=? WHERE project_id=?').bind(next,brief?JSON.stringify(brief):row.brief_json,nowIso(),row.project_id),
   turnStatement(env,row,input,key,id,text,next),...statements]);
  return id;
 }
@@ -32,8 +32,8 @@ function decisionGuard(env,decision,scope){
  JOIN canvas_projects p ON p.id=d.project_id JOIN canvas_agent_conversations c ON c.project_id=d.project_id JOIN users u ON u.id=d.user_id
  WHERE d.id=? AND d.user_id=? AND d.project_id=? AND d.state='pending' AND d.revision=? AND d.expires_at>?
  AND p.user_id=d.user_id AND p.deleted_at IS NULL AND p.revision=? AND c.brief_revision=? AND c.assistant_model_id=? AND c.assistant_model_revision=?
- AND c.state='active' AND u.status='active') THEN 1 ELSE json_extract('[]','$[') END`)
- .bind(decision.id,decision.user_id,decision.project_id,decision.revision,nowIso(),scope.projectRevision,scope.briefRevision,scope.modelId,scope.modelRevision);
+ AND c.revision=? AND c.state='active' AND u.status='active') THEN 1 ELSE json_extract('[]','$[') END`)
+ .bind(decision.id,decision.user_id,decision.project_id,decision.revision,nowIso(),scope.projectRevision,scope.briefRevision,scope.modelId,scope.modelRevision,scope.questionConversationRevision);
 }
 function insertDecision(env,row,{id,key,kind,input,scope,sourceTurnId=null}){
  const now=nowIso();
@@ -47,14 +47,14 @@ async function boundScope(env,row,view){
   const source=await env.DB.prepare("SELECT user_text FROM canvas_agent_turns WHERE id=? AND project_id=? AND state!='deleted'").bind(brief.fields.story.sourceMessageId,row.project_id).first();
   if(source?.user_text)completeBrief+='\nOriginal user brief: '+source.user_text;
  }
- return {projectRevision:view.project.revision,briefRevision:row.brief_revision,...selection(row),tariffRevision:tariff.revision,
+ return {questionConversationRevision:row.revision+1,projectRevision:view.project.revision,briefRevision:row.brief_revision,...selection(row),tariffRevision:tariff.revision,
   brief:completeBrief,story:brief.fields.story?.value||'',targetDurationSeconds:brief.duration.targetDurationSeconds,durationChoice:brief.duration.choice,locale:view.project.locale==='de'?'de':'en'};
 }
 async function assertCurrent(env,row,view,decision){
  const scope=parse(decision.scope_json);
  if(decision.user_id!==row.user_id||decision.project_id!==row.project_id)agentFail('canvas_agent_decision_not_found',404);
  if(decision.state!=='pending'||decision.expires_at<=nowIso())agentFail('canvas_agent_decision_expired');
- if(scope.projectRevision!==view.project.revision||scope.briefRevision!==row.brief_revision||scope.modelId!==selection(row).modelId||scope.modelRevision!==selection(row).modelRevision)agentFail('canvas_agent_decision_changed');
+ if(scope.questionConversationRevision!==row.revision||scope.projectRevision!==view.project.revision||scope.briefRevision!==row.brief_revision||scope.modelId!==selection(row).modelId||scope.modelRevision!==selection(row).modelRevision)agentFail('canvas_agent_decision_changed');
  if(scope.quote&&!validCanvasAssistantQuoteAdmission(scope.quote))agentFail('model_pricing_stale');
  if(scope.tariffRevision!==(await getModelTariff(env)).revision)agentFail('model_pricing_stale');
  if(row.state!=='active')agentFail('canvas_agent_conversation_stopped');
@@ -87,7 +87,7 @@ async function proposeStart(env,row,view,input,key,capCredits,prior,{authorizeNo
  const brief=parse(row.brief_json);if(!briefReady(brief))agentFail('canvas_agent_duration_required',400);
  if(await runActive(env,row.project_id))agentFail('canvas_agent_already_active');
  if(await canvasConversationBlocker(env,row.project_id))agentFail('canvas_agent_conversation_pending');
- const scope={...await boundScope(env,row,view),locale:input.locale,capCredits},id=randomTokenHex(16);
+ const scope={...await boundScope(env,row,view),questionConversationRevision:row.revision+(authorizeNow?0:1),locale:input.locale,capCredits},id=randomTokenHex(16);
  scope.quote=await quoteCanvasImmediateScope(env,{id,user_id:row.user_id,project_id:row.project_id},scope,view);
  if(capCredits<scope.quote.committedCredits+scope.quote.planningCredits)agentFail('canvas_agent_budget_exceeded');
  const statements=[];
@@ -119,7 +119,7 @@ export async function confirmCanvasConversationDecision(ctx,session,projectId,in
  if(!['production_start','briefing_allowance'].includes(decision.kind))agentFail('canvas_agent_decision_invalid',400);
  const turn=message||{text:input.decision==='accept'?(scope.locale==='de'?'Ja, starte.':'Yes, start.'):(scope.locale==='de'?'Nein, noch nicht.':'No, not yet.'),locale:scope.locale,...input};
  if(input.decision==='decline'){
-  await localReply(ctx.env,row,turn,key,scope.locale==='de'?'Der Film wird nicht gestartet. Deine Projektidee bleibt gespeichert.':'The film will not start. Your project brief is saved.',{statements:[decisionGuard(ctx.env,decision,scope),receipt(),ctx.env.DB.prepare("UPDATE canvas_agent_conversation_decisions SET state='cancelled',decision_key=?,revision=revision+1,updated_at=? WHERE id=?").bind(key,nowIso(),decision.id)]});return true;
+  await localReply(ctx.env,row,turn,key,scope.locale==='de'?'Der Film wird nicht gestartet. Deine Projektidee bleibt gespeichert.':'The film will not start. Your project brief is saved.',{guard:[decisionGuard(ctx.env,decision,scope)],statements:[receipt(),ctx.env.DB.prepare("UPDATE canvas_agent_conversation_decisions SET state='cancelled',decision_key=?,revision=revision+1,updated_at=? WHERE id=?").bind(key,nowIso(),decision.id)]});return true;
  }
  if(decision.kind==='briefing_allowance'){
   const {approveCanvasBriefingAllowance}=await import('../routes/canvas-agent-conversation.js');
@@ -145,7 +145,7 @@ export async function confirmCanvasConversationDecision(ctx,session,projectId,in
 }
 export async function handleCanvasConversationDecisionMessage(ctx,session,view,row,input,key){
  if(detectCanvasDirectControl(input.text))return false;
- const env=ctx.env,brief=parse(row.brief_json),pending=await current(env,row.project_id),intent=canvasConversationDecisionIntent(input.text,{locale:input.locale,budgetAsked:pending?.kind==='production_budget'});
+ const env=ctx.env,brief=parse(row.brief_json),pending=await current(env,row.project_id),intent=canvasConversationDecisionIntent(input.text,{locale:input.locale,budgetAsked:pending?.kind==='production_budget'&&parse(pending.scope_json).questionConversationRevision===row.revision});
  const count=await env.DB.prepare("SELECT COUNT(*) AS n FROM canvas_agent_turns WHERE project_id=? AND state!='deleted'").bind(row.project_id).first();
  if(count.n>=80)agentFail('canvas_agent_conversation_limit');
  if(intent?.kind==='invalid_cap')agentFail('canvas_agent_budget_required',400);

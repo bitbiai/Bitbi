@@ -1,6 +1,6 @@
 import {canvasAgentConversationFixture} from './canvas-agent-conversation-control.mjs';
 const check=(value,message)=>{if(!value)throw new Error(message);};
-export const CANVAS_CONVERSATION_DECISION_CASES=['bootstrap','duration','explicit','button','stale-graph','stale-model','stale-price','expired','isolation','allowance','money-clarification','long-brief','stale-admission'];
+export const CANVAS_CONVERSATION_DECISION_CASES=['bootstrap','duration','explicit','button','stale-graph','stale-model','stale-price','expired','isolation','allowance','money-clarification','long-brief','stale-admission','intervening-question'];
 export async function canvasConversationDecisionCase(base,name){
  const c=await canvasAgentConversationFixture(base,{scope:'decision-'+name,locale:'de'}),f=c.f;
  const data=async response=>{const body=await response.json();check(response.ok,`${response.status}/${body.code}`);return body.data;};
@@ -38,6 +38,7 @@ export async function canvasConversationDecisionCase(base,name){
   }
   check(view.pendingDecision?.kind==='production_budget','A known duration produces one persisted budget question');
   const creative=JSON.stringify(view.brief),graph=(await f.db.prepare('SELECT revision FROM canvas_projects WHERE id=?').bind(f.project).first()).revision;
+  if(name==='intervening-question')await c.approve(5000);
   if(name==='explicit'){
    const sent=await send('Starte jetzt mit maximal 3000 Credits');
    await data(await c.post('/messages',sent.input,sent.key));
@@ -47,6 +48,21 @@ export async function canvasConversationDecisionCase(base,name){
    check((await productions()).length===0&&c.calls.length===0,'A budget proposal is not start approval');
    check(JSON.stringify(view.brief)===creative,'Budget text cannot overwrite creative decisions');
    const decision=view.pendingDecision;
+   if(name==='intervening-question'){
+    const before=await c.read();
+    const sent=await c.send('Welche Möglichkeiten gibt es für Musik?');await data(sent.response);await c.deliver();
+    const musicQuestion='Soll Hintergrundmusik laufen?';
+    await c.complete({text:musicQuestion,questions:[],updates:[],intent:'continue'});
+    const after=await c.read();
+    check(after.messages.some(message=>message.id&&message.text===musicQuestion&&message.status==='completed'),'The real signed reply asks an unrelated question after the spending proposal');
+    check(after.revision>before.revision&&after.briefRevision===before.briefRevision&&JSON.stringify(after.brief)===JSON.stringify(before.brief),'Only conversation position changed; the creative brief and its revision did not');
+    check(after.pendingDecision?.id===decision.id&&after.pendingDecision.state==='stale','The previous spending question is no longer current');
+    const answer=await c.send('Ja'),rejected=await answer.response.json();
+    check(answer.response.status===409&&rejected.code==='canvas_agent_decision_changed','Yes to the later music question cannot approve the old start decision');
+    check((await productions()).length===0&&c.calls.length===1,'The unrelated affirmative neither starts production nor submits another paid request');
+    check((await f.db.prepare('SELECT revision FROM canvas_projects WHERE id=?').bind(f.project).first()).revision===graph,'Discussion and rejected consent preserve the editable graph');
+    return {case:name,productions:0,providerCalls:1};
+   }
    if(['stale-graph','stale-model','stale-price','expired','stale-admission'].includes(name)){
     if(name==='stale-graph')await f.db.prepare('UPDATE canvas_projects SET revision=revision+1 WHERE id=?').bind(f.project).run();
     if(name==='stale-model')await f.db.prepare('UPDATE canvas_agent_conversations SET assistant_model_revision=assistant_model_revision+1 WHERE project_id=?').bind(f.project).run();

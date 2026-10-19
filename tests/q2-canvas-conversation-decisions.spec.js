@@ -13,3 +13,8 @@ for(const name of ['bootstrap','duration','explicit','button','stale-graph','sta
  const DB=new SqliteD1Database();applyAuthMigrations(DB);
  try{const {canvasConversationDecisionCase}=await import('./helpers/canvas-conversation-decisions-control.mjs');expect((await canvasConversationDecisionCase({...createAuthTestEnv(),DB},name)).case).toBe(name);}finally{DB.close();}
 });
+
+test('Canvas conversational consent rejects Yes to an intervening music question without changed creative settings',async()=>{
+ const DB=new SqliteD1Database();applyAuthMigrations(DB);
+ try{const {canvasConversationDecisionCase}=await import('./helpers/canvas-conversation-decisions-control.mjs');expect((await canvasConversationDecisionCase({...createAuthTestEnv(),DB},'intervening-question')).productions).toBe(0);}finally{DB.close();}
+});

@@ -21,6 +21,9 @@ import { LOCAL_IMPORT_REPAIR, assertImportRepairWorkflow, localRepairCommand, ve
 import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,assertPermissionContinuationTree,permissionContinuationPrefix,CANVAS_STAGE_CASES,canvasStageContinuation} from './lib/local-release-evidence.mjs';
 import {testLocalMediaProcess} from './test-local-media-process.mjs';
 
+const assistantPreflightTail=process.argv.includes('--assistant-preflight-only');
+if(assistantPreflightTail)assert.deepEqual(process.argv.slice(2),['--assistant-preflight-only']);
+
 if(process.argv.includes('--stored-plan-worker-only')) {
   assert.deepEqual(process.argv.slice(2),['--stored-plan-worker-only']);
   await testStoredPlanWorkerContinuation();process.exit(0);
@@ -77,7 +80,9 @@ if(process.argv.includes('--autonomy-doc-progress-only')) {
 }
 
 function testPermissionContinuation() {
-  const head='f'.repeat(40),corrected=fs.readFileSync('scripts/test-frontend-review.mjs');
+  // The reviewed historical successor is immutable; today's hosting tests may
+  // legitimately evolve without changing this closed continuation's proof.
+  const head='f'.repeat(40),corrected=execFileSync('git',['show',`${PERMISSION_CONTINUATION.tail}:scripts/test-frontend-review.mjs`]);
   const reader=(files,bytes=corrected)=>args=>args[0]==='show'?bytes:Buffer.from(args[0]==='diff'?files.join('\n'):'');
   assertPermissionContinuationTree(head,reader(['scripts/test-frontend-review.mjs']));
   for(const file of ['js/pages/canvas/main.js','package-lock.json','.github/workflows/static.yml','config/release-validation.yml','tests/canvas.spec.js'])
@@ -468,6 +473,7 @@ async function testLocalRepair() {
 }
 if(process.argv.includes('--repair-only')) {await testLocalRepair();process.exit(0);}
 
+if(!assistantPreflightTail) {
 // BEGIN PINNED LOCAL WORKFLOW GUARD
 const workflow = yaml.parse(fs.readFileSync('.github/workflows/static.yml','utf8'));
 const historicalWorkflow = yaml.parse(execFileSync('git',['show','770c595a9885e411462d89097847a08da972b184:.github/workflows/static.yml'],{encoding:'utf8'}));
@@ -670,6 +676,7 @@ if(process.env.BITBI_LOCAL_RELEASE_CONTAINER==='1') {
 await testLocalMediaProcess();
 await testLocalRepair();
 testImportRepair();
+}
 testPermissionContinuation();
 testSmoothContinuation();
 testSmoothContinuation(AUDIO_FIT_CONTINUATION);
@@ -2313,3 +2320,83 @@ async function testStoredPlanWorkerContinuation() {
  console.log(progress.native?'Stored-plan native continuation: all nine Node outcomes and two native passes retained under original sources; five fresh native cases mandatory; discovery, isolation, source and forged/missing/duplicate proof counterchecks passed.':'Stored-plan Worker continuation: eight actual Linux passes retained; only failed revalidation selected, seven native cases still mandatory; changed source, omitted/failed/retried/duplicate outcomes and forged receipts rejected.');
 }
 await testStoredPlanWorkerContinuation();
+
+async function testAssistantPreflightContinuation() {
+ const {ASSISTANT_PREFLIGHT:p,canvasPreflightProfile,assertCanvasPreflightTree,canvasPreflightPrefix,
+  verifyCanvasPreflight,assistantPreflightGuardContinuation}=await import('./lib/local-release-evidence.mjs');
+ const marker='Assistant preflight continuation: historical fixture pinned, retained prefix authenticated, changed inputs rejected and remaining verifier tail completed.';
+ assert.equal(canvasPreflightProfile(p.source),p);
+ assert.deepEqual(p.retain,[1,4,5,6,7,8,9,10,11,13,16]);
+ assert.equal(assistantPreflightGuardContinuation('npm run test:local-release'),'npm run test:local-release -- --assistant-preflight-only');
+ for(const command of ['echo skipped','npm run test:local-release -- --other','npm run test:local-release\nnpm run test:workers'])
+  assert.throws(()=>assistantPreflightGuardContinuation(command));
+ const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-assistant-preflight-')),bare=path.join(temporary,'git'),previousGitDir=process.env.GIT_DIR;
+ try {
+  execFileSync('git',['init','--bare',bare],{stdio:'pipe'});
+  fs.writeFileSync(path.join(bare,'objects/info/alternates'),path.resolve(execFileSync('git',['rev-parse','--git-path','objects'],{encoding:'utf8'}).trim())+'\n');
+  const env={...process.env,GIT_AUTHOR_NAME:'Synthetic',GIT_AUTHOR_EMAIL:'synthetic@example.invalid',GIT_COMMITTER_NAME:'Synthetic',GIT_COMMITTER_EMAIL:'synthetic@example.invalid'};
+  const read=(args,input)=>execFileSync('git',['--git-dir',bare,...args],{env,input,stdio:['pipe','pipe','pipe']});
+  const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+  const reviewed=read(['rev-list','--ancestry-path','--reverse',`${p.source}..${head}`]).toString().trim().split('\n')[0];
+  assert(reviewed,'The closed assistant fixture requires its committed reviewed successor');
+  const tooling=['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs'];
+  const fixes=Object.fromEntries([...new Set([...Object.keys(p.specs),...tooling])].map(file=>[file,read(['show',`${reviewed}:${file}`])]));
+  for(const [file,hash]of Object.entries(p.specs))assert.equal(sha256(fixes[file]),hash,'Reviewed correction must match its exact pin');
+  const commit=(changes,parent=p.source)=>{
+   read(['read-tree',p.source]);for(const [file,value]of Object.entries(changes)){
+    if(value===null){read(['update-index','--index-info'],Buffer.from(`0 ${'0'.repeat(40)}\t${file}\n`));continue;}
+    const blob=read(['hash-object','-w','--stdin'],value.content??value).toString().trim();read(['update-index','--add','--cacheinfo',`${value.mode||'100644'},${blob},${file}`]);
+   }
+   return read(['commit-tree',read(['write-tree']).toString().trim(),'-p',parent],Buffer.from('Synthetic assistant preflight guard continuation\n')).toString().trim();
+  };
+  const accepted=commit(fixes);assertCanvasPreflightTree(accepted,read,p);
+  for(const file of Object.keys(p.specs))for(const value of [null,Buffer.from('Unreviewed correction'),{mode:'120000',content:Buffer.from('outside')}])
+   assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,[file]:value}),read,p));
+  for(const file of ['workers/auth/src/routes/canvas.js','package-lock.json','.github/workflows/static.yml','config/release-validation.yml','config/release-compat.json'])
+   assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,[file]:Buffer.from('Unreviewed retained input')}),read,p));
+  for(const file of tooling)assert.throws(()=>assertCanvasPreflightTree(commit({...fixes,[file]:{mode:'120000',content:Buffer.from('outside')}}),read,p));
+  assert.throws(()=>assertCanvasPreflightTree(commit(fixes,accepted),read,p),'A later successor cannot silently inherit the prefix');
+  const origin='.local-release',checkpointPath=path.join(origin,'reuse/preflight-checkpoint.json');
+  const hasOriginal=fs.existsSync(checkpointPath)&&JSON.parse(fs.readFileSync(checkpointPath)).sha===p.source;
+  assert(hasOriginal||!assistantPreflightTail,'Focused continuation requires the actual failed checkpoint');
+  if(hasOriginal){
+   const bytes=fs.readFileSync(checkpointPath),original=JSON.parse(bytes),proof=path.join(temporary,'proof');
+   fs.mkdirSync(path.join(proof,'reuse'),{recursive:true});fs.mkdirSync(path.join(proof,'logs'));
+   for(const file of ['preflight-checkpoint.json','preflight-failed.log'])fs.copyFileSync(path.join(origin,'reuse',file),path.join(proof,'reuse',file));
+   process.env.GIT_DIR=bare;
+   const selection=gitSelection(original.base,accepted),commands=selectedCommands(selection,{GITHUB_SHA:accepted,CANDIDATE_BASE:original.base});
+   const context={sha:accepted,base:original.base,planHash:validationPlan().digest,selection,environment:original.environment,nativeBrowsers:original.nativeBrowsers,commands};
+   assert.equal(canvasPreflightPrefix(bytes,context).sha,p.source);
+   for(const mutate of [r=>r.status='passed',r=>r.commands[17].exitCode=0,r=>r.commands[1].exitCode=1,r=>r.commands.pop()]){
+    const changed=structuredClone(original);mutate(changed);assert.throws(()=>canvasPreflightPrefix(Buffer.from(JSON.stringify(changed)),context));
+   }
+   for(const mutate of [r=>r.base='f'.repeat(40),r=>r.planHash='changed',r=>r.environment.key='changed',r=>r.environment.image='changed',r=>r.environment.inputs['package-lock.json']='changed',r=>r.selection.full=!r.selection.full,r=>r.commands.pop(),r=>r.commands[17].run='echo skipped']){
+    const changed=structuredClone(context);mutate(changed);assert.throws(()=>canvasPreflightPrefix(bytes,changed));
+   }
+   // Synthetic verifier records calibrate the proof checker only; they are not
+   // acceptance receipts and never enter the real release evidence directory.
+   const rows=commands.map((command,index)=>{
+    if(p.retain.includes(index)){
+     const row={...original.commands[index],reusedFrom:p.source};fs.copyFileSync(path.join(origin,row.log),path.join(proof,row.log));return row;
+    }
+    const log=`logs/${index}.log`,content=index===17?marker+'\n':'Synthetic fresh verifier row; no product acceptance claimed.\n';fs.writeFileSync(path.join(proof,log),content);
+    return {command,exitCode:0,log,logHash:sha256(content),durationMs:1,...(index===17?{continuation:assistantPreflightGuardContinuation(command.run)}:{})};
+   });
+   const evidence={...context,commands:rows,preflightContinuation:{source:p.source,checkpoint:p.checkpoint}};
+   verifyCanvasPreflight(proof,evidence,commands);
+   for(const index of [0,2,3,12,14,15,17,18,41]){const forged=structuredClone(evidence);forged.commands[index].reusedFrom=p.source;assert.throws(()=>verifyCanvasPreflight(proof,forged,commands));}
+   const wrong=structuredClone(evidence);wrong.commands[17].continuation='npm run test:local-release';assert.throws(()=>verifyCanvasPreflight(proof,wrong,commands));
+   for(const file of ['reuse/preflight-failed.log','logs/1.log','logs/17.log']){
+    const target=path.join(proof,file),saved=fs.readFileSync(target);fs.writeFileSync(target,'forged evidence');assert.throws(()=>verifyCanvasPreflight(proof,evidence,commands));fs.writeFileSync(target,saved);
+   }
+   const target=path.join(proof,'logs/17.log'),saved=fs.readFileSync(target);
+   for(const line of ['','Local command mapping, no hosted duplicate suites','Pinned chromium launch and keyboard smoke']){
+    const changed=structuredClone(evidence),content=line?marker+'\n'+line+'\n':'Missing completion marker\n';
+    fs.writeFileSync(target,content);changed.commands[17].logHash=sha256(content);assert.throws(()=>verifyCanvasPreflight(proof,changed,commands));
+   }
+   fs.writeFileSync(target,saved);verifyCanvasPreflight(proof,evidence,commands);
+  }
+ }finally{if(previousGitDir===undefined)delete process.env.GIT_DIR;else process.env.GIT_DIR=previousGitDir;fs.rmSync(temporary,{recursive:true,force:true});}
+ console.log(marker);
+}
+await testAssistantPreflightContinuation();
