@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {verifyCanvasExportSchema,verifyCanvasAssemblyRetentionSchema} from '../../../scripts/lib/canvas-export-readiness.mjs';
 
 async function migrateCanvasRetention(f) {
-  let snapshot,conversationSnapshot,naturalSnapshot;
+  let snapshot,conversationSnapshot,naturalSnapshot,assistantSnapshot;
   for(const migration of f.migrations) {
     if(migration.path.startsWith('0108')) {
       const response=await f.control('/canvas-retention-migration-seed',{});
@@ -18,9 +18,19 @@ async function migrateCanvasRetention(f) {
       const response=await f.control('/canvas-natural-migration-seed',{});
       assert.equal(response.status,200,await response.clone().text());naturalSnapshot=await response.json();
     }
+    if(migration.path.startsWith('0112')){
+      const response=await f.control('/canvas-assistant-migration-seed',{});
+      assert.equal(response.status,200,await response.clone().text());assistantSnapshot=await response.json();
+    }
     await f.db.batch(migration.statements.map(s=>f.db.prepare(s)));
   }
   assert(snapshot,'The retention migration boundary must be exercised');
+  assert(assistantSnapshot,'Populated assistant migration must be exercised');
+  await f.test('canvas_assistant_models_populated_migration',async()=>{
+    const response=await f.control('/canvas-assistant-migration-verify',assistantSnapshot);
+    assert.equal(response.status,200,await response.clone().text());
+    assert.deepEqual(await response.json(),{historicalOperationPreserved:true,settlementReviewPreserved:true,originalDebit:94,originalFailures:5});
+  });
   assert(conversationSnapshot,'The conversation migration boundary must be exercised');
   assert(naturalSnapshot,'The natural-chat authority migration boundary must be exercised');
   await f.test('canvas_natural_chat_populated_migration_preserves_original_authority',async()=>{
@@ -93,7 +103,11 @@ export async function runCanvasAudioTests(f, {prepared=false}={}) {
       if(migration.path.startsWith('0100')) {
         const response=await f.control('/canvas-audio-migration-seed',{});assert.equal(response.status,200,await response.clone().text());snapshot=await response.json();
       }
-      await f.db.batch(migration.statements.map(s=>f.db.prepare(s)));
+      if(migration.path.startsWith('0112')){
+      const response=await f.control('/canvas-assistant-migration-seed',{});
+      assert.equal(response.status,200,await response.clone().text());assistantSnapshot=await response.json();
+    }
+    await f.db.batch(migration.statements.map(s=>f.db.prepare(s)));
     }
     await f.test('canvas_audio_populated_schema_preserves_exports_heads_claims_quota',async()=>{
       const response=await f.control('/canvas-audio-migration-verify',snapshot);assert.equal(response.status,200,await response.clone().text());
@@ -136,7 +150,11 @@ export async function runCanvasTransitionTests(f,{prepared=false}={}) {
         await f.sql("INSERT INTO canvas_projects(id,user_id,title,locale,created_at,updated_at) VALUES('workspace-legacy','workspace-legacy-user','Preserved','de','2026-10-01','2026-10-01')").run();
         await f.sql("INSERT INTO canvas_nodes(id,project_id,user_id,type,x,y,width,height,config_json,content_json,created_at,updated_at) VALUES('workspace-legacy-node','workspace-legacy','workspace-legacy-user','note',2500,1800,230,350,'{}','{}','2026-10-01','2026-10-01')").run();
       }
-      await f.db.batch(migration.statements.map(s=>f.db.prepare(s)));
+      if(migration.path.startsWith('0112')){
+      const response=await f.control('/canvas-assistant-migration-seed',{});
+      assert.equal(response.status,200,await response.clone().text());assistantSnapshot=await response.json();
+    }
+    await f.db.batch(migration.statements.map(s=>f.db.prepare(s)));
     }
     await f.test('canvas_workspace_populated_migration_preserves_legacy_positions',async()=>{
       const row=(await f.rows("SELECT p.title,p.workspace_width,p.workspace_height,n.x,n.y,n.width,n.height FROM canvas_projects p JOIN canvas_nodes n ON n.project_id=p.id WHERE p.id='workspace-legacy'"))[0];
@@ -602,6 +620,24 @@ export async function runCanvasTests(f) {
     const result=await response.json();assert.equal(result.case,name);assert.equal(result.planningCalls,0);
     f.metrics.push(result);assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
   });
+  for(const name of ['parallel-fifteen','capacity-fairness','unknown-fence','manual-revision','stop-budget','capacity-wait','capacity-recovery','out-of-order','rate-admission','scope-limits','claim-recovery','legacy-cutover'])await f.test(`canvas_image_scheduling_${name.replaceAll('-','_')}`,async()=>{
+    const response=await f.control('/canvas-image-scheduling',{name,imageBase64:fs.readFileSync(new URL('../../fixtures/media/member-image.png',import.meta.url)).toString('base64')});
+    assert.equal(response.status,200,await response.clone().text());f.metrics.push(await response.json());
+    assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
+  });
+  for(const name of ['bootstrap','duration','explicit','button','stale-graph','stale-model','stale-price','expired','isolation','allowance','money-clarification','long-brief','stale-admission'])await f.test(`canvas_conversation_decision_${name.replaceAll('-','_')}`,async()=>{
+    const response=await f.control('/canvas-conversation-decision',{name});
+    assert.equal(response.status,200,await response.clone().text());f.metrics.push(await response.json());
+    assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
+  });
+  for(const name of ['late','operator','duplicate','cancelled','expired','edited','missing-storage','wrong-owner','unknown','binding','concurrent','crash'])await f.test(`canvas_h3_original_recovery_${name.replaceAll('-','_')}`,async()=>{
+    const response=await f.control('/canvas-agent-h3-recovery',{name,
+      videoBase64:fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4',import.meta.url)).toString('base64'),
+      imageBase64:fs.readFileSync(new URL('../../fixtures/media/h3-frame.png',import.meta.url)).toString('base64'),
+      musicBase64:fs.readFileSync(new URL('../../fixtures/media/member-music.mp3',import.meta.url)).toString('base64')});
+    assert.equal(response.status,200,await response.clone().text());f.metrics.push(await response.json());
+    assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
+  });
   for (const path of ['/canvas-agent-preflight', '/canvas-assembly', '/canvas-inspection', '/canvas-agent-dispatch', '/canvas-agent-capabilities', '/canvas-agent-late-completion','/canvas-agent-unknown-provider']) await f.test('canvas_native' + path.replaceAll('-', '_').replace('/', '_'), async () => {
     const response = await f.control(path, {
       videoBase64: fs.readFileSync(new URL('../../fixtures/media/canvas-end-frame.mp4', import.meta.url)).toString('base64'),
@@ -629,6 +665,17 @@ export async function runCanvasTests(f) {
     const response = await f.control('/canvas-agent-api', {});
     assert.equal(response.status, 200, await response.clone().text());
     assert.deepEqual(await response.json(), { missingDurationBlocked:true,explicitDelegation:true,historicalReplayPreserved:true,starts: 2, duplicateStarts: 1, providerCalls: 0, foreignDenied: true, manualTakeover: true });
+  });
+  await f.test('canvas_assistant_model_switch_preserves_original_receipts',async()=>{
+    const response=await f.control('/canvas-assistant-model-switch',{});
+    assert.equal(response.status,200);
+    assert.deepEqual(await response.json(),{models:2,providerCalls:2,debits:2,originalIdentitiesPreserved:true,opaqueContextShared:false});
+  });
+  await f.test('canvas_assistant_fable_production_correction_and_editable_graph',async()=>{
+    const response=await f.control('/canvas-assistant-production',{});
+    assert.equal(response.status,200,await response.clone().text());
+    assert.deepEqual(await response.json(),{providerCalls:2,corrections:1,nodes:4,assemblyClips:3,technicalOnly:true,acceptedModelPinned:true});
+    assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
   });
   for(const name of ['briefing','isolation','recovery','unknown','revocation','concurrency','status-pending','paused-cap'])await f.test('canvas_conversation_native_'+name,async()=>{
     const response=await f.control('/canvas-conversation',{name});

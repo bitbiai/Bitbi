@@ -4,6 +4,7 @@ import { createCanvasConversationActions } from './agent-conversation-actions.js
 import { canvasConversationCopy } from './agent-conversation-copy.js?v=__ASSET_VERSION__';
 import { CANVAS_AGENT_LIMITS } from '../../shared/canvas-agent-contract.mjs?v=__ASSET_VERSION__';
 import { detectCanvasDirectControl, canvasImmediateStartRequested } from '../../shared/canvas-agent-control-intent.mjs?v=__ASSET_VERSION__';
+import {canvasConversationDecisionIntent} from '../../shared/canvas-conversation-decision-intent.mjs?v=__ASSET_VERSION__';
 
 const create = (tag, className = '', text = '') => { const node = document.createElement(tag); node.className = className; node.textContent = text; return node; };
 const button = (text, action, primary = false) => { const node = create('button', `canvas-button${primary ? ' canvas-button--primary' : ''}`, text); node.type = 'button'; node.addEventListener('click', action); return node; };
@@ -23,6 +24,10 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
     let observationIdentity = null, observationStarted = 0, observationCount = 0, observationFailures = 0, reading = null, disconnected = false, catchUpRequested = false;
     let feedbackText = copy.loading;
     const section = create('section', 'canvas-agent__conversation'); section.setAttribute('aria-label', copy.conversation);
+    const modelExclusions=create('details','canvas-disclosure'),modelExclusionList=create('ul');modelExclusions.append(create('summary','',copy.excludedModels),modelExclusionList);
+    const modelHeader=create('div','canvas-agent__model-header'),modelSelect=create('select','canvas-input'),modelHint=create('p','canvas-muted',copy.modelHint);
+    modelSelect.name='assistantModel';modelHint.id='canvasAssistantModelHint';modelSelect.setAttribute('aria-describedby',modelHint.id);
+    modelSelect.addEventListener('change',()=>void chooseModel());modelHeader.append(field(copy.assistantModel,modelSelect),modelHint);
     const tabs = create('div', 'canvas-agent__tabs'); tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', copy.workspace);
     const chatTab = button(copy.chatTab, () => selectTab('chat')), projectTab = button(copy.projectTab, () => selectTab('project'));
     const chatPane = create('div', 'canvas-agent__chat-pane'), projectPane = create('div', 'canvas-agent__project-pane');
@@ -93,11 +98,14 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
     const immediateScope=create('details','canvas-disclosure canvas-agent__immediate-scope'),scopeTitle=create('summary'),scopeText=create('p');immediateScope.append(scopeTitle,scopeText);
     const approveImmediate=button(copy.approveFilm,()=>void immediateApprove(),true),cancelImmediate=button(copy.cancelIntent,()=>void immediateCancel());
     immediateCard.append(immediateTitle,immediateText,immediateScope,immediateQuote,immediateHint,approveImmediate,cancelImmediate);decisions.append(immediateCard);
+    const decisionCard=create('section','canvas-agent__decision');decisionCard.setAttribute('aria-label',copy.decisionTitle);decisionCard.hidden=true;
+    const decisionText=create('p'),decisionAmount=create('p','canvas-agent__decision-amount'),decisionApprove=button(copy.decisionApprove,()=>void decide('accept'),true),decisionDecline=button(copy.decisionDecline,()=>void decide('decline'));
+    decisionCard.append(create('h4','',copy.decisionTitle),decisionText,decisionAmount,decisionApprove,decisionDecline);decisions.append(decisionCard);
     content.append(welcome,transcript,decisions);viewport.append(content);chatPane.append(viewport,newest,footer);
     const productionArea=create('div','canvas-agent__production-area'),manualProduction=create('details','canvas-disclosure canvas-agent__manual-production');manualProduction.append(create('summary','',copy.productionOptions),production);
     const advanced=create('details','canvas-disclosure canvas-agent__advanced'),finance=create('details','canvas-disclosure canvas-agent__finance');finance.append(create('summary','',copy.briefingFinance),allowance,allowanceLedger);
-    advanced.append(create('summary','',copy.advanced),finance,options,privacy);projectPane.append(projectNotice,brief,productionArea,manualProduction,advanced);
-    section.append(tabs,chatPane,projectPane); root.append(section);
+    advanced.append(create('summary','',copy.advanced),finance,options,modelExclusions,privacy);projectPane.append(projectNotice,brief,productionArea,manualProduction,advanced);
+    section.append(modelHeader,tabs,chatPane,projectPane); root.append(section);
     const transcriptView=createCanvasTranscript({viewport,list:transcript,welcome,newest,copy,content});
     const footerObserver=new ResizeObserver(()=>chatPane.style.setProperty('--canvas-chat-footer-height',`${footer.getBoundingClientRect().height}px`));footerObserver.observe(footer);
     const actionView=createCanvasConversationActions({parent:decisions,copy,confirm:confirmAction,effect:onEffect,changed:()=>transcriptView.changed()});
@@ -183,7 +191,7 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
         }
         const active = getRun() && !terminal.has(getRun().status), duration = snapshot?.brief?.duration;
         makeNow.disabled=blocked||Boolean(active)||availability?.available!==true;
-        runBar.hidden=!getRun();runText.textContent=active?copy.productionBusy:copy.runOverview;
+        runBar.hidden=!getRun()||(!active&&!getRun().result);runText.textContent=active?copy.productionBusy:copy.runOverview;
         for(const [action,node]of Object.entries(runControls)){node.hidden=!canControl(action);node.disabled=!canControl(action);}
         const ready = Boolean(snapshot?.brief?.fields?.story?.value) && (duration?.choice === 'delegated' || duration?.targetDurationSeconds > 0);
         production.hidden = !snapshot || !Object.keys(snapshot.brief.fields || {}).length;
@@ -194,13 +202,30 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
         if(held&&!messages.some(message=>message.delivery?.diagnosticReference===held.diagnosticReference))messages.push({id:`held:${held.diagnosticReference||held.turnId||'request'}`,role:'system',status:'review_required',delivery:{...held,source:'system'}});
         if (busy && pending?.suffix === '/messages') messages.push({id:'local:sending',role:'system',status:'pending',delivery:{stage:'sending',source:'system'}});
         section.dataset.motion = visible && !closed && document.visibilityState !== 'hidden' ? 'active' : 'paused';
-        transcriptView.render(messages, {offline:disconnected,delayed:observationStarted>0&&Date.now()-observationStarted>45000}); renderBrief();renderImmediate();if(snapshot)actionView.render(snapshot.actions,{busy:blocked});
+        transcriptView.render(messages, {offline:disconnected,delayed:observationStarted>0&&Date.now()-observationStarted>45000}); renderBrief();renderImmediate();renderModelAndDecision();if(snapshot)actionView.render(snapshot.actions,{busy:blocked});
     }
     function updateSendAdmission(){
         const text=input.value.trim(),direct=detectCanvasDirectControl(text),immediate=canvasImmediateStartRequested(text);
+        const localDecision=canvasConversationDecisionIntent(text,{locale:german?'de':'en',budgetAsked:snapshot?.pendingDecision?.kind==='production_budget'});
         const held=typeof snapshot?.canSend==='boolean'?!snapshot.canSend:snapshot?.messages.some(message=>message.status==='review_required');
         const blocked=busy||Boolean(pending)||!snapshot;
-        send.disabled=blocked||(!direct&&(immediate?Boolean(getRun()&&!terminal.has(getRun().status))||availability?.available!==true:snapshot?.state!=='active'||Boolean(snapshot?.pendingTurnId)||held||availability?.available!==true));
+        send.disabled=blocked||(!direct&&(immediate&&!localDecision?Boolean(getRun()&&!terminal.has(getRun().status))||availability?.available!==true:snapshot?.state!=='active'||Boolean(snapshot?.pendingTurnId)||held||(!localDecision&&snapshot.allowance?.remainingCredits>0&&availability?.available!==true)));
+    }
+    let modelOptionsKey='';
+    function renderModelAndDecision(){
+        const selection=snapshot?.reasoningModel,models=selection?.eligibleModels||[],key=JSON.stringify(models.map(model=>[model.modelId,model.displayName,model.available,model.reason]));
+        if(key!==modelOptionsKey){modelOptionsKey=key;modelSelect.replaceChildren();modelExclusionList.replaceChildren();for(const model of models){const option=create('option','',model.displayName+(model.available?'':` · ${copy.modelUnavailable}`));option.value=model.modelId;option.disabled=!model.available;if(!model.available){const reason=copy.modelReasons[/adapter/.test(model.reason)?'adapter':/pricing/.test(model.reason)?'pricing':/disabled|model_unavailable/.test(model.reason)?'disabled':/infrastructure/.test(model.reason)?'infrastructure':'provider'];option.title=reason;modelExclusionList.append(create('li','',`${model.displayName}: ${reason}`));}modelSelect.append(option);}}
+        modelExclusions.hidden=!modelExclusionList.children.length;
+        if(selection?.modelId)modelSelect.value=selection.modelId;
+        modelSelect.disabled=busy||Boolean(pending)||!selection;modelHeader.hidden=!selection;
+        const decision=snapshot?.pendingDecision;
+        decisionCard.hidden=!decision||!['production_start','briefing_allowance'].includes(decision.kind);
+        if(!decisionCard.hidden){decisionCard.dataset.state=decision.state;decisionText.textContent=decision.state==='stale'?copy.decisionStale:copy.decisionHint;
+            decisionCard.querySelector('h4').textContent=decision.kind==='briefing_allowance'?copy.allowanceTitle:copy.decisionTitle;
+            decisionApprove.textContent=decision.kind==='briefing_allowance'?copy.allowanceApprove:copy.decisionApprove;
+            if(decision.kind==='briefing_allowance'&&decision.state!=='stale')decisionText.textContent=copy.allowanceHint;
+            decisionAmount.textContent=`${decision.scope.capCredits} ${copy.credits} · ${selection?.displayName||decision.scope.modelId}`;
+            decisionApprove.disabled=busy||Boolean(pending)||decision.state!=='pending';decisionDecline.disabled=decisionApprove.disabled;}
     }
     let immediateKey='';
     function renderImmediate(){
@@ -268,11 +293,19 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
     async function sendMessage(event) {
         event.preventDefault(); if (send.disabled || !snapshot) return;
         const text = input.value.trim(); if (!text) { input.focus(); return; }
-        if(canvasImmediateStartRequested(text)){await immediateStart();return;}
+        if(canvasImmediateStartRequested(text)&&!canvasConversationDecisionIntent(text,{locale:german?'de':'en'})){await immediateStart();return;}
         const direct=detectCanvasDirectControl(text);
-        if (!direct&&!(snapshot.allowance?.remainingCredits > 0)) { notify(copy.allowanceRequired);showAllowance();return; }
         if(!direct){const current=epoch;busy=true;render();try{if(!await flush()||current!==epoch)return;}finally{if(current===epoch){busy=false;render();}}}
         await sendRequest('/messages', { text, locale: german ? 'de' : 'en', expectedConversationRevision: snapshot.revision, expectedBriefRevision: snapshot.briefRevision }, snapshot.allowance?.tariffRevision);
+    }
+    async function chooseModel(){
+        const selection=snapshot?.reasoningModel,modelId=modelSelect.value;
+        if(!selection||busy||pending||modelId===selection.modelId)return;
+        await sendRequest('/model',{modelId,expectedConversationRevision:snapshot.revision,expectedModelRevision:selection.revision});
+    }
+    async function decide(decision){
+        const current=snapshot?.pendingDecision;if(!current||decisionApprove.disabled||!await flush())return;
+        await sendRequest('/decision',{decisionId:current.id,decisionRevision:current.revision,decision,expectedConversationRevision:snapshot.revision,expectedBriefRevision:snapshot.briefRevision},current.scope.tariffRevision);
     }
     async function authorizeAllowance() {
         const capCredits = Number(allowanceCap.value);
@@ -323,9 +356,9 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
             if (current !== epoch) return;
             if (!response.ok || !count(response.data?.project?.revision)) { notify(copy.unavailable); return; }
             if (snapshot.revision !== approved.conversation || snapshot.briefRevision !== approved.brief) { approval.checked = false; notify(copy.stale); return; }
-            body = { expectedConversationRevision: approved.conversation, expectedBriefRevision: approved.brief, expectedRevision: response.data.project.revision, budgetCredits, locale: german ? 'de' : 'en', authorized: true };
+            body = {text:german?`Starte jetzt mit maximal ${budgetCredits} Credits`:`Start now with at most ${budgetCredits} credits`,expectedConversationRevision:approved.conversation,expectedBriefRevision:approved.brief,locale:german?'de':'en'};
         } finally { if (current === epoch) { busy = false; render(); } }
-        if (body && current === epoch) await sendRequest('/start', body, snapshot.allowance?.tariffRevision);
+        if (body && current === epoch) await sendRequest('/messages', body, snapshot.allowance?.tariffRevision);
     }
     function schedule() {
         clearTimeout(timer);

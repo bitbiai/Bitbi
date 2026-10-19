@@ -26,7 +26,7 @@ async function fixture({page,locale,mockSharedAuth,createCanvasApiMock}) {
         const request=route.request(),url=new URL(request.url());
         if(!url.pathname.includes('/agent'))return route.fallback();
         if(url.pathname.includes('/agent/conversation')){
-            const respondChat=()=>route.fulfill({json:{ok:true,data:{conversation,availability:{available:state.available}}}});
+            const respondChat=()=>route.fulfill({json:{ok:true,data:{conversation,availability:{available:state.available},run:state.run}}});
             if(request.method()==='GET'){state.chatReads=(state.chatReads||0)+1;return respondChat();}
             const body=request.postDataJSON(),key=request.headers()['idempotency-key'];
             if(/\/actions\/[a-f0-9]{32}\/confirm$/.test(url.pathname)){
@@ -43,6 +43,17 @@ async function fixture({page,locale,mockSharedAuth,createCanvasApiMock}) {
                 if(!state.run)state.run={id:'a'.repeat(32),projectId:project,requestKey:key,status:'running',phase:'generating',completed:0,total:3,targetDurationSeconds:conversation.brief.duration.targetDurationSeconds??60,budgetCredits:body.budgetCredits,allocatedCredits:0,projectRevision:body.expectedRevision,result:null};
                 if(state.loseResponse){state.loseResponse=false;return route.abort('failed');}
                 return route.fulfill({json:{ok:true,data:{run:state.run}}});
+            }
+            const startText=body.text?.match(/^(?:Starte jetzt mit maximal|Start now with at most) (\d+) [Cc]redits$/);
+            if(url.pathname.endsWith('/messages')&&startText){
+                state.posts.push({body,key});
+                if(!chatReceipts.has(key)){
+                    if(body.expectedConversationRevision!==conversation.revision)return route.fulfill({status:409,json:{ok:false,code:'canvas_conversation_revision_conflict'}});
+                    state.run={id:'a'.repeat(32),projectId:project,requestKey:key,status:'running',phase:'generating',completed:0,total:3,targetDurationSeconds:conversation.brief.duration.targetDurationSeconds??60,budgetCredits:Number(startText[1]),allocatedCredits:0,projectRevision:canvas.projects[0].revision,result:null};
+                    conversation.revision++;chatReceipts.set(key,true);
+                }
+                if(state.loseResponse){state.loseResponse=false;return route.abort('failed');}
+                return respondChat();
             }
             const kind=url.pathname.split('/').at(-1);
             (kind==='messages'?state.chatPosts:kind==='allowance'?state.allowancePosts:state.chatControls).push({body,key});
@@ -129,8 +140,8 @@ exports.admission=async({page,expect,locale,info,mockSharedAuth,createCanvasApiM
     await expect(composer.locator('textarea')).toBeEnabled();
     await composer.locator('textarea').fill('A comic film about a house being built, a pool with ducks and arriving guests.');
     await composer.locator('button[type=submit]').click();
-    expect(state.posts).toEqual([]);expect(state.chatPosts).toEqual([]);
-    await expect(panel).toContainText(locale==='de'?'Gesprächsbudget frei':'briefing allowance first');
+    expect(state.posts).toEqual([]);await expect.poll(()=>state.chatPosts.length).toBe(1);
+    expect(state.allowancePosts).toEqual([]); // A free idea is not spending consent.
     await briefing({panel,locale,expect,text:'A comic film about a house being built, a pool with ducks and arriving guests.'});
     await expect(panel.locator('.canvas-agent__messages')).toContainText(locale==='de'?'Wie lang':'How long');
     await expect(form.locator('button[type=submit]')).toBeDisabled();
@@ -141,7 +152,7 @@ exports.admission=async({page,expect,locale,info,mockSharedAuth,createCanvasApiM
     await form.locator('[name="budget"]').fill('300');await form.locator('[name="authorize"]').check();
     await form.evaluate(node=>{node.requestSubmit();node.requestSubmit();});
     await expect.poll(()=>state.posts.length).toBe(1);
-    expect(state.posts[0].body).toMatchObject({authorized:true,budgetCredits:300,expectedBriefRevision:2});
+    expect(state.posts[0].body).toMatchObject({text:locale==='de'?'Starte jetzt mit maximal 300 Credits':'Start now with at most 300 credits',expectedBriefRevision:3});
     expect(Object.hasOwn(state.posts[0].body,'brief')).toBe(false);
     expect(state.conversation.brief.duration.choice).toBe('delegated');
     await expect(panel.locator('.canvas-agent__counts')).toHaveText(locale==='de'?'0 / 3 abgeschlossen':'0 / 3 completed');
@@ -176,7 +187,7 @@ exports.recovery=async({page,expect,locale,mockSharedAuth,createCanvasApiMock})=
     await form.locator('button[type="submit"]').click();
     await expect.poll(()=>state.posts.length).toBe(1);
     expect(state.conversation.brief.duration.targetDurationSeconds).toBe(120);
-    expect(state.posts[0].body.expectedRevision).toBe(7);
+    expect(state.run.projectRevision).toBe(7);expect(state.posts[0].body.text).toContain('900');
     const retry=panel.getByRole('button',{name:locale==='de'?'Nachricht prüfen':'Check message',exact:true});
     await expect(retry).toBeVisible();
     await retry.click();await expect.poll(()=>state.posts.length).toBe(2);expect(state.posts[1]).toEqual(state.posts[0]);
@@ -623,4 +634,15 @@ exports.pending_controls=async({page,expect,locale,mockSharedAuth,createCanvasAp
     await bar.getByRole('button',{name:de?'Produktion stoppen':'Stop production',exact:true}).click();await expect.poll(()=>state.run.status).toBe('cancelled');
     expect(state.controls.map(value=>value.body.action)).toEqual(['pause','cancel']);expect(state.chatPosts).toEqual([]);expect(state.posts).toEqual([]);
     await expect(panel.locator('.canvas-agent__thinking')).toBeVisible();
+};
+
+exports.media_counts=async({page,expect,locale,mockSharedAuth,createCanvasApiMock})=>{
+ const {state,panel}=await fixture({page,locale,mockSharedAuth,createCanvasApiMock});
+ state.run={id:'a'.repeat(32),projectId:'1'.repeat(32),status:'running',phase:'generating',completed:2,total:8,budgetCredits:3000,mediaProgress:{waiting:3,generating:2,saved:1,blocked:1}};
+ await page.reload();await page.locator('#canvasAgentToggle').click();await showProject(panel,locale);
+ const counts=panel.locator('.canvas-agent__counts'),refresh=panel.getByRole('button',{name:locale==='de'?'Status prüfen':'Check status',exact:true});
+ await expect(counts).toHaveText(locale==='de'?'3 warten · 2 in Generierung · 1 gespeichert · 1 blockiert':'3 waiting · 2 generating · 1 saved · 1 blocked');
+ state.run.mediaProgress.generating=-1;await refresh.click();await expect(counts).toHaveText(locale==='de'?'2 / 8 abgeschlossen':'2 / 8 completed');
+ delete state.run.mediaProgress;await refresh.click();await expect(counts).toHaveText(locale==='de'?'2 / 8 abgeschlossen':'2 / 8 completed');
+ expect(state.posts).toEqual([]);
 };

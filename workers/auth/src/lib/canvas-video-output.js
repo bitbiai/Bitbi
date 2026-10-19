@@ -25,10 +25,12 @@ export async function refreshCanvasVideoOutputs(env,userId,rows) {
 // A later run on the same node cannot be overwritten by an earlier completion.
 export async function finishCanvasGeneration(env,job,result) {
   const agentTransport=job.request_key?.startsWith('canvas-agent-')&&job.canvas_run_id;
-  if(!agentTransport && (job.media_type!=='video'||!job.request_key?.startsWith('canvas-video-')) || !result.data?.asset?.id)return;
+  const imageTransport=job.media_type==='image'&&job.canvas_run_id;
+  if(!agentTransport && !imageTransport && (job.media_type!=='video'||!job.request_key?.startsWith('canvas-video-')) || !result.data?.asset?.id)return;
   const runId=job.canvas_run_id||job.request_key.slice('canvas-video-'.length);
   const row=await env.DB.prepare('SELECT * FROM canvas_runs WHERE id=? AND user_id=? AND operation_type=?').bind(runId,job.user_id,`canvas.${job.media_type}.generate`).first();
   if(!row) return;
+  if(imageTransport&&row.idempotency_key!==job.request_key)return;
   const agentJob=row.idempotency_key?.startsWith('canvas-agent-');
   const asset=result.data.asset;
   const original=job.media_type==='video'?await ownedCanvasVideo(env,job.user_id,asset.id,null,80_000_000):null;

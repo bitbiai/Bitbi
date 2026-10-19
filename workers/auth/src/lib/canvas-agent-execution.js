@@ -1,6 +1,8 @@
 import { claimCanvasAgent,readAgentRun,agentTransition,wakeCanvasAgent,agentFail,ACTIVE_AGENT_STATES } from './canvas-agent-store.js';
 import { canvasAgentProject } from '../routes/canvas-agent.js';
-import { canvasAgentAvailability,canvasAgentCapabilities } from './canvas-agent-capabilities.js';
+import { canvasAgentCapabilities } from './canvas-agent-capabilities.js';
+import { canvasAssistantAvailability } from './canvas-agent-assistant-models.js';
+import { canvasAssistantModelId } from '../../../../js/shared/canvas-assistant-models.mjs';
 import { executeCanvasAgentPlan } from './canvas-agent-planning.js';
 import { prepareCanvasAgentGraph,preflightCanvasAgentGraph } from './canvas-agent-graph.js';
 import { canvasAgentEnvironment } from './canvas-agent-authority.js';
@@ -16,11 +18,13 @@ import { persistCanvasAgentProposal,markCanvasAgentProposal,appendCanvasAgentEve
 import { prepareCanvasAgentCorrection } from './canvas-agent-repair.js';
 import { requestCanvasAgentBudget } from './canvas-agent-budget.js';
 import { canvasDialogueFailure,logCanvasDialogueStage } from './canvas-agent-dialogue-state.js';
+import { imageGenerationCapacity } from './image-generation-capacity.js';
+import { getCanvasModelForRole } from '../../../../js/shared/canvas-model-contract.mjs';
 
 async function checkAuthority(env,run) {
     if(run.expires_at<=nowIso())agentFail('canvas_agent_authorization_expired');
     if(run.actions>CANVAS_AGENT_LIMITS.maxActions)agentFail('canvas_agent_action_limit');
-    const available=await canvasAgentAvailability(env);if(!available.available)agentFail(available.code);
+    const available=await canvasAssistantAvailability(env,canvasAssistantModelId(run.model_id),{dialogue:run.purpose==='briefing'});if(!available.available)agentFail(available.code);
     const user=await env.DB.prepare("SELECT id,role,status FROM users WHERE id=? AND status='active'").bind(run.user_id).first();
     if(!user)agentFail('canvas_agent_authority_revoked');
     const view=await canvasAgentProject(env,run.user_id,run.project_id);
@@ -74,6 +78,7 @@ async function generationStep(env,run,step,user) {
     if(!await prepareCanvasAgentReferences(env,run,step,user))return;
     const current=await readAgentRun(env,run.id);
     if(current.status!=='running'||current.lease_token!==run.lease_token)agentFail('canvas_agent_claim_lost');
+    if(current.actions>=CANVAS_AGENT_LIMITS.maxActions)agentFail('canvas_agent_action_limit');
     const scoped=canvasAgentEnvironment(env,{runId:run.id,stepId:step.id,projectId:run.project_id,userId:run.user_id,leaseToken:run.lease_token});
     const pathname=`/api/account/canvas/projects/${run.project_id}/nodes/${step.node_id}/run`;
     const request=new Request(`https://bitbi.ai${pathname}`,{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':key,'X-Bitbi-Tariff-Revision':String(run.tariff_revision)},body:'{}'});
@@ -165,7 +170,7 @@ export async function processCanvasAgent(env,id) {
                 if(exceeds||correction.reason==='budget'){
                     const request=await requestCanvasAgentBudget(env,run,{requiredCredits:exceeds?preflight.estimatedCredits:correction.credits,
                         reasonKey:exceeds?'production_cost':'plan_correction',reasonCode:exceeds?'canvas_agent_budget_exceeded':'canvas_agent_plan_correction',
-                        model:exceeds?preflight.costs?.nodes?.find(n=>n.credits>0)?.modelId||null:'xai/grok-4.7',action:exceeds?'media.generate':'plan.repair'});
+                        model:exceeds?preflight.costs?.nodes?.find(n=>n.credits>0)?.modelId||null:canvasAssistantModelId(run.model_id),action:exceeds?'media.generate':'plan.repair'});
                     await markCanvasAgentProposal(env,step.id,'budget_required',preflight);
                     await appendCanvasAgentEvent(env,run,`budget:${request.id}`,'decision_summary',{code:'budget',phase:'budget',tool:'budget.request'});
                     return {status:'budget_required'};
@@ -185,16 +190,26 @@ export async function processCanvasAgent(env,id) {
                 else if(evaluation)await prepareCanvasAgentImprovement(env,run,view,evaluation);
             }
             else {
-                const ready=pending.find(s=>JSON.parse(s.input_json).dependencies.every(dep=>!steps.some(t=>t.node_id===dep.nodeId&&t.status!=='completed')));
-                if(!ready)agentFail('canvas_agent_dependency_blocked');
-                await generationStep(env,run,ready,user);
+                const ready=pending.filter(s=>JSON.parse(s.input_json).dependencies.every(dep=>!steps.some(t=>t.node_id===dep.nodeId&&t.status!=='completed')));
+                if(!ready.length)agentFail('canvas_agent_dependency_blocked');
+                const images=ready.filter(s=>getCanvasModelForRole(JSON.parse(s.input_json).modelId,'member')?.capability==='image');
+                const capacity=imageGenerationCapacity(env);
+                // Admission creates ordinary durable jobs. It never waits for
+                // provider completion or launches an in-memory Promise.all.
+                // Dependencies remain serialized; the queue owns overlap and
+                // the shared route gate atomically enforces actual capacity.
+                const admitted=images.length?images.slice(0,Math.min(capacity.global,capacity.user,capacity.project)):ready.slice(0,1);
+                for(const step of admitted) {
+                    await generationStep(env,run,step,user);
+                    if(run.phase==='waiting_limit')break;
+                }
             }
         } else if(run.status==='exporting')await exportStep(env,run,view);
     } catch(error){
         const failure=run.purpose==='briefing'?await canvasDialogueFailure(env,run,error):null;
         const code=failure?.code||(/^[a-z0-9_]{1,90}$/.test(error?.code||'')?error.code:'canvas_agent_execution_review_required');
         const status=failure?.status||(/unknown|review|required|claim_lost|provider_timeout/.test(code)?'review_required':'blocked');
-        const cause=failure?.cause||{code,step:run.phase,recovery:'manual',...(Array.isArray(error.issues)?{issues:error.issues.slice(0,16)}:{})};
+        const cause=failure?.cause||{code,step:run.phase,recovery:code==='canvas_agent_provider_review_required'?'receipt':'manual',...(Array.isArray(error.issues)?{issues:error.issues.slice(0,16)}:{})};
         const failed=await env.DB.prepare('UPDATE canvas_agent_runs SET status=?,error_code=?,cause_json=?,updated_at=? WHERE id=? AND lease_token=?')
             .bind(status,code,JSON.stringify(cause),nowIso(),id,run.lease_token).run();
         if(failed.meta?.changes===1)await appendCanvasAgentEvent(env,run,`error:${run.rounds}:${run.repair_attempts||0}:${code}`,'error',{phase:run.phase,code,tool:'production.reconcile'});

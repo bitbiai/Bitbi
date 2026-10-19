@@ -26,6 +26,83 @@ const completion = value => ({ id: 'chatcmpl_canvas_background', object: 'chat.c
     reasoning: 'Private reasoning must not leave the adapter.', encrypted_content: 'encrypted-private-provider-bytes' } }],
   usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 200, prompt_tokens_details: { cached_tokens: 20 }, completion_tokens_details: { reasoning_tokens: 50 } } });
 
+test('Canvas Fable native planning shares policy and validation without private tools or provider replay', async () => {
+  const f = await fixture(), fable = 'anthropic/claude-fable-5', source = { ...input('plan'), model:fable };
+  const callerPolicy = { ...policy,model_id:fable };
+  const prepared = await f.call('prepare',{kind:'plan',input:source},{callerPolicy});
+  expect(prepared.status).toBe(200);
+  expect(prepared.body).toMatchObject({model:fable,context:{model:fable,modelContractVersion:'canvas-assistant-models-1',policy:{version:'canvas-policy-3'}}});
+  expect(prepared.body.input).toMatchObject({max_tokens:16384,stream:false,thinking:{type:'adaptive'},output_config:{effort:'medium'}});
+  expect(Object.keys(prepared.body.input).sort()).toEqual(['max_tokens','messages','output_config','stream','system','thinking']);
+  expect(prepared.body.input.system).toContain('BITBI Canvas specialist');
+  expect(prepared.body.input.system).not.toContain('using Grok');
+  expect(prepared.body.input.messages).toHaveLength(1);
+  expect(prepared.body.input.messages[0].role).toBe('user');
+  const {plannerPriceInput}=await import('../workers/auth/src/lib/canvas-agent-planning.js');
+  expect(prepared.body.input.output_config.format.type).toBe('json_schema');
+  expect(prepared.body.input.output_config.format.schema.properties.title).toEqual({type:'string',description:'Application constraints: minLength: 1; maxLength: 120'});
+  expect(plannerPriceInput(source)).toEqual({model:fable,prompt:JSON.stringify(prepared.body.input.messages),system:prepared.body.input.system+JSON.stringify(prepared.body.input.output_config.format.schema),maxTokens:16384,canvasFableAdmission:'canvas-fable-messages-1'});
+  const response={id:'msg_canvas_fable',type:'message',role:'assistant',model:'claude-fable-5',stop_reason:'end_turn',
+    content:[{type:'thinking',thinking:'PRIVATE opaque reasoning',signature:'PRIVATE signature'},{type:'text',text:JSON.stringify(plan())}],
+    usage:{input_tokens:300,output_tokens:200,cache_creation_input_tokens:0,cache_read_input_tokens:0}};
+  const envelope={kind:'plan',requestId:source.requestId,context:prepared.body.context,response};
+  const normalized=await f.call('normalize',envelope,{callerPolicy});
+  expect(normalized.body).toMatchObject({ok:true,model:fable,plan:plan(),usage:{input_tokens:300,output_tokens:200}});
+  expect(JSON.stringify(normalized.body)).not.toMatch(/PRIVATE|signature|reasoningSummary/);
+  expect((await f.call('normalize',envelope)).status).toBe(403);
+  for(const mutate of [r=>{r.content=[{type:'tool_use',name:'web_search',input:{}}];},r=>{r.model='claude-other';},r=>{r.content=[{type:'text',text:'{"budgetApproved":true}'}];},r=>{r.usage.cache_creation_input_tokens=5;},r=>{r.usage.total_tokens=999;}]){
+    const invalid=structuredClone(envelope);mutate(invalid.response);
+    expect((await f.call('normalize',invalid,{callerPolicy})).body).toMatchObject({ok:false,outcome:'completed',model:fable});
+  }
+  const refused=structuredClone(envelope);refused.response.stop_reason='refusal';
+  expect((await f.call('normalize',refused,{callerPolicy})).body).toMatchObject({code:'canvas_agent_provider_refused'});
+  const truncated=structuredClone(envelope);truncated.response.stop_reason='max_tokens';
+  expect((await f.call('normalize',truncated,{callerPolicy})).body).toMatchObject({code:'canvas_agent_output_limit'});
+  expect((await f.call('prepare',{kind:'evaluate',input:{...input('evaluate'),model:fable}},{callerPolicy})).body).toMatchObject({code:'canvas_agent_model_invalid',outcome:'not_submitted'});
+  expect(f.calls).toEqual([]);
+});
+
+test('Canvas model-neutral policy preserves every historical phase hash and pins new provider identity', async () => {
+  const {canvasAgentPolicyIdentity,canvasAgentSystem}=await import('../workers/shared/canvas-agent/manifest.mjs');
+  // Independently read from committed4e build inputs before this change.
+  const common={planning:'95d073895bbd97d9a88b50f93d71b50d37a0c7f0c10c3b28450ff37f9bd68e3f',correction:'95d073895bbd97d9a88b50f93d71b50d37a0c7f0c10c3b28450ff37f9bd68e3f',evaluation:'5f139872d5a6b4c0830e96af3126c8dec7d7e714410c24777f3feb67be9a4513'};
+  const historical={
+    'canvas-policy-1':{...common,briefing:'3c26ebd237a6a8e72b646e0c722a37e96192204c296061dc9d2c0c3cded2eb03',explanation:'2e30c6f89bab617a5988ac4a4536504ad085e2f909711f95baee7f1b1369491f'},
+    'canvas-policy-2':{...common,briefing:'e637ccdf8abf9542f1836ddc11b1ee5d448dc04872e3ead12e5727f0a7f9ab30',explanation:'1ade31a4699c0624c2e53f25d8c16e32077599deea9350820c447536c4cd14c1'},
+  };
+  for(const [version,phases]of Object.entries(historical))for(const [phase,sha256]of Object.entries(phases))expect((await canvasAgentPolicyIdentity(phase,version)).sha256).toBe(sha256);
+  expect(canvasAgentSystem('planning')).not.toContain('Grok 4.7');
+  expect(canvasAgentSystem('planning','canvas-policy-2')).toContain('using Grok 4.7');
+  const f=await fixture(),source={...input('plan'),policy:await canvasAgentPolicyIdentity('planning','canvas-policy-2')};
+  expect((await f.call('prepare',{kind:'plan',input:source})).body.input.messages[0].content).toBe(canvasAgentSystem('planning','canvas-policy-2'));
+  expect((await f.call('prepare',{kind:'plan',input:{...source,model:'anthropic/claude-fable-5'}},{callerPolicy:{...policy,model_id:'anthropic/claude-fable-5'}})).body).toMatchObject({code:'canvas_agent_policy_changed'});
+});
+
+test('Canvas Fable quotes and settles its own bounded native usage without changing legacy tariffs', async()=>{
+  const {quoteModelTariff,settlePinnedModelTariff}=await import('../workers/auth/src/lib/model-tariffs.js');
+  const {normalizeCanvasFableUsage,canvasFableUsageUnits}=await import('../workers/shared/canvas-assistant-fable.mjs');
+  const {creditsForProviderCostUsd}=await import('../js/shared/model-credit-pricing.mjs');
+  const {FACTORY_TARIFF_VERSION}=await import('../js/shared/model-tariff.mjs');
+  const fable='anthropic/claude-fable-5',row={revision:0,factory_version:FACTORY_TARIFF_VERSION,rules_json:'{}'};
+  const env={DB:{prepare(){return {first:async()=>row};}}};
+  const request={modelId:fable,input:{prompt:'An ordinary Canvas story.',system:'Canvas scope and schema.',maxTokens:4096,canvasFableAdmission:'canvas-fable-messages-1'}};
+  const quote=await quoteModelTariff(env,request);
+  const usage=normalizeCanvasFableUsage({input_tokens:100,output_tokens:200,output_tokens_details:{thinking_tokens:150}});
+  expect(canvasFableUsageUnits(usage)).toEqual({inputToken:100,outputToken:200});
+  const expected=creditsForProviderCostUsd((100*10+200*50)/1e6*1.05);
+  expect(settlePinnedModelTariff(quote,quote.credits,canvasFableUsageUnits(usage))).toBe(expected);
+  expect(expected).toBeLessThan(quote.credits);
+  for(const units of [null,{inputToken:100,outputToken:4097},{inputToken:quote.canvasFableAdmission.inputTokenBound+1,outputToken:200},{inputToken:100,outputToken:200,reasoningToken:150}])
+    expect(()=>settlePinnedModelTariff(quote,quote.credits,units)).toThrow();
+  for(const invalid of [{input_tokens:100,output_tokens:200,cache_read_input_tokens:10},{input_tokens:100,output_tokens:200,cache_creation_input_tokens:1},
+    {input_tokens:100,output_tokens:200,total_tokens:500},{input_tokens:100,output_tokens:-1},{input_tokens:100}])expect(normalizeCanvasFableUsage(invalid)).toBeNull();
+  row.rules_json=JSON.stringify({[`${fable}:{}`]:{rates:{inputToken:.01,outputToken:.02}}});
+  const custom=await quoteModelTariff(env,request);
+  expect(settlePinnedModelTariff(custom,custom.credits,canvasFableUsageUnits(usage))).toBe(5);
+  const insufficient={...custom,credits:4};expect(()=>settlePinnedModelTariff(insufficient,4,canvasFableUsageUnits(usage))).toThrow();
+  expect((await quoteModelTariff(env,{modelId:fable,input:{prompt:'Legacy one-shot',maxTokens:100}}))).not.toHaveProperty('canvasFableAdmission');
+});
+
 async function fixture() {
   const worker = await loadWorker('workers/ai/src/index.js');
   const { buildServiceAuthHeaders } = await import('../js/shared/service-auth.mjs');
@@ -90,18 +167,21 @@ test('Canvas background evaluation prepares bounded images and keeps persisted v
   const f = await fixture(), source = input('evaluate');
   const prepared = await f.call('prepare', { kind: 'evaluate', input: source });
   expect(prepared.status).toBe(200);
-  expect(prepared.body.context).toEqual({ frames: [{ nodeId, timeSeconds: 2 }], metering: { version: 'canvas-grok-4.7-usage-v1', maxCompletionTokens: 2048 }, policy: {
-    version: 'canvas-policy-2', phase: 'evaluation', sha256: createHash('sha256').update(prepared.body.input.messages[0].content).digest('hex'),
-    skills: ['core', 'personality', 'review-and-export'].map(id => ({ id, version: 1 })),
+  expect(prepared.body.context).toEqual({ model, modelContractVersion:'canvas-assistant-models-1', frames: [{ nodeId, timeSeconds: 2 }], metering: { version: 'canvas-grok-4.7-usage-v1', maxCompletionTokens: 2048 }, policy: {
+    version: 'canvas-policy-3', phase: 'evaluation', sha256: createHash('sha256').update(prepared.body.input.messages[0].content).digest('hex'),
+    skills: ['core', 'personality', 'review-and-export'].map(id => ({ id, version: id === 'core' ? 2 : 1 })),
   } });
   expect(prepared.body.input).toMatchObject({ stream: false, max_completion_tokens: 2048, reasoning_effort: 'low' });
   expect(prepared.body.input.messages[1].content.at(-1)).toEqual({ type: 'image_url', image_url: { url: source.frames[0].imageData } });
   expect(JSON.stringify(prepared.body.context)).not.toMatch(/base64|requirement|brief|imageData/);
-  const oldPolicy = { ...prepared.body.context.policy, version: 'canvas-policy-1' };
+  const {canvasAgentSystem}=await import('../workers/shared/canvas-agent/manifest.mjs');
+  const oldPolicy = { version:'canvas-policy-1',phase:'evaluation',sha256:'5f139872d5a6b4c0830e96af3126c8dec7d7e714410c24777f3feb67be9a4513',
+    skills:['core','personality','review-and-export'].map(id=>({id,version:1})) };
   const legacy = await f.call('prepare', { kind: 'evaluate', input: { ...source, policy: oldPolicy } });
   expect(legacy.status).toBe(200);
   expect(legacy.body.context).toEqual({ ...prepared.body.context, policy: oldPolicy });
-  expect(legacy.body.input).toEqual(prepared.body.input);
+  expect(legacy.body.input).toEqual({...prepared.body.input,messages:[{role:'system',content:canvasAgentSystem('evaluation','canvas-policy-1')},...prepared.body.input.messages.slice(1)]});
+  expect(createHash('sha256').update(legacy.body.input.messages[0].content).digest('hex')).toBe(oldPolicy.sha256);
   // A recognized historical version preserves its actual prompt. A corrupted
   // content pin must still fail before inference, rather than adopting current rules.
   for (const version of ['canvas-policy-1', 'canvas-policy-2']) {
@@ -252,9 +332,9 @@ test('Canvas creative planning receives authoritative budget, conditional constr
     field: 'dependencies', message: 'Frame and reference input modes cannot be combined.', allowed: ['frame inputs with adaptive aspect ratio', 'reference inputs'] }], previousPlan: plan() };
   const result = await f.call('prepare', { kind: 'plan', input: source });
   expect(result.status).toBe(200);
-  expect(result.body.context).toEqual({ durationMode: 'creative', targetDurationSeconds: null, existingNodeIds: [nodeId], metering: { version: 'canvas-grok-4.7-usage-v1', maxCompletionTokens: 16384 }, policy: {
-    version: 'canvas-policy-2', phase: 'correction', sha256: createHash('sha256').update(result.body.input.messages[0].content).digest('hex'),
-    skills: ['core', 'personality', 'story-and-continuity', 'model-selection', 'canvas-editing', 'generation-and-recovery'].map(id => ({ id, version: 1 })),
+  expect(result.body.context).toEqual({ model, modelContractVersion:'canvas-assistant-models-1', durationMode: 'creative', targetDurationSeconds: null, existingNodeIds: [nodeId], metering: { version: 'canvas-grok-4.7-usage-v1', maxCompletionTokens: 16384 }, policy: {
+    version: 'canvas-policy-3', phase: 'correction', sha256: createHash('sha256').update(result.body.input.messages[0].content).digest('hex'),
+    skills: ['core', 'personality', 'story-and-continuity', 'model-selection', 'canvas-editing', 'generation-and-recovery'].map(id => ({ id, version: id === 'core' ? 2 : 1 })),
   } });
   const user = JSON.parse(result.body.input.messages[1].content);
   expect(user.budget).toEqual(source.budget);
@@ -264,11 +344,14 @@ test('Canvas creative planning receives authoritative budget, conditional constr
   expect(result.body.input.messages[0].content).toContain('never add those fields together again');
   expect(result.body.input.messages[0].content).toContain('never a deadline');
   expect(result.body.input.messages[0].content).toContain('never silently remove a required reference'.replace('never', 'Never'));
-  const oldPolicy = { ...result.body.context.policy, version: 'canvas-policy-1' };
+  const {canvasAgentSystem}=await import('../workers/shared/canvas-agent/manifest.mjs');
+  const oldPolicy = { version:'canvas-policy-1',phase:'correction',sha256:'95d073895bbd97d9a88b50f93d71b50d37a0c7f0c10c3b28450ff37f9bd68e3f',
+    skills:['core','personality','story-and-continuity','model-selection','canvas-editing','generation-and-recovery'].map(id=>({id,version:1})) };
   const legacy = await f.call('prepare', { kind: 'plan', input: { ...source, policy: oldPolicy } });
   expect(legacy.status).toBe(200);
   expect(legacy.body.context).toEqual({ ...result.body.context, policy: oldPolicy });
-  expect(legacy.body.input).toEqual(result.body.input);
+  expect(legacy.body.input).toEqual({...result.body.input,messages:[{role:'system',content:canvasAgentSystem('correction','canvas-policy-1')},...result.body.input.messages.slice(1)]});
+  expect(createHash('sha256').update(legacy.body.input.messages[0].content).digest('hex')).toBe(oldPolicy.sha256);
   for (const version of ['canvas-policy-1', 'canvas-policy-2']) {
     expect((await f.call('prepare', { kind: 'plan', input: { ...source,
       policy: { ...result.body.context.policy, version, phase: 'planning' } } })).body)

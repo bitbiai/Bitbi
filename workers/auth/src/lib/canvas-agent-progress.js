@@ -3,7 +3,7 @@ import { nowIso } from './tokens.js';
 const types=new Set(['action','decision_summary','provider_summary','media','error']);
 const messages={
     started:['Production authorized. Preparing a plan within your credit ceiling.','Produktion freigegeben. Ein Plan innerhalb deines Creditlimits wird vorbereitet.'],
-    planning:['Grok is preparing the storyboard. Waiting for the provider response.','Grok erstellt das Storyboard. Die Anbieterantwort steht noch aus.'],
+    planning:['The assistant is preparing the storyboard. Waiting for the provider response.','Der Assistent erstellt das Storyboard. Die Anbieterantwort steht noch aus.'],
     proposed:['The storyboard is saved and available for inspection.','Das Storyboard ist gespeichert und kann angesehen werden.'],
     repairing:['The saved plan needs a correction. Preparing a bounded revision within the budget.','Der gespeicherte Plan benötigt eine Korrektur. Eine begrenzte Überarbeitung innerhalb des Budgets wird vorbereitet.'],
     applied:['The editable Canvas project is ready. Generating the planned media.','Das bearbeitbare Canvas-Projekt ist angelegt. Die geplanten Medien werden erstellt.'],
@@ -43,7 +43,7 @@ export async function persistCanvasAgentProposal(env,run,step,plan) {
         VALUES(?,?,?,?,?) ON CONFLICT(step_id) DO NOTHING`).bind(step.id,run.id,json,now,now).run();
     const existing=await env.DB.prepare('SELECT plan_json FROM canvas_agent_proposals WHERE step_id=? AND run_id=?').bind(step.id,run.id).first();
     if(existing?.plan_json!==json)throw Object.assign(new Error('canvas_agent_proposal_conflict'),{code:'canvas_agent_proposal_conflict'});
-    await appendCanvasAgentEvent(env,run,`proposal:${step.id}`,'action',{code:'proposed',phase:'validating',model:'xai/grok-4.7',tool:'plan.validate'});
+    await appendCanvasAgentEvent(env,run,`proposal:${step.id}`,'action',{code:'proposed',phase:'validating',model:run.model_id||'xai/grok-4.7',tool:'plan.validate'});
 }
 export async function markCanvasAgentProposal(env,stepId,status,validation) {
     const value={issues:(validation?.issues||[]).slice(0,16),repairs:(validation?.repairs||[]).slice(0,32),costs:validation?.costs||null};

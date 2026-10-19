@@ -92,6 +92,8 @@ export const ROUTE_POLICIES = Object.freeze([
   safeRead('account.canvas.agent.capabilities','GET','/api/account/canvas/agent/capabilities','canvas'),
   safeRead('account.canvas.agent.conversation.read','GET','/api/account/canvas/projects/:projectId/agent/conversation','canvas'),
   userJsonWrite('account.canvas.agent.conversation.messages','POST','/api/account/canvas/projects/:projectId/agent/conversation/messages','canvas','smallJson','canvas-agent-conversation-write-user'),
+  userJsonWrite('account.canvas.agent.conversation.model','POST','/api/account/canvas/projects/:projectId/agent/conversation/model','canvas','smallJson','canvas-agent-conversation-write-user'),
+  userJsonWrite('account.canvas.agent.conversation.decision','POST','/api/account/canvas/projects/:projectId/agent/conversation/decision','canvas','smallJson','canvas-agent-conversation-write-user'),
   userJsonWrite('account.canvas.agent.conversation.allowance','POST','/api/account/canvas/projects/:projectId/agent/conversation/allowance','canvas','smallJson','canvas-agent-conversation-write-user'),
   userJsonWrite('account.canvas.agent.conversation.control','POST','/api/account/canvas/projects/:projectId/agent/conversation/control','canvas','smallJson','canvas-agent-conversation-write-user'),
   userJsonWrite('account.canvas.agent.conversation.start','POST','/api/account/canvas/projects/:projectId/agent/conversation/start','canvas','smallJson','canvas-agent-conversation-write-user'),

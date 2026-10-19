@@ -1,4 +1,4 @@
-import { core, personality } from './core.mjs';
+import { core, neutralCore, personality } from './core.mjs';
 import legacyBriefing from './legacy/creative-briefing-v1.mjs';
 import conversationActions from './skills/conversation-actions.mjs';
 import creativeBriefing from './skills/creative-briefing.mjs';
@@ -9,7 +9,7 @@ import generationAndRecovery from './skills/generation-and-recovery.mjs';
 import reviewAndExport from './skills/review-and-export.mjs';
 
 // Static imports are the approval boundary. Never resolve paths from project data.
-export const CANVAS_AGENT_POLICY_VERSION = 'canvas-policy-2';
+export const CANVAS_AGENT_POLICY_VERSION = 'canvas-policy-3';
 const phases = Object.freeze({
   briefing: Object.freeze([creativeBriefing, conversationActions]),
   planning: Object.freeze([storyAndContinuity, modelSelection, canvasEditing, generationAndRecovery]),
@@ -18,10 +18,10 @@ const phases = Object.freeze({
   explanation: Object.freeze([creativeBriefing, conversationActions, canvasEditing, generationAndRecovery]),
 });
 function selected(phase, version = CANVAS_AGENT_POLICY_VERSION) {
-  if (!Object.hasOwn(phases, phase) || !['canvas-policy-1', CANVAS_AGENT_POLICY_VERSION].includes(version)) throw new TypeError('canvas_agent_policy_phase_invalid');
+  if (!Object.hasOwn(phases, phase) || !['canvas-policy-1', 'canvas-policy-2', CANVAS_AGENT_POLICY_VERSION].includes(version)) throw new TypeError('canvas_agent_policy_phase_invalid');
   const skills=version === 'canvas-policy-1' && ['briefing','explanation'].includes(phase)
     ? (phase === 'briefing' ? [legacyBriefing] : [legacyBriefing,canvasEditing,generationAndRecovery]) : phases[phase];
-  return [core, personality, ...skills];
+  return [version === CANVAS_AGENT_POLICY_VERSION ? neutralCore : core, personality, ...skills];
 }
 export function canvasAgentSystem(phase, version = CANVAS_AGENT_POLICY_VERSION) {
   return selected(phase, version).map(entry => entry.purpose

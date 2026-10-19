@@ -2,7 +2,7 @@
 
 The Canvas **Create with AI / Mit KI erstellen** panel is a project conversation.
 Describe the film, approve a bounded briefing allowance, and develop a saved
-**Project brief / Projektidee** with Grok 4.7. The allowance uses the existing
+**Project brief / Projektidee** with the selected assistant model. The allowance uses the existing
 member tariff and credit ledger; the suggested limit covers one maximally bounded
 reply, not a promise of actual spend or a new tariff. Actual usage settles the
 original reservation. Increase the allowance explicitly when necessary.
@@ -15,8 +15,20 @@ and Exact export settings retain their original semantics. **Save for later**
 retains the draft; **Cancel briefing** stops further dialogue; production has its
 own pause/cancel/takeover controls. Closing the panel grants no authority.
 
-Review the visible brief, enter the total project credit ceiling, explicitly
-approve production and start once. The server binds the conversation, brief,
+Review the visible brief and answer the budget question in chat, for example
+**3000 Credits**. This saves the proposed total cap; it does not start production.
+After the assistant displays the current film scope and cap and asks whether to
+start, **Ja, starte / Yes, start** consumes that one server-owned decision.
+**Starte jetzt mit maximal 3000 Credits** can supply both instructions when the
+necessary brief and duration are already resolved. The existing buttons use the
+same authoritative operation. A missing briefing allowance can also be approved
+through a separate in-chat decision before any paid inference.
+
+Negations, save-only requests, quoted story dialogue, euros and ambiguous amounts
+do not authorize spend. Locale-specific grouping is validated; a bare number is
+a budget only when the server is currently asking for one. Decisions expire and
+pin the actor, brief, graph, selected model, tariff and total cap. Changes invalidate
+unaccepted decisions; replay retains the original request identity. The server binds the conversation, brief,
 current creative graph and tariff revisions to the normal production route.
 Previous briefing charges count once within that project ceiling. Revisions
 read the currently saved graph and assembly, including manual edits.
@@ -28,6 +40,26 @@ The ordinary model adapters validate conditional settings before paid media
 dispatch. Safe defaults may be filled locally; changing an explicit creative
 choice requires a bounded, separately accounted planning correction. At most two
 preflight corrections are admitted within the same authorized ceiling.
+
+## Assistant models
+
+The chat header offers **Assistant model / Assistentenmodell**. Grok 4.7 remains
+the historical default; Fable 5 uses its real `anthropic/claude-fable-5` native
+Messages adapter. Both receive the same Canvas-only policy, phase skills and
+project-owned memory. Integrated text models without a safe executable Canvas
+adapter are listed as unavailable, with a reason; no invented OpenAI model or
+silent fallback is used. Selection is saved with the project. It affects subsequent
+turns and new productions; accepted turns, production reasoning, receipts and
+tariffs remain pinned to their original model. Older replies retain attribution.
+Provider-private reasoning and response state never transfer between models.
+
+Policy package v3 has provider-neutral identity. Accepted v1/v2 policy content and
+hashes remain unchanged. Fable uses native schema output with strict application
+validation, its own metering and tariff; no cache is requested. Unexpected cache
+or tool charges require review rather than being omitted. Fable visual review is
+currently unavailable, so its productions disclose technical-only review. Grok
+retains its existing separately bounded visual capability. Details and official
+transport sources are in the [runtime package](../../workers/shared/canvas-agent/README.md).
 
 ## Runtime rules and private project memory
 
@@ -394,7 +426,7 @@ there are no fabricated quality scores or live comparative benchmark claims.
 | Montage | Explicit assembly, all integrated transition presets, editable start/duration trims |
 | Sound | Per-source original audio plus project music selection, gain, fades and existing fit/smoothing behavior |
 | Inspection | Exact source-version-bound technical metadata and private timepoint/last-frame extraction |
-| Evaluation | Up to three frames from first/middle/final shots; genuine Grok image input, bounded strict judgments |
+| Evaluation | Grok: up to three frames from first/middle/final shots and bounded strict judgments. Fable: explicitly technical-only; no vision fallback or invented inspection. |
 | Export/save | Existing private export job, ownership-aware durable asset, preserved editable project and older exports |
 
 The production target is 3–180 seconds, subject to existing project, media-size,
@@ -409,10 +441,64 @@ target; the legacy Exact mode still enforces its tolerance. No padding or repeat
 footage conceals a shortfall. Actual source quality determines normalization.
 Sampled frames cannot establish complete motion, sound or unsampled-shot quality.
 
+## Parallel images and late H3 recovery
+
+The existing durable scheduler admits independent ready image nodes together;
+required anchors and last-frame dependencies remain ordered. D1 capacity claims
+coordinate the shared provider account, user and project before dispatch. Slot
+identities bind the original usage/job; unknown acceptance retains capacity and
+never permits another inference. Existing hourly rate, budget, quota and ownership
+gates still apply. Queue batch size is not concurrency evidence. The UI reports
+persisted waiting, generating, saved and blocked media counts.
+
+`IMAGE_GENERATION_CAPACITY_JSON` is an operator-reviewed allocation: `version:1`,
+`revision`, `reviewRef`, future `verifiedUntil`, and integer `global`, `user`,
+`project`, `providers` limits (1–15). Provider keys follow the integrated adapter
+registry. Missing, malformed or expired evidence defaults to one with
+`image_capacity_unverified`; an unlisted provider also remains one. Raising a
+configured bound requires actual account/provider evidence, not a guessed RPM
+conversion or a new paid benchmark. Synthetic acceptance holds 15 distinct
+provider requests open before the first completion and verifies original mapping,
+out-of-order storage and exact accounting. This does not establish live capacity
+or simultaneous provider GPU execution.
+
+Legacy financial unknowns are not proof of currently active dispatchers. The
+release-approved `image-generation-legacy-review.js` contains only reviewed opaque
+fingerprints for the coordination cutover; private source evidence stays outside
+Git. Exact previously reviewed unknown tuples may be excluded from physical slot
+counts while their financial commitments and no-replay restrictions remain intact.
+Every dispatched attempt and new/changed unknown still counts atomically. This
+review never raises concurrency or claims provider termination. Optional protected
+`IMAGE_GENERATION_LEGACY_REVIEW_JSON` uses the same strict version/date/reference/
+fingerprint contract; malformed review data excludes nothing.
+
+A Cloudflare H3 dispatch timeout can precede a valid authenticated callback. The
+original durable job can finish storage and settlement while an agent remains in
+receipt review. `canvas-agent-media-recovery.js` proves the original completed H3
+job, private result and bytes, finalized debit, node version, active authority,
+current graph/brief and unchanged project cap before completing the original
+step. Normal successful usage updates preserve the agent budget binding.
+Recovery makes no provider request and writes no credit ledger. Historical holds
+require an explicit digest-bound operator decision; newly classified receipt
+holds are eligible for the same guarded cron reconciliation. Expired, edited,
+paused, cancelled, taken-over or unverifiable work stays held.
+
+The sanctioned operator entry is `node scripts/canvas-h3-recovery.mjs --input
+<private-0600-json> --output <new-private-evidence-path>` (dry-run by default).
+Input names exact `runId`, `projectId`, `userId`, `expectedSource`,
+`expectedAiSource`, `expectedSchema`, and unchanged `projectCapCredits`. After
+review, `--execute` additionally requires the dry-run `recoveryDigest`, `actor`
+and `authorizationRef`. It verifies live source/schema again and records only
+that narrow recovery authorization; deployed cron verifies storage and continues
+through the ordinary execution path. Keep all production identities and evidence
+outside Git. No direct database status reset, retry reset or authority renewal is
+part of this operation.
+
 ## Model and release prerequisites
 
-The exact model is `xai/grok-4.7`. The existing signed AI Worker prepares and
-validates its strict Chat Completions contract; Auth coordinates the durable
+Grok uses `xai/grok-4.7`; Fable uses `anthropic/claude-fable-5`. The existing signed
+AI Worker prepares and validates their separate Chat Completions and native
+Messages contracts; Auth coordinates the durable
 [Cloudflare REST background request](https://developers.cloudflare.com/ai-gateway/usage/rest-api/#background-requests-and-webhooks).
 It reuses the account-restricted `H3_CLOUDFLARE_API_TOKEN` (Workers AI Read), default
 Gateway and Unified Billing. No new credential or provider route is provisioned.

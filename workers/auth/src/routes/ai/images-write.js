@@ -1,6 +1,8 @@
 import { isGptImage25Model, normalizeGptImage25Options, GPT_IMAGE_25_MAX_PROMPT_LENGTH } from '../../../../../js/shared/gpt-image-25-contract.mjs';
 import { canvasPrivateImageUser } from '../../lib/canvas-private-image-context.js';
 import { canvasAgentAdmissionWaitResponse } from '../../lib/canvas-agent-admission-wait.js';
+import { registerImageGenerationSlot,acquireImageGenerationSlot,dispatchImageGenerationSlot,finishImageGenerationSlot } from '../../lib/image-generation-capacity.js';
+import { canvasMediaRun } from '../../lib/canvas-media-storage.js';
 import { callImage25Provider, image25Output, image25DeliveryError } from '../../../../shared/gpt-image-25.mjs';
 import { FLUX_SCHNELL, callFluxSchnell } from '../../lib/flux-schnell-provider.js';
 import { normalizeMultipartImageDimensions } from '../../../../../js/shared/image-dimensions.mjs';
@@ -943,6 +945,9 @@ export async function handleGenerateImage(ctx) {
   ctx.captureCanvasUsageAttemptId?.(usagePolicy.attempt?.id || null);
   const accepted = await acceptMemberGeneration(ctx, { usagePolicy, body: body, mediaType: 'image', sourceRefs: gptImage25 ? gptRequest.sourceRefs : [] });
   if (accepted) return accepted;
+  const waitingCapacity=usagePolicy.attemptKind==='in_progress'&&usagePolicy.attempt?.providerOutcome==='not_dispatched'
+    &&await env.DB.prepare("SELECT id FROM image_generation_slots WHERE id=? AND user_id=? AND state='waiting' AND dispatched_at IS NULL")
+      .bind(`${usagePolicy.mode}:${usagePolicy.attempt.id}`,userId).first();
 
   if (usagePolicy.mode === "organization") {
     if (usagePolicy.attemptKind === "completed" || usagePolicy.attemptKind === "completed_expired") {
@@ -957,7 +962,7 @@ export async function handleGenerateImage(ctx) {
         userId,
       });
     }
-    if (usagePolicy.attemptKind === "in_progress") {
+    if (usagePolicy.attemptKind === "in_progress" && !waitingCapacity) {
       return respond({
         ok: false,
         error: "This idempotent image request is already in progress.",
@@ -995,7 +1000,7 @@ export async function handleGenerateImage(ctx) {
         userId,
       });
     }
-    if (usagePolicy.attemptKind === "in_progress") {
+    if (usagePolicy.attemptKind === "in_progress" && !waitingCapacity) {
       return respond({
         ok: false,
         error: "This idempotent image request is already in progress.",
@@ -1040,6 +1045,19 @@ export async function handleGenerateImage(ctx) {
   let mimeType = "image/png";
   let providerImageUrl = null;
 
+  const execution=generationExecution(env);
+  const capacitySlot=await registerImageGenerationSlot(env,{usagePolicy,userId,modelId:modelConfig.id,
+    jobId:execution?.job.id||null,canvasRunId:execution?.job.canvas_run_id||canvasMediaRun(env)});
+  const capacityClaim=await acquireImageGenerationSlot(env,capacitySlot,{receiptReplay:execution?.receiptReplay===true});
+  if(!capacityClaim) {
+    // A synchronous member request retains its exact reservation as an ordinary
+    // durable job. Capacity waiting never asks for a new paid request identity.
+    const queued=canvasMediaRun(env)?await acceptMemberGeneration(ctx,{usagePolicy,body,mediaType:'image',sourceRefs:gptImage25?gptRequest.sourceRefs:[],forceAsync:true}):null;
+    if(queued)return queued;
+    return respond({ok:false,code:'image_generation_capacity_wait',error:'Image generation is waiting for available account capacity.'},{status:429,headers:{'Retry-After':'10'}});
+  }
+
+  try {
   if (typeof usagePolicy.markProviderRunning === "function") {
     try {
       await usagePolicy.markProviderRunning();
@@ -1105,6 +1123,7 @@ export async function handleGenerateImage(ctx) {
       });
     }
     const extracted = await runWithGenerationTimeout(async (signal) => {
+      await dispatchImageGenerationSlot(env,capacityClaim);
       const options = { ...((gptImage2 || flux2Max || grokImage2) ? runOptions : {}), signal };
       const result = gptImage25
         ? await callImage25Provider(env.AI, modelConfig.id, aiRequest.payload, options, correlationId)
@@ -1133,8 +1152,10 @@ export async function handleGenerateImage(ctx) {
       base64 = extracted.base64;
       mimeType = extracted.mimeType || mimeType;
       providerImageUrl = extracted.imageUrl || null;
+      if(base64)await finishImageGenerationSlot(env,capacityClaim,{confirmed:true});
     }
   } catch (e) {
+    if(e?.confirmedRejection===true)await finishImageGenerationSlot(env,capacityClaim,{confirmed:true});
     if (typeof usagePolicy.markProviderFailed === "function") {
       try {
         await usagePolicy.markProviderFailed({
@@ -1171,6 +1192,7 @@ export async function handleGenerateImage(ctx) {
     if (fluxSchnell) return respond({ ok: false, error: 'Image provider outcome requires review. Do not resubmit.', code: e.code || 'generation_provider_outcome_unknown' }, { status: 502 });
     return respond({ ok: false, error: "Image generation failed." }, { status: 502 });
   }
+  } finally {await finishImageGenerationSlot(env,capacityClaim);}
 
   if (!base64) {
     if (typeof usagePolicy.markProviderFailed === "function") {

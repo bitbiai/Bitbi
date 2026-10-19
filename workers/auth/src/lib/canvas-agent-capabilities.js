@@ -8,7 +8,8 @@ import { publicModelAvailability } from './model-availability.js';
 import { sha256Hex } from './tokens.js';
 import { stablePricingJson } from '../../../../js/shared/model-tariff.mjs';
 import { getPublicOmniReadiness } from './gemini-omni-readiness.js';
-import { readCanvasAgentProviderReadiness } from './canvas-agent-planning.js';
+import { canvasAssistantAvailability } from './canvas-agent-assistant-models.js';
+import { imageGenerationCapacity } from './image-generation-capacity.js';
 
 export async function canvasAgentCapabilities(env) {
     const [availability,tariff]=await Promise.all([publicModelAvailability(env),getModelTariff(env)]);
@@ -29,21 +30,12 @@ export async function canvasAgentCapabilities(env) {
             restrictions:{memberOnly:true,ownedSourcesOnly:true,providerParameters:'canvas-contract-only'},
             suitability:{status:'provisional',evidence:'Existing Canvas capability descriptions; no paid comparative benchmark.',description:model.description}});
     }
-    const inventory={version:2,models,transitions:TRANSITIONS,limits:CANVAS_AGENT_LIMITS,
+    const {version,revision,global,user,project,providers,verified,reason}=imageGenerationCapacity(env);
+    const inventory={version:3,models,transitions:TRANSITIONS,limits:CANVAS_AGENT_LIMITS,
+        imageConcurrency:{version,revision,global,user,project,providers,verified,reason},
         tools:['project.read','capabilities.read','cost.estimate','graph.apply','node.execute','job.read','reference.prepare','media.inspect','assembly.edit','export.create','asset.save','clarify'],
         audio:{originalAudio:true,backgroundMusic:true,fades:true},tariffRevision:tariff.revision};
     return {...inventory,revision:await sha256Hex(stablePricingJson(inventory))};
 }
-export async function canvasAgentAvailability(env,{dialogue=false}={}) {
-    let code=null;
-    if(String(env.CANVAS_AGENT_ENABLED)!=='true')code='canvas_agent_disabled';
-    else if(!env.AI_LAB?.fetch||!env.AI_VIDEO_JOBS_QUEUE?.send||!env.PRIVATE_MEDIA_PROCESSOR?.fetch)code='canvas_agent_infrastructure_unavailable';
-    else if(String(env.ENABLE_GROK_4_7)!=='true')code='canvas_agent_model_unavailable';
-    else {
-        try {if((await publicModelAvailability(env)).models[CANVAS_AGENT_MODEL]?.canvas===false)code='model_area_disabled';}
-        catch {code='model_availability_unavailable';}
-        if(!code){const readiness=await readCanvasAgentProviderReadiness(env,{dialogue});if(!readiness.available)code=readiness.code||readiness.reason||'canvas_agent_provider_unavailable';}
-    }
-    return {available:!code,code,model:CANVAS_AGENT_MODEL,providerAccess:'not_live_verified'};
-}
-export const canvasAgentDialogueAvailability=env=>canvasAgentAvailability(env,{dialogue:true});
+export const canvasAgentAvailability=(env,{dialogue=false,modelId=CANVAS_AGENT_MODEL}={})=>canvasAssistantAvailability(env,modelId,{dialogue});
+export const canvasAgentDialogueAvailability=(env,modelId=CANVAS_AGENT_MODEL)=>canvasAgentAvailability(env,{dialogue:true,modelId});

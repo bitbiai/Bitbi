@@ -14,6 +14,7 @@ import { gptImage25FactoryPrice, isGptImage25PricingAvailable } from './gpt-imag
 import { creditsForProviderCostUsd } from './model-credit-pricing.mjs';
 import { CANVAS_GROK_ADMISSION_VERSION, CANVAS_GROK_CONTEXT_TOKENS, CANVAS_GROK_LONG_CONTEXT_THRESHOLD,
     canvasGrokAdmissionPricePoints } from './canvas-grok-admission.mjs';
+import { CANVAS_FABLE_MODEL, CANVAS_FABLE_ADMISSION_VERSION } from './canvas-assistant-models.mjs';
 
 export function modelPricingCatalog() {
     const canvas = listCanvasModels(), members = getMemberExposedModels(), byId = new Map();
@@ -48,6 +49,8 @@ export function modelFactoryPrice(modelId, input = {}, { credits, context = 'can
     const model = modelPricingCatalog().find(item => item.id === canonicalPricingModel(modelId));
     if (!model) throw new TypeError('Unknown model.');
     input = { ...input };
+    if (input.canvasFableAdmission !== undefined && (model.id !== CANVAS_FABLE_MODEL
+        || input.canvasFableAdmission !== CANVAS_FABLE_ADMISSION_VERSION)) throw new TypeError('Invalid Canvas Fable admission policy.');
     if (input.canvasGrokAdmission !== undefined && (model.id !== 'xai/grok-4.7'
         || input.canvasGrokAdmission !== CANVAS_GROK_ADMISSION_VERSION)) throw new TypeError('Invalid Canvas Grok admission policy.');
     if (model.id === SEEDANCE_25_MODEL) {
@@ -69,6 +72,18 @@ export function modelFactoryPrice(modelId, input = {}, { credits, context = 'can
         if (price) return { model, price: { ...price, ...(credits === undefined ? {} : { credits }) }, basis: mediaTariffBasis(price, model.kind, input) };
     }
     if (model.kind === 'text' || model.kind === 'embeddings') {
+        if (input.canvasFableAdmission === CANVAS_FABLE_ADMISSION_VERSION) {
+            const inputToken = new TextEncoder().encode(String(input.prompt || '') + String(input.system || '')).byteLength + 4096;
+            const outputToken = input.maxTokens;
+            if (!Number.isSafeInteger(outputToken) || outputToken < 1 || outputToken > 16384 || inputToken + outputToken > 1000000)
+                throw new TypeError('Invalid Canvas Fable context bound.');
+            const providerCostUsd = (inputToken * model.tokenRates.input + outputToken * model.tokenRates.output) / 1e6 * 1.05;
+            return { model, canvasFableAdmission: { version: CANVAS_FABLE_ADMISSION_VERSION, cache: 'disabled',
+                inputTokenBound: inputToken, requestMaxTokens: outputToken },
+                price: { modelId: model.id, credits: creditsForProviderCostUsd(providerCostUsd), providerCostUsd, normalized: {},
+                    formula: { billingMode: 'token_estimate', pricingVersion: FACTORY_TARIFF_VERSION } },
+                basis: { configuration: {}, units: { inputToken, outputToken } } };
+        }
         const inputTokens = Math.max(1, input.previewInputTokens ?? new TextEncoder().encode(String(input.prompt || input.text || '') + String(input.systemPrompt || input.system || '')).length + (model.id === GROK_4_6_MODEL_ID ? 4096 : 0));
         const reasoningEffort = input.reasoningEffort || 'medium';
         const outputTokens = model.kind === 'embeddings' ? 0 : model.id === GROK_4_6_MODEL_ID

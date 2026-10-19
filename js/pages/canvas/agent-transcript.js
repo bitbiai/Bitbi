@@ -1,3 +1,4 @@
+import {canvasAssistantModel} from '../../shared/canvas-assistant-models.mjs?v=__ASSET_VERSION__';
 const create = (tag, className = '', text = '') => { const node = document.createElement(tag); node.className = className; node.textContent = text; return node; };
 const string = value => typeof value === 'string' ? value : '';
 
@@ -73,14 +74,15 @@ export function createCanvasTranscript({ viewport, list, welcome, newest, copy, 
             const detail = completed ? '' : stateText(message);
             const text = completed ? string(message.text) : ordinaryPending ? offline ? copy.connectionRetry : delayed ? copy.waitLonger : copy.waitMoment : detail;
             const errorCode=string(message.delivery?.code||message.code),safeCode=/^[a-z0-9_]{1,90}$/.test(errorCode)?errorCode:'';
-            const key = JSON.stringify([kind, message.status, text, safeReference, detail, thinking,safeCode]);
+            const modelName=kind==='assistant'&&message.modelId?(canvasAssistantModel(message.modelId)?.displayName||string(message.modelId)):'';
+            const key = JSON.stringify([kind, message.status, text, safeReference, detail, thinking,safeCode,modelName]);
             if (entry.key !== null && kind === 'assistant' && entry.text.textContent !== text && entry.row.getBoundingClientRect().top >= viewport.getBoundingClientRect().bottom) appended = true;
             if (key !== entry.key) {
                 entry.key = key; entry.row.className = `canvas-agent__message canvas-agent__message--${kind}${thinking ? ' canvas-agent__thinking' : ''}`;
                 entry.row.dataset.messageId = message.id; entry.row.dataset.status = string(message.status); entry.row.dataset.kind = kind;
                 entry.row.setAttribute('aria-busy', String(thinking)); entry.bee.hidden = !thinking;
-                entry.label.className = system && !ordinaryPending ? 'canvas-agent__system-label' : 'canvas-sr-only';
-                entry.label.textContent = system ? copy.requestStatus : kind === 'user' ? copy.you : copy.assistant;
+                entry.label.className = system && !ordinaryPending ? 'canvas-agent__system-label' : modelName?'canvas-agent__model-label':'canvas-sr-only';
+                entry.label.textContent = system ? copy.requestStatus : kind === 'user' ? copy.you : modelName||copy.assistant;
                 if (entry.text.textContent !== text) entry.text.textContent = text;
                 entry.diagnostic.hidden = completed || !(safeReference || detail); entry.reference.textContent = safeReference;
                 entry.reference.hidden = entry.copyButton.hidden = !safeReference;

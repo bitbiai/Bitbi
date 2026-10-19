@@ -9,6 +9,7 @@ import { markMemberAiUsageAttemptProviderFailed } from './member-ai-usage-attemp
 import { h3Diagnostic } from './h3-provider-result.js';
 import { canvasAgentReasoningSummary } from '../../../shared/canvas-agent-plan.mjs';
 import { logCanvasDialogueStage } from './canvas-agent-dialogue-state.js';
+import { canvasAssistantModel, CANVAS_FABLE_MODEL } from '../../../../js/shared/canvas-assistant-models.mjs';
 
 export const CANVAS_MODEL_PROTOCOL=1;
 export const CANVAS_MODEL_RECEIPT_WAIT_MS=30*60_000;
@@ -75,6 +76,9 @@ async function markUnknown(env,op,code,detail) {
 // The immutable intent precedes the only paid POST. A process loss before POST
 // is conservatively unknown; an intent can never be replayed as new inference.
 export async function dispatchCanvasModelOperation(env,run,step,prepared,callerPolicy,dispatchToken,snapshot) {
+    const model=canvasAssistantModel(prepared.model);
+    if(!model||callerPolicy.model_id!==model.modelId||(run.model_id||MODEL)!==model.modelId
+        ||(prepared.context.model||MODEL)!==model.modelId)fail('canvas_agent_model_identity_mismatch');
     const now=nowIso(),op={id:randomTokenHex(16),step_id:step.id,run_id:run.id,user_id:run.user_id,usage_attempt_id:step.usage_attempt_id,
         dispatch_token:dispatchToken,input_digest:snapshot.inputDigest,kind:step.kind,provider_run_id:null,receipt_protocol:2};
     const url=await callbackUrl(env,op); // Validate signing configuration before durable intent.
@@ -92,7 +96,7 @@ export async function dispatchCanvasModelOperation(env,run,step,prepared,callerP
             .bind(step.usage_attempt_id,run.id,run.lease_token,now,now,dispatchToken),
         env.DB.prepare(`INSERT INTO canvas_agent_model_operations(id,step_id,run_id,user_id,usage_attempt_id,dispatch_token,kind,model,request_id,
             input_digest,context_json,caller_policy_json,state,receipt_protocol,dispatched_at,next_attempt_at,receipt_deadline,created_at,updated_at)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'dispatching',2,?,?,?,?,?)`).bind(op.id,step.id,run.id,run.user_id,step.usage_attempt_id,dispatchToken,step.kind,MODEL,
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'dispatching',2,?,?,?,?,?)`).bind(op.id,step.id,run.id,run.user_id,step.usage_attempt_id,dispatchToken,step.kind,model.modelId,
             prepared.requestId,snapshot.inputDigest,JSON.stringify(prepared.context),JSON.stringify(callerPolicy),now,now,new Date(Date.now()+CANVAS_MODEL_RECEIPT_WAIT_MS).toISOString(),now,now),
         env.DB.prepare("UPDATE canvas_agent_steps SET status='accepted',receipt_json=?,updated_at=? WHERE id=? AND status='ready'")
             .bind(JSON.stringify({request:snapshot,operationId:op.id}),now,step.id),
@@ -106,7 +110,7 @@ export async function dispatchCanvasModelOperation(env,run,step,prepared,callerP
                 'cf-aig-gateway-id':'default','cf-aig-skip-cache':'true','cf-aig-collect-log':run.purpose==='briefing'?'true':'false',
                 'cf-aig-collect-log-payload':'false','cf-aig-max-attempts':'1',
                 'cf-aig-metadata':JSON.stringify({bitbi_dispatch:op.id,canvas_run:run.id,canvas_step:step.id})},
-            body:JSON.stringify({model:MODEL,input:prepared.input,options:{background:true,webhookUrl:url}})},
+            body:JSON.stringify({model:model.modelId,input:prepared.input,options:{background:true,webhookUrl:url}})},
         {timeoutMs:30_000,consumeResponse:async(response,signal)=>{body=await boundedJson(response,signal);return response;}});
         const result=body?.result;
         // A documented background request may acknowledge acceptance with HTTP
@@ -118,7 +122,7 @@ export async function dispatchCanvasModelOperation(env,run,step,prepared,callerP
             const detail=diagnostic(response,op,startedAt,body?.errors?.[0]||result?.error);
             if(detail.noInference&&!safeId(result?.id))await storeRejection(env,op,'canvas_agent_provider_rejected',detail);
             else await markUnknown(env,op,'canvas_agent_provider_outcome_unknown',detail);
-        } else if(result?.result?.object==='chat.completion'||result?.state==='Failed')await storeCallback(env,op,result);
+        } else if(result?.result?.object==='chat.completion'||result?.result?.type==='message'||result?.state==='Failed')await storeCallback(env,{...op,model:model.modelId},result);
         else {
             const providerId=safeId(result?.id);
             const saved=await env.DB.prepare(`UPDATE canvas_agent_model_operations SET state='pending',provider_run_id=?,diagnostic_json=?,response_at=?,updated_at=?
@@ -147,6 +151,19 @@ async function storeRejection(env,op,code,detail) {
     logCanvasDialogueStage('rejected',{runId:op.run_id,operationId:op.id,stepId:op.step_id,code,httpStatus:detail.status,dispatchState:'rejected',receiptState:'rejected'});
 }
 function normalizedCallback(body,op) {
+    if(op.model===CANVAS_FABLE_MODEL){
+        if(!body||typeof body!=='object'||!safeId(body.id)||!['Completed','Failed'].includes(body.state)
+            ||body.model!==undefined&&body.model!==op.model||body.provider!==undefined&&body.provider!=='anthropic')fail('canvas_agent_callback_invalid',400);
+        if(body.state==='Failed')return {id:body.id,state:'Failed',model:op.model,error:{code:safeId(String(body.error?.code||''))}};
+        const response=body.result;
+        if(!response||response.error||response.type!=='message'||!safeId(response.id)||!['claude-fable-5',op.model].includes(response.model)
+            ||!Array.isArray(response.content))fail('canvas_agent_callback_invalid',400);
+        // Provider thinking/signatures and tool payloads are never transcript
+        // context. Keep only discriminants needed to reject forbidden blocks.
+        return {id:body.id,state:'Completed',model:op.model,result:{id:response.id,type:response.type,role:response.role,
+            model:response.model,stop_reason:response.stop_reason,usage:response.usage,
+            content:response.content.map(block=>({type:block?.type,...(block?.type==='text'?{text:block.text}:{})}))}};
+    }
     if(!body||typeof body!=='object'||!safeId(body.id)||!safeId(body.state)
         ||(body.model!==undefined&&body.model!==MODEL)||(body.provider!==undefined&&!['xai','x-ai'].includes(body.provider)))fail('canvas_agent_callback_invalid',400);
     if(body.state==='Failed')return {id:body.id,state:'Failed',model:MODEL,error:{code:safeId(String(body.error?.code||''))}};

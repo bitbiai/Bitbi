@@ -1,5 +1,6 @@
 import { getMemberExposedModels } from './member-model-exposure.mjs';
 import { listCanvasModels } from './canvas-model-contract.mjs';
+import { CANVAS_ASSISTANT_MODELS } from './canvas-assistant-models.mjs';
 
 export const MODEL_AREAS = Object.freeze(['generation', 'canvas', 'main']);
 // Membership is derived from the actual generation contracts. This is an area
@@ -13,7 +14,7 @@ export function modelAreaCatalog(mainModel) {
     }
     for (const model of getMemberExposedModels()) add(model, 'generation');
     for (const model of listCanvasModels().filter(model => model.runnable)) add(model, 'canvas');
-    add({id:'xai/grok-4.7',label:'Grok 4.7 · Canvas agent',vendor:'xAI',capability:'text'}, 'canvas');
+    for (const model of CANVAS_ASSISTANT_MODELS) add({id:model.modelId,label:`${model.displayName} · Canvas agent`,vendor:model.provider,capability:'text'}, 'canvas');
     if (mainModel) add({id:mainModel, label:mainModel.includes('apertus') ? 'Apertus v1.5 8B' : 'EuroLLM 9B IT', mediaType:'chat'}, 'main');
     return [...rows.values()];
 }

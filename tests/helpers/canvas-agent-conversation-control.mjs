@@ -93,7 +93,7 @@ export async function canvasConversationCase(base,name) {
     const opening=await f.request(c.route);check(opening.headers.get('cache-control')==='private, no-store','Conversation cannot enter shared caches');
     const empty=(await c.data(opening)).conversation;
     check(empty.messages.length===0&&empty.briefRevision===0,'Existing production history is not fabricated conversation');
-    const denied=await c.send('A comic film about Amish builders, a neighboring duck pool and visiting friends.');
+    const denied=await c.send('Explain the supported camera options.');
     await responseCode(denied.response,402,'canvas_agent_briefing_allowance_required');
     check(c.calls.length===0&&await count('SELECT COUNT(*) AS n FROM canvas_agent_turns WHERE project_id=?',f.project)===0,'No allowance means no accepted paid turn');
     await c.approve();

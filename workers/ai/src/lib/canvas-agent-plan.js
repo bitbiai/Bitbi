@@ -8,11 +8,13 @@ import {
   canvasAgentPlanSystem,
 } from '../../../shared/canvas-agent-plan.mjs';
 import { CANVAS_AGENT_DIALOGUE_VERSION, CANVAS_AGENT_DIALOGUE_MAX_OUTPUT_TOKENS, validateCanvasAgentDialogue } from '../../../shared/canvas-agent-dialogue.mjs';
-import { CANVAS_AGENT_POLICY_VERSION, canvasAgentPolicyIdentity, validateCanvasAgentPolicyIdentity } from '../../../shared/canvas-agent/manifest.mjs';
+import { CANVAS_AGENT_POLICY_VERSION, canvasAgentSystem, canvasAgentPolicyIdentity, validateCanvasAgentPolicyIdentity } from '../../../shared/canvas-agent/manifest.mjs';
 import { validateCanvasAgentDialogueInput, buildCanvasAgentDialoguePayload, canvasAgentDialogueContext,
   validateCanvasAgentDialogueContext } from './canvas-agent-dialogue.js';
 import { normalizeCanvasGrokUsage, canvasGrokLimitDiagnostic, CANVAS_GROK_METERING_VERSION } from '../../../shared/canvas-agent-metering.mjs';
 import { runWithGenerationTimeout } from './generation-timeout.js';
+import { CANVAS_ASSISTANT_MODEL_VERSION, CANVAS_FABLE_MODEL, CANVAS_FABLE_ADMISSION_VERSION, canvasAssistantModel, canvasAssistantModelId } from '../../../../js/shared/canvas-assistant-models.mjs';
+import { canvasFablePayload, canvasFableResponse } from '../../../shared/canvas-assistant-fable.mjs';
 
 export class CanvasAgentProviderError extends Error {
   constructor(code, { status = 502, outcome = 'unknown', usage = null, responseId = null } = {}) {
@@ -50,7 +52,7 @@ function validateRepair(repair) {
 export function validateCanvasAgentPlanInput(input) {
   if (!object(input) || Object.keys(input).some(key => !['version', 'model', 'requestId', 'brief', 'targetDurationSeconds',
     'toleranceSeconds', 'durationMode', 'budget', 'repair', 'capabilityRevision', 'capabilities', 'projectRevision', 'currentProject', 'privacyUser', 'promptCacheKey', 'policy'].includes(key))) invalid('canvas_agent_input_invalid');
-  if (input.version !== CANVAS_AGENT_PLAN_VERSION || input.model !== GROK_4_7_MODEL_ID) invalid('canvas_agent_model_invalid');
+  if (input.version !== CANVAS_AGENT_PLAN_VERSION || !canvasAssistantModel(input.model)) invalid('canvas_agent_model_invalid');
   // Creative duration belongs to the new authorized production contract. Keep
   // old accepted contexts valid for late reconciliation and legacy callers.
   if (input.durationMode !== undefined && !['creative', 'exact'].includes(input.durationMode)) invalid('canvas_agent_duration_mode_invalid');
@@ -72,18 +74,20 @@ export function validateCanvasAgentPlanInput(input) {
   return structuredClone(input);
 }
 
-export function canvasAgentProviderReadiness(env) {
-  const contract = { model: GROK_4_7_MODEL_ID, accountAccess: 'unverified', protocolVersion: CANVAS_AGENT_MODEL_PROTOCOL_VERSION,
+export function canvasAgentProviderReadiness(env, modelId = GROK_4_7_MODEL_ID) {
+  const descriptor = canvasAssistantModel(modelId);
+  const contract = { model: modelId, accountAccess: 'unverified', protocolVersion: CANVAS_AGENT_MODEL_PROTOCOL_VERSION,
     transport: 'cloudflare-background', reasoningSummaryDelivery: CANVAS_AGENT_REASONING_SUMMARY_DELIVERY,
     dialogueVersion: CANVAS_AGENT_DIALOGUE_VERSION, policyVersion: CANVAS_AGENT_POLICY_VERSION };
-  if (env?.ENABLE_GROK_4_7 !== 'true') return { available: false, reason: 'canvas_agent_model_disabled', ...contract };
+  if (!descriptor) return { available: false, reason: 'canvas_agent_model_invalid', ...contract };
+  if (modelId === GROK_4_7_MODEL_ID && env?.ENABLE_GROK_4_7 !== 'true') return { available: false, reason: 'canvas_agent_model_disabled', ...contract };
   if (typeof env?.AI?.run !== 'function') return { available: false, reason: 'ai_binding_missing', ...contract };
   return { available: true, reason: null, ...contract };
 }
 
 export function buildCanvasAgentPlanPayload(input) {
   const { brief, targetDurationSeconds, toleranceSeconds, durationMode, budget, repair, capabilityRevision, capabilities, projectRevision, currentProject } = input;
-  return {
+  const payload = {
     messages: [{ role: 'system', content: canvasAgentPlanSystem(input) }, { role: 'user', content: JSON.stringify({
       brief, targetDurationSeconds, toleranceSeconds, durationMode, budget, repair, capabilityRevision, capabilities, projectRevision, currentProject,
     }) }],
@@ -91,9 +95,18 @@ export function buildCanvasAgentPlanPayload(input) {
     response_format: { type: 'json_schema', json_schema: { name: 'bitbi_canvas_production_v1', strict: true, schema: CANVAS_AGENT_PLAN_SCHEMA } },
     stream: false, user: input.privacyUser, prompt_cache_key: input.promptCacheKey,
   };
+  return input.model === CANVAS_FABLE_MODEL ? canvasFablePayload(payload.messages, CANVAS_AGENT_PLAN_SCHEMA, CANVAS_AGENT_PLAN_MAX_OUTPUT_TOKENS) : payload;
 }
 
-function normalizeCanvasStructuredResponse(raw, validate, invalidCode) {
+function normalizeCanvasStructuredResponse(raw, validate, invalidCode, modelId = GROK_4_7_MODEL_ID) {
+  if (modelId === CANVAS_FABLE_MODEL) {
+    const result = canvasFableResponse(raw);
+    const reject = code => { throw new CanvasAgentProviderError(code, { outcome: 'completed', usage: result.usage, responseId: result.responseId }); };
+    if (result.error) reject(result.error);
+    if (new TextEncoder().encode(result.text).byteLength > CANVAS_AGENT_PLAN_MAX_BYTES) reject('canvas_agent_provider_response_invalid');
+    let value; try { value = validate(JSON.parse(result.text)); } catch { reject(invalidCode); }
+    return { value, usage: result.usage, responseId: result.responseId, model: modelId, outcome: 'completed' };
+  }
   const response = object(raw?.result) ? raw.result : raw;
   const usage = normalizeCanvasGrokUsage(response?.usage);
   const responseId = typeof response?.id === 'string' && /^[A-Za-z0-9_.:-]{1,180}$/.test(response.id) ? response.id : null;
@@ -121,12 +134,13 @@ export function normalizeCanvasAgentPlanResponse(raw, input) {
     targetDurationSeconds: input.targetDurationSeconds, toleranceSeconds: input.toleranceSeconds,
     durationMode: input.durationMode,
     existingNodeIds: input.currentProject.nodes.map(node => node.id),
-  }), 'canvas_agent_plan_invalid');
+  }), 'canvas_agent_plan_invalid', input.model);
   return { plan: value, ...receipt };
 }
 
 async function checkedPolicy(input, phase) {
-  const version = phase === 'briefing' ? (input.version === 1 ? 'canvas-policy-1' : CANVAS_AGENT_POLICY_VERSION) : input.policy?.version;
+  const version = input.policy?.version || (phase === 'briefing' && input.version === 1 ? 'canvas-policy-1' : CANVAS_AGENT_POLICY_VERSION);
+  if (input.model === CANVAS_FABLE_MODEL && version !== CANVAS_AGENT_POLICY_VERSION) invalid('canvas_agent_policy_changed');
   let policy;
   try { policy = await canvasAgentPolicyIdentity(phase, version); } catch { invalid('canvas_agent_policy_changed'); }
   if (input.policy !== undefined && JSON.stringify(input.policy) !== JSON.stringify(policy)) invalid('canvas_agent_policy_changed');
@@ -135,16 +149,16 @@ async function checkedPolicy(input, phase) {
 
 export async function invokeCanvasAgentPlan(env, rawInput, { correlationId, signal } = {}) {
   const input = validateCanvasAgentPlanInput(rawInput);
-  const readiness = canvasAgentProviderReadiness(env);
+  const readiness = canvasAgentProviderReadiness(env, input.model);
   if (!readiness.available) throw new CanvasAgentProviderError(readiness.reason, { status: 503, outcome: 'not_submitted' });
   const policy = await checkedPolicy(input, input.repair ? 'correction' : 'planning');
   try {
     // One submission only. The owning durable run persists its attempt before
     // calling this adapter; requestId is correlation, not a provider replay claim.
-    const output = await runWithGenerationTimeout(providerSignal => env.AI.run(GROK_4_7_MODEL_ID, buildCanvasAgentPlanPayload(input), {
+    const output = await runWithGenerationTimeout(providerSignal => env.AI.run(input.model, buildCanvasAgentPlanPayload(input), {
       signal: providerSignal,
       gateway: { id: env.AI_GATEWAY_ID || 'default', skipCache: true, collectLog: false,
-        metadata: { surface: 'canvas-agent-plan', model_id: GROK_4_7_MODEL_ID, provider: 'xai',
+        metadata: { surface: 'canvas-agent-plan', model_id: input.model, provider: canvasAssistantModel(input.model).provider,
           request_id: input.requestId, ...(typeof correlationId === 'string' && /^[A-Za-z0-9_-]{1,96}$/.test(correlationId) ? { correlation_id: correlationId } : {}) } },
     }), { signal });
     return { ...normalizeCanvasAgentPlanResponse(output, input), policy };
@@ -158,7 +172,7 @@ export async function invokeCanvasAgentPlan(env, rawInput, { correlationId, sign
 
 export function validateCanvasAgentEvaluationInput(input) {
   if (!object(input) || Object.keys(input).some(key => !['version', 'model', 'requestId', 'brief', 'privacyUser', 'promptCacheKey', 'frames', 'policy'].includes(key))) invalid('canvas_agent_input_invalid');
-  if (input.version !== 1 || input.model !== GROK_4_7_MODEL_ID) invalid('canvas_agent_model_invalid');
+  if (input.version !== 1 || !canvasAssistantModel(input.model)?.vision) invalid('canvas_agent_model_invalid');
   if (input.policy !== undefined) { try { validateCanvasAgentPolicyIdentity(input.policy); } catch { invalid('canvas_agent_policy_identity_invalid'); } }
   if (typeof input.requestId !== 'string' || !/^[A-Za-z0-9_-]{8,96}$/.test(input.requestId) || !/^(?:cau|vau)_[a-f0-9]{64}$/.test(input.privacyUser || '') || !/^(?:cap|gpc)_[a-f0-9]{64}$/.test(input.promptCacheKey || '')) invalid('canvas_agent_identity_invalid');
   if (typeof input.brief !== 'string' || !input.brief.trim() || input.brief.length > 12000 || !Array.isArray(input.frames) || input.frames.length < 1 || input.frames.length > 8) invalid('canvas_agent_evaluation_input_invalid');
@@ -175,7 +189,7 @@ export function validateCanvasAgentEvaluationInput(input) {
   return structuredClone(input);
 }
 export function buildCanvasAgentEvaluationPayload(input) {
-  return { messages: [{ role: 'system', content: CANVAS_AGENT_EVALUATION_SYSTEM }, { role: 'user', content: [
+  return { messages: [{ role: 'system', content: canvasAgentSystem('evaluation', input.policy?.version) }, { role: 'user', content: [
     { type: 'text', text: JSON.stringify({ brief: input.brief, frames: input.frames.map(({ imageData, ...frame }) => frame) }) },
     ...input.frames.flatMap(frame => [{ type: 'text', text: JSON.stringify({ nodeId: frame.nodeId, timeSeconds: frame.timeSeconds }) }, { type: 'image_url', image_url: { url: frame.imageData } }]),
   ] }], reasoning_effort: 'low', max_completion_tokens: CANVAS_AGENT_EVALUATION_MAX_OUTPUT_TOKENS,
@@ -183,13 +197,13 @@ export function buildCanvasAgentEvaluationPayload(input) {
     stream: false, user: input.privacyUser, prompt_cache_key: input.promptCacheKey };
 }
 export async function invokeCanvasAgentEvaluation(env, rawInput, { signal, correlationId } = {}) {
-  const input = validateCanvasAgentEvaluationInput(rawInput), ready = canvasAgentProviderReadiness(env);
+  const input = validateCanvasAgentEvaluationInput(rawInput), ready = canvasAgentProviderReadiness(env, input.model);
   if (!ready.available) throw new CanvasAgentProviderError(ready.reason, { status: 503, outcome: 'not_submitted' });
   const policy = await checkedPolicy(input, 'evaluation');
   try {
-    const raw = await runWithGenerationTimeout(providerSignal => env.AI.run(GROK_4_7_MODEL_ID, buildCanvasAgentEvaluationPayload(input), {
+    const raw = await runWithGenerationTimeout(providerSignal => env.AI.run(input.model, buildCanvasAgentEvaluationPayload(input), {
       signal: providerSignal, gateway: { id: env.AI_GATEWAY_ID || 'default', skipCache: true, collectLog: false,
-        metadata: { surface: 'canvas-agent-evaluation', model_id: GROK_4_7_MODEL_ID, provider: 'xai', request_id: input.requestId,
+        metadata: { surface: 'canvas-agent-evaluation', model_id: input.model, provider: canvasAssistantModel(input.model).provider, request_id: input.requestId,
           ...(typeof correlationId === 'string' && /^[A-Za-z0-9_-]{1,96}$/.test(correlationId) ? { correlation_id: correlationId } : {}) } },
     }), { signal });
     const { value, ...receipt } = normalizeCanvasStructuredResponse(raw, value => validateCanvasAgentEvaluation(value, input.frames), 'canvas_agent_evaluation_invalid');
@@ -204,12 +218,16 @@ function validateNormalizationContext(kind, context) {
   const reject = () => { throw new CanvasAgentProviderError('canvas_agent_normalization_context_invalid', { status: 400 }); };
   if (!object(context)) reject();
   const policy = context.policy;
+  const model = context.model ?? GROK_4_7_MODEL_ID;
+  if (!canvasAssistantModel(model) || context.modelContractVersion !== undefined && context.modelContractVersion !== CANVAS_ASSISTANT_MODEL_VERSION
+    || model === CANVAS_FABLE_MODEL && (context.modelContractVersion !== CANVAS_ASSISTANT_MODEL_VERSION || kind === 'evaluate')) reject();
+  context = Object.fromEntries(Object.entries(context).filter(([key]) => !['model', 'modelContractVersion'].includes(key)));
   const metering = context.metering;
   if (metering !== undefined) {
     const limit = kind === 'plan' ? CANVAS_AGENT_PLAN_MAX_OUTPUT_TOKENS
       : kind === 'dialogue' ? CANVAS_AGENT_DIALOGUE_MAX_OUTPUT_TOKENS : CANVAS_AGENT_EVALUATION_MAX_OUTPUT_TOKENS;
     if (!object(metering) || Object.keys(metering).sort().join(',') !== 'maxCompletionTokens,version'
-      || metering.version !== CANVAS_GROK_METERING_VERSION || metering.maxCompletionTokens !== limit) reject();
+      || metering.version !== (model === CANVAS_FABLE_MODEL ? CANVAS_FABLE_ADMISSION_VERSION : CANVAS_GROK_METERING_VERSION) || metering.maxCompletionTokens !== limit) reject();
     context = Object.fromEntries(Object.entries(context).filter(([key]) => key !== 'metering'));
   }
   if (policy !== undefined) {
@@ -239,7 +257,7 @@ function validateNormalizationContext(kind, context) {
   } else if (kind === 'dialogue') {
     try { context = validateCanvasAgentDialogueContext(context); } catch { reject(); }
   } else reject();
-  return structuredClone({ ...context, ...(policy !== undefined ? { policy } : {}), ...(metering !== undefined ? { metering } : {}) });
+  return structuredClone({ ...context, model, ...(policy !== undefined ? { policy } : {}), ...(metering !== undefined ? { metering } : {}) });
 }
 
 // Auth owns durable dispatch, the background webhook and the original usage
@@ -252,7 +270,7 @@ export async function prepareCanvasAgentModel(env, envelope) {
   let input;
   try { input = (kind === 'plan' ? validateCanvasAgentPlanInput : kind === 'dialogue' ? validateCanvasAgentDialogueInput : validateCanvasAgentEvaluationInput)(envelope.input); }
   catch (error) { if (error instanceof CanvasAgentProviderError) throw error; invalid(error?.code || 'canvas_agent_input_invalid'); }
-  const ready = canvasAgentProviderReadiness(env);
+  const ready = canvasAgentProviderReadiness(env, input.model);
   if (!ready.available) throw new CanvasAgentProviderError(ready.reason, { status: 503, outcome: 'not_submitted' });
   const phase = kind === 'dialogue' ? 'briefing' : kind === 'evaluate' ? 'evaluation' : input.repair ? 'correction' : 'planning';
   const policy = await checkedPolicy(input, phase);
@@ -261,13 +279,13 @@ export async function prepareCanvasAgentModel(env, envelope) {
       ...(input.durationMode !== undefined ? { durationMode: input.durationMode } : {}), existingNodeIds: input.currentProject.nodes.map(node => node?.id) }
     : kind === 'dialogue' ? canvasAgentDialogueContext(input) : { frames: input.frames.map(({ nodeId, timeSeconds }) => ({ nodeId, timeSeconds })) };
   const providerInput = (kind === 'plan' ? buildCanvasAgentPlanPayload : kind === 'dialogue' ? buildCanvasAgentDialoguePayload : buildCanvasAgentEvaluationPayload)(input);
-  const context = { ...validationContext, policy, metering: {
-    version: CANVAS_GROK_METERING_VERSION, maxCompletionTokens: providerInput.max_completion_tokens,
+  const context = { ...validationContext, policy, model: input.model, modelContractVersion: CANVAS_ASSISTANT_MODEL_VERSION, metering: {
+    version: canvasAssistantModel(input.model).meteringVersion, maxCompletionTokens: providerInput.max_completion_tokens ?? providerInput.max_tokens,
   } };
   try { validateNormalizationContext(kind, context); }
   catch { invalid('canvas_agent_context_invalid'); }
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(input)));
-  return { protocolVersion: CANVAS_AGENT_MODEL_PROTOCOL_VERSION, model: GROK_4_7_MODEL_ID,
+  return { protocolVersion: CANVAS_AGENT_MODEL_PROTOCOL_VERSION, model: input.model,
     input: providerInput,
     requestId: input.requestId, inputDigest: Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join(''), context, policy };
 }
@@ -288,16 +306,16 @@ export function normalizeCanvasAgentModel(envelope) {
   try {
     const { value, ...receipt } = normalizeCanvasStructuredResponse(envelope.response,
       result => plan ? validateCanvasAgentPlan(result, context) : dialogue ? validateCanvasAgentDialogue(result, context) : validateCanvasAgentEvaluation(result, context.frames),
-      plan ? 'canvas_agent_plan_invalid' : dialogue ? 'canvas_agent_dialogue_invalid' : 'canvas_agent_evaluation_invalid');
+      plan ? 'canvas_agent_plan_invalid' : dialogue ? 'canvas_agent_dialogue_invalid' : 'canvas_agent_evaluation_invalid', context.model);
     // Briefing never projects provider reasoning into a pretend conversation.
     if (dialogue) delete receipt.reasoningSummary;
     return { [plan ? 'plan' : dialogue ? 'dialogue' : 'evaluation']: value, ...receipt, requestId: envelope.requestId,
-      ...(context.metering ? { usageDiagnostic: canvasGrokLimitDiagnostic(receipt.usage, context.metering.maxCompletionTokens) } : {}),
+      ...(context.metering && context.model === GROK_4_7_MODEL_ID ? { usageDiagnostic: canvasGrokLimitDiagnostic(receipt.usage, context.metering.maxCompletionTokens) } : {}),
       ...(context.policy ? { policy: context.policy } : {}) };
   } catch (error) {
     if (error instanceof CanvasAgentProviderError && error.outcome === 'completed') {
-      Object.assign(error, { requestId: envelope.requestId, model: GROK_4_7_MODEL_ID });
-      if (context.metering && error.usage) error.usageDiagnostic = canvasGrokLimitDiagnostic(error.usage, context.metering.maxCompletionTokens);
+      Object.assign(error, { requestId: envelope.requestId, model: context.model });
+      if (context.metering && context.model === GROK_4_7_MODEL_ID && error.usage) error.usageDiagnostic = canvasGrokLimitDiagnostic(error.usage, context.metering.maxCompletionTokens);
     }
     throw error;
   }

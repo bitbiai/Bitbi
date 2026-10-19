@@ -41,7 +41,7 @@ test('Canvas dialogue readiness recognizes only the deployed signed dialogue and
     H3_CLOUDFLARE_API_TOKEN: 'synthetic-dialogue-readiness-access', AI_SAVE_REFERENCE_SIGNING_SECRET: 'synthetic-dialogue-readiness-signing',
     AI_LAB: { fetch: f.fetch } };
   expect(await readCanvasAgentProviderReadiness(env, { dialogue: true })).toEqual({ available: true, reason: null, model,
-    accountAccess: 'unverified', dialogueVersion: 2, policyVersion: 'canvas-policy-2' });
+    accountAccess: 'unverified', dialogueVersion: 2, policyVersion: 'canvas-policy-3' });
   const legacy = { ok: true, available: true, reason: null, model, accountAccess: 'unverified', protocolVersion: 1, transport: 'cloudflare-background' };
   const oldEnv = { ...env, AI_LAB: { fetch: () => Response.json(legacy) } };
   expect(await readCanvasAgentProviderReadiness(oldEnv)).toEqual({ available: true, reason: null, model, accountAccess: 'unverified' });
@@ -64,7 +64,7 @@ test('Canvas dialogue prepares signed member-only private structured context wit
   const { canvasAgentPolicyIdentity, canvasAgentSystem } = await import('../workers/shared/canvas-agent/manifest.mjs');
   const { dialoguePriceInput, CANVAS_AGENT_DIALOGUE_SCHEMA } = await import('../workers/shared/canvas-agent-dialogue.mjs');
   const identity = await canvasAgentPolicyIdentity('briefing');
-  expect(result.body.context).toEqual({ dialogue: true, dialogueVersion: 2, conversationRevision: 2, briefRevision: 1, projectRevision: 7, messageId, policy: identity,
+  expect(result.body.context).toEqual({ model, modelContractVersion:'canvas-assistant-models-1', dialogue: true, dialogueVersion: 2, conversationRevision: 2, briefRevision: 1, projectRevision: 7, messageId, policy: identity,
     metering: { version: 'canvas-grok-4.7-usage-v1', maxCompletionTokens: 4096 } });
   expect(result.body.policy).toEqual(identity);
   expect(identity.sha256).toBe(createHash('sha256').update(canvasAgentSystem('briefing')).digest('hex'));

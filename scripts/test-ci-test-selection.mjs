@@ -18,6 +18,17 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 
 {
+ const scoped=['tests/q2-canvas-h3-operator.spec.js','scripts/canvas-h3-recovery.mjs','tests/q2-canvas-agent-h3-recovery.spec.js',
+ 'tests/helpers/canvas-agent-h3-recovery-control.mjs','tests/q2-canvas-assistant-migration.spec.js','tests/helpers/canvas-assistant-migration-control.mjs',
+ 'tests/helpers/canvas-assistant-model-control.mjs','tests/q2-canvas-conversation-decisions.spec.js','tests/helpers/canvas-conversation-decisions-control.mjs',
+ 'tests/q2-canvas-image-scheduling.spec.js','tests/helpers/canvas-image-scheduling-control.mjs','tests/helpers/image-capacity-mock.js'];
+ for(const file of scoped){const selected=selectCiTests([file]);assert(selected.workers&&!selected.full,`${file}: actual Worker/native callers selected`);}
+ assert(selectCiTests(['tests/helpers/canvas-conversation-budget-ui.cjs']).homepage,'Real EN/DE browser caller selected');
+ assert(selectCiTests([...scoped,'tests/helpers/unreviewed-canvas-model.mjs']).full,'Unknown new coverage retains full discovery');
+}
+
+
+{
  const metering=['workers/shared/canvas-agent-metering.mjs','js/shared/canvas-grok-admission.mjs'];
  for(const file of metering) {
   const selected=selectCiTests([file]);

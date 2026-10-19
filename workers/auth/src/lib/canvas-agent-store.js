@@ -2,6 +2,7 @@ import { nowIso,randomTokenHex } from './tokens.js';
 import { markMemberAiUsageAttemptProviderFailed } from './member-ai-usage-attempts.js';
 import { readCanvasAgentBudget,publicCanvasBudgetRequest } from './canvas-agent-budget.js';
 import { publicCanvasAgentProposal,publicCanvasAgentOutputs } from './canvas-agent-progress.js';
+import { imageGenerationCapacity } from './image-generation-capacity.js';
 export const CANVAS_AGENT_MESSAGE='canvas_agent.process';
 export const ACTIVE_AGENT_STATES=['queued','planning','running','exporting'];
 export const agentFail=(code,status=409)=>{throw Object.assign(new Error(code),{code,status});};
@@ -10,6 +11,7 @@ export async function publicAgentRun(env,row) {
     if(!row)return null;
     const steps=(await env.DB.prepare('SELECT id,kind,status,allocation_credits,usage_attempt_id FROM canvas_agent_steps WHERE run_id=? ORDER BY rowid').bind(row.id).all()).results;
     const modelOperation=await publicCanvasAgentModelOperation(env,row.id);
+    const mediaProgress=await canvasAgentMediaProgress(env,row);
     const project=await env.DB.prepare('SELECT revision FROM canvas_projects WHERE id=?').bind(row.project_id).first();
     const budget=row.budget_credits===null?null:await readCanvasAgentBudget(env,row);
     const budgetRequest=await env.DB.prepare("SELECT * FROM canvas_agent_budget_requests WHERE run_id=? AND status='pending' ORDER BY created_at DESC LIMIT 1").bind(row.id).first();
@@ -23,15 +25,17 @@ export async function publicAgentRun(env,row) {
     const event=await env.DB.prepare(`SELECT type,payload_json FROM canvas_agent_events WHERE run_id=? AND type IN ('action','decision_summary','error')
         AND (?=0 OR json_extract(payload_json,'$.code')=?) ORDER BY id DESC LIMIT 1`).bind(row.id,held?1:0,row.status).first();
     const input=JSON.parse(row.input_json);
-    return {id:row.id,projectId:row.project_id,requestKey:row.request_key,brief:input.brief,status:row.status,phase:row.phase,
-        completed:steps.filter(s=>s.kind==='node'&&s.status==='completed').length,total:steps.filter(s=>s.kind==='node').length,
+    const {version,revision,global,user,project:projectLimit,providers,verified,reason}=imageGenerationCapacity(env);
+    return {id:row.id,projectId:row.project_id,requestKey:row.request_key,brief:input.brief,modelId:row.model_id||'xai/grok-4.7',modelRevision:row.model_revision||0,status:row.status,phase:row.phase,
+        completed:steps.filter(s=>s.kind==='node'&&s.status==='completed').length,total:steps.filter(s=>s.kind==='node').length,mediaProgress,
+        imageConcurrency:{version,revision,global,user,project:projectLimit,providers,verified,reason},
         targetDurationSeconds:row.target_seconds,toleranceSeconds:row.tolerance_seconds,budgetCredits:row.budget_credits,
         allocatedCredits:steps.reduce((sum,s)=>sum+s.allocation_credits,0),projectRevision:row.expected_revision,
         chargedCredits:budget?.chargedCredits||0,reservedCredits:budget?.reservedCredits||0,pendingOutcomeCredits:budget?.pendingOutcomeCredits||0,
         committedCredits:budget?.committedCredits||0,remainingCredits:budget?.remainingCredits||0,budgetRevision:row.budget_revision||0,
         budgetRequest:actionableBudget?publicCanvasBudgetRequest(budgetRequest):null,proposedPlan,partialOutputs,
-        currentAction:!held&&modelOperation?.recovery==='settlement_review'?{code:'settlement_review',phase:'settlement_review',model:'xai/grok-4.7',tool:'billing.review'}:
-            event?JSON.parse(event.payload_json):{phase:held?row.status==='taken_over'?'manual_takeover':row.status:row.phase,model:!held&&modelOperation?'xai/grok-4.7':null},
+        currentAction:!held&&modelOperation?.recovery==='settlement_review'?{code:'settlement_review',phase:'settlement_review',model:modelOperation.modelId,tool:'billing.review'}:
+            event?JSON.parse(event.payload_json):{phase:held?row.status==='taken_over'?'manual_takeover':row.status:row.phase,model:!held&&modelOperation?modelOperation.modelId:null},
         cause,
         summarySupport:{status:'unavailable',mode:'completed'},
         modelOperation,allowedActions:canvasAgentAllowedActions({...row,current_revision:project?.revision},modelOperation),
@@ -39,8 +43,25 @@ export async function publicAgentRun(env,row) {
         ...(row.status==='clarification_required'?{clarification:{field:'duration',code:'duration_required'}}:{}),
         createdAt:row.created_at,updatedAt:row.updated_at};
 }
+async function canvasAgentMediaProgress(env,run) {
+    const rows=(await env.DB.prepare(`SELECT s.status,c.status AS canvas_status,j.status AS job_status,u.provider_outcome
+        FROM canvas_agent_steps s JOIN canvas_nodes n ON n.id=s.node_id AND n.user_id=? AND n.project_id=?
+        LEFT JOIN canvas_runs c ON c.user_id=n.user_id AND c.idempotency_key='canvas-agent-'||s.id
+        LEFT JOIN member_generation_jobs j ON j.id=(SELECT x.id FROM member_generation_jobs x WHERE x.canvas_run_id=c.id AND x.user_id=n.user_id ORDER BY x.created_at DESC LIMIT 1)
+        LEFT JOIN member_ai_usage_attempts_v2 u ON u.id=COALESCE(j.usage_attempt_id,c.usage_attempt_id)
+        WHERE s.run_id=? AND s.kind='node' AND n.type IN ('image_generation','video_generation','music_generation')`)
+        .bind(run.user_id,run.project_id,run.id).all()).results;
+    const counts={waiting:0,generating:0,saved:0,blocked:0};
+    for(const row of rows){
+        if(row.status==='completed'||row.canvas_status==='completed')counts.saved++;
+        else if(row.status==='rejected'||['failed','review_required'].includes(row.job_status)||row.provider_outcome==='unknown')counts.blocked++;
+        else if(row.provider_outcome==='dispatched'||row.job_status==='ingesting')counts.generating++;
+        else counts.waiting++;
+    }
+    return counts;
+}
 export async function publicCanvasAgentModelOperation(env,runId) {
-    const op=await env.DB.prepare(`SELECT s.id,s.kind,s.status,a.provider_outcome,a.billing_status,o.id AS operation_id,o.state,o.error_code,o.dispatched_at,o.response_at,o.receipt_json,o.reconcile_attempts
+    const op=await env.DB.prepare(`SELECT s.id,s.kind,s.status,a.provider_outcome,a.billing_status,o.id AS operation_id,o.model,o.state,o.error_code,o.dispatched_at,o.response_at,o.receipt_json,o.reconcile_attempts
         FROM canvas_agent_steps s LEFT JOIN canvas_agent_model_operations o ON o.step_id=s.id
         LEFT JOIN member_ai_usage_attempts_v2 a ON a.id=s.usage_attempt_id
         WHERE s.run_id=? AND s.kind IN ('plan','evaluate') AND s.usage_attempt_id IS NOT NULL ORDER BY s.rowid DESC LIMIT 1`).bind(runId).first();
@@ -51,7 +72,7 @@ export async function publicCanvasAgentModelOperation(env,runId) {
         &&['generation_result_requires_credit_review','canvas_agent_billing_review_required'].includes(op.error_code);
     const outcome=failed?'failed':op.state==='completed'?'completed':op.state==='rejected'?'rejected':op.state==='unknown'?'unknown':op.state?'pending':
         ['dispatched','unknown'].includes(op.provider_outcome)?'unknown':op.provider_outcome==='succeeded'?'completed':op.provider_outcome==='failed'?'rejected':'not_dispatched';
-    return {operationId:op.operation_id||op.id,kind:op.kind,outcome,
+    return {operationId:op.operation_id||op.id,kind:op.kind,modelId:op.model||'xai/grok-4.7',outcome,
         recovery:settled?null:settlementReview?'settlement_review':failed?'billing_review':op.reconcile_attempts>=5?'review_required':op.state==='received'||(op.state==='completed'&&op.status!=='completed')?'receipt_ready':outcome==='unknown'?'review_required':outcome==='pending'?'waiting_callback':null,
         ...(op.dispatched_at?{dispatchedAt:op.dispatched_at}:{}),...(op.response_at?{responseAt:op.response_at}:{})};
 }
@@ -70,6 +91,7 @@ export async function wakeCanvasAgent(env,id,delaySeconds=0) {
 export async function requeueCanvasAgents(env) {
     const {reconcileCanvasAgentModelOperations}=await import('./canvas-agent-model-operations.js');
     await reconcileCanvasAgentModelOperations(env);
+    await (await import('./canvas-agent-media-recovery.js')).recoverCanvasAgentMedia(env);
     const {observeCanvasConversationReceipts}=await import('./canvas-agent-conversation.js');
     const recoverable=(await env.DB.prepare(`SELECT DISTINCT r.project_id,r.user_id FROM canvas_agent_runs r
         JOIN canvas_agent_turns t ON t.run_id=r.id JOIN canvas_agent_steps s ON s.run_id=r.id AND s.step_key='dialogue'

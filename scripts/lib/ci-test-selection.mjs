@@ -52,6 +52,9 @@ const SHARED_WORKER_FILE_MAP = new Map([
   ["workers/shared/ai-caller-policy.mjs", ["auth", "ai"]],
   ["workers/shared/canvas-agent-plan.mjs", ["auth", "ai"]],
   ["workers/shared/canvas-agent-metering.mjs", ["auth", "ai"]],
+  ["workers/shared/canvas-assistant-fable.mjs", ["auth", "ai"]],
+  ["js/shared/canvas-assistant-models.mjs", ["auth", "ai"]],
+  ["js/shared/canvas-conversation-decision-intent.mjs", ["auth"]],
   ["js/shared/canvas-grok-admission.mjs", ["auth", "ai"]],
   ["workers/shared/canvas-agent-dialogue.mjs", ["auth", "ai"]],
   ["workers/shared/canvas-agent-actions.mjs", ["auth", "ai"]],
@@ -512,6 +515,7 @@ const AUTH_SHARED_PATTERNS = [
 const HOMEPAGE_CORE_TEST_FILES = new Set([
   "tests/helpers/canvas-audio-ui.cjs", "tests/helpers/canvas-transition-examples-ui.cjs",
   "tests/helpers/canvas-agent-ui.cjs", "tests/helpers/canvas-agent-model-recovery-ui.cjs", "tests/helpers/canvas-agent-autonomy-ui.cjs", "tests/helpers/canvas-assembly-editing-ui.cjs",
+  "tests/helpers/canvas-conversation-budget-ui.cjs",
   "tests/helpers/canvas-conversation-persisted-ui.cjs", "tests/helpers/canvas-conversation-observer-ui.cjs", "tests/helpers/canvas-conversation-natural-ui.cjs",
   "tests/audio-player.spec.js",
   "tests/canvas.spec.js",
@@ -595,6 +599,10 @@ const WORKER_TEST_PREFIXES = [
   "tests/q2-canvas-agent-dialogue-provider.spec.js",
   "tests/helpers/canvas-agent-settlement-review-control.mjs", "tests/q2-canvas-agent-settlement-review.spec.js",
   "tests/q2-canvas-settlement-operator.spec.js",
+  "tests/q2-canvas-h3-operator.spec.js", "tests/q2-canvas-agent-h3-recovery.spec.js", "tests/helpers/canvas-agent-h3-recovery-control.mjs",
+  "tests/q2-canvas-assistant-migration.spec.js", "tests/helpers/canvas-assistant-migration-control.mjs", "tests/helpers/canvas-assistant-model-control.mjs",
+  "tests/q2-canvas-conversation-decisions.spec.js", "tests/helpers/canvas-conversation-decisions-control.mjs",
+  "tests/q2-canvas-image-scheduling.spec.js", "tests/helpers/canvas-image-scheduling-control.mjs", "tests/helpers/image-capacity-mock.js",
   "tests/appearance.spec.js", "tests/appearance-runtime.mjs",
   "tests/model-pricing.spec.js", "tests/model-pricing-runtime.mjs", "tests/helpers/model-pricing-control.mjs",
   "tests/helpers/q2-runtime/",
@@ -1230,6 +1238,9 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
 
   let documentationCount = 0;
   for (const file of changedFiles) {
+    if(file==='scripts/canvas-h3-recovery.mjs'){
+      addReason(selection,'workers',file,'H3 recovery service and actual operator CLI boundaries execute in q2-canvas-agent-h3-recovery and q2-canvas-h3-operator');continue;
+    }
     if (['scripts/canvas-planning-settlement-review.mjs','scripts/lib/canvas-settlement-operator.mjs'].includes(file)) {
       addReason(selection,'workers',file,'audited operator safety, dry-run and ambiguous-mutation cases execute in tests/q2-canvas-settlement-operator.spec.js');
       continue;

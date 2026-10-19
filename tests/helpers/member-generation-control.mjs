@@ -313,6 +313,12 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     check(calls.provider===1,'Repeated queue or browser observation cannot redispatch');
     check((await db.prepare('SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first()).n===0,'No debit for uncertain output');
     check((await fetch(`/api/ai/generation-jobs/${id}`,{headers:{Cookie:`bitbi_session=${owner}-other`}})).status===404,'Review evidence remains owner-only');
+    // This independent fixture has now asserted its immutable unknown outcome.
+    // Native cases share one account DB; remove only its synthetic workload so
+    // the next case does not inherit a real global image-capacity commitment.
+    await db.prepare('DELETE FROM image_generation_slots WHERE usage_id=? AND user_id=?').bind(current.usage_attempt_id,owner).run();
+    await db.prepare('DELETE FROM member_generation_jobs WHERE id=? AND user_id=?').bind(id,owner).run();
+    await db.prepare('DELETE FROM member_ai_usage_attempts_v2 WHERE id=? AND user_id=?').bind(current.usage_attempt_id,owner).run();
     return {name,calls,status:current.status};
   }
   if(name.startsWith('h3-rejection-')) {

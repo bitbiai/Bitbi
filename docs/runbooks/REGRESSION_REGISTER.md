@@ -1037,6 +1037,29 @@ Run35537162806 exposed inherited `REPAIR_SOURCE_SHA` in the candidate test's tem
 
 ### H3 rejected versus uncertain dispatch (2026-09-21)
 
+2026-10-19 follow-up, inspected source `4e2042b9`: a member H3 request returned
+HTTP 504 / Cloudflare 7009, putting the Canvas agent into provider review. The
+original authenticated callback then stored a 15-second 768P result and finalized
+its one debit; the agent did not consume that late success. A separate successful
+usage metadata replacement dropped `canvas_agent`, hiding the debit from the
+project projection until step linkage. Preserve that binding atomically and
+reconcile only the original completed job/receipt/private bytes and finalized
+usage under current node/graph/brief/authority/cap guards. Existing historical
+holds require a digest-bound operator authorization; no inference or credit
+writer is used by recovery. HTTP timeout does not prove provider rejection.
+
+Smallest executable controls: `q2-canvas-agent-h3-recovery.spec.js` reproduces
+unknown dispatch → authenticated late callback → stored result → one original
+debit → next legitimate node, plus duplicate/concurrent recovery, committed-write
+interruption, missing bytes, changed revisions and stopped/expired authority.
+`q2-canvas-assistant-migration.spec.js` preserves a populated historical planning
+review and immutable receipt through 0112; `q2-canvas-h3-operator.spec.js` rejects
+unsafe input/evidence paths before credentials. Worker cases and native Canvas
+controls are explicitly selected; editable-film Chromium/WebKit coverage remains
+required. Focused synthetic controls passed locally; final release/native/live
+recovery evidence must identify the candidate and actual serving versions. Keep
+production IDs, receipts and before/after records in private operational storage.
+
 2026-09-25 REST workaround: Cloudflare support recommends REST after the retained
 official input succeeded directly (task 444983054504211) but failed in BITBI
 (dispatch ae92d9fd0945a07bab3291db88d83d1c, 400/7003). Source URL, callback and

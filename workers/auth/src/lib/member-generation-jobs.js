@@ -15,6 +15,7 @@ import { json } from './response.js';
 import { putNewManagedR2Object } from './r2-cleanup.js';
 import { requireUser } from './session.js';
 import { generateMemberMusicCover } from './member-music-cover.js';
+import { registerImageGenerationSlot } from './image-generation-capacity.js';
 
 export const MEMBER_GENERATION_MESSAGE = 'member_generation.process';
 const LEASE_MS = 15 * 60_000;
@@ -46,10 +47,10 @@ function publicJob(row) {
 
 // Called only after the existing route has validated the input, role, price and
 // credit reservation. The browser never supplies an execution context or owner.
-export async function acceptMemberGeneration(ctx, { usagePolicy, body, mediaType, sourceRefs = [] }) {
+export async function acceptMemberGeneration(ctx, { usagePolicy, body, mediaType, sourceRefs = [], forceAsync = false }) {
   if (generationExecution(ctx.env) || usagePolicy.mode !== 'member') return null;
   const { env, request } = ctx;
-  if (!request.headers.get('Prefer')?.split(',').some(value => value.trim() === 'respond-async')) return null;
+  if (!forceAsync && !request.headers.get('Prefer')?.split(',').some(value => value.trim() === 'respond-async')) return null;
   if (!env.AI_VIDEO_JOBS_QUEUE?.send) throw jobError('generation_queue_unavailable');
   const attempt = usagePolicy.attempt;
   const existing = await env.DB.prepare('SELECT * FROM member_generation_jobs WHERE usage_attempt_id = ? AND user_id = ?')
@@ -70,6 +71,7 @@ export async function acceptMemberGeneration(ctx, { usagePolicy, body, mediaType
     .bind(attempt.id, attempt.userId).first();
   if (!row) throw jobError('generation_acceptance_not_confirmed');
   if (row.id !== id) await env.USER_IMAGES.delete(inputKey);
+  if(mediaType==='image')await registerImageGenerationSlot(env,{usagePolicy,userId:row.user_id,modelId:body.model,jobId:row.id,canvasRunId:row.canvas_run_id});
   try { await env.AI_VIDEO_JOBS_QUEUE.send({ type: MEMBER_GENERATION_MESSAGE, job_id: row.id }); }
   catch { /* The scheduled outbox repair reads this durable queued row. */ }
   return json({ ok: true, data: { job: publicJob({...row,model_id:body.model}) } }, { status: 202, headers: { 'Cache-Control': 'no-store' } });
@@ -341,6 +343,16 @@ export async function processMemberGeneration(env, body, execute) {
     return {status:'succeeded'};
   } catch (error) {
     if (error.code === 'generation_claim_lost') return {status:'ignored'};
+    if(error.code==='image_generation_capacity_wait') {
+      // No provider call occurred. This is scheduling, not a failed generation
+      // attempt; retain the original reservation/key and let queue/cron wake it.
+      const waiting=await env.DB.prepare(`UPDATE member_generation_jobs SET status='queued',error_code='image_generation_capacity_wait',
+        attempt_count=MAX(0,attempt_count-1),locked_until=NULL,next_attempt_at=?,updated_at=?
+        WHERE id=? AND processing_token=? AND EXISTS(SELECT 1 FROM member_ai_usage_attempts_v2 u
+          WHERE u.id=member_generation_jobs.usage_attempt_id AND u.provider_outcome='not_dispatched' AND u.billing_status='reserved')`)
+        .bind(new Date(Date.now()+10_000).toISOString(),nowIso(),job.id,token).run();
+      if(waiting.meta?.changes===1)return {status:'retry',delaySeconds:10};
+    }
     const usage = await env.DB.prepare('SELECT provider_outcome,billing_status FROM member_ai_usage_attempts_v2 WHERE id=?').bind(job.usage_attempt_id).first();
     let code = error.code;
     const completedImage=await retainedImageDelivery(env,{...job,...await env.DB.prepare('SELECT provider_receipts_json FROM member_generation_jobs WHERE id=?').bind(job.id).first()});

@@ -2,6 +2,7 @@ const { handleAiDispatchQuery } = require('./auth-ai-dispatch-mock.js');
 const { isMfaSql, executeNativeMfa } = require('./q2-mock-mfa.js');
 const { isBillingSql, executeNativeBilling } = require('./q2-mock-billing.js');
 const { isLifecycleSql, executeNativeLifecycle } = require('./q2-mock-lifecycle.js');
+const { executeImageCapacity } = require('./image-capacity-mock.js');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const { webcrypto } = require('crypto');
@@ -1955,6 +1956,7 @@ class MockD1 {
     if (isMfaSql(query)) {
       return executeNativeMfa(this, [{ query, bindings, mode }]);
     }
+    if (/\bimage_generation_slots\b/.test(query)) return executeImageCapacity(this,{query,bindings,mode});
     if (isBillingSql(query)) {
       return executeNativeBilling(this, [{ query, bindings, mode }]);
     }

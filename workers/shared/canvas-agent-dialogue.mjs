@@ -1,6 +1,8 @@
 import { canvasAgentSystem } from './canvas-agent/manifest.mjs';
 import { CANVAS_AGENT_ACTION_SCHEMA, validateCanvasAgentActions } from './canvas-agent-actions.mjs';
 import { CANVAS_GROK_ADMISSION_VERSION } from '../../js/shared/canvas-grok-admission.mjs';
+import { canvasAssistantModelId, CANVAS_FABLE_MODEL, CANVAS_FABLE_ADMISSION_VERSION } from '../../js/shared/canvas-assistant-models.mjs';
+import { canvasFablePayload } from './canvas-assistant-fable.mjs';
 
 export const CANVAS_AGENT_DIALOGUE_VERSION = 2;
 export const CANVAS_AGENT_DIALOGUE_INPUT_MAX_BYTES = 64 * 1024;
@@ -80,14 +82,20 @@ export function validateCanvasAgentDialogue(value, { messageId, dialogueVersion,
 // or omitted history/schema: these exact strings become provider messages.
 export function canvasAgentDialogueMessages(input) {
   const { locale, conversationRevision, briefRevision, projectRevision, message, brief, recentMessages, capabilities, currentProject } = input;
-  return [{ role: 'system', content: input.version === 1 ? canvasAgentSystem('briefing', 'canvas-policy-1') : CANVAS_AGENT_DIALOGUE_SYSTEM }, { role: 'user', content: JSON.stringify({
+  return [{ role: 'system', content: canvasAgentSystem('briefing', input.policy?.version || (input.version === 1 ? 'canvas-policy-1' : undefined)) }, { role: 'user', content: JSON.stringify({
     locale, conversationRevision, briefRevision, projectRevision, message, brief, recentMessages, capabilities, currentProject,
   }) }];
 }
 export function dialoguePriceInput(input) {
   const messages = canvasAgentDialogueMessages(input);
   if (new TextEncoder().encode(JSON.stringify(input)).byteLength > CANVAS_AGENT_DIALOGUE_INPUT_MAX_BYTES) fail('canvas_agent_dialogue_context_limit');
-  return { model: 'xai/grok-4.7', prompt: messages[1].content,
+  const model = canvasAssistantModelId(input.model);
+  if (model === CANVAS_FABLE_MODEL) {
+    const payload = canvasFablePayload(messages, canvasAgentDialogueSchema(input.version), CANVAS_AGENT_DIALOGUE_MAX_OUTPUT_TOKENS, 'low');
+    return { model, prompt: JSON.stringify(payload.messages), system: payload.system + JSON.stringify(payload.output_config.format.schema),
+      maxTokens: payload.max_tokens, canvasFableAdmission: CANVAS_FABLE_ADMISSION_VERSION };
+  }
+  return { model, prompt: messages[1].content,
     system: messages[0].content + JSON.stringify(canvasAgentDialogueSchema(input.version)), maxTokens: CANVAS_AGENT_DIALOGUE_MAX_OUTPUT_TOKENS,
     canvasGrokAdmission: CANVAS_GROK_ADMISSION_VERSION };
 }

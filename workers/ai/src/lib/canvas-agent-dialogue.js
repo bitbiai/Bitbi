@@ -1,6 +1,8 @@
 import { CANVAS_AGENT_DIALOGUE_VERSION, CANVAS_AGENT_DIALOGUE_INPUT_MAX_BYTES, CANVAS_AGENT_DIALOGUE_MAX_OUTPUT_TOKENS,
   canvasAgentDialogueSchema, validateCanvasAgentBrief, canvasAgentDialogueMessages } from '../../../shared/canvas-agent-dialogue.mjs';
 import { validateCanvasAgentPolicyIdentity } from '../../../shared/canvas-agent/manifest.mjs';
+import { canvasAssistantModel, CANVAS_FABLE_MODEL } from '../../../../js/shared/canvas-assistant-models.mjs';
+import { canvasFablePayload } from '../../../shared/canvas-assistant-fable.mjs';
 
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const revision = value => Number.isSafeInteger(value) && value >= 0;
@@ -11,7 +13,7 @@ const invalid = code => { throw Object.assign(new TypeError(code), { code, statu
 export function validateCanvasAgentDialogueInput(input) {
   if (!object(input) || Object.keys(input).some(key => !['version', 'model', 'requestId', 'locale', 'conversationRevision', 'briefRevision',
     'projectRevision', 'message', 'brief', 'recentMessages', 'capabilities', 'currentProject', 'privacyUser', 'promptCacheKey', 'policy'].includes(key))) invalid('canvas_agent_dialogue_input_invalid');
-  if (![1, CANVAS_AGENT_DIALOGUE_VERSION].includes(input.version) || input.model !== 'xai/grok-4.7') invalid('canvas_agent_model_invalid');
+  if (![1, CANVAS_AGENT_DIALOGUE_VERSION].includes(input.version) || !canvasAssistantModel(input.model)) invalid('canvas_agent_model_invalid');
   if (!safeId(input.requestId) || !['en', 'de'].includes(input.locale)
     || ![input.conversationRevision, input.briefRevision, input.projectRevision].every(revision)) invalid('canvas_agent_dialogue_identity_invalid');
   if (!/^(?:cau|vau)_[a-f0-9]{64}$/.test(input.privacyUser || '') || !/^(?:cap|gpc)_[a-f0-9]{64}$/.test(input.promptCacheKey || '')) invalid('canvas_agent_privacy_identity_invalid');
@@ -30,6 +32,7 @@ export function validateCanvasAgentDialogueInput(input) {
   return structuredClone(input);
 }
 export function buildCanvasAgentDialoguePayload(input) {
+  if (input.model === CANVAS_FABLE_MODEL) return canvasFablePayload(canvasAgentDialogueMessages(input), canvasAgentDialogueSchema(input.version), CANVAS_AGENT_DIALOGUE_MAX_OUTPUT_TOKENS, 'low');
   return { messages: canvasAgentDialogueMessages(input), reasoning_effort: 'low', max_completion_tokens: CANVAS_AGENT_DIALOGUE_MAX_OUTPUT_TOKENS,
     response_format: { type: 'json_schema', json_schema: { name: `bitbi_canvas_dialogue_v${input.version}`, strict: true, schema: canvasAgentDialogueSchema(input.version) } },
     stream: false, user: input.privacyUser, prompt_cache_key: input.promptCacheKey };

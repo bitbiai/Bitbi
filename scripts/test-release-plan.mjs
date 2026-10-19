@@ -737,7 +737,7 @@ for (const file of ["workers/auth/recovery/c-entry.mjs", "workers/auth/recovery/
   const unknown=createReleasePlanFromRepo(repoRoot,{files:['workers/shared/canvas-agent-metering-unreviewed.mjs']});
   assert.deepEqual(unknown.impacts.uncategorizedFiles,['workers/shared/canvas-agent-metering-unreviewed.mjs']);
   const {assertSupportedBackendMigrations}=await import('./lib/backend-publication.mjs');
-  assertSupportedBackendMigrations(['0111_canvas_agent_settlement_reviews.sql']);
+  assertSupportedBackendMigrations(['0111_canvas_agent_settlement_reviews.sql','0112_canvas_assistant_models_and_scheduling.sql']);
   assert.throws(()=>assertSupportedBackendMigrations(['0112_unreviewed_settlement.sql']));
   const recovery=createReleasePlanFromRepo(repoRoot,{files:['workers/shared/canvas-agent-metering.mjs',
     'workers/auth/migrations/0111_canvas_agent_settlement_reviews.sql','config/release-compat.json']});

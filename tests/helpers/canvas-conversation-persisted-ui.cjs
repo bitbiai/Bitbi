@@ -65,11 +65,11 @@ module.exports = async ({ page, expect, locale, info, mockSharedAuth, createCanv
         expect((await c.read()).messages.filter(message => message.role === 'assistant' && /how long|Wie lang/.test(message.text))).toHaveLength(1);
         expect(c.calls).toHaveLength(2);
         await showProject();await panel.locator('.canvas-agent__manual-production > summary').click();await form.locator('[name=budget]').fill('5000'); await form.locator('[name=authorize]').check();
-        const admitted = page.waitForResponse(response => new URL(response.url()).pathname.endsWith('/conversation/start') && response.request().method() === 'POST');
+        const admitted = page.waitForResponse(response => new URL(response.url()).pathname.endsWith('/conversation/messages') && response.request().method() === 'POST' && /(?:Starte jetzt mit maximal|Start now with at most) 5000/.test(response.request().postDataJSON().text||''));
         await form.locator('button[type=submit]').click();
         expect((await admitted).status()).toBe(202);
-        const production = requests.filter(item => item.path.endsWith('/conversation/start'));
-        expect(production).toHaveLength(1); expect(production[0].body.authorized).toBe(true);
+        const production = requests.filter(item => item.path.endsWith('/conversation/messages') && /(?:Starte jetzt mit maximal|Start now with at most) 5000/.test(item.body?.text||''));
+        expect(production).toHaveLength(1); expect(production[0].body.text).toMatch(/5000 [Cc]redits$/);
         const currentRun = (await f.data(await f.request(f.route))).run;
         expect(currentRun.status).toBe('queued');
         await submitMessage(de ? 'Wie weit bist du?' : 'How far along are you?', false);

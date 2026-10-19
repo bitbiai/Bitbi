@@ -51,6 +51,13 @@ export async function canvasConversationRecoveryCase(base,name) {
     }
     const sent=await c.send(CANVAS_SNAIL_BRIEF);await code(sent.response,202);
     const originalTurn=await turn();
+    // A ready reply may be followed by the separate local budget question.
+    // Verify the original provider reply by its immutable turn identity.
+    const originalReply=current=>{
+      const matches=current.messages.filter(message=>message.id===`${originalTurn.id}:reply`);
+      check(matches.length===1&&matches[0].role==='assistant','The original provider reply remains present exactly once');
+      return matches[0];
+    };
     check(originalTurn.user_text===CANVAS_SNAIL_BRIEF,'Admission preserves the exact saved user wording');
     check((await view()).brief.duration.targetDurationSeconds===45,'The supplied 45-second answer resolves duration');
     if(name==='queued-observation'){
@@ -125,10 +132,10 @@ export async function canvasConversationRecoveryCase(base,name) {
       f.env.AI_LAB={fetch(request){check(!new URL(request.url).pathname.endsWith('/prepare'),'An accepted old-policy receipt must not be prepared again');return oldService.fetch(request);}};
       await c.complete(reply);
       const recovered=await view();
-      check(recovered.messages.at(-1).status==='completed'&&recovered.messages.at(-1).text===reply.text,'Reload reconciles late signed receipt and stored reply without a queue or paid POST');
+      check(originalReply(recovered).status==='completed'&&originalReply(recovered).text===reply.text,'Reload reconciles late signed receipt and stored reply without a queue or paid POST');
       check((await operation()).context_json===accepted.context_json,'Accepted policy identity survives recovery');
       check(c.calls.length===1&&await debitCount()===1&&recovered.canSend===true&&!recovered.blockingOperation,'Duplicate callbacks settle once and remove only the resolved hold');
-      check((await turn()).error_code===null&&(await run()).error_code===null&&recovered.messages.at(-1).delivery.code===null,'A completed recovered reply clears stale current failure projections');
+      check((await turn()).error_code===null&&(await run()).error_code===null&&originalReply(recovered).delivery.code===null,'A completed recovered reply clears stale current failure projections');
       check((await get('SELECT COUNT(*) AS n FROM canvas_nodes WHERE project_id=?')).n===1,'Recovery preserves unrelated manual work');
       return {case:name,providerCalls:1,charges:1};
     }
@@ -173,7 +180,10 @@ export async function canvasConversationRecoveryCase(base,name) {
       const saved=await turn(),unfinished=await run(),before=await get('SELECT revision,brief_revision FROM canvas_agent_conversations WHERE project_id=?');
       check(failures===1&&saved.state==='completed'&&saved.assistant_text===reply.text&&unfinished.status!=='completed','The real transcript commits before the controlled final run-write failure');
       const recovered=await view(),after=await get('SELECT revision,brief_revision FROM canvas_agent_conversations WHERE project_id=?');
-      check((await run()).status==='completed'&&recovered.canSend&&JSON.stringify(after)===JSON.stringify(before),'GET closes only the terminal run tail without applying creative memory twice');
+      const budgetQuestions=(await f.db.prepare("SELECT id FROM canvas_agent_turns WHERE project_id=? AND request_key LIKE 'budget-question:%' AND state='completed'").bind(f.project).all()).results;
+      check((await run()).status==='completed'&&recovered.canSend&&after.brief_revision===before.brief_revision&&after.revision===before.revision+1&&budgetQuestions.length===1,'GET closes the terminal run tail and adds its one local budget question without applying creative memory twice');
+      check(originalReply(recovered).text===reply.text,'The local follow-up preserves the original provider reply');
+      await view();check(JSON.stringify(await get('SELECT revision,brief_revision FROM canvas_agent_conversations WHERE project_id=?'))===JSON.stringify(after),'Repeated observation cannot append a duplicate budget question');
       await code((await c.send('Eine ausdrücklich neue Nachricht nach der gespeicherten Antwort.')).response,202);
       check(c.calls.length===1&&await debitCount()===1,'The unlocked composer admits a new turn without repeating old inference or billing');
       return {case:name,providerCalls:1,charges:1};
@@ -201,7 +211,8 @@ export async function canvasConversationRecoveryCase(base,name) {
         check(observed.every(result=>result.ok),'Every concurrent receipt observation succeeds');
         const projected=await turn(),after=await get('SELECT revision,brief_revision FROM canvas_agent_conversations WHERE project_id=?');
         check(projected.state==='completed'&&projected.assistant_text===reply.text,'Expired historical completion remains readable without restoring execution authority');
-        check(after.revision===before.revision+1&&after.brief_revision===before.brief_revision+1,'Concurrent observations apply the original brief projection once');
+        const budgetQuestions=(await f.db.prepare("SELECT id FROM canvas_agent_turns WHERE project_id=? AND request_key LIKE 'budget-question:%' AND state='completed'").bind(f.project).all()).results;
+        check(budgetQuestions.length===1&&after.revision===before.revision+2&&after.brief_revision===before.brief_revision+1,'Concurrent observations apply the original brief once and append exactly one separate local budget question');
         check((await run()).expires_at===expiry&&c.calls.length===1&&await debitCount()===1,'Read recovery neither extends authority nor repeats inference or billing');
         check((await operation()).receipt_json===receipt.receipt_json,'Historical accepted receipt is immutable');
       }
@@ -228,7 +239,7 @@ export async function canvasConversationRecoveryCase(base,name) {
       check(!(await turn()).assistant_text,'The fault genuinely prevents conversation storage');
     }
     const completed=await view();
-    check(completed.messages.at(-1).status==='completed'&&completed.messages.at(-1).text===reply.text,'GET observation delivers the validated saved reply in the original conversation');
+    check(originalReply(completed).status==='completed'&&originalReply(completed).text===reply.text,'GET observation delivers the validated saved reply in the original conversation');
     check(completed.brief.fields.story.sourceMessageId===originalTurn.id&&completed.brief.fields.audio.value==='Hintergrundmusik','Project memory retains source provenance and requested music');
     check(completed.brief.duration.targetDurationSeconds===45&&!completed.brief.openQuestions.some(q=>/dauer|wie lang|duration/i.test(q)),'Known duration is not asked again');
     check(completed.allowance.chargedCredits>0&&completed.allowance.committedCredits===completed.allowance.chargedCredits&&completed.allowance.reservedCredits===0,'Finalized costs and refundable reservations are projected distinctly');
@@ -236,7 +247,7 @@ export async function canvasConversationRecoveryCase(base,name) {
     await code(await c.post('/messages',sent.input,sent.key),200);await c.complete(reply);await view();
     check(c.calls.length===1&&await debitCount()===1,'Reload, duplicate send and duplicate completion retain one paid identity');
     check(serviceCalls.includes('/internal/ai/canvas-agent/prepare')&&serviceCalls.includes('/internal/ai/canvas-agent/normalize'),'Both actual signed AI boundaries executed');
-    const diagnostic=JSON.stringify(completed.messages.at(-1).delivery||{});
+    const diagnostic=JSON.stringify(originalReply(completed).delivery||{});
     check(!diagnostic.includes(CANVAS_SNAIL_BRIEF)&&!diagnostic.includes('webhook')&&!diagnostic.includes('Bearer'),'Display diagnostics contain no private text or callback capability');
     return {case:name,providerCalls:1,charges:1};
   }finally{c.restore();}

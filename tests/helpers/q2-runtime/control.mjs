@@ -1,5 +1,7 @@
+import {seedCanvasAssistantMigration,verifyCanvasAssistantMigration} from '../canvas-assistant-migration-control.mjs';
 import {canvasAgentPreflightCase} from '../canvas-agent-preflight-control.mjs';
 import {seedCanvasConversationMigration,verifyCanvasConversationMigration,CANVAS_CONVERSATION_CASES,canvasConversationCase} from '../canvas-agent-conversation-control.mjs';
+import {canvasAssistantModelSwitchCase,canvasAssistantProductionCase} from '../canvas-assistant-model-control.mjs';
 import {CANVAS_CONVERSATION_RECOVERY_CASES,canvasConversationRecoveryCase} from '../canvas-agent-conversation-recovery-control.mjs';
 import {seedCanvasNaturalChatMigration,verifyCanvasNaturalChatMigration,CANVAS_NATURAL_CASES,canvasNaturalCase,CANVAS_ACTION_CASES,canvasActionCase} from '../canvas-agent-natural-control.mjs';
 import {CANVAS_ACTION_RECOVERY_CASES,canvasActionRecoveryCase} from '../canvas-agent-action-recovery-control.mjs';
@@ -7,6 +9,9 @@ import {CANVAS_AGENT_AUTONOMY_CASES,canvasAgentAutonomyCase} from '../canvas-age
 import {canvasWorkspaceTransitionCase} from '../canvas-workspace-transition-control.mjs';
 import {CANVAS_MODEL_CASES,canvasModelOperationCase} from '../canvas-agent-model-operation-cases.mjs';
 import {CANVAS_SETTLEMENT_CASES,canvasPlanningSettlementCase} from '../canvas-agent-settlement-review-control.mjs';
+import {CANVAS_IMAGE_SCHEDULING_CASES,canvasImageSchedulingCase} from '../canvas-image-scheduling-control.mjs';
+import {H3_RECOVERY_CASES,canvasH3RecoveryCase} from '../canvas-agent-h3-recovery-control.mjs';
+import {CANVAS_CONVERSATION_DECISION_CASES,canvasConversationDecisionCase} from '../canvas-conversation-decisions-control.mjs';
 import { canvasAgentAuthorityCase, canvasAgentApiCase, canvasAgentDispatchCase, canvasAgentCapabilityCase, canvasAgentLateCompletionCase,canvasAgentUnknownProviderCase, canvasAgentManualTakeoverCase } from '../canvas-agent-control.mjs';
 import { canvasAssemblyCase, canvasInspectionCase, canvasAssemblyRetentionCase, seedCanvasAssemblyRetentionMigration, verifyCanvasAssemblyRetentionMigration } from '../canvas-assembly-control.mjs';
 import {memberGenerationCase} from '../member-generation-control.mjs';
@@ -38,6 +43,8 @@ export default {
     if (request.method !== 'POST' || request.headers.get('x-q2-control') !== env.Q2_CONTROL_TOKEN) return new Response(null,{status:403});
     const path=new URL(request.url).pathname;
     const body=await request.json();
+    if(path==='/canvas-assistant-migration-seed')return Response.json(await seedCanvasAssistantMigration(env));
+    if(path==='/canvas-assistant-migration-verify')return Response.json(await verifyCanvasAssistantMigration(env,body));
     if(path==='/canvas-agent-preflight')return Response.json(await canvasAgentPreflightCase(env,body));
     if(path==='/canvas-conversation-migration-seed')return Response.json(await seedCanvasConversationMigration(env));
     if(path==='/canvas-conversation-migration-verify')return Response.json(await verifyCanvasConversationMigration(env,body));
@@ -46,11 +53,16 @@ export default {
     if(path==='/canvas-natural-chat'&&CANVAS_NATURAL_CASES.includes(body.name))return Response.json(await canvasNaturalCase(env,body.name));
     if(path==='/canvas-conversation-actions'&&CANVAS_ACTION_CASES.includes(body.name))return Response.json(await canvasActionCase(env,body));
     if(path==='/canvas-conversation-action-recovery'&&CANVAS_ACTION_RECOVERY_CASES.includes(body.name))return Response.json(await canvasActionRecoveryCase(env,body.name));
+    if(path==='/canvas-assistant-model-switch')return Response.json(await canvasAssistantModelSwitchCase(env));
+    if(path==='/canvas-assistant-production')return Response.json(await canvasAssistantProductionCase(env));
     if(path==='/canvas-conversation'&&CANVAS_CONVERSATION_CASES.includes(body.name))return Response.json(await canvasConversationCase(env,body.name));
     if(path==='/canvas-conversation-recovery'&&CANVAS_CONVERSATION_RECOVERY_CASES.includes(body.name))return Response.json(await canvasConversationRecoveryCase(env,body.name));
     if(path==='/canvas-agent-autonomy'&&CANVAS_AGENT_AUTONOMY_CASES.includes(body.name))return Response.json(await canvasAgentAutonomyCase(env,body.name));
     if(path==='/canvas-agent-model-operation'&&CANVAS_MODEL_CASES.includes(body.name))return Response.json(await canvasModelOperationCase(env,body.name));
     if(path==='/canvas-agent-settlement-review'&&CANVAS_SETTLEMENT_CASES.includes(body.name))return Response.json(await canvasPlanningSettlementCase(env,body.name));
+    if(path==='/canvas-image-scheduling'&&CANVAS_IMAGE_SCHEDULING_CASES.includes(body.name))return Response.json(await canvasImageSchedulingCase(env,body));
+    if(path==='/canvas-agent-h3-recovery'&&H3_RECOVERY_CASES.includes(body.name))return Response.json(await canvasH3RecoveryCase(env,body.name,body));
+    if(path==='/canvas-conversation-decision'&&CANVAS_CONVERSATION_DECISION_CASES.includes(body.name))return Response.json(await canvasConversationDecisionCase(env,body.name));
     if (path === '/canvas-agent-authority') return Response.json(await canvasAgentAuthorityCase(env));
     if (path === '/canvas-agent-api') return Response.json(await canvasAgentApiCase(env));
     if (path === '/canvas-agent-dispatch') return Response.json(await canvasAgentDispatchCase(env,body));

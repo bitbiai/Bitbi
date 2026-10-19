@@ -64,7 +64,17 @@
   .canvas-agent .help-menu__trigger { position: static; flex: none; inline-size: 36px; block-size: 36px; min-width: 36px; min-height: 36px; font-size: 1.15rem; box-shadow: none; margin-left: auto; }
   .canvas-agent > .canvas-eyebrow { flex: none; margin: 0 0 10px; }
   #canvasAgentBody, .canvas-agent__mount { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; }
-  .canvas-agent__conversation { display: grid; flex: 1; grid-template-rows: auto minmax(0,1fr); min-height: 0; min-width: 0; }
+  .canvas-agent__conversation { display: grid; flex: 1; grid-template-rows: auto auto minmax(0,1fr); min-height: 0; min-width: 0; }
+  .canvas-agent__model-header { grid-row: 1; min-width: 0; padding-bottom: 8px; }
+  .canvas-agent__model-header .canvas-field { display: grid; grid-template-columns: auto minmax(0,1fr); align-items: center; gap: 10px; }
+  .canvas-agent__model-header select { min-width: 0; width: 100%; }
+  .canvas-agent__model-header p { margin: 5px 0 0; font-size: .65rem; line-height: 1.4; }
+  .canvas-agent__tabs { grid-row: 2; }
+  .canvas-agent__chat-pane, .canvas-agent__project-pane { grid-row: 3; }
+  .canvas-agent__model-label { display: block; margin-bottom: 4px; color: #a8ccc7; font-size: .68rem; }
+  .canvas-agent__decision { border: 1px solid var(--canvas-line); border-radius: 10px; padding: 12px; margin-top: 16px; }
+  .canvas-agent__decision p { margin: 8px 0; }
+  .canvas-agent__decision button { margin: 4px 6px 0 0; }
   .canvas-agent__tabs { display: flex; flex: none; gap: 6px; padding-bottom: 10px; border-bottom: 1px solid var(--canvas-line); }
   .canvas-agent__tabs button { flex: 1; min-width: 0; }
   .canvas-agent__tabs [aria-selected="true"] { color: var(--canvas-accent); background: #203439; border-color: #537f7c; }
@@ -305,6 +315,14 @@
     .canvas-layout { grid-template-columns: 210px minmax(0,1fr) 300px; }
     .canvas-app[data-projects="closed"] .canvas-layout { grid-template-columns: minmax(0,1fr) 300px; }
     .canvas-app[data-detail="closed"] .canvas-layout { grid-template-columns: 210px minmax(0,1fr); }
+  }
+  @media (max-height: 700px) {
+    .canvas-agent__model-header p { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+    .canvas-agent__model-header { padding-bottom: 4px; }
+    .canvas-agent__model-header .canvas-field { margin: 0; }
+    .canvas-agent__tabs { padding-bottom: 6px; }
+    .canvas-agent__approval-prompt { min-height: 30px; padding: 4px 8px; font-size: .66rem; margin-bottom: 4px; }
+    .canvas-agent__chat-footer { padding-top: 4px; }
   }
   @media (min-width: 1201px) and (max-height: 700px) {
     /* Keep the short desktop graph usable without hiding editing controls. */

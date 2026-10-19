@@ -8,6 +8,7 @@ import { BillingError } from './billing.js';
 import { sha256Hex, randomTokenHex } from './tokens.js';
 import { canvasGrokUsageUnits } from '../../../shared/canvas-agent-metering.mjs';
 import { CANVAS_GROK_ADMISSION_VERSION, CANVAS_GROK_CONTEXT_TOKENS, canvasGrokAdmissionPricePoints } from '../../../../js/shared/canvas-grok-admission.mjs';
+import { CANVAS_FABLE_MODEL, CANVAS_FABLE_ADMISSION_VERSION } from '../../../../js/shared/canvas-assistant-models.mjs';
 
 const fail = (message, code = 'model_pricing_invalid', status = 400) => { throw new BillingError(message, { code, status }); };
 export async function getModelTariff(env) {
@@ -53,8 +54,12 @@ export async function quoteModelTariff(env, { modelId, input = {}, credits, cont
     } : model.id==='xai/grok-4.7' ? {
         inputRateUsdPerMillion:2,outputRateUsdPerMillion:6,longContextThreshold:200000,longContextMultiplier:2,fundingMultiplier:1.05,
         usdToEur: BITBI_MODEL_PRICING_USD_TO_EUR,netEurPerCredit: BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING,targetProfitMargin: BITBI_TARGET_PROFIT_MARGIN,
+    } : resolved.canvasFableAdmission ? {
+        inputRateUsdPerMillion:model.tokenRates.input,outputRateUsdPerMillion:model.tokenRates.output,fundingMultiplier:1.05,
+        usdToEur:BITBI_MODEL_PRICING_USD_TO_EUR,netEurPerCredit:BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING,targetProfitMargin:BITBI_TARGET_PROFIT_MARGIN,
     } : null;
-    return { ...priced, factorySettlement, ...(resolved.canvasGrokAdmission?{canvasGrokAdmission:resolved.canvasGrokAdmission}:{}),exempt: model.exemption || null };
+    return { ...priced, factorySettlement, ...(resolved.canvasGrokAdmission?{canvasGrokAdmission:resolved.canvasGrokAdmission}:{}),
+        ...(resolved.canvasFableAdmission?{canvasFableAdmission:resolved.canvasFableAdmission}:{}),exempt: model.exemption || null };
 }
 
 // Used before reservation, after an exact existing-attempt lookup. No request
@@ -68,6 +73,7 @@ export async function pinModelTariff(env, { modelId, input, credits, request, ex
     if (!Number.isSafeInteger(price.credits) || price.credits < 0) fail('This execution path has no configured credit tariff.', 'model_pricing_unavailable', 503);
     return { credits: price.credits, tariff: price.tariff, factorySettlement: price.factorySettlement,
         ...(price.canvasGrokAdmission?{canvasGrokAdmission:price.canvasGrokAdmission}:{}),
+        ...(price.canvasFableAdmission?{canvasFableAdmission:price.canvasFableAdmission}:{}),
         ...(isGptImage25Model(modelId) ? { factoryQuote: {
             pricingVersion: price.formula.pricingVersion,
             providerCostUsdEstimate: price.providerCostUsd,
@@ -80,6 +86,28 @@ export async function pinModelTariff(env, { modelId, input, credits, request, ex
     };
 }
 export function settlePinnedModelTariff(pinned, fallbackCredits, actualUnits) {
+    if(pinned?.canvasFableAdmission){
+        const admission=pinned.canvasFableAdmission;
+        if(pinned.tariff?.key!==`${CANVAS_FABLE_MODEL}:{}`||admission.version!==CANVAS_FABLE_ADMISSION_VERSION
+            ||admission.cache!=='disabled'||Object.keys(admission).sort().join(',')!=='cache,inputTokenBound,requestMaxTokens,version'
+            ||!Number.isSafeInteger(admission.requestMaxTokens)||admission.requestMaxTokens<1||admission.requestMaxTokens>16384
+            ||!Number.isSafeInteger(admission.inputTokenBound)||admission.inputTokenBound<1
+            ||admission.inputTokenBound+admission.requestMaxTokens>1000000
+            ||!actualUnits||Object.keys(actualUnits).sort().join(',')!=='inputToken,outputToken'
+            ||!['inputToken','outputToken'].every(key=>Number.isSafeInteger(actualUnits[key])&&actualUnits[key]>=0)
+            ||actualUnits.inputToken>admission.inputTokenBound||actualUnits.outputToken>admission.requestMaxTokens
+            ||pinned.tariff.units.inputToken!==admission.inputTokenBound||pinned.tariff.units.outputToken!==admission.requestMaxTokens)
+            fail('Actual Fable usage requires review.','generation_result_requires_credit_review',409);
+        if(!pinned.tariff.rates){
+            const rates=pinned.factorySettlement;
+            if(!rates)fail('Pinned Fable tariff is missing.','generation_result_requires_credit_review',409);
+            const cost=(actualUnits.inputToken*rates.inputRateUsdPerMillion+actualUnits.outputToken*rates.outputRateUsdPerMillion)/1e6*rates.fundingMultiplier;
+            const credits=creditsForProviderCostUsd(cost,rates);
+            if(!Number.isSafeInteger(credits)||credits<1||credits>pinned.credits)
+                fail('Actual Fable cost exceeds the accepted reservation.','generation_result_requires_credit_review',409);
+            return credits;
+        }
+    }
     if (pinned?.tariff?.key?.startsWith(SEEDANCE_25_MODEL + ':')) {
         if (!actualUnits || Object.keys(actualUnits).length !== 1 || !Number.isFinite(actualUnits.second) || actualUnits.second <= 0 || actualUnits.second > pinned.tariff.units.second)
             fail('Stored video duration needs credit review.', 'generation_result_requires_credit_review', 409);

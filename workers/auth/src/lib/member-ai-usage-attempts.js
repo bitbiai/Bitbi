@@ -548,7 +548,8 @@ export async function markMemberAiUsageAttemptSucceeded(env, attemptIdValue, {
            result_steps = ?,
            result_seed = ?,
            balance_after = ?,
-           metadata_json = ?,
+           metadata_json = json_patch(?,CASE WHEN json_type(metadata_json,'$.canvas_agent')='object'
+             THEN json_object('canvas_agent',json_extract(metadata_json,'$.canvas_agent')) ELSE '{}' END),
            error_code = NULL,
            error_message = NULL,
            updated_at = ?,

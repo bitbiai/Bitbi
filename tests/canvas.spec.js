@@ -2,8 +2,14 @@ const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
 const {openCanvasSettings} = require('./helpers/canvas-inspector-actions.cjs');
+for(const locale of ['en','de'])test(`Canvas conversation ${locale}: assistant selection and natural budget approval`,async({page},info)=>{
+    await require('./helpers/canvas-conversation-budget-ui.cjs')({page,expect,locale,info,mockSharedAuth,createCanvasApiMock});
+});
 
-for (const locale of ['en','de']) for (const scenario of ['admission','duration','recovery','unavailable','outcome','activity','budget','conversation','viewport','delivery','actions','pending_controls']) test(`Canvas agent ${locale}: ${scenario}`,async({page},info)=>{
+for(const locale of ['en','de'])test(`Canvas conversation ${locale}: natural briefing allowance and historical model attribution`,async({page},info)=>{
+    await require('./helpers/canvas-conversation-budget-ui.cjs')({page,expect,locale,info,mockSharedAuth,createCanvasApiMock,scenario:'allowance'});
+});
+for (const locale of ['en','de']) for (const scenario of ['admission','duration','recovery','unavailable','outcome','activity','budget','conversation','viewport','delivery','actions','pending_controls','media_counts']) test(`Canvas agent ${locale}: ${scenario}`,async({page},info)=>{
     await require('./helpers/canvas-agent-ui.cjs')[scenario]({page,expect,locale,info,mockSharedAuth,createCanvasApiMock});
 });
 for (const locale of ['en','de']) test(`Canvas conversation ${locale}: persisted briefing and guarded production handoff`,async({page},info)=>{

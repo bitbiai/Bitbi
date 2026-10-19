@@ -41,7 +41,9 @@ export async function canvasAgentPreflightCase(base,media) {
     let run=await f.db.prepare('SELECT * FROM canvas_agent_runs WHERE id=?').bind(runId).first();
     const inventory=await canvasAgentCapabilities(f.env),before=JSON.stringify(plan);
     const h3=inventory.models.find(model=>model.id==='minimax/h3');
-    check(inventory.version===2&&same(h3.constraints.mutuallyExclusiveModes,['frames','reference']),'Inventory expresses the actual H3 conditional mode gate');
+    check(inventory.version===3&&same(h3.constraints.mutuallyExclusiveModes,['frames','reference']),'Inventory expresses the actual H3 conditional mode gate');
+    check(same(inventory.imageConcurrency,{version:1,revision:'conservative-1',global:1,user:1,project:1,providers:{},verified:false,reason:'image_capacity_unverified'}),
+        'Without reviewed account capacity, inventory exposes the explicit conservative limit and no private operator configuration');
     check(h3.constraints.videoLastFrame.effectiveRole==='first_frame'&&h3.constraints.referenceModes[0].requires.aspectRatio==='adaptive','Planner knows extracted frames imply adaptive frame mode');
     const failed=await preflightCanvasAgentGraph(f.env,run,view,inventory,plan);
     check(!failed.ok&&failed.issues[0].code==='canvas_agent_h3_reference_modes_mixed'&&failed.issues[0].nodeKey==='build','Precise mixed-mode failure before graph creation');

@@ -2,6 +2,24 @@ const {test,expect}=require('@playwright/test');
 const {SqliteD1Database,applyAuthMigrations}=require('./helpers/sqlite-d1.js');
 const {createAuthTestEnv}=require('./helpers/auth-worker-harness.js');
 
+test('Canvas selected Fable production corrects invalid plans and applies ordinary editable graph with pinned billing',async()=>{
+  const DB=new SqliteD1Database();applyAuthMigrations(DB);
+  try{
+    const {canvasAssistantProductionCase}=await import('./helpers/canvas-assistant-model-control.mjs');
+    expect(await canvasAssistantProductionCase({...createAuthTestEnv(),DB})).toEqual({providerCalls:2,corrections:1,nodes:4,assemblyClips:3,technicalOnly:true,acceptedModelPinned:true});
+    expect((await DB.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);
+  }finally{DB.close();}
+});
+
+test('Canvas assistant switching preserves pending model receipts billing attribution and canonical project memory',async()=>{
+  const DB=new SqliteD1Database();applyAuthMigrations(DB);
+  try{
+    const {canvasAssistantModelSwitchCase}=await import('./helpers/canvas-assistant-model-control.mjs');
+    expect(await canvasAssistantModelSwitchCase({...createAuthTestEnv(),DB})).toEqual({models:2,providerCalls:2,debits:2,originalIdentitiesPreserved:true,opaqueContextShared:false});
+    expect((await DB.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);
+  }finally{DB.close();}
+});
+
 test('Canvas duration delegation requires affirmative intent and preserves a known numeric answer',async()=>{
   const {userDuration,emptyBrief}=await import('../workers/auth/src/lib/canvas-agent-conversation.js');
   const id='duration-source-message',unasked=emptyBrief(),asked=emptyBrief();asked.duration.asked=true;

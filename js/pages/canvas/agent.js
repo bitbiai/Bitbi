@@ -133,8 +133,11 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
         if ((modelHeld() || operation?.recovery === 'receipt_ready') && run.status === 'paused') phase.textContent = `${copy.phases.paused} · ${phase.textContent}`;
         counts.textContent = Number.isInteger(run.completed) && Number.isInteger(run.total) && run.total > 0 && run.completed >= 0 && run.completed <= run.total
             ? `${run.completed} / ${run.total} ${copy.progress}` : '';
+        const mediaProgress=run.mediaProgress;
+        if(mediaProgress&&['waiting','generating','saved','blocked'].every(key=>Number.isSafeInteger(mediaProgress[key])&&mediaProgress[key]>=0))counts.textContent=['waiting','generating','saved','blocked'].map(key=>`${mediaProgress[key]} ${copy.mediaProgress[key]}`).join(' · ');
         summary.replaceChildren();
         const currentPhase = copy.phases[run.phase] || copy.phases[operation?.kind === 'plan' ? 'planning' : operation?.kind === 'evaluate' ? 'evaluating' : ''];
+        if(Number.isSafeInteger(run.imageConcurrency?.project)&&run.imageConcurrency.project>0)summaryItem(summary,copy.imageCapacity,run.imageConcurrency.verified?String(run.imageConcurrency.project):copy.capacityUnverified);
         if (currentPhase) summaryItem(summary, copy.currentPhase, currentPhase);
         if (finite(run.targetDurationSeconds)) summaryItem(summary, copy.target, `${run.targetDurationSeconds} s`);
         if (finite(run.budgetCredits)) summaryItem(summary, copy.budgetSummary, String(run.budgetCredits));

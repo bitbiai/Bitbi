@@ -15,7 +15,7 @@ export const CANVAS_AGENT_REASONING_SUMMARY_MAX_BYTES = 4096;
 export const CANVAS_AGENT_REASONING_SUMMARY_DELIVERY = 'completion_only';
 export const CANVAS_AGENT_PLAN_PRICING = Object.freeze({ input: 2, cachedInput: .5, output: 6, fundingMultiplier: 1.05, verifiedAt: '2026-10-15' });
 export const CANVAS_AGENT_PLAN_SYSTEM = canvasAgentSystem('planning');
-export const canvasAgentPlanSystem = input => canvasAgentSystem(input?.repair ? 'correction' : 'planning');
+export const canvasAgentPlanSystem = input => canvasAgentSystem(input?.repair ? 'correction' : 'planning', input?.policy?.version);
 
 // Grok 4.7 documents reasoning_content as a readable summary. Other reasoning
 // fields (including encrypted/hidden content) are deliberately never projected.

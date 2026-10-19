@@ -148,7 +148,7 @@ async function calculateCanvasAgentGraph(env,run,view,inventory,rawPlan,repairNo
     }
     const costs={complete:true,generationCredits,nodes:steps.map(step=>({nodeId:step.nodeId,stepKey:step.key,modelId:step.input.modelId,credits:step.credits})),
         evaluation:{mode:evaluation.input.technicalOnly?'technical_only':'sampled_frames',credits:evaluation.credits,quotedCredits:quotedEvaluationCredits,
-            ...(evaluation.input.technicalOnly?{reason:'budget_headroom'}:{})},totalCredits:generationCredits+evaluation.credits};
+            ...(evaluation.input.technicalOnly?{reason:evaluation.input.reason}:{})},totalCredits:generationCredits+evaluation.credits};
     let assembly={version:1,clips:plan.assembly.clips.map(clip=>({nodeId:ids.get(clip.key),trim:clip.trim,transition:clip.transition})),target:{seconds:plan.assembly.targetDurationSeconds,mode:'creative'}};
     const anchor=JSON.parse(view.project.assembly_json||'null')?.anchorNodeId||assembly.clips.at(-1).nodeId,music=plan.assembly.musicKey?ids.get(plan.assembly.musicKey):null;
     assembly.anchorNodeId=anchor;

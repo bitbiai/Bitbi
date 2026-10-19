@@ -24,6 +24,47 @@ immutable original context, including after a release or model disablement.
 Hashes identify accepted content; protected source publication remains the
 authority to change it.
 
+The current `canvas-policy-3` core names the Canvas role independently of its
+provider. Versions 1 and 2 retain their original text, skill selection and hashes
+for accepted operations. Both admitted assistants receive the same canonical
+project context and phase skills; neither receives private Admin conversations,
+tools or opaque provider thinking/signatures. The project selector is stored in
+`canvas_agent_conversations`; new production runs and dialogue turns pin its
+model and revision. A switch cancels unaccepted quotes, not accepted operations.
+Planning, corrections, billing receipts and message attribution keep the model
+that was accepted even when a later conversation uses a different one.
+
+`js/shared/canvas-assistant-models.mjs` lists integrated adapter contracts, while
+`canvas-agent-assistant-models.js` combines those contracts with the Canvas area
+switch, deployment readiness and valid retail tariffs. Grok 4.7 remains the
+historical default. Fable 5 uses the existing Cloudflare `/ai/run` background
+route with the real `anthropic/claude-fable-5` native Messages body. Its
+`output_config.format` requests a JSON schema; unsupported schema constraints
+are explained in descriptions and the complete local validator still enforces
+them before acceptance. Adaptive thinking is included in reported output tokens.
+The request has no cache-control or external tools; unexpected billed cache or
+inconsistent usage enters review instead of silently changing the tariff.
+Quotes account for the actual system, schema and canonical data context with a
+model-specific input bound and output ceiling. Grok's separately versioned
+conservative context admission and historical settlement review remain intact.
+
+Other actual platform text-model IDs are shown with an explicit exclusion reason
+until a Canvas adapter with these contracts is integrated. A model appearing in
+the catalog or documentation does not prove account access. There is no fallback
+to another provider. Fable visual evaluation is currently unavailable in this
+adapter: production records technical-only review with
+`model_visual_review_unavailable`, charges no visual review and makes no claim
+that the assistant watched the film. Ordinary media models and editing/export
+remain independent of the selected assistant.
+
+Transport and metering references (reviewed 2026-10-19):
+
+- [Cloudflare Fable 5 native Messages model contract](https://developers.cloudflare.com/ai/models/anthropic/claude-fable-5/)
+- [Cloudflare unified REST background envelope](https://developers.cloudflare.com/ai-gateway/usage/rest-api/)
+- [Native JSON-schema output and supported schema constraints](https://platform.claude.com/docs/en/build-with-claude/structured-outputs)
+- [Adaptive thinking and output usage](https://platform.claude.com/docs/en/build-with-claude/thinking-steering-and-cost)
+- [Explicit prompt-cache controls and usage](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)
+
 Briefing context is reconstructed by Auth from this project's validated current
 brief, recent completed messages, selected current graph data and execution
 facts. User content stays inside a single data message, never a system message.

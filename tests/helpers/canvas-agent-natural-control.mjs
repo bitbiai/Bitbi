@@ -66,7 +66,7 @@ export async function canvasNaturalCase(base,name){
    const {CANVAS_GROK_ADMISSION_VERSION}=await import('../../js/shared/canvas-grok-admission.mjs');
    const start=await immediate(),quote=structuredClone(start.intent.quote),oldApproval=approval(start.intent);
    check(quote.canvasGrokAdmission===CANVAS_GROK_ADMISSION_VERSION,'The displayed current quote binds the actual metering admission version');
-   delete quote.canvasGrokAdmission;
+   delete quote.canvasGrokAdmission;delete quote.assistantAdmission;
    await f.db.prepare('UPDATE canvas_agent_start_intents SET quote_json=? WHERE id=?').bind(JSON.stringify(quote),start.intent.id).run();
    await expected(await c.post('/immediate/approve',oldApproval),409,'model_pricing_stale');
    check(await productionCount()===0&&c.calls.length===0,'Unchanged tariff revision cannot make a legacy quote authorize new inference');
@@ -87,7 +87,7 @@ export async function canvasNaturalCase(base,name){
    const steps=(await f.db.prepare('SELECT * FROM canvas_agent_steps WHERE run_id=? ORDER BY id').bind(started.run_id).all()).results;
    check(JSON.parse(started.authorization_json).canvasGrokAdmission===CANVAS_GROK_ADMISSION_VERSION,'New spending approval is bound to the displayed version');
    const historicalQuote=JSON.parse(started.quote_json),historicalAuthorization=JSON.parse(started.authorization_json);
-   delete historicalQuote.canvasGrokAdmission;delete historicalAuthorization.canvasGrokAdmission;
+   delete historicalQuote.canvasGrokAdmission;delete historicalQuote.assistantAdmission;delete historicalAuthorization.canvasGrokAdmission;delete historicalAuthorization.assistantAdmission;
    await f.db.prepare('UPDATE canvas_agent_start_intents SET quote_json=?,authorization_json=? WHERE id=?').bind(JSON.stringify(historicalQuote),JSON.stringify(historicalAuthorization),started.id).run();
    await expected(await c.post('/immediate/approve',approved),202);
    check(await productionCount()===1&&c.calls.length===0,'A started historical intent replays its original production without new inference');

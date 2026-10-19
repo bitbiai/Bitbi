@@ -11,6 +11,8 @@ import {createCanvasImmediateIntent,approveCanvasImmediateIntent,controlCanvasIm
 
 import {confirmCanvasAgentAction} from '../lib/canvas-agent-actions.js';
 import {canvasImmediateStartRequested} from '../../../../js/shared/canvas-agent-control-intent.mjs';
+import {canvasConversationDecisionIntent} from '../../../../js/shared/canvas-conversation-decision-intent.mjs';
+import {handleCanvasConversationDecisionMessage,confirmCanvasConversationDecision} from '../lib/canvas-agent-conversation-decisions.js';
 
 const respond=(data,status=200)=>Response.json({ok:true,data},{status,headers:{'Cache-Control':'private, no-store'}});
 const keyFor=request=>{const key=request.headers.get('Idempotency-Key');if(!/^[A-Za-z0-9._:-]{8,100}$/.test(key||''))agentFail('idempotency_key_required',428);return key;};
@@ -24,7 +26,7 @@ async function actionReplay(env,row,key,input) {
     return Boolean(prior);
 }
 const actionStatement=(env,row,key,input)=>env.DB.prepare('INSERT INTO canvas_agent_conversation_actions(project_id,request_key,input_json,created_at) VALUES(?,?,?,?)').bind(row.project_id,key,input,nowIso());
-export async function approveCanvasBriefingAllowance(ctx,row,body,key) {
+export async function approveCanvasBriefingAllowance(ctx,row,body,key,{guard=[],after=[]}={}) {
     check(body,['capCredits','expectedConversationRevision']);
     const input=actionInput('allowance',body);
     if(await actionReplay(ctx.env,row,key,input))return;
@@ -32,9 +34,9 @@ export async function approveCanvasBriefingAllowance(ctx,row,body,key) {
     if(!Number.isSafeInteger(body.capCredits)||body.capCredits<1||body.capCredits>100000)agentFail('canvas_agent_budget_required',400);
     const tariff=await getModelTariff(ctx.env);
     if(String(tariff.revision)!==ctx.request.headers.get(TARIFF_HEADER))agentFail('model_pricing_stale');
-    await ctx.env.DB.batch([conversationGuard(ctx.env,row),actionStatement(ctx.env,row,key,input),
+    await ctx.env.DB.batch([conversationGuard(ctx.env,row),...guard,actionStatement(ctx.env,row,key,input),
         ctx.env.DB.prepare('UPDATE canvas_agent_conversations SET allowance_credits=?,allowance_tariff=?,revision=revision+1,updated_at=? WHERE project_id=?')
-            .bind(body.capCredits,tariff.revision,nowIso(),row.project_id)]);
+            .bind(body.capCredits,tariff.revision,nowIso(),row.project_id),...after]);
 }
 export async function controlCanvasConversation(ctx,row,body,key,locale) {
     check(body,['action','expectedConversationRevision','draft','locale']);
@@ -115,7 +117,7 @@ async function start(ctx,session,view,row,body,key) {
         guard:[conversationGuard(ctx.env,row),actionStatement(ctx.env,row,key,action)]});
 }
 export async function handleCanvasAgentConversation(ctx,session) {
-    const match=ctx.pathname.match(/^\/api\/account\/canvas\/projects\/([a-f0-9]{32})\/agent\/conversation(?:\/(messages|allowance|control|start|immediate(?:\/approve|\/control)?|actions\/([a-f0-9]{32})\/confirm))?$/);
+    const match=ctx.pathname.match(/^\/api\/account\/canvas\/projects\/([a-f0-9]{32})\/agent\/conversation(?:\/(messages|allowance|control|start|model|decision|immediate(?:\/approve|\/control)?|actions\/([a-f0-9]{32})\/confirm))?$/);
     if(!match)return null;
     const projectId=match[1],view=await canvasAgentProject(ctx.env,session.user.id,projectId);
     if(ctx.method==='GET'&&!match[2])return respond(await conversationView(ctx.env,projectId,session.user.id));
@@ -124,6 +126,18 @@ export async function handleCanvasAgentConversation(ctx,session) {
     const parsed=await readJsonBodyOrResponse(ctx.request,{maxBytes:BODY_LIMITS.smallJson});if(parsed.response)return parsed.response;
     const body=parsed.body,key=keyFor(ctx.request),row=await ensureConversation(ctx.env,projectId,session.user.id);
     try {
+    // route-policy: account.canvas.agent.conversation.model
+    if(match[2]==='model'){
+        check(body,['modelId','expectedConversationRevision','expectedModelRevision']);
+        const {changeCanvasAssistantModel}=await import('../lib/canvas-agent-conversation.js');
+        await changeCanvasAssistantModel(ctx.env,session.user.id,projectId,{modelId:body.modelId,conversationRevision:body.expectedConversationRevision,modelRevision:body.expectedModelRevision,key});
+        return respond(await conversationView(ctx.env,projectId,session.user.id));
+    }
+    // route-policy: account.canvas.agent.conversation.decision
+    if(match[2]==='decision'){
+        await confirmCanvasConversationDecision(ctx,session,projectId,body,key);
+        return respond(await conversationView(ctx.env,projectId,session.user.id),202);
+    }
     // route-policy: account.canvas.agent.conversation.action.confirm
     if(match[3]&&ctx.method==='POST'){
         await confirmCanvasAgentAction(ctx,session,projectId,match[3],body);
@@ -150,7 +164,14 @@ export async function handleCanvasAgentConversation(ctx,session) {
     if(match[2]==='messages'&&ctx.method==='POST'){
         check(body,['text','locale','expectedConversationRevision','expectedBriefRevision']);
         if(!textOk(body.text)||!body.text.trim()||!['en','de'].includes(body.locale))agentFail('canvas_agent_conversation_input_invalid',400);
-        if(canvasImmediateStartRequested(body.text)){
+        const previousTurn=await ctx.env.DB.prepare('SELECT input_json FROM canvas_agent_turns WHERE project_id=? AND request_key=?').bind(projectId,key).first();
+        if(previousTurn){if(stablePricingJson(JSON.parse(previousTurn.input_json))!==stablePricingJson(body))agentFail('idempotency_conflict');return respond(await conversationView(ctx.env,projectId,session.user.id));}
+        const immediate=canvasImmediateStartRequested(body.text)&&canvasConversationDecisionIntent(body.text,{locale:body.locale})?.kind!=='cap';
+        if(!immediate){
+            revision(body,row);if(body.expectedBriefRevision!==row.brief_revision)agentFail('canvas_agent_conversation_changed');
+            if(await handleCanvasConversationDecisionMessage(ctx,session,view,row,body,key))return respond(await conversationView(ctx.env,projectId,session.user.id),202);
+        }
+        if(immediate){
             const original=await ctx.env.DB.prepare('SELECT expected_revision FROM canvas_agent_start_intents WHERE project_id=? AND request_key=?').bind(projectId,key).first();
             const intent=await createCanvasImmediateIntent(ctx.env,session.user.id,projectId,{...body,expectedRevision:original?.expected_revision??view.project.revision,delegateCreative:true},key);
             const run=intent.existingRun||intent.run_id&&await publicAgentRun(ctx.env,await ctx.env.DB.prepare('SELECT * FROM canvas_agent_runs WHERE id=?').bind(intent.run_id).first());
