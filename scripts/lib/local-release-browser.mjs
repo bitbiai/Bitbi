@@ -137,6 +137,43 @@ export const SETTLEMENT_BROWSER_PREFLIGHT=Object.freeze({
   specs:Object.freeze({'tests/helpers/canvas-agent-ui.cjs':'d1d82b1a8b01d4faa68623998238b67c2884894e4f16350ecbaa01b4ffea2056','docs/runbooks/REGRESSION_REGISTER.md':'f0809a8f01b3a906e289739f93b6ffed241cf6f1dd1c120acae2118c5239f0bb'}),
   retain:[1,4,5,6,7,8,9,10,11,13,16,18,19,20,21,22,23,24,25,26,27,28,30,31,32,33,35,36,37,38,39,40,41,42,43,45,46],
 });
+// Closed continuation of the completed 921bb486 browser run. Only two
+// reviewed fixtures change; application and native-runtime inputs are identical.
+export const ASSISTANT_BROWSER_PREFLIGHT=Object.freeze({
+  source:"921bb486b513bfd55570e801ab36cfcf24f0f5ff",
+  checkpoint:"0c2fcf19c27ce6b210cc1e5d801d8c9a9a435f0884e0b388b27af698971ffd47",
+  failedLog:"ce7c51c3b6340fba72f1ad1abadca28146c5a916fe6c3ccbf5956ab990c53225",
+  report:"b1c47c260cc4b320b685e197be3a281233b305a31bff6965f8322fa1f12e51a9",
+  rows:"cce6db9754b86ceadb273fe693fbfb054bc8d78255dc43a59f1735a8d072d88c",
+  discovery:"162a123d8c89157a0b7ccaa3d6d7c521635a3b96157997a515d7d9373e96acc0",
+  required:646,
+  failedCases:Object.freeze(["chromium:Canvas agent de: model recovery","chromium:Canvas agent de: unavailable","chromium:Canvas agent en: model recovery","chromium:Canvas agent en: unavailable","webkit-canvas:Canvas agent de: model recovery","webkit-canvas:Canvas agent de: unavailable","webkit-canvas:Canvas agent en: model recovery","webkit-canvas:Canvas agent en: unavailable"]),
+  standardDiscovery:"5d1e62c6795f49af96b145c05d1caab803bdcaf5da1e481ac000b8e3c7aa87a3",
+  standardFile:"homepage-discovery-WunQSF/standard.json",
+  authDiscovery:"7f7b08cedcd4e7883649e1210b89e8179b867ce7e9611481df2b8a22c0c6b903",
+  authRequired:709,
+  authReused:25,
+  manifest:"c324a2cb7a242023bcab7c8bd0a5220513f3742fb276ad02415dde837f8bf86f",
+  proof:"b44a02c2025025157a50672207db4df5d07c654d79df37c44b185fc145c99344",
+  hostingLog:"b3f925ee38e175922ea5e5278aa7772f83ea8600163b5b47b0a8304a99a1e322",
+  homepageReports:Object.freeze({
+    "homepage-functional.json": "472ee2e49a1fe7861ab6b6068ca326bf0e1d7eae3ff8040a0154027390c78e37",
+    "homepage-discovery.json": "9c8d7b7e610b81740ff5fa063b39b2e4cf2b82a30dde37720c2a960bcd28dad2"
+  }),
+  nativeProof:Object.freeze({
+    "runtime/q2-runtime-evidence/native-ILK5Yo/launcher-result.json": "f86aca2ef0b5a2d2a2b5eea684c44475124d9e1eccd5cc890c28a11efc5f33c9",
+    "runtime/q2-runtime-evidence/native-ILK5Yo/reports/bitbi-q2-runtime-ZXIurt__build-provenance.json": "00e0829bc09798532824ef04cdb9fc6d1821f49694fce29a589ab37c1e950bcd",
+    "runtime/q2-runtime-evidence/native-ILK5Yo/reports/bitbi-q2-runtime-ZXIurt__result.json": "720572ba718794fe4a6ae4625812d9dd84d15b3c595fa9476d93e54e6ae16834",
+    "runtime/q2-runtime-evidence/native-ILK5Yo/reports/isolation-final.json": "3722a729b374515d022042aa6df90f8f984b91c3086a0a52d42884219ce98055",
+    "runtime/q2-runtime-evidence/native-ILK5Yo/reports/isolation-result.json": "c609013b5a939b464aaa1834e97286e6ec5c0f4eb4c069f1af40770a6527b11e"
+  }),
+  specs:Object.freeze({
+    'tests/helpers/canvas-agent-ui.cjs':'f8f75f2dee343fbeb5ee30cbeabeac03532209a57fad7fde604da462d670c4f4',
+    'tests/helpers/canvas-agent-model-recovery-ui.cjs':'8f3e2eb45fd6417d6c2e5d7578eb44d4ba73680aaefd60268ba85d0496a7b030',
+    'scripts/test-local-release.mjs':'e3f04e9e971f1b64fcb4039c192ab8abd6c15249c14cb1164b6b560c417c6e6d',
+  }),
+  retain:[1,4,5,6,7,8,9,10,11,13,16,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,35,36,37,38,39,40,41,42,43,45,46],
+});
 // Closed continuation of the completed original planning-settlement release.
 export const STORED_PLAN_CONTINUATION=Object.freeze({
   source:'976310e5bb02dd3bd317a1964bd90320f78db3d7',
@@ -220,7 +257,7 @@ export function verifyModelBrowserReport(report,sha) {
     const {retainedSource,...original}=report;original.sha=retainedSource;
     assert.equal(sha256(JSON.stringify(original)),STORED_PLAN_CONTINUATION.reports[report.scope],'Retained complete browser evidence changed');
   }
-  const p=report.source===SETTLEMENT_BROWSER_PREFLIGHT.source?SETTLEMENT_BROWSER_PREFLIGHT:MODEL_BROWSER_PREFLIGHT;
+  const p=report.source===ASSISTANT_BROWSER_PREFLIGHT.source?ASSISTANT_BROWSER_PREFLIGHT:report.source===SETTLEMENT_BROWSER_PREFLIGHT.source?SETTLEMENT_BROWSER_PREFLIGHT:MODEL_BROWSER_PREFLIGHT;
   assert.equal(report.policy,MODEL_BROWSER_POLICY);assert.equal(report.sha,sha);assert.equal(report.source,p.source);assert(['homepage','auth'].includes(report.scope));
   const auth=report.scope==='auth';
   assert.equal(sha256(JSON.stringify(report.previous)),p.rows,'Original failed browser results changed');
@@ -233,7 +270,7 @@ export function verifyModelBrowserReport(report,sha) {
 }
 export async function runModelBrowserContinuation(scope='homepage',env=process.env,profile=MODEL_BROWSER_PREFLIGHT) {
   const {verifyModelBrowserRepair}=await import('./local-release-evidence.mjs');
-  assert([MODEL_BROWSER_PREFLIGHT,SETTLEMENT_BROWSER_PREFLIGHT].includes(profile),'Unknown closed browser profile');
+  assert([MODEL_BROWSER_PREFLIGHT,SETTLEMENT_BROWSER_PREFLIGHT,ASSISTANT_BROWSER_PREFLIGHT].includes(profile),'Unknown closed browser profile');
   assert(['homepage','auth'].includes(scope));assert.equal(env.GITHUB_JOB,'browser-validation');assert.equal(env.CI,'1');
   const {previous}=verifyModelBrowserRepair('.local-release',env.GITHUB_SHA,{allowPending:true,profile});
   const retained=new Map(previous.filter(passedBrowserCase).map(row=>[row.key,row]));

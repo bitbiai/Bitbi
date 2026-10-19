@@ -65,12 +65,23 @@ module.exports=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock
         expect(settled.chargedCredits).toBe(-debits[0].amount);
         expect(project.nodes.filter(node=>node.type==='video_generation')).toHaveLength(3);
         expect(project.project.assembly.clips).toHaveLength(3);
+        // Planning has created editable clips, but no media request or result.
+        // Establish the displayed waiting count from persisted execution facts.
+        const mediaSteps=(await DB.prepare(`SELECT s.node_id,s.status,s.usage_attempt_id,s.receipt_json,n.output_json,n.asset_id
+            FROM canvas_agent_steps s JOIN canvas_nodes n ON n.id=s.node_id
+            WHERE s.run_id=? AND s.kind='node' AND n.user_id=? AND n.project_id=? AND n.type='video_generation'`)
+            .bind(f.runId,f.owner,f.project).all()).results;
+        expect(mediaSteps).toHaveLength(3);
+        expect(mediaSteps.map(step=>step.node_id).sort()).toEqual(project.nodes.filter(node=>node.type==='video_generation').map(node=>node.id).sort());
+        for(const step of mediaSteps)expect(step).toEqual({node_id:step.node_id,status:'ready',usage_attempt_id:null,receipt_json:null,output_json:null,asset_id:null});
+        expect((await DB.prepare('SELECT COUNT(*) AS n FROM canvas_runs WHERE user_id=? AND project_id=?').bind(f.owner,f.project).first()).n).toBe(0);
         expect((await DB.prepare('SELECT COUNT(*) AS n FROM member_generation_jobs WHERE user_id=?').bind(f.owner).first()).n).toBe(0);
+        expect(settled.mediaProgress).toEqual({waiting:3,generating:0,saved:0,blocked:0});
         await panel.getByRole('button',{name:de?'Status prüfen':'Check status',exact:true}).click();
         await expect(panel.locator('h3')).toHaveText(de?'Medien erstellen':'Creating media');
         await expect(value(de?'Im Guthaben reserviert (Credits)':'Reserved in wallet (credits)')).toHaveText('0');
         await expect(value(de?'Bereits abgerechnet (Credits)':'Already charged (credits)')).toHaveText(String(-debits[0].amount));
-        await expect(panel.locator('.canvas-agent__counts')).toHaveText(de?'0 / 3 abgeschlossen':'0 / 3 completed');
+        await expect(panel.locator('.canvas-agent__counts')).toHaveText(de?'3 warten · 0 in Generierung · 0 gespeichert · 0 blockiert':'3 waiting · 0 generating · 0 saved · 0 blocked');
         expect(f.calls.length).toBe(1);expect(requests.filter(request=>request.method!=='GET')).toEqual([]);expect(errors).toEqual([]);
         expect(await activePage.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
         await info.attach('model-recovery-evidence',{body:Buffer.from(JSON.stringify({runId:f.runId,operationId:op.id,providerCalls:f.calls.length,

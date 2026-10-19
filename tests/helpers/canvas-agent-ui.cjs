@@ -244,7 +244,22 @@ exports.unavailable=async({page,expect,locale,mockSharedAuth,createCanvasApiMock
     state.available=false;
     await page.reload();await page.locator('#canvasAgentToggle').click();await showProject(panel,locale);
     await expect(panel).toContainText(locale==='de'?'bestätigtem Zugriff':'confirmed access');
-    await expect(panel.locator('.canvas-agent__composer button[type=submit]')).toBeDisabled();
+    const composer=panel.locator('.canvas-agent__composer'),input=composer.locator('textarea'),send=composer.locator('button[type=submit]');
+    // A zero-allowance conversation can still request a server-owned budget
+    // decision without inference. Unavailability cannot disable that bootstrap.
+    await showChat(panel,locale);await expect(send).toBeEnabled();
+    expect(state.chatPosts).toEqual([]);expect(state.allowancePosts).toEqual([]);
+    // Model a previously authorized allowance in this UI fixture; this is no
+    // approval request or real charge. Ordinary inference must now stay gated.
+    state.conversation.allowance={capCredits:20,committedCredits:0,remainingCredits:20,tariffRevision:29};
+    await page.reload();await page.locator('#canvasAgentToggle').click();
+    const creative=locale==='de'?'Ein lustiger Hund spielt neben einem Pool.':'A funny dog plays beside a pool.';
+    await input.fill(creative);await expect(send).toBeDisabled();
+    await input.fill(locale==='de'?'Gesprächsbudget 20 Credits':'Briefing allowance 20 credits');await expect(send).toBeEnabled();
+    await input.fill(creative);await expect(send).toBeDisabled();
+    await composer.evaluate(node=>node.dispatchEvent(new Event('submit',{cancelable:true,bubbles:true})));
+    expect(state.chatPosts).toEqual([]);expect(state.allowancePosts).toEqual([]);
+    await expect(form.locator('button[type=submit]')).toBeDisabled();
     await form.evaluate(node=>node.dispatchEvent(new Event('submit',{cancelable:true,bubbles:true})));
     expect(state.posts).toEqual([]);
     // A hostile result cannot turn a completion label into a playable/saved claim.
