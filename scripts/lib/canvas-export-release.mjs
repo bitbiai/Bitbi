@@ -27,6 +27,7 @@ export const EXPORT_DELIVERY_FILES=Object.freeze([
   'scripts/pages-candidate.mjs','scripts/select-ci-tests.mjs','scripts/test-ci-test-selection.mjs','scripts/test-local-release.mjs',
   'scripts/test-frontend-review.mjs',
   'scripts/lib/local-release-transport.mjs','scripts/lib/media-publication.mjs','scripts/local-release.mjs','scripts/test-media-activation-reuse.mjs',
+  'js/pages/canvas/main.js','scripts/lib/canvas-export-browser.mjs',
 ]);
 // Auth-only a4 retained the published frontend base below. These exact prior
 // inputs were already accepted; keep them in the complete unpublished range,
@@ -58,7 +59,7 @@ export const EXPORT_DELIVERY_PRIOR_FILES=Object.freeze([
   "workers/auth/src/lib/canvas-agent-planning.js"
 ]);
 export const EXPORT_DELIVERY_UNPUBLISHED_FILES=Object.freeze([...new Set([...EXPORT_DELIVERY_FILES,...EXPORT_DELIVERY_PRIOR_FILES])].sort());
-export const EXPORT_DELIVERY_INPUTS=Object.freeze({
+export const EXPORT_DELIVERY_ORIGIN_INPUTS=Object.freeze({
   "scripts/lib/local-release-transport.mjs": "36344658208cdc13e0f9a9af211ccaa79d17a09f7919b51b6cd2342a04eab6e2",
   "scripts/lib/media-publication.mjs": "d109bae0eab0ce718e7daed21f09bc66f7160a87c349c4d0efbb77e756904bf9",
   "scripts/test-media-activation-reuse.mjs": "3942978a1407f213f8da0583f292153480f35fb1ff3342d18434645d331bf142",
@@ -95,6 +96,14 @@ export const EXPORT_DELIVERY_INPUTS=Object.freeze({
   "tests/helpers/canvas-export-lifecycle-ui.cjs": "e37e6e7e6431a8bb26e7445f15fdfb681c6b0cead117ee24586d6626ce63ab5f",
   "tests/helpers/q2-runtime/canvas.mjs": "ac7c86778b429bbf5c81c96a151ae67e8e18828371cd4329f215665041b440fd",
   "tests/helpers/q2-runtime/control.mjs": "fe95e87650766a2dc589a60033c0281059064aef877a04cf924d38b572fdc920"
+});
+export const EXPORT_DELIVERY_INPUTS=Object.freeze({...EXPORT_DELIVERY_ORIGIN_INPUTS,
+  'scripts/local-release.mjs':'97accdf07c52b5178a990476831816b2193fb506050fcec1deb49dc6f8d3c0f1',
+  'scripts/lib/local-release-transport.mjs':'ed97a0c1f2d675ddeb5cf5d829bf15073bf1f9ed6f7509a766a6b92a060801a2',
+  'scripts/pages-candidate.mjs':'0133cb09bdca9e366d71e10dfd2beec0f97853c912cc54a17a15d2b83ba51602',
+  'scripts/lib/canvas-export-browser.mjs':'bfcd7db2b3c4dcf009651fc8466a7c3a44091ada373ce57c2282cf8a32b845f2',
+  'js/pages/canvas/main.js':'f8a76f338142fcb9365c8e9db03d136423cb241c0ad17c8fd673905ad1305516',
+  'tests/helpers/canvas-export-lifecycle-ui.cjs':'635e3eced5ca54c95cdd9af2dddd938a99aee3dff66965bc88fe1975604e3817',
 });
 export function exportDeliverySources(head=null){
   try{return Object.fromEntries(Object.keys(EXPORT_DELIVERY_INPUTS).map(file=>[file,createHash('sha256').update(head?execFileSync('git',['show',`${head}:${file}`],{stdio:['ignore','pipe','pipe']}):fs.readFileSync(new URL(`../../${file}`,import.meta.url))).digest('hex')]));}catch{return null;}
@@ -202,14 +211,31 @@ export const EXPORT_DELIVERY_SDK_PREFLIGHT=Object.freeze({
     'q2-runtime-evidence/preflight-CD8RJ3/reports/linux-child-probe.json':'d5e3d737202540db0e1f80c0c0d59fc16fb00fef350fbcb602b8ff2f242d3797',
   }),
 });
-export const exportDeliveryCorrectionProfile=source=>[EXPORT_DELIVERY_SDK_PREFLIGHT,EXPORT_DELIVERY_HOSTING_PREFLIGHT,EXPORT_DELIVERY_DISCOVERY_PREFLIGHT,EXPORT_DELIVERY_SELECTION_PREFLIGHT].find(profile=>profile.source===source)||null;
-export function assertExportDeliveryTree(head,read,parent=EXPORT_DELIVERY_PREFLIGHT.source){
+export const EXPORT_DELIVERY_BROWSER_PREFLIGHT=Object.freeze({
+  source:'5ebb5f2c6dd276a156fda4ffecea77c221872592',
+  base:EXPORT_DELIVERY_PREFLIGHT.base,
+  checkpoint:'345ab2484227e0b2366e3ced86e0498668dd0ecda707705e43906681c4b60ee5',
+  failedIndex:45,failedName:'Run selected auth and admin tests',
+  failedLog:'2246d2f92f49e24aeb2f73450560f60f5af4da8fc082f0d896fed03ee7a6798b',
+  addedFiles:Object.freeze(['js/pages/canvas/main.js','scripts/lib/canvas-export-browser.mjs']),
+  // BFCache affects the browser lifecycle; the media image/native callers and
+  // the accepted SDK test retain their original source and execution identity.
+  retain:Object.freeze([...EXPORT_DELIVERY_SDK_PREFLIGHT.retain.filter(i=>![4,7,14,15,29,33].includes(i)),43].sort((a,b)=>a-b)),
+  previous:EXPORT_DELIVERY_SDK_PREFLIGHT,
+  run:'5ebb5f2c6dd276a156fda4ffecea77c221872592-ff47b45b-13e3-4502-a062-d910b0dbb638',
+  report:'851329acf2523acd30bf7e3a5d546ba1389f1b0fa21fae97b18d3ea5142ab24c',
+  rawDiscovery:'aec0035d5353a74a5680f12c50b21cff831a155710ad3bd7693fc73303cbb715',
+  rows:'2ff9978cf0bbfa90983eaec5ea4ad193630c88019331bcb06a73a7bd8c7959a3',
+  discovery:'eccc721acebf5afd12d95bb9be0e0ff91c0e62a20598705ff6ead3763c9a6fba',
+});
+export const exportDeliveryCorrectionProfile=source=>[EXPORT_DELIVERY_BROWSER_PREFLIGHT,EXPORT_DELIVERY_SDK_PREFLIGHT,EXPORT_DELIVERY_HOSTING_PREFLIGHT,EXPORT_DELIVERY_DISCOVERY_PREFLIGHT,EXPORT_DELIVERY_SELECTION_PREFLIGHT].find(profile=>profile.source===source)||null;
+export function assertExportDeliveryTree(head,read,parent=EXPORT_DELIVERY_PREFLIGHT.source,inputs=EXPORT_DELIVERY_ORIGIN_INPUTS){
   const p=EXPORT_DELIVERY_PREFLIGHT;
   assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,parent],'Export delivery reuse requires the exact published successor');
   const files=read(['diff','--name-only',p.source,head]).toString().trim().split('\n').filter(Boolean);
   assert(files.includes('workers/media/src/index.js')&&files.includes('js/pages/canvas/export-observer.js'),'Missing reviewed export repair');
   assert(files.every(file=>EXPORT_DELIVERY_FILES.includes(file)||['docs/runbooks/REGRESSION_REGISTER.md','docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md'].includes(file)),'Changed input outside export delivery reuse closure');
-  for(const [file,hash]of Object.entries(EXPORT_DELIVERY_INPUTS))assert.equal(digest(read(['show',`${head}:${file}`])),hash,'Changed reviewed export source: '+file);
+  for(const [file,hash]of Object.entries(inputs))assert.equal(digest(read(['show',`${head}:${file}`])),hash,'Changed reviewed export source: '+file);
   return files;
 }
 export function exportDeliveryPrefix(bytes,context,read){
@@ -234,12 +260,13 @@ export function validateExportDeliveryPrefix(old,context){
 export function assertExportDeliverySelectionTree(head,read,p=EXPORT_DELIVERY_SELECTION_PREFLIGHT){
   // Keep the failed candidate reachable in the pushed ancestry. Evidence
   // archives contain reports, not orphan Git objects for the hosted verifier.
-  assertExportDeliveryTree(head,read,p.source);
+  assertExportDeliveryTree(head,read,p.source,p===EXPORT_DELIVERY_BROWSER_PREFLIGHT?EXPORT_DELIVERY_INPUTS:EXPORT_DELIVERY_ORIGIN_INPUTS);
   for(let current=p;current.previous;current=current.previous)
     assert.deepEqual(read(['rev-list','--parents','-n','1',current.source]).toString().trim().split(/\s+/),[current.source,current.previous.source]);
   const files=read(['diff','--name-only',p.source,head]).toString().trim().split('\n').filter(Boolean);
   const allowed=['scripts/lib/canvas-export-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs',
-    ...(p===EXPORT_DELIVERY_SDK_PREFLIGHT?['scripts/test-private-media-lifecycle.mjs','scripts/test-ci-test-selection.mjs','scripts/local-release.mjs','scripts/lib/local-release-transport.mjs','scripts/lib/media-publication.mjs','scripts/test-media-activation-reuse.mjs']:
+    ...(p===EXPORT_DELIVERY_BROWSER_PREFLIGHT?['js/pages/canvas/main.js','tests/helpers/canvas-export-lifecycle-ui.cjs','scripts/lib/canvas-export-browser.mjs','scripts/pages-candidate.mjs','scripts/test-ci-test-selection.mjs','scripts/local-release.mjs','scripts/lib/local-release-transport.mjs','docs/runbooks/REGRESSION_REGISTER.md']:
+      p===EXPORT_DELIVERY_SDK_PREFLIGHT?['scripts/test-private-media-lifecycle.mjs','scripts/test-ci-test-selection.mjs','scripts/local-release.mjs','scripts/lib/local-release-transport.mjs','scripts/lib/media-publication.mjs','scripts/test-media-activation-reuse.mjs']:
       p===EXPORT_DELIVERY_HOSTING_PREFLIGHT?['scripts/test-frontend-review.mjs','scripts/test-ci-test-selection.mjs']:
       p===EXPORT_DELIVERY_DISCOVERY_PREFLIGHT?['scripts/test-ci-test-selection.mjs']:['docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md'])];
   assert(files.includes('scripts/lib/canvas-export-release.mjs'));
@@ -253,7 +280,7 @@ export function assertExportDeliverySelectionTree(head,read,p=EXPORT_DELIVERY_SE
 export function validateExportDeliverySelectionPrefix(old,context,p=EXPORT_DELIVERY_SELECTION_PREFLIGHT){
   assert.equal(old.sha,p.source);assert.equal(old.status,'failed');assert.equal(old.base,p.base);assert.equal(context.base,p.base);
   assert.equal(old.planHash,context.planHash);assert.equal(old.environment.key,context.environment.key);
-  if(p===EXPORT_DELIVERY_SDK_PREFLIGHT){
+  if([EXPORT_DELIVERY_SDK_PREFLIGHT,EXPORT_DELIVERY_BROWSER_PREFLIGHT].includes(p)){
     assert.deepEqual(old.environment.inputs,context.environment.inputs,'Changed retained native runtime inputs');
     assert.equal(old.environment.image,context.environment.image,'Changed retained native runtime image');
     assert.equal(old.nativeBrowsers?.key,context.nativeBrowsers?.key,'Changed retained browser environment');
@@ -283,10 +310,10 @@ export function verifyExportDeliveryReuse(directory,evidence,commands,{read,read
   const prefix=p===EXPORT_DELIVERY_PREFLIGHT?exportDeliveryPrefix:exportDeliverySelectionPrefix;
   const old=prefix(readFile(`${directory}/reuse/preflight-checkpoint.json`),{...evidence,commands},read,p);
   validateExportDeliveryRows(old,evidence,commands,file=>readFile(`${directory}/${file}`),p);
-  if(p===EXPORT_DELIVERY_SDK_PREFLIGHT){
+  if([EXPORT_DELIVERY_SDK_PREFLIGHT,EXPORT_DELIVERY_BROWSER_PREFLIGHT].includes(p)){
     verifyExportDeliveryNative(file=>readFile(`${directory}/runtime/${file}`));
     const image=JSON.parse(readFile(`${directory}/test-results/private-media-image/image.json`));
-    assert.equal(digest(JSON.stringify(image)),p.image,'Changed retained image receipt');
+    assert.equal(digest(JSON.stringify(image)),EXPORT_DELIVERY_SDK_PREFLIGHT.image,'Changed retained image receipt');
     assert.equal(digest(readFile(`${directory}/test-results/private-media-image/image.tar`)),image.archiveDigest,'Changed retained image archive');
     assert.equal(digest(readFile(`${directory}/test-results/private-media-image/test.log`)),image.testLogDigest,'Changed retained image test output');
   }
@@ -300,6 +327,9 @@ export function validateExportDeliveryRows(old,evidence,commands,readLog,p=EXPOR
     if(p.retain.includes(index)){
       assert.deepEqual(row,{...old.commands[index],reusedFrom:old.commands[index].reusedFrom||old.sha});
       assert.equal(digest(readLog(row.log)),row.logHash,'Changed retained log');
+    }else if(p===EXPORT_DELIVERY_BROWSER_PREFLIGHT&&index===45){
+      assert(!row.reusedFrom);assert.equal(row.browserContinuation,'local-canvas-export-bfcache-v1');
+      assert.equal(row.continuation,'node scripts/local-release.mjs export-browser-continuation');
     }else assert(!row.reusedFrom&&!row.continuation&&!row.browserContinuation,'Affected export acceptance must execute on candidate bytes');
   }
 }
@@ -310,7 +340,7 @@ export function verifyExportDeliveryImageReuse(record,sha,{read=args=>execFileSy
   const p=EXPORT_DELIVERY_SDK_PREFLIGHT;
   assert.equal(record.sha,p.source);assert.equal(record.run,p.run);assert.equal(record.attempt,'1');
   assert.equal(digest(JSON.stringify(record)),p.image,'Changed retained export image receipt');
-  assertExportDeliverySelectionTree(sha,read,p);
+  assertExportDeliverySelectionTree(sha,read,sha===EXPORT_DELIVERY_BROWSER_PREFLIGHT.source?p:EXPORT_DELIVERY_BROWSER_PREFLIGHT);
   return record.sha;
 }
 export function verifyImportedExportDeliveryImage(record,{sha,run,attempt},options){
@@ -326,6 +356,6 @@ export function exportDeliveryReceiptImageSource(media,sha,{read=args=>execFileS
   if(media.imageSourceSha===sha)return sha;
   const p=EXPORT_DELIVERY_SDK_PREFLIGHT;
   assert.equal(media.imageSourceSha,p.source);
-  assertExportDeliverySelectionTree(sha,read,p);
+  assertExportDeliverySelectionTree(sha,read,sha===EXPORT_DELIVERY_BROWSER_PREFLIGHT.source?p:EXPORT_DELIVERY_BROWSER_PREFLIGHT);
   return media.imageSourceSha;
 }

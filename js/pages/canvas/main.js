@@ -80,7 +80,12 @@ let workspaceView;
 const videoCopy = videoInputCopy(isGerman);
 Object.assign(copy, { videoAmbiguous: videoCopy.ambiguous, videoMethodRequired: videoCopy.required, videoPreparing: videoCopy.preparing });
 let videoObservation = new AbortController();
-window.addEventListener('pagehide', () => { videoObservation.abort(); inspectorAbort.abort(); });
+window.addEventListener('pagehide', event => {
+    videoObservation.abort();
+    // BFCache preserves this inspector and its drafts. Its export observer
+    // suspends timers itself and needs its signal/listeners for pageshow.
+    if (!event.persisted) inspectorAbort.abort();
+});
 
 const dom = Object.freeze({
     loading: document.getElementById('canvasLoading'), denied: document.getElementById('canvasDenied'), app: document.getElementById('canvasApp'),

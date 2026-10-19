@@ -1,4 +1,5 @@
 import {EXPORT_DELIVERY_POLICY,verifyExportDeliveryDiscovery,exportDeliverySources} from './lib/canvas-export-release.mjs';
+import {EXPORT_DELIVERY_BROWSER_POLICY,verifyExportDeliveryBrowserReport} from './lib/canvas-export-browser.mjs';
 import {verifyCanvasTransitionDiscovery,verifyCanvasExampleDiscovery} from './lib/homepage-test-selection.mjs';
 import {canvasInspectorSources} from './lib/canvas-inspector-selection.mjs';
 import {browserRows} from './lib/browser-fixture-repair.mjs';
@@ -298,7 +299,9 @@ export function verifyCanvasCandidateReports(names, reports, discovery, selectio
   assert.equal(names.filter(value => value === name).length, 1, 'Exactly one Canvas auth report required');
   if(selection.policy===EXPORT_DELIVERY_POLICY){
     verifyExportDeliveryDiscovery(flattenHomepageDiscovery(discovery));
-    verifyAdminReport(reports[names.indexOf(name)],discovery,[['canvas',['canvas.spec.js']]],canvasReleaseProject);
+    const report=reports[names.indexOf(name)];
+    if(report.policy===EXPORT_DELIVERY_BROWSER_POLICY){assert.deepEqual(report.discovery,browserRows(discovery,{discovery:true}));verifyExportDeliveryBrowserReport(report,report.sha);}
+    else verifyAdminReport(report,discovery,[['canvas',['canvas.spec.js']]],canvasReleaseProject);
   } else if(selection.canvasExamples){
     verifyCanvasExampleDiscovery(flattenHomepageDiscovery(discovery));
     const report=reports[names.indexOf(name)];
@@ -380,6 +383,12 @@ export function candidateProof(manifest, { job, reportFile, readJson = file => J
   const reports=names.map(name=>readJson(name));
   const counts=[];
   for(const [index,report] of reports.entries()) {
+    if(report.policy===EXPORT_DELIVERY_BROWSER_POLICY){
+      assert.equal(job,'browser-validation');assert.equal(names[index],'test-results/candidate-auth.json');assert.equal(manifest.selection.policy,EXPORT_DELIVERY_POLICY);
+      const discovery=readJson('test-results/canvas-discovery.json');verifyExportDeliveryDiscovery(flattenHomepageDiscovery(discovery));
+      assert.deepEqual(report.discovery,browserRows(discovery,{discovery:true}));
+      counts.push(verifyExportDeliveryBrowserReport(report,manifest.sha).required);continue;
+    }
     if(report.policy===AUTONOMY_BROWSER_POLICY) {
       assert.equal(job,'browser-validation');assert(['homepage','auth'].includes(report.scope));assert.equal(names[index],`test-results/candidate-${report.scope}.json`);
       counts.push(verifyAutonomyBrowserReport(report,manifest.sha).required);continue;

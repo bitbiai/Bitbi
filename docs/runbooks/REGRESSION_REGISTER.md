@@ -889,7 +889,11 @@ without rotating unknown work or resetting render attempts.
 
 Separate export findings must not be conflated with delivery: one saved mixed
 export completed after the UI's former 120-read observation limit; reconnecting
-GETs retain the original request and never submit another render. Another recipe
+GETs retain the original request and never submit another render. Browser acceptance
+also located a separate BFCache defect: Canvas unconditionally aborted its inspector
+on `pagehide`, removing the observer's `pageshow` listener. Preserve the inspector
+for persisted navigation and retain cleanup for normal page exit; the EN/DE lifecycle
+cases cover both branches without another export POST. Another recipe
 requested approximately twelve-second windows from measured 121-frame/24-fps
 sources. Seedance quotation/execution used its nested five-second setting while
 agent feasibility trusted an unused top-level duration. Derive feasibility from

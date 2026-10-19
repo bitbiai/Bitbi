@@ -86,7 +86,17 @@ module.exports=async options=>{
   await expect(inspector.getByRole('link',{name:de?'Gesamtvideo herunterladen':'Download full video',exact:true})).toHaveAttribute('href',media+'?download=1');
   await inspector.getByRole('button',{name:de?'Gesamtvideo in Assets speichern':'Save full video to Assets',exact:true}).click();
   await expect.poll(()=>posts.length).toBe(4);expect(posts.at(-1).body.saveExportId).toBe(old.id);
+  await expect(connection).toHaveText('');
+  // A real document exit still tears down observation. A subsequent synthetic
+  // pageshow/online event must not revive its detached Inspector or submit work.
+  latest={id:id(19),status:'processing'};await refresh.click();
+  await expect(message).toHaveText(de?'Gesamtvideo wird verarbeitet.':'Processing full video.');await expect(connection).toHaveText('');
+  await expect(create).toBeDisabled();
+  await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide',{persisted:false})));
+  const exitedReads=reads;await page.clock.runFor(60000);
+  await page.evaluate(()=>{window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}));window.dispatchEvent(new Event('online'));});
+  await page.clock.runFor(60000);expect(reads).toBe(exitedReads);expect(posts).toHaveLength(4);
   expect(new Set(posts.slice(0,3).map(p=>p.key)).size).toBe(3);expect(errors).toEqual([]);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-  await info.attach('export-lifecycle',{contentType:'application/json',body:JSON.stringify({provider:'synthetic',automaticReadsBeyond:120,longPendingPollMs:30000,ambiguousAcceptance:'automatic read-only lookup',posts:3,oldArtifact:old.id,deadlineRecovery:true,terminalStops:true})});
+  await info.attach('export-lifecycle',{contentType:'application/json',body:JSON.stringify({provider:'synthetic',automaticReadsBeyond:120,longPendingPollMs:30000,ambiguousAcceptance:'automatic read-only lookup',posts:3,oldArtifact:old.id,deadlineRecovery:true,terminalStops:true,bfcacheResumes:true,documentExitStops:true})});
 };

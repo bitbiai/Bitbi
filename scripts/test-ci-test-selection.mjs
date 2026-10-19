@@ -1468,7 +1468,7 @@ async function testExportDeliverySelection(){
  assert(EXPORT_DELIVERY_UNPUBLISHED_FILES.includes('scripts/test-frontend-review.mjs'));
  const changedFixture=exportDeliverySources();changedFixture['scripts/test-frontend-review.mjs']='0'.repeat(64);assert.notEqual(selectCiTests(EXPORT_DELIVERY_UNPUBLISHED_FILES,{exportSources:changedFixture}).policy,EXPORT_DELIVERY_POLICY);
  const changedPrior=exportDeliverySources();changedPrior['workers/auth/src/lib/canvas-agent-planning.js']='0'.repeat(64);assert.notEqual(selectCiTests(EXPORT_DELIVERY_UNPUBLISHED_FILES,{exportSources:changedPrior}).policy,EXPORT_DELIVERY_POLICY);
- for(const file of ['scripts/local-release.mjs','scripts/lib/local-release-transport.mjs','scripts/lib/media-publication.mjs','scripts/test-media-activation-reuse.mjs']){const changed=exportDeliverySources();changed[file]='0'.repeat(64);assert.notEqual(selectCiTests(EXPORT_DELIVERY_UNPUBLISHED_FILES,{exportSources:changed}).policy,EXPORT_DELIVERY_POLICY,'Changed closed image/continuation input must widen: '+file);}
+ for(const file of ['js/pages/canvas/main.js','scripts/lib/canvas-export-browser.mjs','scripts/pages-candidate.mjs','scripts/local-release.mjs','scripts/lib/local-release-transport.mjs','scripts/lib/media-publication.mjs','scripts/test-media-activation-reuse.mjs']){const changed=exportDeliverySources();changed[file]='0'.repeat(64);assert.notEqual(selectCiTests(EXPORT_DELIVERY_UNPUBLISHED_FILES,{exportSources:changed}).policy,EXPORT_DELIVERY_POLICY,'Changed closed image/continuation input must widen: '+file);}
  assert(requiresPrivateMediaImage(selection.files));
  for(const unknown of ['workers/media/src/unreviewed.js','scripts/lib/canvas-export-release.mjs.unreviewed','tests/helpers/q2-runtime/unreviewed.mjs','workers/auth/src/lib/model-tariffs.js'])assert.notEqual(selectCiTests([...EXPORT_DELIVERY_FILES,unknown]).policy,EXPORT_DELIVERY_POLICY);
  assert(selectCiTests(EXPORT_DELIVERY_FILES,{forceFull:true}).full);
@@ -1488,6 +1488,32 @@ async function testExportDeliverySelection(){
  const noResults=structuredClone(report);noResults.suites=[];assert.throws(()=>prove(noResults));
  const failed=structuredClone(report);failed.stats.unexpected=1;assert.throws(()=>prove(failed));
  const retried=structuredClone(report);const retry=suite=>{for(const spec of suite.specs||[])for(const test of spec.tests||[])test.results.push({status:'passed',retry:1});for(const child of suite.suites||[])retry(child);};retried.suites.forEach(retry);assert.throws(()=>prove(retried));
+
+ if(process.argv.includes('--canvas-export-delivery-only')){
+  // The canonical continuation stages the immutable failed report before this
+  // check. Preserve its four actual passes; never synthesize historical success.
+  const {EXPORT_DELIVERY_BROWSER_PREFLIGHT:p}=await import('./lib/canvas-export-release.mjs');
+  const {EXPORT_DELIVERY_BROWSER_POLICY,verifyExportDeliveryBrowserReport}=await import('./lib/canvas-export-browser.mjs');
+  const {browserRows}=await import('./lib/browser-fixture-repair.mjs');
+  const {createHash}=await import('node:crypto');
+  const raw=fs.readFileSync(path.join(repoRoot,'.local-release/reuse/export-browser-original.json'));
+  assert.equal(createHash('sha256').update(raw).digest('hex'),p.report,'The original failed browser report must be staged unchanged');
+  const previous=browserRows(JSON.parse(raw)),discovered=browserRows(discovery,{discovery:true});
+  const fresh=discovered.filter(row=>row.title.startsWith('Canvas export lifecycle ')).map(row=>({...row,expectedStatus:'passed',status:'expected',results:[{status:'passed',retry:0,error:false}]}));
+  assert.equal(fresh.length,4);
+  const union={policy:EXPORT_DELIVERY_BROWSER_POLICY,sha:'f'.repeat(40),source:p.source,previous,discovery:discovered,fresh,counts:{required:8,reused:4,executed:4}};
+  assert.deepEqual(verifyExportDeliveryBrowserReport(union,union.sha),union.counts);assert.equal(prove(union).tests,8);
+  const rejects=mutate=>{const value=structuredClone(union);mutate(value);assert.throws(()=>verifyExportDeliveryBrowserReport(value,union.sha));assert.throws(()=>prove(value));};
+  rejects(value=>value.source='0'.repeat(40));rejects(value=>value.sha='0'.repeat(40));
+  rejects(value=>{const row=value.previous.find(row=>row.title.startsWith('Canvas export lifecycle '));row.status='expected';row.results=[{status:'passed',retry:0,error:false}];});
+  rejects(value=>value.previous.shift());rejects(value=>value.discovery.shift());
+  rejects(value=>value.discovery[0].title='Unreviewed caller');rejects(value=>value.counts.reused=8);
+  rejects(value=>value.fresh.shift());rejects(value=>value.fresh.push(value.fresh[0]));
+  rejects(value=>value.fresh[0]=value.previous.find(row=>row.title.startsWith('Canvas editable film ')));
+  rejects(value=>value.fresh[0].expectedStatus='skipped');rejects(value=>value.fresh[0].results[0].status='failed');
+  rejects(value=>value.fresh[0].results[0].retry=1);rejects(value=>value.fresh[0].results[0].error=true);
+  assert.throws(()=>candidateProof({sha:union.sha,selection:{...selection,policy:'unreviewed'}},{job:'browser-validation',readJson:file=>file.endsWith('canvas-discovery.json')?discovery:union}));
+ }
 
  for(const bad of [browser.slice(1),[...browser,browser[0]],browser.map((r,i)=>i? r:{...r,expectedStatus:'skipped'}),browser.map((r,i)=>i?r:{...r,title:'wrong caller'})])assert.throws(()=>verifyExportDeliveryDiscovery(bad));
  const worker=flattenHomepageDiscovery(discover(['-c','playwright.workers.config.js','tests/workers.spec.js','tests/q2-canvas-agent.spec.js','--grep',EXPORT_DELIVERY_WORKER_GREP]));

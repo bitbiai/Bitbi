@@ -1,6 +1,6 @@
 import {stageMediaPublication} from './media-publication.mjs';
 import {smoothProfile,isSmoothContinuation,verifySmoothImageReuse,AUTONOMY_BROWSER_PREFLIGHT,verifyAutonomyImageReuse} from './local-release-browser.mjs';
-import {EXPORT_DELIVERY_SDK_PREFLIGHT,verifyExportDeliveryImageReuse} from './canvas-export-release.mjs';
+import {EXPORT_DELIVERY_SDK_PREFLIGHT,EXPORT_DELIVERY_BROWSER_PREFLIGHT,verifyExportDeliveryImageReuse} from './canvas-export-release.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -143,7 +143,7 @@ export async function importLocalEvidence(expected, { token = process.env.GH_TOK
       const original=JSON.parse(fs.readFileSync(path.join(mediaDir,'image.json')));
       const smooth=isSmoothContinuation(verified.evidence.permissionContinuation?.source);
       const autonomy=verified.evidence.preflightContinuation?.source===AUTONOMY_BROWSER_PREFLIGHT.source;
-      const exportDelivery=verified.evidence.preflightContinuation?.source===EXPORT_DELIVERY_SDK_PREFLIGHT.source;
+      const exportDelivery=[EXPORT_DELIVERY_SDK_PREFLIGHT.source,EXPORT_DELIVERY_BROWSER_PREFLIGHT.source].includes(verified.evidence.preflightContinuation?.source);
       const retained=smooth||autonomy||exportDelivery;
       if(smooth)verifySmoothImageReuse(original,expected.sha);
       if(autonomy)verifyAutonomyImageReuse(original,expected.sha);
