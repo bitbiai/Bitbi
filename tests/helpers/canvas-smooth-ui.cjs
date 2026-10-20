@@ -11,7 +11,7 @@ exports.smoothUi=async({page,expect,locale,mockSharedAuth,createCanvasApiMock,in
   const media=name=>fs.readFileSync(path.join(__dirname,'../fixtures/media',name)).toString('base64');
   const f=await canvasAudioFixture({...createAuthTestEnv(),DB},{videoBase64:fs.readFileSync(files[0]).toString('base64'),importVideoBase64:fs.readFileSync(files[1]).toString('base64'),musicBase64:media('member-music.mp3'),imageBase64:media('h3-frame.png')});
   const de=locale==='de',writes=[],errors=[];let rendering=Promise.resolve();
-  await page.setViewportSize({width:de?390:1440,height:900});await mockSharedAuth(page);createCanvasApiMock(page);
+  await page.setViewportSize({width:de?390:1440,height:900});await mockSharedAuth(page,true,'user',f.owner);createCanvasApiMock(page);
   page.on('pageerror',e=>errors.push(e.message));
   const processor=()=>processCanvasExports({baseUrl:'https://bitbi.ai',limit:1,authHeaders:headers=>({Authorization:'Bearer synthetic-audio-processor',...headers}),
     requestJson:async(url,init={})=>{const response=await f.request(url,init.method||'GET',init.body,{Authorization:'Bearer synthetic-audio-processor',...init.headers});const data=await response.json();expect(response.ok,JSON.stringify(data)).toBe(true);return data;},

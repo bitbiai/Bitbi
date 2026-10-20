@@ -16,7 +16,7 @@ module.exports=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock
         expect((await DB.prepare('SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(f.owner).first()).n).toBe(0);
         const install=async target=>{
             await target.setViewportSize({width:de?390:1440,height:1000});
-            await mockSharedAuth(target);createCanvasApiMock(target);target.on('pageerror',error=>errors.push(error.message));
+            await mockSharedAuth(target,true,'user',f.owner);createCanvasApiMock(target);target.on('pageerror',error=>errors.push(error.message));
             await target.route('**/api/account/canvas/**',async route=>{
                 const req=route.request(),url=new URL(req.url());requests.push({path:url.pathname,method:req.method()});
                 const response=await f.request(url.pathname+url.search,req.method(),req.postData()??undefined,

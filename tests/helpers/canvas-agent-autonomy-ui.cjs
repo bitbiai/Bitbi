@@ -2,7 +2,7 @@ const {responseBytes}=require('./canvas-agent-ui.cjs');
 
 async function mount({page,locale,mockSharedAuth,createCanvasApiMock,f,requests,errors,loseDecision}) {
     await page.setViewportSize({width:locale==='de'?390:1440,height:1000});
-    await mockSharedAuth(page);createCanvasApiMock(page);page.on('pageerror',error=>errors.push(error.message));
+    await mockSharedAuth(page,true,'user',f.owner);createCanvasApiMock(page);page.on('pageerror',error=>errors.push(error.message));
     await page.route('**/api/account/canvas/**',async route=>{
         const req=route.request(),url=new URL(req.url()),body=req.postData()?req.postDataJSON():undefined;
         const headers={};for(const name of ['Idempotency-Key','X-Bitbi-Tariff-Revision'])if(req.headers()[name.toLowerCase()])headers[name]=req.headers()[name.toLowerCase()];

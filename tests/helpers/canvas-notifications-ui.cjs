@@ -34,6 +34,16 @@ module.exports=async options=>{
   expect(state.notificationReads).toHaveLength(1);await page.reload();await toggle.click();
   const readId=state.notificationReads[0][0];await expect(inbox.locator(`[data-notification-id="${readId}"]`)).toHaveAttribute('data-unread','false');
   expect(state.notificationClients).toEqual([]);expect(state.requests.filter(request=>request.pathname.endsWith('/run'))).toEqual([]);
+  // Clearing a failed conversation can retire a source without deleting its
+  // project. A foreign read response is no evidence; owner-scoped successful
+  // readback retires only the requested vanished identity.
+  const vanished={id:'turn:cleared:failed',source:'conversation',kind:'conversation',code:'canvas_conversation_failed',projectId:project,createdAt:new Date().toISOString(),readAt:null,confirmed:true,details:{turnId:'cleared-turn'}};
+  state.notifications.unshift(vanished);await inbox.getByRole('button',{name:de?'Aktualisieren':'Refresh',exact:true}).click();await list.evaluate(node=>node.scrollTop=0);
+  const vanishedRow=inbox.locator(`[data-notification-id="${vanished.id}"]`);await expect(vanishedRow).toBeInViewport();await expect(read).toBeEnabled();
+  state.notifications=state.notifications.filter(item=>item.id!==vanished.id);
+  await page.route('**/api/account/canvas/notifications/read',route=>route.fulfill({json:{ok:true,data:{viewerId:'different-member',readIds:[],unreadCount:0}}}));
+  await read.click();await expect(read).toBeEnabled();await expect(vanishedRow).toHaveAttribute('data-unread','true');
+  await page.unroute('**/api/account/canvas/notifications/read');await read.click();await expect(vanishedRow).toHaveCount(0);expect(state.notificationReads.at(-1)).toContain(vanished.id);
   // Another device may acknowledge the existing inbox. New client storage
   // must keep the badge visible even if its preceding GET returned zero.
   for(const item of state.notifications)item.readAt=new Date().toISOString();
@@ -107,6 +117,8 @@ module.exports=async options=>{
   const remove=page.locator('.canvas-project-item__menu--danger');await remove.click();
   await expect.poll(()=>deleteCalls).toBe(1);await expect(page.locator('#canvasApp')).not.toHaveAttribute('inert','');
   await expect(remove).toHaveCount(1);await expect(title).toHaveValue('Unsaved same-user draft');
+  await expect.poll(()=>state.notificationClients.find(body=>body.code==='canvas_project_delete_unconfirmed')).toMatchObject({projectId:project,errorCode:'network_error',status:0});
+  await toggle.click();await expect(inbox.locator('[data-code="canvas_project_delete_unconfirmed"]')).toContainText(de?'Die Projektlöschung konnte nicht bestätigt werden':'Project removal could not be confirmed');await page.keyboard.press('Escape');
   deletion='committed';await remove.click();await expect.poll(()=>deleteCalls).toBe(2);await expect(remove).toHaveCount(0);
   await toggle.click();await expect(inbox.locator('[data-notification-id="project:deleted"]')).toBeVisible();
   await expect(inbox.locator('[data-notification-id="project:deleted"] button')).toHaveCount(0);

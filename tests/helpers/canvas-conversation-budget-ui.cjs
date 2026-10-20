@@ -7,7 +7,7 @@ module.exports=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock
  const de=locale==='de',requests=[],errors=[];
  try{
   c=await canvasAgentConversationFixture({...createAuthTestEnv(),DB},{scope:'budget-browser-'+locale,locale});const f=c.f;
-  await mockSharedAuth(page);createCanvasApiMock(page);await page.setViewportSize({width:de?1280:1440,height:de?600:900});
+  await mockSharedAuth(page,true,'user',f.owner);createCanvasApiMock(page);await page.setViewportSize({width:de?1280:1440,height:de?600:900});
   page.on('pageerror',error=>errors.push(error.message));
   await page.route('**/api/account/canvas/**',async route=>{
    const req=route.request(),url=new URL(req.url()),body=req.postData()?req.postDataJSON():undefined,headers={};

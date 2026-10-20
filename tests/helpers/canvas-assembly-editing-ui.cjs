@@ -57,7 +57,7 @@ module.exports=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock
     // The one intentional rerun returns visibly different synthetic pixels.
     const fetchBefore=f.env.__TEST_FETCH;
     f.env.__TEST_FETCH=(url,init)=>url==='https://fixture.invalid/completion.mp4'?Promise.resolve(new Response(fs.readFileSync(files.yellow),{headers:{'Content-Type':'video/mp4'}})):fetchBefore(url,init);
-    await page.setViewportSize({width:de?390:1440,height:1000});await mockSharedAuth(page);createCanvasApiMock(page);page.on('pageerror',error=>errors.push(error.message));
+    await page.setViewportSize({width:de?390:1440,height:1000});await mockSharedAuth(page,true,'user',f.owner);createCanvasApiMock(page);page.on('pageerror',error=>errors.push(error.message));
     await page.route(/\/api\/(account\/canvas\/|ai\/(generation-jobs\/|text-assets\/|images\/|audio\/)|model-pricing)/,async route=>{
         const req=route.request(),url=new URL(req.url()),body=req.postData();requests.push({path:url.pathname,method:req.method(),body:body?JSON.parse(body):null});
         if(disconnectExportRead&&req.method()==='GET'&&url.pathname.endsWith('/full-video')&&!url.searchParams.has('seamPreview')&&!url.searchParams.has('previewBase')){

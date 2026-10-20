@@ -11,7 +11,7 @@ module.exports=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock
     const f=c.f;await c.approve(3000);
     await page.setViewportSize({width:1440,height:900});
     if(scenario!=='queued')await page.clock.install({time:new Date()});
-    await mockSharedAuth(page);createCanvasApiMock(page);
+    await mockSharedAuth(page,true,'user',f.owner);createCanvasApiMock(page);
     page.on('pageerror',error=>errors.push(error.message));
     await page.route('**/api/account/canvas/**',async route=>{
       const req=route.request(),url=new URL(req.url()),body=req.postData()?req.postDataJSON():undefined,headers={};

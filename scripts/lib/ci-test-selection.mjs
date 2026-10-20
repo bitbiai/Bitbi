@@ -517,6 +517,7 @@ const AUTH_SHARED_PATTERNS = [
 
 const HOMEPAGE_CORE_TEST_FILES = new Set([
   "tests/helpers/canvas-notifications-ui.cjs", "tests/helpers/canvas-export-lifecycle-ui.cjs", "tests/helpers/canvas-inspector-ui.cjs",
+  "tests/helpers/canvas-completion-ui.cjs", "tests/helpers/canvas-smooth-ui.cjs", "tests/helpers/canvas-workspace-transitions-ui.cjs",
   "tests/helpers/canvas-audio-ui.cjs", "tests/helpers/canvas-transition-examples-ui.cjs",
   "tests/helpers/canvas-agent-ui.cjs", "tests/helpers/canvas-agent-model-recovery-ui.cjs", "tests/helpers/canvas-agent-autonomy-ui.cjs", "tests/helpers/canvas-assembly-editing-ui.cjs",
   "tests/helpers/canvas-conversation-budget-ui.cjs",

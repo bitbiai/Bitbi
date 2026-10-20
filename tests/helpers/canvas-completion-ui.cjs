@@ -22,7 +22,7 @@ exports.completionUi = async ({ page, expect, locale, mockSharedAuth, createCanv
   }]));
   page.on('pageerror', error => errors.push(error.message));
   await page.setViewportSize({ width: de ? 390 : 1440, height: 900 });
-  await mockSharedAuth(page); createCanvasApiMock(page);
+  await mockSharedAuth(page,true,'user',f.owner); createCanvasApiMock(page);
   await f.prepare(7);
   await page.route(/\/api\/(account\/canvas\/|ai\/(generation-jobs\/|text-assets\/|images\/))/, async route => {
     const request = route.request(), url = new URL(request.url()), method = request.method();

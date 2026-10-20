@@ -898,7 +898,11 @@ async function deleteProject(project) {
             // current owned visibility using reads before clearing this graph.
             const [listed,current]=await Promise.all([canvasApi.listProjects(),canvasApi.getProject(project.id)]);
             const absent=listed.ok&&Array.isArray(listed.data?.projects)&&!listed.data.projects.some(item=>item.id===project.id)&&current.status===404&&current.code==='project_not_found';
-            if(!absent)return reportError(deleted);
+            if(!absent){
+                if([deleted,listed,current].some(result=>['request_aborted','canvas_session_unconfirmed'].includes(result?.code)))return;
+                canvasNotice('',{code:'canvas_project_delete_unconfirmed',projectId:project.id,projectTitle:project.title,errorCode:deleted.code,diagnosticRef:deleted.diagnosticRef,status:deleted.status});
+                return;
+            }
             store.state.projects=listed.data.projects;
         }
         if(deleted.ok&&deleted.data?.cleanupPending)canvasNotice('',{code:'canvas_cleanup_pending',projectId:project.id,projectTitle:project.title,diagnosticRef:deleted.data.diagnosticRef});

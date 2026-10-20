@@ -98,12 +98,12 @@ function source(relativePath) {
   return fs.readFileSync(path.join(__dirname, '..', relativePath), 'utf8');
 }
 
-async function mockSharedAuth(page, loggedIn = true, role = 'user') {
+async function mockSharedAuth(page, loggedIn = true, role = 'user', userId = 'canvas-member') {
   await page.route('**/api/me', (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify(loggedIn
-      ? { loggedIn: true, user: { id: 'canvas-member', email: 'canvas@example.com', role } }
+      ? { loggedIn: true, user: { id: userId, email: 'canvas@example.com', role } }
       : { loggedIn: false, user: null }),
   }));
 }

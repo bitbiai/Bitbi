@@ -26,7 +26,7 @@ const messages = {
     canvas_run_complete: ['Generated output saved.', 'Erzeugtes Ergebnis gespeichert.'],
     canvas_asset_saved: ['Output saved to Assets.', 'Ergebnis in Assets gespeichert.'],
     canvas_save_failed: ['The save could not be confirmed. Check the current project before repeating it.', 'Das Speichern konnte nicht bestätigt werden. Prüfe den aktuellen Projektstand vor einer Wiederholung.'],
-    canvas_project_delete_unconfirmed: ['Project removal could not be confirmed. Its current state will be checked before another request.', 'Die Projektlöschung konnte nicht bestätigt werden. Vor einem weiteren Auftrag wird der aktuelle Zustand geprüft.'],
+    canvas_project_delete_unconfirmed: ['Project removal could not be confirmed. The displayed project state is retained.', 'Die Projektlöschung konnte nicht bestätigt werden. Der angezeigte Projektstand bleibt erhalten.'],
     canvas_cleanup_pending: ['The change is saved. Background media cleanup is pending; no repeat action is needed.', 'Die Änderung ist gespeichert. Die Medienbereinigung steht noch aus; die Aktion muss nicht wiederholt werden.'],
     canvas_connection_interrupted: ['The connection was interrupted. Existing accepted work continues independently.', 'Die Verbindung wurde unterbrochen. Bereits angenommene Arbeit läuft unabhängig weiter.'],
     canvas_connection_recovered: ['Connected again. Existing requests are being observed.', 'Wieder verbunden. Bestehende Aufträge werden weiter beobachtet.'],
@@ -97,6 +97,7 @@ const actionLabels = {
     regenerate: ['Generate new variant', 'Neue Variante erzeugen'], export: ['Export video', 'Video exportieren'], save_result: ['Save output to Assets', 'Ergebnis in Assets speichern'],
 };
 export function canvasNotificationText(item, german = false) {
+    if(item?.code==='canvas_project_delete_unconfirmed')return messages.canvas_project_delete_unconfirmed[german?1:0];
     const code = item?.details?.errorCode || item?.code;
     const referenceError = h3ReferenceError(code,german);
     if (referenceError) return referenceError;

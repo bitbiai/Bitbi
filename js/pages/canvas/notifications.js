@@ -125,8 +125,16 @@ export function createCanvasNotifications({button,panel,german,getProject=()=>nu
         if(acknowledging||panel.hidden)return;const current=epoch,displayed=[...presented].map(id=>items.get(id)).filter(item=>item&&!item.readAt);
         const remote=displayed.filter(item=>!item.local).slice(0,100);acknowledging=true;updateRead();
         if(remote.length){const result=await canvasApi.notificationRead(remote.map(item=>item.id));if(epoch!==current)return;
-            if(!result.ok||result.data?.viewerId!==viewer){acknowledging=false;status.textContent=copy.readFailed;if(!result.ok)publish({text:copy.offline,code:'canvas_connection_interrupted',projectId:null,key:'notification-connection',localOnly:true});updateRead();return;}
-            const acknowledged=new Set(result.data.readIds||[]);for(const item of remote)if(acknowledged.has(item.id)&&items.has(item.id))items.get(item.id).readAt=new Date().toISOString();unread=Number.isSafeInteger(result.data.unreadCount)?result.data.unreadCount:Math.max(0,unread-acknowledged.size);
+            if(!result.ok||result.data?.viewerId!==viewer||!Array.isArray(result.data.readIds)){acknowledging=false;status.textContent=copy.readFailed;if(!result.ok)publish({text:copy.offline,code:'canvas_connection_interrupted',projectId:null,key:'notification-connection',localOnly:true});updateRead();return;}
+            const acknowledged=new Set(result.data.readIds);
+            for(const item of remote){
+                if(acknowledged.has(item.id)){if(items.has(item.id))items.get(item.id).readAt=new Date().toISOString();}
+                // Successful owner-scoped readback omits sources that no
+                // longer exist (for example a cleared failed conversation).
+                // Remove only requested old identities, never later arrivals.
+                else{items.delete(item.id);presented.delete(item.id);}
+            }
+            unread=Number.isSafeInteger(result.data.unreadCount)?result.data.unreadCount:Math.max(0,unread-acknowledged.size);
         }
         for(const item of displayed.filter(item=>item.local)){item.readAt=new Date().toISOString();}storePending();acknowledging=false;paint();void observe();
     }

@@ -29,7 +29,7 @@ exports.audioUi=async({page,expect,locale,browserName,mockSharedAuth,createCanva
   command(['-i',baseFile,'-vf','negate','-c:v','libx264','-threads','1','-pix_fmt','yuv420p','-c:a','copy',importFile]);
   const f=await canvasAudioFixture({...createAuthTestEnv(),DB},{videoBase64:fs.readFileSync(baseFile).toString('base64'),importVideoBase64:fs.readFileSync(importFile).toString('base64'),musicBase64:media('member-music.mp3'),imageBase64:media('h3-frame.png')});
   const de=locale==='de',errors=[],consoleErrors=[],exports=[];let rendering=Promise.resolve();
-  await page.setViewportSize({width:de?390:1440,height:900});await mockSharedAuth(page);createCanvasApiMock(page);
+  await page.setViewportSize({width:de?390:1440,height:900});await mockSharedAuth(page,true,'user',f.owner);createCanvasApiMock(page);
   await page.addInitScript(()=>{
     window.canvasAudioMeters=[];
     const connect=AudioNode.prototype.connect,create=AudioContext.prototype.createMediaElementSource,outputs=new WeakMap();

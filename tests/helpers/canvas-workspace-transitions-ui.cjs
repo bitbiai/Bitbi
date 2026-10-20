@@ -67,7 +67,7 @@ exports.transitions=async({page,expect,locale,mockSharedAuth,createCanvasApiMock
   await f.data(await f.request(`${f.projectPath}/nodes/${f.last.id}`,'PATCH',{config:{backgroundMusic:{enabled:locale==='de',gain:.2,musicAssetId:f.musicId,fadeIn:.2,fadeOut:.3}}}));
   f.snapshot=await f.readProject();
   const de=locale==='de',errors=[],posts=[];let rendering=Promise.resolve();
-  await page.setViewportSize({width:de?390:1440,height:1000});await mockSharedAuth(page);createCanvasApiMock(page);page.on('pageerror',e=>errors.push(e.message));
+  await page.setViewportSize({width:de?390:1440,height:1000});await mockSharedAuth(page,true,'user',f.owner);createCanvasApiMock(page);page.on('pageerror',e=>errors.push(e.message));
   const processor=()=>processCanvasExports({baseUrl:'https://bitbi.ai',limit:1,authHeaders:headers=>({Authorization:'Bearer synthetic-audio-processor',...headers}),
     requestJson:async(url,init={})=>{const response=await f.request(url,init.method||'GET',init.body,{Authorization:'Bearer synthetic-audio-processor',...init.headers});const data=await response.json();expect(response.ok,JSON.stringify(data)).toBe(true);return data;},fetchImpl:(url,init)=>f.request(url.pathname+url.search,'GET',null,init.headers)});
   await page.route(/\/api\/(account\/canvas\/|ai\/(generation-jobs\/|text-assets\/|images\/|audio\/))/,async route=>{
