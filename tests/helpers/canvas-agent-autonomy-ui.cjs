@@ -39,7 +39,11 @@ exports.proposal=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMo
         await inbox.getByRole('button',{name:de?'Meldungen schließen':'Close notifications',exact:true}).click();
         expect((await f.complete()).status).toBe(200);
         await check.click();await expect(panel.locator('.canvas-agent__plan')).toContainText('House construction');
-        await expect(panel.locator('.canvas-agent__plan')).toContainText('Keep the same house and neighboring duck pool');
+        // The approved structured continuity is public project data; the
+        // fixture's different provider reasoning_content must stay private.
+        expect(plan.continuity).toBe('Keep the same house and pool positions across the three shots.');
+        await expect(panel.locator('.canvas-agent__plan')).toContainText(plan.continuity);
+        await expect(panel.locator('.canvas-agent__plan')).not.toContainText('Keep the same house and neighboring duck pool');
         expect((await f.data(await f.request(f.projectPath))).nodes).toHaveLength(0);
         // The real queue discovers the bad combination and retains its feedback
         // before any second model call or media submission.
@@ -57,6 +61,8 @@ exports.proposal=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMo
         await page.reload();await page.locator('#canvasAgentToggle').click();if(await page.locator('#canvasAgentPanel').isVisible())await page.locator('#canvasAgentPanel').getByRole('tab',{name:locale==='de'?'Projekt & Produktion':'Project & production',exact:true}).click();
         await expect(panel.locator('h3')).toHaveText(de?'Manuell übernommen':'Taken over manually');
         await expect(panel.locator('.canvas-agent__plan')).toContainText('House construction');
+        await expect(panel.locator('.canvas-agent__plan')).toContainText(plan.continuity);
+        await expect(panel.locator('.canvas-agent__plan')).not.toContainText('Keep the same house and neighboring duck pool');
         await expect(panel.locator('.canvas-agent__cause')).toHaveCount(0);
         const after=await f.observe();expect(after.proposedPlan.revision).toBe(before.proposedPlan.revision);expect(after.chargedCredits).toBe(before.chargedCredits);
         await f.deliver();expect(f.calls).toHaveLength(1);expect((await f.data(await f.request(f.projectPath))).nodes).toHaveLength(0);
@@ -104,14 +110,22 @@ exports.budget=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock
             // Hold the real ordinary save in flight. Without the first-decision
             // flush, the old revision could still authorize work ahead of it.
             await expect.poll(()=>Boolean(held)).toBe(true);
-            await page.locator('#canvasAgentToggle').click();if(await page.locator('#canvasAgentPanel').isVisible())await page.locator('#canvasAgentPanel').getByRole('tab',{name:locale==='de'?'Projekt & Produktion':'Project & production',exact:true}).click();await expect(accept).toBeEnabled();await accept.click();await expect(accept).toBeDisabled();
+            await page.locator('#canvasAgentToggle').click();if(await page.locator('#canvasAgentPanel').isVisible())await page.locator('#canvasAgentPanel').getByRole('tab',{name:locale==='de'?'Projekt & Produktion':'Project & production',exact:true}).click();await expect(accept).toBeEnabled();
+            const budgetResponse=page.waitForResponse(response=>response.url().endsWith('/budget')&&response.request().method()==='POST');
+            await accept.click();await expect(accept).toBeDisabled();
             expect(requests.filter(item=>item.path.endsWith('/budget'))).toEqual([]);
             const saved=await f.request(nodePath,'PATCH',held.request().postDataJSON());expect(saved.status).toBe(200);
             await held.fulfill({status:saved.status,headers:Object.fromEntries(saved.headers),body:await responseBytes(saved)});
-            await require('./canvas-agent-ui.cjs').expectNotification({page,expect,locale},'canvas_agent_project_changed');
+            const rejected=await budgetResponse;expect(rejected.status()).toBe(409);
+            expect(await rejected.json()).toMatchObject({ok:false,code:'canvas_agent_budget_request_changed'});
+            await require('./canvas-agent-ui.cjs').expectNotification({page,expect,locale},'canvas_agent_budget_request_changed',de?
+                'Diese Budgetanfrage passt nicht mehr zum aktuellen Projekt oder Limit. Sie kann nicht mehr freigegeben werden.':
+                'This budget request no longer matches the current project or cap. It can no longer be approved.');
             const decisions=requests.filter(item=>item.path.endsWith('/budget'));expect(decisions).toHaveLength(1);
             expect(decisions[0].body.expectedRevision).toBe(amendment.project_revision);
             expect((await DB.prepare('SELECT budget_credits FROM canvas_agent_runs WHERE id=?').bind(run.id).first()).budget_credits).toBe(200);
+            expect((await DB.prepare('SELECT status FROM canvas_agent_budget_requests WHERE id=?').bind(amendment.id).first()).status).toBe('pending');
+            expect((await DB.prepare('SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(f.owner).first()).n).toBe(0);
             expect((await DB.prepare('SELECT title FROM canvas_nodes WHERE id=?').bind(editable.id).first()).title).toBe('My manual node edit');
             expect((await DB.prepare('SELECT revision FROM canvas_projects WHERE id=?').bind(f.project).first()).revision).toBe(amendment.project_revision+1);
             expect(f.unexpected).toEqual([]);expect(errors).toEqual([]);return;

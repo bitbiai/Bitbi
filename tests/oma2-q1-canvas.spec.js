@@ -156,6 +156,31 @@ function exactMovementPatch(actual, expected) {
   for (const patch of broken) expect(() => expect(patch).toEqual(expected)).toThrow();
 }
 
+async function notificationReads(page, baseURL) {
+  // These editor cases now mount the independent notification observer. Accept
+  // only its bounded read; every mutation/unknown request still reaches the
+  // original fixture's unexpected-request guard.
+  const origin = new URL(baseURL).origin;
+  const isRead = ({ method, requestOrigin, pathname, search }) => method === 'GET' && requestOrigin === origin
+    && pathname === '/api/account/canvas/notifications' && search === '?limit=40';
+  const control = { method: 'GET', requestOrigin: origin, pathname: '/api/account/canvas/notifications', search: '?limit=40' };
+  expect(isRead(control)).toBe(true);
+  for (const invalid of [{ ...control, method: 'POST' }, { ...control, pathname: `${control.pathname}/read` },
+    { ...control, requestOrigin: 'https://foreign.invalid' }, { ...control, search: '?limit=40&authorized=true' },
+    { ...control, search: '?limit=4000' }]) expect(isRead(invalid)).toBe(false);
+  const reads = [];
+  await page.route('**/api/account/canvas/notifications**', async (route) => {
+    const request = route.request(), url = new URL(request.url());
+    const read = { method: request.method(), requestOrigin: url.origin, pathname: url.pathname, search: url.search };
+    if (!isRead(read)) return route.fallback();
+    expect(request.postData()).toBe(null);
+    reads.push(read);
+    return route.fulfill({ json: { ok: true, data: { items: [], nextCursor: null, unreadCount: 0,
+      viewerId: 'synthetic-canvas-member', baselineAt: '2026-09-06T00:00:00.000Z' } } });
+  });
+  return reads;
+}
+
 for (const locale of ['en', 'de']) {
   const labels = locale === 'de'
     ? { title: 'Titel', text: 'Text', tokens: 'Max. Tokens', run: 'Ausführen' }
@@ -163,6 +188,7 @@ for (const locale of ['en', 'de']) {
 
   test(`P13 ${locale}: rapid same/different nodes, content/config/title/move survive reload`, async ({ page, baseURL }) => {
     const state = await fixture(page, baseURL);
+    const notices = await notificationReads(page, baseURL);
     await open(page, locale);
     await fixedCardGeometry(page);
     // One browser turn guarantees all real DOM input/keyboard handlers run
@@ -193,6 +219,7 @@ for (const locale of ['en', 'de']) {
     await card(page, GENERATOR).click();
     await expect(inspector(page).getByLabel('Prompt', { exact: true })).toHaveValue('Changed prompt');
     await expect(inspector(page).getByLabel(labels.tokens, { exact: true })).toHaveValue('700');
+    expect(notices.length).toBeGreaterThan(0);
     expect(state.unexpected).toEqual([]);
   });
 
@@ -279,6 +306,7 @@ for (const locale of ['en', 'de']) {
 
   test(`P13 ${locale}: mobile panels and resize retain the same inflight editor without extra writes`, async ({ page, baseURL }) => {
     const state = await fixture(page, baseURL);
+    const notices = await notificationReads(page, baseURL);
     await open(page, locale);
     await card(page, NODE_A).click();
     const held = state.holdNext(NODE_A);
@@ -317,6 +345,7 @@ for (const locale of ['en', 'de']) {
     expect(state.patches).toHaveLength(1);
     await page.reload();
     await expect(card(page, NODE_A)).toContainText('Retain through panels');
+    expect(notices.length).toBeGreaterThan(0);
     expect(state.unexpected).toEqual([]);
   });
 

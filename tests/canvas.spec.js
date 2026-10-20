@@ -1127,7 +1127,7 @@ for(const locale of ['en','de']) test(`Canvas full video ordered clips ${locale}
   await page.route('**/api/account/canvas/**/full-video',route=>{
     if(route.request().method()==='POST'){
       posts++;const body=route.request().postDataJSON();expect(body).toEqual({smoothJoins:false,backgroundMusic:{enabled:false,gain:1,fadeIn:0,fadeOut:0},orderedClips:[1,0].map(i=>{const{runId,assetId,version}=availableClips[i];return{runId,assetId,version};})});expect(route.request().headers()['idempotency-key']).toBeTruthy();
-      if(reject)return route.fulfill({status:409,json:{ok:false,code:'video_source_changed'}});
+      if(reject)return route.fulfill({status:409,headers:{'X-Correlation-ID':'ordered-clips-rejected-source'},json:{ok:false,code:'video_source_changed'}});
       task={id:'export',status:'queued',recipe:{version:2,spatialPolicy:'center-crop-v1',sequence:'explicit',videos:body.orderedClips}};
     }
     return route.fulfill({json:{ok:true,data:{eligible:Boolean(task),assembly:null,revision:0,clips:1,availableClips,export:task}}});
@@ -1141,13 +1141,25 @@ for(const locale of ['en','de']) test(`Canvas full video ordered clips ${locale}
   await sequence.getByRole('button',{name:de?'Nach unten: Clip 1':'Move down: Clip 1',exact:true}).focus();await page.keyboard.press('Enter');
   await expect(sequence.getByLabel('Clip 1',{exact:true})).toHaveValue(runId);
   await sequence.getByRole('button',{name:de?'Nach oben: Clip 2':'Move up: Clip 2',exact:true}).click();
-  await create.focus();await page.keyboard.press('Enter');await expect(block.getByRole('status',{name:de?'Exportstatus':'Export status',exact:true})).toContainText('video_source_changed');expect(posts).toBe(1);
+  await create.focus();await page.keyboard.press('Enter');
+  await expect.poll(()=>state.notificationClients.filter(item=>item.errorCode==='video_source_changed'&&item.diagnosticRef==='ordered-clips-rejected-source').length).toBe(1);
+  const rejectedNotice=state.notificationClients.find(item=>item.errorCode==='video_source_changed'&&item.diagnosticRef==='ordered-clips-rejected-source');
+  expect(rejectedNotice.projectId).toBe(projectId);
+  await page.locator('#canvasNotificationsToggle').click();
+  const inbox=page.locator('#canvasNotificationsPanel'),rejectedRow=inbox.locator(`[data-notification-id="client:${rejectedNotice.requestId}"]`);
+  await expect(rejectedRow).toHaveCount(1);
+  await expect(rejectedRow).toContainText(de?'Vom Browser gemeldet':'Reported by this browser');
+  await rejectedRow.locator('summary').click();await expect(rejectedRow.locator('code')).toContainText('video_source_changed');
+  await expect(rejectedRow.locator('code')).toContainText('ordered-clips-rejected-source');
+  await expect(block.getByRole('status',{name:de?'Exportstatus':'Export status',exact:true})).toBeEmpty();expect(posts).toBe(1);
+  await inbox.getByRole('button',{name:de?'Meldungen schließen':'Close notifications',exact:true}).click();
   await expect(sequence.getByLabel('Clip 1',{exact:true})).toHaveValue('');await expect(create).toBeDisabled();reject=false;
   await block.locator('..').getByRole('button',{name:de?'Status aktualisieren':'Refresh status',exact:true}).click();
   await sequence.getByLabel('Clip 1',{exact:true}).selectOption(priorId);await sequence.getByLabel('Clip 2',{exact:true}).selectOption(runId);await create.click();
   await expect(block.getByRole('status',{name:de?'Exportstatus':'Export status',exact:true})).toContainText(de?'wartet':'queued');await expect(create).toBeDisabled();expect(posts).toBe(2);
   await open();await openCanvasSettings(page,'merge');await expect(sequence.getByLabel('Clip 1',{exact:true})).toHaveValue(priorId);await expect(sequence.getByLabel('Clip 2',{exact:true})).toHaveValue(runId);
-  expect(JSON.stringify([state.nodes,state.edges,state.runs])).toBe(originalState);expect(state.requests.filter(r=>r.method!=='GET')).toEqual([]);expect(posts).toBe(2);
+  expect(JSON.stringify([state.nodes,state.edges,state.runs])).toBe(originalState);
+  expect(state.requests.filter(r=>r.method!=='GET')).toEqual([{method:'POST',pathname:'/api/account/canvas/notifications/client'}]);expect(posts).toBe(2);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await sequence.scrollIntoViewIfNeeded();await page.screenshot({path:testInfo.outputPath(`ordered-clips-${locale}.png`)});
 });
 
@@ -1250,12 +1262,24 @@ for (const locale of ['en','de']) for(const delayedMetadata of [false,true]) tes
   state.runs=[{id:runId,node_id:nodeId,project_id:projectId,status:'completed',output,asset_id:'original',created_at:now,updated_at:now}];
   const merge=currentMergeFixture(state,nodeId,now);
   let task=null,current=null;const exports=[],saved=[];
+  const projectExportNotice=job=>{
+    if(!job)return;
+    const ready=Boolean(job.asset),failed=job.status==='failed',id=`export:${job.id}:${ready?'ready':failed?'failed:1:canvas_export_failed':job.status}`;
+    const readAt=state.notifications.find(item=>item.id===id)?.readAt||null;
+    state.notifications=state.notifications.filter(item=>item.details?.exportId!==job.id);
+    state.notifications.unshift({id,source:'export',kind:'export',code:ready?'canvas_export_ready':failed?'canvas_export_failed':'canvas_export_waiting',
+      severity:ready?'success':failed?'error':'info',projectId,projectTitle:'Synthetic music export',createdAt:now,readAt,resolved:ready||!failed,
+      status:ready?'ready':job.status,confirmed:true,diagnosticRef:`canvas-export-${job.id}`,details:{exportId:job.id,...(ready?{assetId:job.asset.id}:{})}});
+  };
+  // A historical ready notification must never satisfy the current job assertion.
+  projectExportNotice({id:'older-version',status:'ready',asset:{id:'older-asset'}});
   await page.route('**/api/account/canvas/**/full-video',route=>{
     if(route.request().method()==='POST') {
       const body=route.request().postDataJSON();
       if(body.saveExportId){saved.push(body.saveExportId);current.storage='assets';return route.fulfill({json:{ok:true,data:{asset_id:body.saveExportId,storage:'assets'}}});}
       exports.push({body,key:route.request().headers()['idempotency-key']});task={id:`version-${exports.length}`,status:'queued',storage:'canvas'};
     }
+    projectExportNotice(task);
     return route.fulfill({json:{ok:true,data:{eligible:true,export:task,current,availableClips:merge.availableClips}}});
   });
   let releaseMetadata;const metadataGate=new Promise(resolve=>{releaseMetadata=resolve;});
@@ -1296,6 +1320,13 @@ for (const locale of ['en','de']) for(const delayedMetadata of [false,true]) tes
   await expect.poll(()=>exports.length).toBe(1);
   expect(exports[0].body).toEqual({smoothJoins:false,backgroundMusic:{enabled:true,gain:0.5,fadeIn:0,fadeOut:0},orderedClips:merge.orderedClips,mergeMode:'chain'});expect(exports[0].key).toBeTruthy();
   await expect.poll(()=>state.nodes[0].config.backgroundMusic).toEqual({enabled:true,gain:0.5,fadeIn:0,fadeOut:0});
+  await page.locator('#canvasNotificationsToggle').click();
+  const inbox=page.locator('#canvasNotificationsPanel');
+  await expect(inbox.locator('[data-notification-id="export:older-version:ready"]')).toHaveCount(1);
+  await expect(inbox.locator('[data-notification-id="export:version-1:queued"]')).toHaveCount(1);
+  await expect(inbox.locator('[data-notification-id="export:version-1:ready"]')).toHaveCount(0);
+  expect(exports).toHaveLength(1);
+  await inbox.getByRole('button',{name:locale==='de'?'Meldungen schließen':'Close notifications',exact:true}).click();
   current={...task,status:'ready',asset:{id:task.id,file_url:'/api/ai/text-assets/version-1/file'}};task=current;
   await page.evaluate(()=>{
     const records=window.canvasSaveTrace=[],ids=new WeakMap();let sequence=0;
@@ -1321,7 +1352,16 @@ for (const locale of ['en','de']) for(const delayedMetadata of [false,true]) tes
   const up=interaction.find(event=>event.type==='pointerup' && event.time>=down.time);
   expect(up.target.id).toBe(down.target.id);
   expect(Math.abs(up.save.rect[1]-down.save.rect[1])).toBeLessThan(1);
-  await expect(block.getByRole('status',{name:locale==='de'?'Exportstatus':'Export status',exact:true})).toContainText(locale==='de'?'Diese Version ist in Assets gespeichert.':'This version is saved to Assets.');
+  expect(current.storage).toBe('assets');expect(current.id).toBe('version-1');expect(current.asset.id).toBe('version-1');
+  expect(state.notifications.find(item=>item.id==='export:version-1:ready').details).toEqual({exportId:'version-1',assetId:'version-1'});
+  await expect(block.getByRole('status',{name:locale==='de'?'Exportstatus':'Export status',exact:true})).not.toContainText(locale==='de'?'Diese Version ist in Assets gespeichert.':'This version is saved to Assets.');
+  await page.locator('#canvasNotificationsToggle').click();
+  const readyRow=inbox.locator('[data-notification-id="export:version-1:ready"]');
+  await expect(readyRow).toHaveAttribute('data-code','canvas_export_ready');
+  await expect(readyRow).toContainText(locale==='de'?'Das fertige Video ist gespeichert.':'The final video is saved.');
+  await readyRow.locator('summary').click();await expect(readyRow.locator('code')).toContainText('canvas-export-version-1');
+  expect(saved).toEqual(['version-1']);expect(exports).toHaveLength(1);
+  await inbox.getByRole('button',{name:locale==='de'?'Meldungen schließen':'Close notifications',exact:true}).click();
   await expect(block.getByRole('button',{name:locale==='de'?'Gesamtvideo in Assets speichern':'Save full video to Assets'})).toHaveCount(0);
   await open();await sound.locator('summary').click();await expect(slider).toHaveValue('50');await expect(check).toBeChecked();
   await slider.fill('100');await slider.dispatchEvent('input');expect(exports).toHaveLength(1);
@@ -1330,7 +1370,15 @@ for (const locale of ['en','de']) for(const delayedMetadata of [false,true]) tes
   expect(exports[1].body.backgroundMusic.gain).toBe(1);expect(exports[1].key).not.toBe(exports[0].key);
   await expect(block.locator('video')).toHaveAttribute('src','/api/ai/text-assets/version-1/file');
   task.status='failed';await inspector.getByRole('button',{name:locale==='de'?'Status aktualisieren':'Refresh status'}).click();
-  await expect(block.getByRole('status',{name:locale==='de'?'Exportstatus':'Export status',exact:true})).toContainText(locale==='de'?'fehlgeschlagen':'failed');
+  await page.locator('#canvasNotificationsToggle').click();
+  const failedRow=inbox.locator('[data-notification-id="export:version-2:failed:1:canvas_export_failed"]');
+  await expect(failedRow).toHaveAttribute('data-code','canvas_export_failed');
+  await expect(failedRow).toContainText(locale==='de'?'Der Export konnte nicht abgeschlossen werden.':'The export could not finish.');
+  await failedRow.locator('summary').click();await expect(failedRow.locator('code')).toContainText('canvas-export-version-2');
+  await expect(inbox.locator('[data-notification-id="export:version-1:ready"]')).toHaveCount(1);
+  await expect(block.getByRole('status',{name:locale==='de'?'Exportstatus':'Export status',exact:true})).toBeEmpty();
+  expect(saved).toEqual(['version-1']);expect(exports).toHaveLength(2);
+  await inbox.getByRole('button',{name:locale==='de'?'Meldungen schließen':'Close notifications',exact:true}).click();
   await expect(block.locator('video')).toHaveAttribute('src','/api/ai/text-assets/version-1/file');
   expect(saved).toEqual(['version-1']);expect(exports).toHaveLength(2);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);

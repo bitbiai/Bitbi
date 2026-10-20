@@ -2104,7 +2104,11 @@ trim-outside-source validation error. Conversation allowance and production cap
 were different records; generic limit text must not silently modify the former.
 
 Notifications project canonical source/outcome identities into a viewer-owned
-inbox. Read only explicitly acknowledged, presented IDs; a later failure or
+inbox. Successful save/clear/cancel/allowance controls also need their existing
+conversation-action receipt projected; refreshing an inbox cannot invent a missing
+source. Notification fixtures use relative timestamps and verify viewport
+intersection: a fixed future timestamp otherwise sorts a new arrival offscreen,
+where it must remain unread. Read only explicitly acknowledged, presented IDs; a later failure or
 concurrent arrival remains unread. Remove superseded mutable projections, retain
 immutable events, and fence old-account asynchronous responses. Actual callers:
 `tests/q2-canvas-reliability.spec.js`, conversation/provider specs, additive native

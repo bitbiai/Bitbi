@@ -16,12 +16,13 @@ exports.responseBytes=async response=>{
 
 // Observe the canonical notification surface; never synthesize the original
 // failed/successful operation in order to display its acknowledgement.
-exports.expectNotification=async({page,expect,locale},code)=>{
+exports.expectNotification=async({page,expect,locale},code,message=null)=>{
     const inbox=page.locator('#canvasNotificationsPanel');
     if(!await inbox.isVisible())await page.locator('#canvasNotificationsToggle').click();
     await inbox.getByRole('button',{name:locale==='de'?'Aktualisieren':'Refresh',exact:true}).click();
     const item=inbox.locator('.canvas-notifications__item').filter({hasText:code}).last();
     await expect(item).toBeVisible();await item.locator('summary').click();await expect(item.locator('code')).toContainText(code);
+    if(message)await expect(item).toContainText(message);
     await inbox.getByRole('button',{name:locale==='de'?'Meldungen schließen':'Close notifications',exact:true}).click();
 };
 
@@ -93,6 +94,17 @@ async function fixture({page,locale,mockSharedAuth,createCanvasApiMock}) {
                 conversation.allowance.committedCredits++;conversation.allowance.remainingCredits--;
             }
             chatReceipts.set(key,true);
+            // Model the existing atomic conversation-action receipt, not a
+            // browser success notice or an inferred production event.
+            const outcome=kind==='allowance'?['canvas_allowance_accepted','allowance_propose']:
+                kind==='control'?({save:['canvas_brief_saved','brief_save'],clear:['canvas_brief_cleared','conversation_clear'],cancel:['canvas_brief_cancelled','brief_cancel']})[body.action]:null;
+            if(outcome)canvas.notifications.unshift({
+                id:`conversation-control:${project}:${kind}:${body.expectedConversationRevision}`,
+                source:'conversation',kind:kind==='allowance'?'authorization':'control',code:outcome[0],
+                projectId:project,projectTitle:canvas.projects[0].title,projectDeleted:false,createdAt:new Date().toISOString(),
+                readAt:null,resolved:true,confirmed:true,diagnosticRef:null,stage:null,status:'completed',severity:'success',
+                details:{actionType:outcome[1]},
+            });
             if(state.loseChatResponse){state.loseChatResponse=false;return route.abort('failed');}
             if(state.holdChatResponse){state.holdChatResponse=false;state.releaseChatResponse=respondChat;return;}
             return respondChat();
@@ -486,24 +498,44 @@ exports.outcome=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMoc
 
 
 exports.conversation=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock})=>{
-    const {state,panel,composer,form,canvas}=await fixture({page,locale,mockSharedAuth,createCanvasApiMock}),de=locale==='de';
+    const {state,panel,composer,form,canvas,project}=await fixture({page,locale,mockSharedAuth,createCanvasApiMock}),de=locale==='de';
     const input=composer.locator('textarea'),button=name=>panel.getByRole('button',{name,exact:true});
     await expect(input).toBeEnabled();
     const text='A warm comic film about building a house next to a pool with ducks, ending with arriving visitors.';
     await input.fill(text);await showOptions(panel,locale);state.holdChatResponse=true;await button(de?'Für später speichern':'Save for later').click();
     await expect.poll(()=>Boolean(state.releaseChatResponse)).toBe(true);
-    // Never publish a saved notification before the server acknowledges save.
+    // A held response cannot produce a browser-authored success notice.
+    // The server's atomic receipt may already exist before transport completes.
     expect(canvas.notificationClients.filter(item=>item.code==='canvas_brief_saved')).toHaveLength(0);
     await state.releaseChatResponse();
     await expect.poll(()=>canvas.notifications.filter(item=>item.code==='canvas_brief_saved').length).toBe(1);
+    const savedNotice=structuredClone(canvas.notifications.find(item=>item.code==='canvas_brief_saved'));
+    expect(savedNotice).toMatchObject({id:`conversation-control:${project}:control:0`,source:'conversation',kind:'control',confirmed:true,resolved:true,status:'completed',details:{actionType:'brief_save'}});
     await page.locator('#canvasNotificationsToggle').click();
     await expect(page.locator('#canvasNotificationsPanel')).toContainText(de?'Projektidee gespeichert.':'Project brief saved.');
     await page.locator('#canvasNotificationsPanel').getByRole('button',{name:de?'Meldungen schließen':'Close notifications',exact:true}).click();
+    const savedRequest=structuredClone(state.chatControls[0]),savedRevision=state.conversation.revision;
+    const submitControl=request=>page.evaluate(async({project,body,key})=>{
+        const response=await fetch(`/api/account/canvas/projects/${project}/agent/conversation/control`,{
+            method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':key},body:JSON.stringify(body),
+        });return {status:response.status,body:await response.json()};
+    },{project,...request});
+    expect((await submitControl(savedRequest)).status).toBe(200);
+    expect(state.conversation.revision).toBe(savedRevision);
+    expect(canvas.notifications.filter(item=>item.code==='canvas_brief_saved')).toHaveLength(1);
+    expect(canvas.notifications.find(item=>item.id===savedNotice.id).createdAt).toBe(savedNotice.createdAt);
+    const stale=await submitControl({...savedRequest,key:savedRequest.key+'-stale'});
+    expect(stale).toMatchObject({status:409,body:{ok:false,code:'canvas_conversation_revision_conflict'}});
+    expect(state.conversation.revision).toBe(savedRevision);
+    expect(canvas.notifications.filter(item=>item.code==='canvas_brief_saved')).toHaveLength(1);
+    expect(canvas.notificationClients.filter(item=>item.code==='canvas_brief_saved')).toHaveLength(0);
     expect(state.chatPosts).toEqual([]);expect(state.posts).toEqual([]);expect(state.allowancePosts).toEqual([]);
     await page.reload();await page.locator('#canvasAgentToggle').click();await expect(input).toHaveValue(text);
     await expect(composer.locator('button[type=submit]')).toBeDisabled();await showOptions(panel,locale);await button(de?'Briefing fortsetzen':'Resume briefing').click();await showChat(panel,locale);await expect(input).toBeEnabled();
     await briefing({panel,locale,expect,text});
     expect(state.allowancePosts).toHaveLength(1);expect(state.allowancePosts[0].body.capCredits).toBe(20);
+    expect(canvas.notifications.filter(item=>item.code==='canvas_allowance_accepted')).toHaveLength(1);
+    expect(canvas.notifications.find(item=>item.code==='canvas_allowance_accepted')).toMatchObject({source:'conversation',kind:'authorization',confirmed:true,details:{actionType:'allowance_propose'}});
     await expect(panel.locator('.canvas-agent__brief')).toContainText(text);
     await showOptions(panel,locale);await button(de?'Projektidee vorbereiten':'Prepare the brief').click();
     expect(state.conversation.brief.duration.choice).toBe(null);expect(state.posts).toEqual([]);
@@ -528,11 +560,13 @@ exports.conversation=async({page,expect,locale,info,mockSharedAuth,createCanvasA
     await input.fill('Keep the same house; use a realistic style instead.');await input.press('Control+Enter');
     await expect(panel.locator('.canvas-agent__brief')).toContainText('realistic style instead');
     await showOptions(panel,locale);await button(de?'Briefing beenden':'End briefing').click();await expect(composer.locator('button[type=submit]')).toBeDisabled();
+    expect(canvas.notifications.filter(item=>item.code==='canvas_brief_cancelled')).toHaveLength(1);
     expect(state.controls).toEqual([]);
     const privacy=panel.locator('.canvas-agent__privacy');await privacy.locator('summary').click();
     await button(de?'Gespräch und Projektidee löschen':'Delete conversation and brief').click();
     await button(de?'Gespräch jetzt löschen':'Delete conversation now').click();
     await expect(panel.locator('.canvas-agent__messages li')).toHaveCount(0);await expect(form).toBeHidden();
+    expect(canvas.notifications.filter(item=>item.code==='canvas_brief_cleared')).toHaveLength(1);
     expect(state.chatControls.map(item=>item.body.action)).toContain('clear');expect(state.posts).toEqual([]);
     expect(await panel.locator('input,textarea').evaluateAll(nodes=>nodes.every(node=>node.labels.length>0))).toBe(true);
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);

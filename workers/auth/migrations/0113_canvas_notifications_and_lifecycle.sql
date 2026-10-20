@@ -40,8 +40,8 @@ CREATE INDEX canvas_notification_clients_owner ON canvas_notification_clients(us
 CREATE TRIGGER canvas_notification_client_identity BEFORE UPDATE ON canvas_notification_clients
 BEGIN SELECT RAISE(ABORT,'canvas_notification_identity_immutable'); END;
 
--- Native D1 limits each compound SELECT to five terms. Keep the same ten
--- projections in two non-materialized groups, so callers still apply their
+-- Native D1 limits each compound SELECT to five terms. Keep projections
+-- in bounded non-materialized groups, so callers still apply their
 -- ownership, cursor and unread filters to this one read-only source view.
 CREATE VIEW canvas_notification_sources AS
 WITH project_and_production_sources AS (
@@ -133,7 +133,37 @@ WITH project_and_production_sources AS (
  THEN 'warning' ELSE 'info' END,c.created_at,c.diagnostic_ref,NULL,CAST(c.http_status AS TEXT),1,json_object('errorCode',c.error_code),0
  FROM canvas_notification_clients c LEFT JOIN canvas_projects p ON p.id=c.project_id AND p.user_id=c.user_id
  WHERE c.project_id IS NULL OR p.id IS NOT NULL
+), conversation_control_sources AS (
+ -- These receipts commit atomically with the guarded conversation revision.
+ -- Use that revision for identity; never expose an idempotency key or draft.
+ SELECT 'conversation-control:'||a.project_id||':'||json_extract(a.input_json,'$.kind')||':'||
+ json_extract(a.input_json,'$.expectedConversationRevision'),p.user_id,a.project_id,'conversation',
+ CASE WHEN json_extract(a.input_json,'$.kind')='allowance' THEN 'authorization' ELSE 'control' END,
+ CASE WHEN json_extract(a.input_json,'$.kind')='allowance' THEN 'canvas_allowance_accepted'
+ WHEN json_extract(a.input_json,'$.action')='save' THEN 'canvas_brief_saved'
+ WHEN json_extract(a.input_json,'$.action')='clear' THEN 'canvas_brief_cleared' ELSE 'canvas_brief_cancelled' END,
+ 'success',a.created_at,NULL,NULL,'completed',1,
+ json_object('actionType',CASE WHEN json_extract(a.input_json,'$.kind')='allowance' THEN 'allowance_propose'
+ WHEN json_extract(a.input_json,'$.action')='save' THEN 'brief_save'
+ WHEN json_extract(a.input_json,'$.action')='clear' THEN 'conversation_clear' ELSE 'brief_cancel' END),1
+ FROM canvas_agent_conversation_actions a JOIN canvas_agent_conversations c ON c.project_id=a.project_id
+ JOIN canvas_projects p ON p.id=a.project_id AND p.user_id=c.user_id
+ WHERE p.deleted_at IS NULL AND json_type(a.input_json,'$.expectedConversationRevision')='integer'
+ AND json_extract(a.input_json,'$.expectedConversationRevision')>=0
+ AND (json_extract(a.input_json,'$.kind')='allowance'
+ OR (json_extract(a.input_json,'$.kind')='control' AND json_extract(a.input_json,'$.action') IN ('save','clear','cancel')))
+ -- The same service also backs agent actions and conversational decisions.
+ -- Their existing authoritative projections already carry these outcomes.
+ AND NOT EXISTS(SELECT 1 FROM canvas_agent_action_receipts r WHERE r.project_id=a.project_id AND r.user_id=p.user_id
+   AND a.request_key='canvas_action_'||r.id
+   AND json_extract(r.input_json,'$.action.type')=CASE WHEN json_extract(a.input_json,'$.kind')='allowance' THEN 'allowance_propose'
+     WHEN json_extract(a.input_json,'$.action')='save' THEN 'brief_save'
+     WHEN json_extract(a.input_json,'$.action')='clear' THEN 'conversation_clear' ELSE 'brief_cancel' END)
+ AND NOT EXISTS(SELECT 1 FROM canvas_agent_conversation_decisions d WHERE d.project_id=a.project_id AND d.user_id=p.user_id
+   AND d.kind='briefing_allowance' AND d.state='consumed' AND a.request_key='decision-allowance:'||d.id)
 )
 SELECT * FROM project_and_production_sources
 UNION ALL
-SELECT * FROM generation_and_dialogue_sources;
+SELECT * FROM generation_and_dialogue_sources
+UNION ALL
+SELECT * FROM conversation_control_sources;

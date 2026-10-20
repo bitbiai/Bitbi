@@ -12,6 +12,13 @@ function preservesOriginalSignal({original,sourceOriginal}) {
   // bound rejects an original that the mixer drops or attenuates.
   return Number.isFinite(original)&&sourceOriginal>.05&&Math.abs(original/sourceOriginal-1)<.05;
 }
+function isAuditionNotification(request,projectId) {
+  const body=request.body;
+  return request.url==='/api/account/canvas/notifications/client'&&body!==null&&typeof body==='object'&&!Array.isArray(body)
+    &&Object.keys(body).sort().join(',')==='code,projectId,requestId'
+    &&body.code==='canvas_client_notice'&&body.projectId===projectId
+    &&typeof body.requestId==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.requestId);
+}
 module.exports=({expect,mockSharedAuth,createCanvasApiMock},locale)=>async({page,browserName},info)=>{
   await page.setViewportSize({width:locale==='de'?390:1440,height:900});await mockSharedAuth(page);
   await page.addInitScript({content:`window.__canvasAudioMeter=(${measureDecodedSignal});`});
@@ -66,7 +73,19 @@ module.exports=({expect,mockSharedAuth,createCanvasApiMock},locale)=>async({page
   const orderedClips=[{runId:sourceRun,assetId:'prior',version:'b'.repeat(64)},{runId:rid,assetId:'original',version:'a'.repeat(64)}];
   const availableClips=orderedClips.map((clip,i)=>({...clip,nodeId:i?nid:sourceId,title:i?'Video':'Previous clip',modelId:'minimax/h3',createdAt:now}));
   let completed={id:'a'.repeat(32),status:'ready',storage:'canvas',asset:{id:'a'.repeat(32),file_url:media+'?completed=1'},preview_base:{export_id:'a'.repeat(32),file_url:media}};
-  const writes=[];page.on('request',r=>{if(r.method()==='POST')writes.push({url:new URL(r.url()).pathname,body:r.postDataJSON()});});
+  // A bounded, project-owned notification is not a render. Everything else,
+  // including a malformed notice or a notice claiming authority, remains a write
+  // and must satisfy the unchanged no-render / exact save-and-render assertions.
+  const noticeControl={url:'/api/account/canvas/notifications/client',body:{requestId:'12345678-1234-4123-8123-123456789abc',code:'canvas_client_notice',projectId:pid}};
+  expect(isAuditionNotification(noticeControl,pid)).toBe(true);
+  for(const body of [{...noticeControl.body,authorized:true},{...noticeControl.body,projectId:'f'.repeat(32)},
+    {...noticeControl.body,code:'canvas_production_started'},{...noticeControl.body,requestId:'unbounded-or-invalid'}]) {
+    expect(isAuditionNotification({...noticeControl,body},pid)).toBe(false);
+  }
+  for(const url of [`/api/account/canvas/projects/${pid}/nodes/${nid}/run`,`/api/account/canvas/projects/${pid}/runs/${rid}/full-video`,'/api/account/unexpected']) {
+    expect(isAuditionNotification({...noticeControl,url},pid)).toBe(false);
+  }
+  const writes=[],notices=[];page.on('request',r=>{if(r.method()==='POST'){const request={url:new URL(r.url()).pathname,body:r.postDataJSON()};(isAuditionNotification(request,pid)?notices:writes).push(request);}});
   await page.route('**/full-video',route=>route.fulfill({json:{ok:true,data:{eligible:true,availableClips,export:completed,current:completed}}}));
   const open=async()=>{await page.goto(locale==='de'?'/de/canvas/':'/canvas/');await page.locator(`[data-node-id="${nid}"]`).press('Enter');if(locale==='de')await page.locator('#canvasInspectorToggle').click();await page.locator('.canvas-sound summary').click();};
   await open();const block=page.locator('.canvas-full-video'),video=block.locator('video'),sound=page.locator('.canvas-sound'),slider=sound.getByRole('slider',{name:locale==='de'?'Hintergrundmusik: Lautstärke':'Background music: Volume',exact:true});
@@ -144,6 +163,7 @@ module.exports=({expect,mockSharedAuth,createCanvasApiMock},locale)=>async({page
   await video.evaluate(v=>{v.currentTime=v.duration-.15;});await expect.poll(()=>video.evaluate(v=>v.ended)).toBe(true);
   await expect.poll(async()=>(await meter()).peak).toBeLessThan(.001);
   await expect(block.getByRole('link')).toHaveAttribute('href',completed.asset.file_url+'?download=1');
+  for(const notice of notices)expect(notice.body).toEqual({requestId:expect.any(String),code:'canvas_client_notice',projectId:pid});
   expect(writes).toEqual([]);expect(state.requests.filter(r=>r.pathname.endsWith('/run'))).toEqual([]);
   await sound.getByRole('button',{name:locale==='de'?'Zurück zum erstellten Video':'Return to completed video'}).click();await expect(video).toHaveAttribute('src',completed.asset.file_url);
   await video.evaluate(v=>v.play());await expect.poll(async()=>preservesOriginalSignal(await meter())).toBe(true);
@@ -179,6 +199,7 @@ module.exports=({expect,mockSharedAuth,createCanvasApiMock},locale)=>async({page
   }
   await sound.getByRole('button',{name:locale==='de'?'Zurück zum erstellten Video':'Return to completed video'}).click();await expect(video).toHaveAttribute('src',completed.asset.file_url);
   expect(writes).toHaveLength(2);
+  for(const notice of notices)expect(isAuditionNotification(notice,pid)).toBe(true);
   } catch(error) {
     await info.attach('audition-failure-state',{contentType:'application/json',body:JSON.stringify({reading:await meter().catch(()=>null),state:await page.evaluate(()=>({events:window.auditionLifecycle,trace:window.auditionTrace,contexts:window.auditionContexts.map(({context})=>({state:context.state,time:context.currentTime})),videos:[...document.querySelectorAll('video')].map(v=>({src:v.getAttribute('src'),time:v.currentTime,duration:v.duration,ready:v.readyState,seeking:v.seeking,paused:v.paused,muted:v.muted,volume:v.volume,error:v.error?.code,rect:{top:v.getBoundingClientRect().top,bottom:v.getBoundingClientRect().bottom}}))}))})});throw error;
   }

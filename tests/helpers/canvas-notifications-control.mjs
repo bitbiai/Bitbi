@@ -1,5 +1,7 @@
 import worker from '../../workers/auth/src/index.js';
 import { sha256Hex } from '../../workers/auth/src/lib/tokens.js';
+import { getModelTariff } from '../../workers/auth/src/lib/model-tariffs.js';
+import { TARIFF_HEADER } from '../../js/shared/model-tariff.mjs';
 
 const check=(value,message)=>{if(!value)throw new Error(message);};
 const api='/api/account/canvas/notifications';
@@ -31,16 +33,21 @@ export async function seedCanvasNotificationsMigration(env){
   await env.DB.prepare("INSERT INTO canvas_agent_turns(id,project_id,request_key,input_json,conversation_revision,brief_revision,user_text,state,created_at,updated_at) VALUES(?,?,'old-turn','{}',0,0,'Retained synthetic historical message','completed',?,?)").bind(turn,fixture.project,fixture.old,fixture.old).run();
   await env.DB.prepare(`INSERT INTO canvas_agent_conversation_decisions(id,project_id,user_id,request_key,kind,state,input_json,scope_json,source_turn_id,created_at,updated_at,expires_at)
     VALUES(?,?,?,'old-consumed-decision','production_start','consumed','{"original":true}','{"budget":1000}',?,?,?,?)`).bind(decision,fixture.project,fixture.owner,turn,fixture.old,fixture.old,iso(3600000)).run();
+  await env.DB.prepare(`INSERT INTO canvas_agent_conversation_actions(project_id,request_key,input_json,created_at)
+    VALUES(?,'old-saved-control','{"kind":"control","action":"save","draft":"Private historical draft","expectedConversationRevision":0}',?)`).bind(fixture.project,fixture.old).run();
   const originalTurn=await env.DB.prepare('SELECT * FROM canvas_agent_turns WHERE id=?').bind(turn).first(),originalDecision=await env.DB.prepare('SELECT * FROM canvas_agent_conversation_decisions WHERE id=?').bind(decision).first();
-  return{...fixture,rows,originalTurn,originalDecision};
+  const originalControl=await env.DB.prepare("SELECT * FROM canvas_agent_conversation_actions WHERE project_id=? AND request_key='old-saved-control'").bind(fixture.project).first();
+  return{...fixture,rows,originalTurn,originalDecision,originalControl};
 }
 export async function verifyCanvasNotificationsMigration(env,fixture){
   const rows=(await env.DB.prepare('SELECT * FROM canvas_runs WHERE project_id=? ORDER BY id').bind(fixture.project).all()).results;
   check(JSON.stringify(rows)===JSON.stringify(fixture.rows),'Notification migration preserves original generation evidence');
   for(const [table,row]of[['canvas_agent_turns',fixture.originalTurn],['canvas_agent_conversation_decisions',fixture.originalDecision]])
     check(JSON.stringify(await env.DB.prepare(`SELECT * FROM ${table} WHERE id=?`).bind(row.id).first())===JSON.stringify(row),'Migration preserves populated immutable source-turn references');
+  check(JSON.stringify(await env.DB.prepare("SELECT * FROM canvas_agent_conversation_actions WHERE project_id=? AND request_key='old-saved-control'").bind(fixture.project).first())===JSON.stringify(fixture.originalControl),'Migration preserves the original control receipt without rewriting its draft or identity');
   const request=transport(env,fixture.owner),data=await bodyOf(await request());
   check(data.items.find(item=>item.id===`run:${fixture.complete}:completed`)?.readAt===data.baselineAt,'Old resolved output starts read');
+  check(data.items.find(item=>item.id===`conversation-control:${fixture.project}:control:0`)?.readAt===data.baselineAt,'Old committed control receipts start read under the same rollout baseline');
   check(data.items.find(item=>item.id===`run:${fixture.failed}:failed:canvas_media_invalid`)?.readAt===null&&data.unreadCount===1,'Old unresolved failure stays unread');
   check((await env.DB.prepare('SELECT COUNT(*) n FROM canvas_notification_reads WHERE user_id=?').bind(fixture.owner).first()).n===0,'Migration and GET do not fabricate per-viewer acknowledgements');
   return{originalRowsPreserved:2,oldResolvedRead:true,oldUnresolvedUnread:true,readWrites:0};
@@ -71,6 +78,88 @@ async function notificationReadBatchBoundary(env){
   const foreign=await bodyOf(await request(`${api}/read`,{ids:[selected[0],selected[99]]},f.other));
   check(foreign.viewerId===f.other&&foreign.readIds.length===0,'The compact ID selection cannot acknowledge another viewer’s history');
   check((await db.prepare('SELECT COUNT(*) n FROM canvas_notification_reads WHERE user_id=?').bind(f.other).first()).n===0,'A foreign selection writes no acknowledgements');
+}
+async function conversationControlNotifications(base){
+  const f=await seed(base,'conversation-controls'),db=base.DB;
+  let paidCalls=0,wakes=0;
+  const env={...base,AI:{async run(){paidCalls++;throw new Error('Notification controls cannot invoke inference');}},
+    AI_VIDEO_JOBS_QUEUE:{async send(){wakes++;throw new Error('Notification reads cannot schedule production');}}};
+  const request=transport(env,f.owner),path=`/api/account/canvas/projects/${f.project}/agent/conversation`;
+  const read=async()=> (await bodyOf(await request(path))).conversation;
+  const tariff=String((await getModelTariff(env)).revision);
+  const post=(suffix,body,key,user=f.owner)=>worker.fetch(new Request(`https://bitbi.ai${path}/${suffix}`,{
+    method:'POST',headers:{Origin:'https://bitbi.ai',Cookie:`__Host-bitbi_session=${user}`,'Content-Type':'application/json',
+      'Idempotency-Key':key,[TARIFF_HEADER]:tariff},body:JSON.stringify(body),
+  }),env,{waitUntil(){}});
+  const notices=async()=> (await bodyOf(await request(`${api}?projectId=${f.project}`))).items.filter(item=>item.id.startsWith('conversation-control:'));
+  const receipts=async()=> (await db.prepare('SELECT * FROM canvas_agent_conversation_actions WHERE project_id=? ORDER BY request_key').bind(f.project).all()).results;
+  const initial=await read(),project=await db.prepare('SELECT * FROM canvas_projects WHERE id=?').bind(f.project).first();
+  const nodes=(await db.prepare('SELECT * FROM canvas_nodes WHERE project_id=? ORDER BY id').bind(f.project).all()).results;
+  const runs=(await db.prepare('SELECT * FROM canvas_runs WHERE project_id=? ORDER BY id').bind(f.project).all()).results;
+  check((await notices()).length===0,'No saved acknowledgement exists without an accepted control receipt');
+  const draft='PRIVATE-SYNTHETIC-DRAFT-DO-NOT-PROJECT';
+  const save={action:'save',draft,expectedConversationRevision:initial.revision},saveKey='private-synthetic-save-identity';
+  await bodyOf(await post('control',{...save,expectedConversationRevision:initial.revision+1},'notice-stale-save'),409);
+  await bodyOf(await post('control',save,'notice-foreign-save',f.other),404);
+  check((await receipts()).length===0&&(await notices()).length===0,'Rejected stale/foreign writes produce no success receipt or notification');
+  await bodyOf(await post('control',save,saveKey));
+  check((await read()).state==='saved'&&(await read()).draft===draft,'The actual save endpoint persists the draft before exposing a success');
+  const saved=(await notices())[0],saveId=`conversation-control:${f.project}:control:${initial.revision}`;
+  check(saved?.id===saveId&&saved.code==='canvas_brief_saved'&&saved.confirmed&&saved.resolved
+    &&saved.source==='conversation'&&saved.kind==='control'&&saved.status==='completed'&&saved.details.actionType==='brief_save','Save notification comes from its committed guarded receipt');
+  await bodyOf(await request(`${api}/read`,{ids:[saveId]}));
+  const readAt=(await notices())[0].readAt;
+  await bodyOf(await post('control',save,saveKey));
+  check((await receipts()).length===1&&(await notices()).length===1&&(await notices())[0].readAt===readAt,'Save replay preserves the same notification and read identity');
+  await bodyOf(await post('control',{...save,draft:'Different draft'},saveKey),409);
+  const accepted=[];
+  for(const action of ['resume','cancel','clear']){
+    const current=await read(),input={action,expectedConversationRevision:current.revision},key=`notification-control-${action}`;
+    await bodyOf(await post('control',input,key));await bodyOf(await post('control',input,key));
+    accepted.push({action,revision:current.revision});
+    const currentState=await read();
+    check(currentState.state===(action==='cancel'?'cancelled':'active'),'Each control keeps its normal conversation effect');
+    if(action==='clear')check(currentState.draft===''&&currentState.messages.length===0,'Clear removes creative conversation content through the normal caller');
+  }
+  const current=await read(),allowance={capCredits:20,expectedConversationRevision:current.revision};
+  await bodyOf(await post('allowance',allowance,'notification-direct-allowance'));
+  await bodyOf(await post('allowance',allowance,'notification-direct-allowance'));
+  check((await read()).allowance.capCredits===20,'The direct allowance receipt follows the real saved briefing ceiling');
+  const items=await notices();
+  check(items.length===4&&['canvas_brief_saved','canvas_brief_cancelled','canvas_brief_cleared','canvas_allowance_accepted'].every(code=>items.filter(item=>item.code===code).length===1),'Only save, cancel, clear and direct allowance produce these four distinct acknowledgements');
+  check(!items.some(item=>item.id===`conversation-control:${f.project}:control:${accepted.find(item=>item.action==='resume').revision}`),'Resume is not invented as a saved, cancelled or paid operation');
+  check(items.find(item=>item.code==='canvas_allowance_accepted')?.kind==='authorization','Conversation spending scope remains explicit');
+  const before=JSON.stringify(await receipts());
+  const reread=await bodyOf(await request(`${api}?projectId=${f.project}`));
+  check(!JSON.stringify(reread).includes(draft)&&!JSON.stringify(reread).includes(saveKey)&&!JSON.stringify(reread).includes('input_json'),'Notification data excludes drafts, raw request identities and stored input JSON');
+  check(JSON.stringify(await receipts())===before,'Notification reads do not rewrite accepted control evidence');
+  check(!(await bodyOf(await request(`${api}?projectId=${f.project}`,null,f.other))).items.length,'Control acknowledgements cannot be read by another owner');
+  check((await bodyOf(await request(`${api}/read`,{ids:items.map(item=>item.id)},f.other))).readIds.length===0,'Control acknowledgements cannot be marked read by another owner');
+  check(JSON.stringify(await db.prepare('SELECT * FROM canvas_projects WHERE id=?').bind(f.project).first())===JSON.stringify(project)
+    &&JSON.stringify((await db.prepare('SELECT * FROM canvas_nodes WHERE project_id=? ORDER BY id').bind(f.project).all()).results)===JSON.stringify(nodes)
+    &&JSON.stringify((await db.prepare('SELECT * FROM canvas_runs WHERE project_id=? ORDER BY id').bind(f.project).all()).results)===JSON.stringify(runs),'Control notification projection leaves graph, source media and historical generation receipts unchanged');
+  check((await db.prepare('SELECT COUNT(*) n FROM canvas_agent_runs WHERE project_id=?').bind(f.project).first()).n===0
+    &&(await db.prepare('SELECT COUNT(*) n FROM canvas_agent_model_operations WHERE user_id=?').bind(f.owner).first()).n===0
+    &&paidCalls===0&&wakes===0,'Notification controls and readback create no production, paid inference or queue work');
+  // Synthetic already-accepted nested receipts exercise projection deduplication;
+  // the real control callers above independently prove when a receipt may exist.
+  const turn=(await sha256Hex('notification-nested-turn')).slice(0,32),action=(await sha256Hex('notification-nested-action')).slice(0,32);
+  const decision=(await sha256Hex('notification-nested-decision')).slice(0,32),now=iso(0);
+  await db.prepare("INSERT INTO canvas_agent_turns(id,project_id,request_key,input_json,conversation_revision,brief_revision,user_text,state,created_at,updated_at) VALUES(?,?,'nested-notice-turn','{}',0,0,'Synthetic accepted action','completed',?,?)").bind(turn,f.project,now,now).run();
+  await db.prepare(`INSERT INTO canvas_agent_action_receipts(id,project_id,user_id,turn_id,ordinal,input_json,state,result_json,created_at,updated_at)
+    VALUES(?,?,?,?,0,'{"action":{"type":"brief_save"}}','completed','{"pending":false}',?,?)`).bind(action,f.project,f.owner,turn,now,now).run();
+  await db.prepare(`INSERT INTO canvas_agent_conversation_decisions(id,project_id,user_id,request_key,kind,state,input_json,scope_json,decision_key,created_at,updated_at,expires_at)
+    VALUES(?,?,?,'nested-notice-decision','briefing_allowance','consumed','{}','{}','nested-decision-accepted',?,?,?)`).bind(decision,f.project,f.owner,now,now,iso(3600000)).run();
+  for(const [key,input]of[
+    [`canvas_action_${action}`,{kind:'control',action:'save',expectedConversationRevision:200}],
+    [`decision-allowance:${decision}`,{kind:'allowance',capCredits:20,expectedConversationRevision:201}],
+    ['nested-decision-accepted',{kind:'decision',decisionId:decision}],
+    ['canvas_action_unknown',{kind:'control',action:'save',expectedConversationRevision:202}],
+  ])await db.prepare('INSERT INTO canvas_agent_conversation_actions(project_id,request_key,input_json,created_at) VALUES(?,?,?,?)').bind(f.project,key,JSON.stringify(input),now).run();
+  const nested=await bodyOf(await request(`${api}?projectId=${f.project}`));
+  check(nested.items.filter(item=>item.details.actionId===action).length===1&&nested.items.filter(item=>item.details.decisionId===decision).length===1,'Nested action and approval outcomes keep their existing canonical projection');
+  check(!nested.items.some(item=>item.id===`conversation-control:${f.project}:control:200`||item.id===`conversation-control:${f.project}:allowance:201`),'An inner service receipt cannot duplicate its proven parent action or decision');
+  check(nested.items.some(item=>item.id===`conversation-control:${f.project}:control:202`),'An unproven request-key prefix alone cannot suppress a committed control');
 }
 export async function canvasNotificationsCase(env){
   const f=await seed(env,'api'),db=env.DB,request=transport(env,f.owner),now=iso(0),expires=iso(3600000);
@@ -178,5 +267,6 @@ export async function canvasNotificationsCase(env){
   check(!deleted.items.some(item=>['action','event','run','export','conversation'].includes(item.source)&&item.projectId===f.project),'Deleted creative context is no longer exposed by operational projections');
   check(deleted.items.find(item=>item.id===first.item.id)?.confirmed===false&&deleted.items.find(item=>item.id===first.item.id)?.projectDeleted===true,'Client history keeps its unconfirmed provenance and removed-project context');
   await notificationReadBatchBoundary(env);
+  await conversationControlNotifications(env);
   return{ownerIsolation:true,baseline:true,explicitReadIds:true,arrivalPreserved:true,clientDeduplicated:true,canonicalOnly:true,posterTruth:true,deletedProjectNotice:true};
 }

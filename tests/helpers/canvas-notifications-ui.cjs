@@ -1,7 +1,9 @@
 module.exports=async options=>{
   const {page,expect,locale,info,mockSharedAuth,createCanvasApiMock}=options,de=locale==='de';
   await mockSharedAuth(page);await page.setViewportSize({width:de?390:1440,height:900});
-  const state=createCanvasApiMock(page),project='1'.repeat(32),now='2026-10-20T10:00:00.000Z';
+  // Historical rows must precede new arrivals in the browser's actual clock.
+  // A fixed future date otherwise sorts the "late" row below the viewport.
+  const state=createCanvasApiMock(page),project='1'.repeat(32),now=new Date(await page.evaluate(()=>Date.now())-60000).toISOString();
   state.projects=[{id:project,title:'Editable original',locale,created_at:now,updated_at:now}];
   state.notifications=Array.from({length:42},(_,index)=>({id:`fixture:${String(index).padStart(3,'0')}`,source:'export',kind:'export',severity:index?'info':'error',code:index?'canvas_export_ready':'canvas_trim_outside_source',projectId:index?null:project,projectTitle:index?'Another owned project':'<img src=x onerror=alert(1)> '+('long title '.repeat(12)),createdAt:new Date(Date.parse(now)-index*1000).toISOString(),readAt:null,diagnosticRef:`diagnostic-${index}`,confirmed:true}));
   const errors=[];page.on('pageerror',error=>errors.push(error.message));
@@ -12,6 +14,7 @@ module.exports=async options=>{
   await toggle.focus();await page.keyboard.press('Enter');await expect(inbox).toBeVisible();
   await expect(inbox.getByRole('button',{name:de?'Meldungen schließen':'Close notifications'})).toBeFocused();
   await expect(inbox.locator('li')).toHaveCount(40);expect(state.notificationReads).toEqual([]);
+  await expect(inbox.locator('[data-notification-id="fixture:039"]')).not.toBeInViewport();
   await expect(inbox).toContainText(de?'tatsächliche Quelldauer':'actual source duration');
   await expect(inbox.locator('img')).toHaveCount(0);await expect(inbox).toContainText('<img src=x onerror=alert(1)>');
   await expect(read).toBeEnabled();let release;
@@ -23,10 +26,13 @@ module.exports=async options=>{
   });
   await read.click();await expect.poll(()=>state.notificationReads.length).toBe(1);
   expect(state.notificationReads[0].length).toBeGreaterThan(0);expect(state.notificationReads[0].length).toBeLessThan(40);
-  const late={id:'fixture:late',source:'lifecycle',kind:'lifecycle',severity:'success',code:'canvas_project_deleted',projectId:null,projectDeleted:true,createdAt:new Date().toISOString(),readAt:null,confirmed:true};state.notifications.unshift(late);
-  await inbox.getByRole('button',{name:de?'Aktualisieren':'Refresh',exact:true}).click();await expect(inbox.locator('[data-notification-id="fixture:late"]')).toBeVisible();
+  expect(state.notificationReads[0]).not.toContain('fixture:039');
+  const late={id:'fixture:late',source:'lifecycle',kind:'lifecycle',severity:'success',code:'canvas_project_deleted',projectId:null,projectDeleted:true,createdAt:new Date(await page.evaluate(()=>Date.now())).toISOString(),readAt:null,confirmed:true};state.notifications.unshift(late);
+  expect(Date.parse(late.createdAt)).toBeGreaterThan(Date.parse(now));
+  await inbox.getByRole('button',{name:de?'Aktualisieren':'Refresh',exact:true}).click();await expect(inbox.locator('[data-notification-id="fixture:late"]')).toBeInViewport();
   release();await expect(read).toBeEnabled();await page.unroute('**/api/account/canvas/notifications/read');await expect(badge).toBeVisible();
   expect(state.notificationReads[0]).not.toContain(late.id);await expect(inbox.locator('[data-notification-id="fixture:late"]')).toHaveAttribute('data-unread','true');
+  await expect(inbox.locator('[data-notification-id="fixture:039"]')).toHaveAttribute('data-unread','true');
   await inbox.getByRole('button',{name:de?'Ältere Meldungen laden':'Load older notifications'}).click();await expect(inbox.locator('li')).toHaveCount(43);
   const list=inbox.locator('ol');await list.evaluate(node=>node.scrollTop=node.scrollHeight);const scroll=await list.evaluate(node=>node.scrollTop);
   await inbox.getByRole('button',{name:de?'Aktualisieren':'Refresh',exact:true}).click();await expect.poll(()=>list.evaluate(node=>node.scrollTop)).toBeGreaterThan(scroll-10);
