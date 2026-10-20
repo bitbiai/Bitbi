@@ -28,6 +28,14 @@ const repoRoot = path.resolve(__dirname, "..");
  assert(mixed.workers&&mixed.auth&&mixed.homepage&&!mixed.full,'Persistence, policy, account and browser boundaries stay selected');
  for(const file of workers)assert(selectCiTests([file+'.unknown']).full,'Unknown neighboring tests retain full discovery');
  assert(selectCiTests([...workers,'tests/helpers/unreviewed-notifications.mjs']).full,'No prefix exemption for new tests');
+ const audition='tests/helpers/canvas-music-preview.cjs',auditionSelection=selectCiTests([audition]);
+ assert(auditionSelection.homepage&&!auditionSelection.full,'Decoded Canvas audition executes in the existing homepage core caller');
+ assert(selectCiTests(['tests/helpers/canvas-music-preview-unknown.cjs']).full,'Unknown neighboring audio helpers retain full discovery');
+ const canvasCaller=fs.readFileSync(path.join(repoRoot,'tests/canvas.spec.js'),'utf8');
+ assert(canvasCaller.includes("const musicPreviewCase = require('./helpers/canvas-music-preview.cjs');"));
+ assert(canvasCaller.includes('musicPreviewCase({expect,mockSharedAuth,createCanvasApiMock},locale)'),'The mapped helper must still execute through the owning browser spec');
+ const auditionMixed=selectCiTests([...workers,audition,'workers/auth/src/routes/canvas.js']);
+ assert(auditionMixed.homepage&&auditionMixed.workers&&auditionMixed.auth&&!auditionMixed.full,'The audio mapping cannot drop Worker or Auth callers');
 }
 
 if(process.argv.includes('--canvas-export-delivery-only')) {

@@ -330,6 +330,11 @@ export function assertReadinessTree(head,read=args=>execFileSync('git',args,{max
 // reports remain immutable; affected passes are explicitly refreshed as well.
 export const RELIABILITY_BROWSER_PREFLIGHT=Object.freeze({
   source:'dbf724caf071547f5ed36b76f2bf84e2f3419a08',productSource:'93c1c96943678ae4947e9fbb28f1fc85ef522cac',
+  toolingSource:'cb350cbba0fc1e46c24d889f393a00733bc3da35',
+  selectionSpecs:Object.freeze({
+  "scripts/lib/ci-test-selection.mjs": "063905bb4e56e79b6691907aa1fb50d107b918d25947b804fe6460a4ef6efcb9",
+  "scripts/test-ci-test-selection.mjs": "33f04cf03dab00af3fcfca566560761dd22fbb5e51993d6fcfaa37c1fa1d2c28"
+}),
   run:'dbf724caf071547f5ed36b76f2bf84e2f3419a08-9e2f166c-963c-4090-9fc2-145e67881e6d',
   checkpoint:'5919f6e433c78e8f90efcd452a85eb15a996a191b7f113d9feaea5c1f84e8363',failedLog:'509141f9d165b94ea62983c748d78ab03f41b8237ba8818a96755c7eff24e5b4',report:'f0e6880075eb6c241190aa5751dc4f63d2606f717b59a3e20b17b9c881e3b817',rows:'3371237bcd70008115c5dc5b3783b0a55c4049c49ba32db98c366f8c6ceeda7c',discovery:'6e3f325f5a748defbd0c7009dff70de8605d654fd2f3d89726c2717c08946147',required:650,
   standardDiscovery:'7863755cd94b2512656b0a7059815a52bc9aaaf20ee94815c2282914ac255f57',standardFile:'homepage-discovery-r15YHs/standard.json',

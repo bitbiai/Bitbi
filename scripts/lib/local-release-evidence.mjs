@@ -3206,9 +3206,11 @@ export function assertReliabilityBrowserTree(head,read=gitBytes){
   assertReliabilityNativeTree(p.source,read);
   assert.deepEqual(read(['rev-list','--parents','-n','1',p.productSource]).toString().trim().split(/\s+/),[p.productSource,p.source]);
   assert.deepEqual(files(p.source,p.productSource),Object.keys(p.specs).sort(),'Unreviewed notification correction');
-  assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,p.productSource]);
-  assert.deepEqual(files(p.productSource,head),[...reliabilityBrowserTools,...Object.keys(p.toolSpecs)].sort(),'Unreviewed continuation changes');
-  for(const[file,hash]of Object.entries({...p.specs,...p.toolSpecs}))assert.equal(sha256(read(['show',`${head}:${file}`])),hash,`Changed reviewed notification input ${file}`);
+  assert.deepEqual(read(['rev-list','--parents','-n','1',p.toolingSource]).toString().trim().split(/\s+/),[p.toolingSource,p.productSource]);
+  assert.deepEqual(files(p.productSource,p.toolingSource),[...reliabilityBrowserTools,...Object.keys(p.toolSpecs)].sort(),'Unreviewed original continuation changes');
+  assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,p.toolingSource]);
+  assert.deepEqual(files(p.toolingSource,head),['scripts/lib/local-release-browser.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs',...Object.keys(p.selectionSpecs)].sort(),'Unreviewed continuation selection correction');
+  for(const[file,hash]of Object.entries({...p.specs,...p.toolSpecs,...p.selectionSpecs}))assert.equal(sha256(read(['show',`${head}:${file}`])),hash,`Changed reviewed notification input ${file}`);
   const before=read(['show',`${p.source}:scripts/test-local-release.mjs`]).toString(),after=read(['show',`${head}:scripts/test-local-release.mjs`]).toString();
   const entry="if(process.argv.includes('--reliability-browser-only')) {\n  assert.deepEqual(process.argv.slice(2),['--reliability-browser-only']);\n  await testReliabilityBrowserContinuation();process.exit(0);\n}\n\n",tail='\nasync function testReliabilityBrowserContinuation() {';
   assert.equal(after.split(entry).length,2);assert.equal(after.split(tail).length,2);assert.equal(after.split(tail)[0].replace(entry,''),before,'Previously passed verifier assertions changed');

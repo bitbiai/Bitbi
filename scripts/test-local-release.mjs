@@ -3791,11 +3791,15 @@ async function testReliabilityBrowserContinuation() {
   for(const file of ['js/pages/canvas/main.js','workers/auth/src/routes/canvas.js','services/homepage-ffmpeg-processor/processor.mjs','tests/helpers/q2-runtime/canvas.mjs']){
     assert.throws(()=>assertReliabilityBrowserTree(head,args=>args[0]==='diff'&&args[2]===head?Buffer.concat([read(args),Buffer.from(file+'\n')]):read(args)),/Unreviewed continuation/);
   }
-  for(const file of Object.keys({...p.specs,...p.toolSpecs}))assert.throws(()=>assertReliabilityBrowserTree(head,args=>args[0]==='show'&&args[1]===`${head}:${file}`?Buffer.from('changed'):read(args)),/Changed reviewed/);
+  for(const file of Object.keys({...p.specs,...p.toolSpecs,...p.selectionSpecs}))assert.throws(()=>assertReliabilityBrowserTree(head,args=>args[0]==='show'&&args[1]===`${head}:${file}`?Buffer.from('changed'):read(args)),/Changed reviewed/);
   assert.throws(()=>assertReliabilityBrowserTree(head,args=>args[0]==='rev-list'&&args.at(-1)===head?Buffer.from(`${head} ${p.source}`):read(args)));
   const directory='.local-release',originalBytes=fs.readFileSync(path.join(directory,'reuse/preflight-checkpoint.json'));
   const origin=verifyReliabilityBrowserOrigin(directory,head),old=origin.original,commands=selectedCommands(old.selection,{GITHUB_SHA:head,CANDIDATE_BASE:old.base});
-  const context={...old,sha:head,commands};assert.deepEqual(reliabilityBrowserPrefix(originalBytes,context),old);
+  const selection=gitSelection(old.base,head);
+  assert(selection.policy==='impact-v1'&&!selection.full&&selection.homepage&&selection.workers&&selection.auth,'Complete committed diff must keep all affected callers without an unknown-file fallback');
+  assert(selection.files.includes('tests/helpers/canvas-music-preview.cjs'));
+  assert(selectCiTests([...selection.files,'tests/helpers/canvas-music-preview-unknown.cjs']).full,'Unknown helper remains a real Full selection');
+  const context={...old,sha:head,commands,selection};assert.deepEqual(reliabilityBrowserPrefix(originalBytes,context),old);
   for(const change of [c=>c.base='f'.repeat(40),c=>c.commands.pop(),c=>c.environment.key='foreign',c=>c.nativeBrowsers.key='foreign',c=>c.selection.full=true,c=>c.selection.files.push('workers/media/src/index.js')]){
     const changed=structuredClone(context);change(changed);assert.throws(()=>reliabilityBrowserPrefix(originalBytes,changed));
   }
