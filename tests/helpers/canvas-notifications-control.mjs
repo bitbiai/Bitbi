@@ -12,6 +12,14 @@ function transport(env,owner){
   }),env,{waitUntil(){}});
 }
 async function bodyOf(response,status=200){const body=await response.json();check(response.status===status,`Notifications expected ${status}, got ${response.status}/${body.code}`);check(response.headers.get('Cache-Control')==='private, no-store','Inbox responses remain private and uncached');return body.data;}
+async function conversationRejection(response,status,code){
+  const body=await response.json();
+  check(response.status===status,`Conversation rejection expected ${status}, got ${response.status}/${body.code}`);
+  // Rejections use the existing Canvas error boundary, not the inbox responder.
+  check(response.headers.get('Cache-Control')==='no-store','Conversation errors remain uncached');
+  check(body?.ok===false&&body.code===code&&body.error===code&&Object.keys(body).sort().join(',')==='code,error,ok',
+    'Conversation errors expose only the expected safe rejection, never draft or project data');
+}
 async function seed(env,suffix){
   const db=env.DB,owner=`canvas-notice-${suffix}`,other=`${owner}-other`,old=iso(-172800000),now=iso(0),expires=iso(3600000);
   const id=async label=>(await sha256Hex(`${owner}:${label}`)).slice(0,32),project=await id('project'),foreign=await id('foreign'),node=await id('node'),complete=await id('complete'),failed=await id('failed');
@@ -99,8 +107,8 @@ async function conversationControlNotifications(base){
   check((await notices()).length===0,'No saved acknowledgement exists without an accepted control receipt');
   const draft='PRIVATE-SYNTHETIC-DRAFT-DO-NOT-PROJECT';
   const save={action:'save',draft,expectedConversationRevision:initial.revision},saveKey='private-synthetic-save-identity';
-  await bodyOf(await post('control',{...save,expectedConversationRevision:initial.revision+1},'notice-stale-save'),409);
-  await bodyOf(await post('control',save,'notice-foreign-save',f.other),404);
+  await conversationRejection(await post('control',{...save,expectedConversationRevision:initial.revision+1},'notice-stale-save'),409,'canvas_agent_conversation_changed');
+  await conversationRejection(await post('control',save,'notice-foreign-save',f.other),404,'project_not_found');
   check((await receipts()).length===0&&(await notices()).length===0,'Rejected stale/foreign writes produce no success receipt or notification');
   await bodyOf(await post('control',save,saveKey));
   check((await read()).state==='saved'&&(await read()).draft===draft,'The actual save endpoint persists the draft before exposing a success');
@@ -111,7 +119,7 @@ async function conversationControlNotifications(base){
   const readAt=(await notices())[0].readAt;
   await bodyOf(await post('control',save,saveKey));
   check((await receipts()).length===1&&(await notices()).length===1&&(await notices())[0].readAt===readAt,'Save replay preserves the same notification and read identity');
-  await bodyOf(await post('control',{...save,draft:'Different draft'},saveKey),409);
+  await conversationRejection(await post('control',{...save,draft:'Different draft'},saveKey),409,'idempotency_conflict');
   const accepted=[];
   for(const action of ['resume','cancel','clear']){
     const current=await read(),input={action,expectedConversationRevision:current.revision},key=`notification-control-${action}`;
