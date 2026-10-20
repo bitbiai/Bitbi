@@ -1891,8 +1891,9 @@ export function canvasExampleBrowserContinuation(command){
   assert.equal(command.split(passed).length,2);assert(command.includes("--grep 'Canvas transition examples'"));
   return command.replace(passed,''); // Pinned decoded-asset pass remains in the archived original log.
 }
-export const canvasPreflightProfile=source=>[INCIDENT_WORKER_PREFLIGHT,INCIDENT_PREFLIGHT,RELIABILITY_BROWSER_PREFLIGHT,RELIABILITY_NATIVE_PREFLIGHT,RELIABILITY_WORKER_PREFLIGHT,EXPORT_DELIVERY_BROWSER_PREFLIGHT,EXPORT_DELIVERY_SDK_PREFLIGHT,EXPORT_DELIVERY_HOSTING_PREFLIGHT,EXPORT_DELIVERY_DISCOVERY_PREFLIGHT,EXPORT_DELIVERY_SELECTION_PREFLIGHT,EXPORT_DELIVERY_PREFLIGHT,ASSISTANT_BROWSER_PREFLIGHT,ASSISTANT_NATIVE_RATE,ASSISTANT_NATIVE_TAIL,ASSISTANT_NATIVE_PROGRESS,ASSISTANT_NATIVE_PREFLIGHT,ASSISTANT_WORKER_PREFLIGHT,ASSISTANT_PREFLIGHT,SETTLEMENT_BROWSER_PREFLIGHT,SETTLEMENT_NATIVE_PROGRESS,SETTLEMENT_NATIVE_PREFLIGHT,SETTLEMENT_HOSTING_PREFLIGHT,SETTLEMENT_PREFLIGHT,CANVAS_POLICY_NATIVE_PREFLIGHT,CANVAS_POLICY_WORKER_PREFLIGHT,AUTONOMY_BROWSER_PREFLIGHT,AUTONOMY_NATIVE_PREFLIGHT,CANVAS_PREFLIGHT,EXPORT_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,EXAMPLE_PREFLIGHT,EXAMPLE_BROWSER_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].find(p=>p.source===source)||null;
+export const canvasPreflightProfile=source=>[INCIDENT_NATIVE_PREFLIGHT,INCIDENT_WORKER_PREFLIGHT,INCIDENT_PREFLIGHT,RELIABILITY_BROWSER_PREFLIGHT,RELIABILITY_NATIVE_PREFLIGHT,RELIABILITY_WORKER_PREFLIGHT,EXPORT_DELIVERY_BROWSER_PREFLIGHT,EXPORT_DELIVERY_SDK_PREFLIGHT,EXPORT_DELIVERY_HOSTING_PREFLIGHT,EXPORT_DELIVERY_DISCOVERY_PREFLIGHT,EXPORT_DELIVERY_SELECTION_PREFLIGHT,EXPORT_DELIVERY_PREFLIGHT,ASSISTANT_BROWSER_PREFLIGHT,ASSISTANT_NATIVE_RATE,ASSISTANT_NATIVE_TAIL,ASSISTANT_NATIVE_PROGRESS,ASSISTANT_NATIVE_PREFLIGHT,ASSISTANT_WORKER_PREFLIGHT,ASSISTANT_PREFLIGHT,SETTLEMENT_BROWSER_PREFLIGHT,SETTLEMENT_NATIVE_PROGRESS,SETTLEMENT_NATIVE_PREFLIGHT,SETTLEMENT_HOSTING_PREFLIGHT,SETTLEMENT_PREFLIGHT,CANVAS_POLICY_NATIVE_PREFLIGHT,CANVAS_POLICY_WORKER_PREFLIGHT,AUTONOMY_BROWSER_PREFLIGHT,AUTONOMY_NATIVE_PREFLIGHT,CANVAS_PREFLIGHT,EXPORT_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,EXAMPLE_PREFLIGHT,EXAMPLE_BROWSER_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].find(p=>p.source===source)||null;
 export function assertCanvasPreflightTree(head,read=gitBytes,profile=CANVAS_PREFLIGHT){
+  if(profile===INCIDENT_NATIVE_PREFLIGHT)return assertIncidentNativeTree(head,read);
   if(profile===INCIDENT_WORKER_PREFLIGHT)return assertIncidentWorkerTree(head,read);
   if(profile===INCIDENT_PREFLIGHT){
     assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,profile.source],'Incident preflight requires the direct reviewed successor');
@@ -2228,6 +2229,7 @@ export function verifyWorkspaceGuardUnion(before,after){
 }
 export function canvasPreflightPrefix(bytes,{sha,base,planHash,environment,nativeBrowsers,commands,selection},read=gitBytes){
   const original=JSON.parse(bytes),profile=canvasPreflightProfile(original.sha)||CANVAS_PREFLIGHT;
+  if(profile===INCIDENT_NATIVE_PREFLIGHT)return incidentNativePrefix(bytes,{sha,base,planHash,environment,nativeBrowsers,commands,selection},read);
   if(profile===INCIDENT_WORKER_PREFLIGHT)return incidentWorkerPrefix(bytes,{sha,base,planHash,environment,nativeBrowsers,commands,selection},read);
   if(profile===RELIABILITY_BROWSER_PREFLIGHT)return reliabilityBrowserPrefix(bytes,{sha,base,planHash,environment,nativeBrowsers,commands,selection},read);
   if(profile===RELIABILITY_NATIVE_PREFLIGHT)return reliabilityNativePrefix(bytes,{sha,base,planHash,environment,nativeBrowsers,commands,selection},read);
@@ -2342,6 +2344,7 @@ export function verifyExportGuardUnion(before,after){
   assert.equal(new Set(after.map(r=>r.title)).size,after.length);assert(after.every(r=>before.some(old=>old.title===r.title)));
 }
 export function verifyCanvasPreflight(directory,evidence,commands){
+  if(evidence.preflightContinuation?.source===INCIDENT_NATIVE_PREFLIGHT.source)return verifyIncidentNativeContinuation(directory,evidence,commands);
   if(evidence.preflightContinuation?.source===INCIDENT_WORKER_PREFLIGHT.source)return verifyIncidentWorkerContinuation(directory,evidence,commands);
   if(evidence.preflightContinuation?.source===RELIABILITY_BROWSER_PREFLIGHT.source)return verifyReliabilityBrowserContinuation(directory,evidence,commands);
   if(evidence.preflightContinuation?.source===RELIABILITY_NATIVE_PREFLIGHT.source)return verifyReliabilityNativeContinuation(directory,evidence,commands);
@@ -3632,12 +3635,125 @@ export function verifyIncidentWorkerContinuation(directory,evidence,commands){
   const original=incidentWorkerPrefix(fs.readFileSync(path.join(directory,'reuse/preflight-checkpoint.json')),{...evidence,commands});
   verifyIncidentWorkerRepair(directory,evidence.sha);verifyIncidentWorkerSelection(directory,evidence.sha);
   assert.equal(evidence.commands.length,commands.length,'Incomplete continued command closure');
+  verifyIncidentWorkerRecords(directory,evidence,commands,original);
+}
+function verifyIncidentWorkerRecords(directory,evidence,commands,original){
+  const p=INCIDENT_WORKER_PREFLIGHT;
   for(const[i,row]of evidence.commands.entries()){
     if(p.retain.includes(i)){assert.deepEqual(row,{...original.commands[i],reusedFrom:original.commands[i].reusedFrom||p.source},'Retained command identity/hash changed');assert.equal(sha256(fs.readFileSync(path.join(directory,row.log))),row.logHash);}
     else{assert(!row.reusedFrom&&!row.browserContinuation,'Affected/unexecuted command cannot inherit acceptance');
       if(i===17){assert.equal(row.continuation,incidentWorkerGuard(commands[i].run));const log=fs.readFileSync(path.join(directory,row.log),'utf8');assert(log.includes('Incident Worker continuation: 1665 retained passes and seven required fresh cases; nested provenance, exact discovery, changed-source and tamper controls verified.'));assert(!log.includes('Local command mapping, no hosted duplicate suites')&&!log.includes('Incident preflight: actual isolated Git trees'),'Passed guard groups repeated');}
       else if(i===41)assert.equal(row.continuation,incidentWorkerContinuation(commands[i].run));
       else assert(!row.continuation,'Unreviewed command continuation');
+    }
+  }
+}
+
+// One stale historical launcher expectation failed after the complete Worker
+// union and real FFmpeg acceptance. Preserve those results and the 34 passed
+// launcher cases; the isolated native child and browser suites remain fresh.
+export const INCIDENT_NATIVE_PREFLIGHT=Object.freeze({
+  source:'8fda637658c843e484ddac1da8af30251c47b511',
+  checkpoint:'6d951ca29c7d83658dcd0adafbf58041255d2a83e6f19272a9afbac7bd86f23d',
+  failedLog:'7a6c98320444f5fc06488344c3a2bb516f9cdd28a42a2605f6ea587597232f1f',
+  completedGuardLog:'18e5393ecee38c0320c8b9d0b6394f983afc0604b7cb1f434306ab12cc5dcc03',
+  reports:Object.freeze({
+    'incident-worker-discovery.json':'5a9157c6605b4b97e6d7a91ec1af24e4d6c7fea9544b9e3fda591229fa7d1020',
+    'incident-worker-selected.json':'de77017cc945f8b03e4fb29a97a605de7cdaccd44381df12d965f2430572fd7e',
+    'incident-worker-fresh.json':'8dfe5abcb9befc2e42644d500bdb18d922536b2a949271a2afa97da6a3242ad3',
+  }),
+  specs:Object.freeze({'scripts/test-q2-runtime-launcher.mjs':'04981035ff52a09941666dbcffea64de0116474e44ba46e52dacb5141c266078'}),
+  retain:INCIDENT_WORKER_PREFLIGHT.retain,
+});
+export const incidentLauncherFailure='Canvas notification controls continuation pins original discovery and refreshes only actual consumers';
+export function assertIncidentNativeTree(head,read=gitBytes){
+  const p=INCIDENT_NATIVE_PREFLIGHT;assertIncidentWorkerTree(p.source,read);
+  assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,p.source],'Incident native continuation requires the direct reviewed successor');
+  const files=read(['diff','--name-only',p.source,head]).toString().trim().split('\n').filter(Boolean);
+  assert(files.every(file=>[...Object.keys(p.specs),...reliabilityTools].includes(file)),'Incident native continuation changed passed product, media, Worker or launcher inputs');
+  for(const[file,hash]of Object.entries(p.specs)){assert(files.includes(file),'Missing reviewed launcher correction');assert.equal(sha256(read(['show',`${head}:${file}`])),hash,'Unreviewed launcher correction');}
+  for(const file of files)assert(/^100644 blob [0-9a-f]{40}\t/.test(read(['ls-tree',head,'--',file]).toString()),'Continuation input must remain an ordinary file');
+  const file='scripts/test-local-release.mjs',before=read(['show',`${p.source}:${file}`]).toString(),after=read(['show',`${head}:${file}`]).toString();
+  const entry="if(process.argv.includes('--incident-native-only')) {\n  assert.deepEqual(process.argv.slice(2),['--incident-native-only']);\n  await testIncidentNativeContinuation();process.exit(0);\n}\n\n",tail='\nasync function testIncidentNativeContinuation() {';
+  assert.equal(after.split(entry).length,2);assert.equal(after.split(tail).length,2);
+  assert.equal(after.split(tail)[0].replace(entry,''),before,'Already passed verifier assertions changed');
+  assert(after.endsWith('\nawait testIncidentNativeContinuation();\n'));
+}
+export function incidentNativePrefix(bytes,current,read=gitBytes){
+  const p=INCIDENT_NATIVE_PREFLIGHT,original=JSON.parse(bytes);assertIncidentNativeTree(current.sha,read);
+  assert.equal(sha256(bytes),p.checkpoint,'Changed original failed launcher checkpoint');
+  assert.equal(original.sha,p.source);assert.equal(original.status,'failed');assert.equal(original.commands.length,42);
+  assert.deepEqual(original.preflightContinuation,{source:INCIDENT_WORKER_PREFLIGHT.source,checkpoint:INCIDENT_WORKER_PREFLIGHT.checkpoint});
+  assert(!original.preflightProgress&&!original.permissionContinuation&&!original.repair);
+  assert(original.commands.slice(0,41).every(row=>row.exitCode===0));
+  assert.equal(original.commands[41].exitCode,1);assert.equal(original.commands[41].logHash,p.failedLog);assert.equal(original.commands[17].logHash,p.completedGuardLog);
+  assert.equal(original.commands[17].continuation,incidentWorkerGuard(original.commands[17].command.run));
+  assert.equal(original.commands[41].continuation,incidentWorkerContinuation(original.commands[41].command.run));
+  for(const key of ['base','planHash'])assert.equal(original[key],current[key]);
+  const environment=({reused,preparationMs,...rest})=>rest;assert.deepEqual(environment(original.environment),environment(current.environment),'Changed pinned execution environment');
+  assert.equal(original.nativeBrowsers?.key,current.nativeBrowsers?.key);
+  const flags=({files,reasons,...rest})=>rest;assert.deepEqual(flags(original.selection),flags(current.selection));
+  assert.deepEqual(current.commands,selectedCommands(original.selection,{GITHUB_SHA:current.sha,CANDIDATE_BASE:current.base}),'Changed command closure');
+  for(const index of p.retain)assert.deepEqual(original.commands[index].command,current.commands[index]);
+  return original;
+}
+export function verifyIncidentLauncherUnion(before,after){
+  assert.equal(before.length,35);assert.equal(new Set(before.map(row=>row.title)).size,35);
+  assert.deepEqual(before.filter(row=>row.status!=='passed'),[{title:incidentLauncherFailure,status:'failed'}]);
+  assert.deepEqual(after,[{title:incidentLauncherFailure,status:'passed'}],'Only the failed launcher must pass once; retained cases cannot repeat');
+  return {launcherRetained:34,launcherFresh:1,launcherTotal:35};
+}
+export function verifyIncidentNativeRepair(directory,head,{allowPending=false}={}){
+  const p=INCIDENT_NATIVE_PREFLIGHT;assertIncidentNativeTree(head);
+  const pinned=(file,hash)=>{const bytes=fs.readFileSync(path.join(directory,file));assert.equal(sha256(bytes),hash,`Changed incident native evidence: ${file}`);return bytes;};
+  const original=JSON.parse(pinned('reuse/preflight-checkpoint.json',p.checkpoint)),origin=path.join(directory,'reuse/incident-worker-origin');
+  const prior=verifyIncidentWorkerRepair(origin,p.source);verifyIncidentWorkerSelection(origin,p.source);
+  const commands=selectedCommands(original.selection,{GITHUB_SHA:original.sha,CANDIDATE_BASE:original.base});
+  incidentWorkerPrefix(fs.readFileSync(path.join(origin,'reuse/preflight-checkpoint.json')),{...original,commands});
+  verifyIncidentWorkerRecords(origin,original,commands,prior.original);
+  pinned('reuse/incident-worker-origin/logs/17.log',p.completedGuardLog);
+  for(const[file,hash]of Object.entries(p.reports))pinned('reuse/incident-worker-origin/test-results/'+file,hash);
+  const log=pinned('reuse/preflight-failed.log',p.failedLog).toString();
+  const marker='> test:q2-runtime\n> node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs && node scripts/test-q2-runtime.mjs\n';
+  assert.equal(log.split(marker).length,2,'Missing exact unexecuted native boundary');const [prefix,launcher]=log.split(marker);
+  assert.match(prefix,/\n\s+7 passed \(/);assert(prefix.includes('"originalPassed":1665,"progressPassed":7,"correctedPassed":0,"total":1672'));
+  assert(prefix.includes('> test:homepage-ffmpeg-processor\n'));assert.match(prefix,/homepage ffmpeg processor tests passed/);assert.match(prefix,/Private video reference FFmpeg: .*passed\./);
+  assert.match(launcher,/# tests 35\n# suites 0\n# pass 34\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0/);assert(!launcher.includes('q2LinuxEvidence'),'Native child was not executed');
+  const before=tapResults(launcher);verifyIncidentLauncherUnion(before,[{title:incidentLauncherFailure,status:'passed'}]);
+  const file=path.join(directory,'test-results/incident-native-worker-discovery.json');
+  if(fs.existsSync(file)){const current=parseDiscovery(fs.readFileSync(file,'utf8'));assert.deepEqual(current.errors,[]);const identities=rows=>rows.map(({id,file,title})=>({id,file,title})).sort((a,b)=>a.id.localeCompare(b.id));assert.deepEqual(identities(workerDiscovery(current)),identities(prior.discovery),'Changed complete Worker discovery');}
+  else assert(allowPending,'Missing current Worker discovery');
+  if(allowPending)return{original,before,worker:prior.result};
+  const fresh=fs.readFileSync(path.join(directory,'test-results/incident-launcher-fresh.tap'),'utf8');
+  assert.match(fresh,/# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0/);
+  return{original,before,result:{...prior.result,...verifyIncidentLauncherUnion(before,tapResults(fresh))}};
+}
+export function incidentNativeGuard(command){assert.equal(command,'npm run test:local-release');return command+' -- --incident-native-only';}
+export function incidentNativeContinuation(command){
+  const scripts=JSON.parse(fs.readFileSync('package.json')).scripts;
+  assert.equal(scripts['test:workers'],'node scripts/check-media-tools.mjs && npm run test:website-assistant && node scripts/check-q4-selection.mjs && playwright test -c playwright.workers.config.js && npm run test:homepage-ffmpeg-processor && npm run test:q2-runtime');
+  assert.equal(scripts['test:q2-runtime'],'node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs && node scripts/test-q2-runtime.mjs');
+  assert.equal(command.split('  npm run test:workers').length,2);assert(command.endsWith('else\n  npm run test:workers\nfi\n'));
+  const fresh=[
+    'mkdir -p .local-release/test-results',
+    'PLAYWRIGHT_JSON_OUTPUT_NAME= npx playwright test -c playwright.workers.config.js --list --reporter=json > .local-release/test-results/incident-native-worker-discovery.json',
+    'node scripts/local-release.mjs verify-incident-native-pending .local-release',
+    `node --test --test-name-pattern='^${incidentLauncherFailure}$' scripts/test-q2-runtime-launcher.mjs > .local-release/test-results/incident-launcher-fresh.tap 2>&1 || { status=$?; cat .local-release/test-results/incident-launcher-fresh.tap; exit "$status"; }`,
+    'cat .local-release/test-results/incident-launcher-fresh.tap',
+    'node scripts/local-release.mjs verify-incident-native-repair .local-release',
+    'node scripts/test-q2-runtime.mjs',
+  ].map(line=>'  '+line).join('\n');return command.replace('  npm run test:workers',()=>fresh);
+}
+export function verifyIncidentNativeContinuation(directory,evidence,commands){
+  const p=INCIDENT_NATIVE_PREFLIGHT;assert.deepEqual(evidence.preflightContinuation,{source:p.source,checkpoint:p.checkpoint});
+  const original=incidentNativePrefix(fs.readFileSync(path.join(directory,'reuse/preflight-checkpoint.json')),{...evidence,commands});
+  verifyIncidentNativeRepair(directory,evidence.sha);assert.equal(evidence.commands.length,commands.length,'Incomplete continued command closure');
+  for(const[i,row]of evidence.commands.entries()){
+    if(p.retain.includes(i)){assert.deepEqual(row,{...original.commands[i],reusedFrom:original.commands[i].reusedFrom||p.source});assert.equal(sha256(fs.readFileSync(path.join(directory,row.log))),row.logHash);}
+    else{assert(!row.reusedFrom&&!row.browserContinuation,'Affected/unexecuted command cannot inherit acceptance');
+      if(i===17){assert.equal(row.continuation,incidentNativeGuard(commands[i].run));const log=fs.readFileSync(path.join(directory,row.log),'utf8');assert(log.includes('Incident native continuation: 1672 Worker, FFmpeg and 34 launcher passes retained; one launcher and the full native runtime remain mandatory.'));assert(!log.includes('Incident Worker continuation:')&&!log.includes('Local command mapping, no hosted duplicate suites'),'Passed guard groups repeated');}
+      else if(i===41)assert.equal(row.continuation,incidentNativeContinuation(commands[i].run));
+      else assert(!row.continuation,'Unreviewed continuation');
     }
   }
 }

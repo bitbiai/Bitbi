@@ -1248,7 +1248,37 @@ test('Canvas notification controls continuation pins original discovery and refr
     ...['bootstrap','duration','explicit','button','isolation','allowance'].map(name=>'canvas_conversation_decision_'+name),
     ...['immediate','delegation','stale-project','stale-brief','stale-price','consent-isolation','concurrent-approval'].map(name=>'canvas_natural_chat_native_'+name),
   ];
-  assert.deepEqual(canvasNotificationControlInventory,fresh);assert.equal(fresh.length+canvasReliabilityInventory.length,19);
+  // This closed continuation accepted thirteen refreshed Canvas callers plus
+  // the original six reliability callers. Later additive native cases belong
+  // to current acceptance; they must not rewrite the historical boundary.
+  const historicalSource=spawnSync('git',['show','65a10a52d059b9f0a62c38569268c2f0f98bf94b:tests/helpers/q2-runtime/canvas-reliability.mjs'],{cwd:root});
+  assert.equal(historicalSource.status,0,'Pinned notification reliability caller is unavailable');
+  const loadHistorical=async bytes=>{
+    assert.equal(createHash('sha256').update(bytes).digest('hex'),'f14d1ac7ffb7b450c5e92a9c0e7670f06eddc3bf469eb25c671b9130175d06e2','Historical reliability callback body changed');
+    return import('data:text/javascript;base64,'+bytes.toString('base64'));
+  };
+  const historical=await loadHistorical(historicalSource.stdout);
+  await assert.rejects(()=>loadHistorical(Buffer.from('Unreviewed reliability caller')),/Historical reliability callback body changed/);
+  const discoverReliability=async run=>{
+    const names=[];
+    await run({migrations:[{path:'0113_synthetic.sql',statements:[]}],db:{batch:async()=>{}},
+      control:async route=>{assert.equal(route,'/canvas-notifications-migration-seed');return Response.json({rows:[]});},
+      test:async name=>names.push(name),rows:async()=>[]});
+    return names;
+  };
+  const historicalNames=await discoverReliability(historical.runCanvasReliabilityTests);
+  const validateHistorical=names=>assert.deepEqual(names,[
+    'canvas_reliability_populated_notifications_migration','canvas_reliability_committed_project_lifecycle',
+    'canvas_reliability_owned_notification_history','canvas_reliability_explanation_evidence',
+    'canvas_reliability_explanation_quoted','canvas_reliability_explanation_budget-scope',
+  ],'Historical reliability callback membership or order changed');
+  validateHistorical(historicalNames);assert.deepEqual(historical.canvasReliabilityInventory,historicalNames);
+  for(const missing of historicalNames)assert.throws(()=>validateHistorical(historicalNames.filter(name=>name!==missing)),/Historical reliability callback membership/);
+  assert.throws(()=>validateHistorical([...historicalNames,historicalNames[0]]),/Historical reliability callback membership/);
+  assert.deepEqual(canvasNotificationControlInventory,fresh);assert.equal(fresh.length+historicalNames.length,19);
+  const currentNames=await discoverReliability(runCanvasReliabilityTests);
+  assert.deepEqual(currentNames,canvasReliabilityInventory,'Current native acceptance must discover every additive reliability case');
+  assert.deepEqual(currentNames.filter(name=>historicalNames.includes(name)),historicalNames);
   assert.equal(parseRuntimeArgs(['--suite',alias],{}).suite,alias);
   assert.throws(()=>parseRuntimeArgs(['--suite',alias,'--suite','canvas'],{}));
   for(const value of [alias+'-other','canvas,canvas-reliability']){

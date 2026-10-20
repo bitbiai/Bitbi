@@ -21,6 +21,11 @@ import { LOCAL_IMPORT_REPAIR, assertImportRepairWorkflow, localRepairCommand, ve
 import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,assertPermissionContinuationTree,permissionContinuationPrefix,CANVAS_STAGE_CASES,canvasStageContinuation} from './lib/local-release-evidence.mjs';
 import {testLocalMediaProcess} from './test-local-media-process.mjs';
 
+if(process.argv.includes('--incident-native-only')) {
+  assert.deepEqual(process.argv.slice(2),['--incident-native-only']);
+  await testIncidentNativeContinuation();process.exit(0);
+}
+
 if(process.argv.includes('--incident-worker-only')) {
   assert.deepEqual(process.argv.slice(2),['--incident-worker-only']);
   await testIncidentWorkerContinuation();process.exit(0);
@@ -4170,3 +4175,55 @@ async function testIncidentWorkerContinuation() {
   console.log('Incident Worker continuation: 1665 retained passes and seven required fresh cases; nested provenance, exact discovery, changed-source and tamper controls verified.');
 }
 await testIncidentWorkerContinuation();
+
+async function testIncidentNativeContinuation() {
+  const {INCIDENT_NATIVE_PREFLIGHT:p,incidentLauncherFailure,assertIncidentNativeTree,incidentNativePrefix,verifyIncidentLauncherUnion,
+    verifyIncidentNativeRepair,incidentNativeGuard,incidentNativeContinuation,verifyIncidentNativeContinuation}=await import('./lib/local-release-evidence.mjs');
+  const before=[...Array.from({length:34},(_,i)=>({title:`retained-${i}`,status:'passed'})),{title:incidentLauncherFailure,status:'failed'}],after=[{title:incidentLauncherFailure,status:'passed'}];
+  assert.deepEqual(verifyIncidentLauncherUnion(before,after),{launcherRetained:34,launcherFresh:1,launcherTotal:35});
+  for(const bad of [[],[...after,after[0]],[...after,before[0]],[{...after[0],status:'failed'}],[{...after[0],status:'skipped'}]])assert.throws(()=>verifyIncidentLauncherUnion(before,bad));
+  assert.throws(()=>verifyIncidentLauncherUnion(before.slice(1),after));assert.throws(()=>verifyIncidentLauncherUnion([...before.slice(1),before[1]],after));
+  assert.equal(incidentNativeGuard('npm run test:local-release'),'npm run test:local-release -- --incident-native-only');assert.throws(()=>incidentNativeGuard('echo passed'));
+  if(!process.argv.includes('--incident-native-only'))return;
+  const directory='.local-release',read=args=>execFileSync('git',args),head=read(['rev-parse','HEAD']).toString().trim();
+  const bytes=fs.readFileSync(path.join(directory,'reuse/preflight-checkpoint.json')),old=JSON.parse(bytes),selection=gitSelection(old.base,head);
+  const commands=selectedCommands(selection,{GITHUB_SHA:head,CANDIDATE_BASE:old.base}),context={...old,sha:head,commands,selection};
+  assert.deepEqual(incidentNativePrefix(bytes,context),old);assertIncidentNativeTree(head);
+  for(const change of [v=>v.base='0'.repeat(40),v=>v.environment.image='sha256:'+'0'.repeat(64),v=>v.selection.workers=false,v=>v.commands[41].run+='echo extra']){const wrong=structuredClone(context);change(wrong);assert.throws(()=>incidentNativePrefix(bytes,wrong));}
+  assert.throws(()=>incidentNativePrefix(Buffer.from(JSON.stringify({...old,status:'passed'})),context));
+  for(const file of ['workers/auth/src/lib/canvas-agent-execution.js','tests/helpers/canvas-agent-conversation-control.mjs','services/homepage-ffmpeg-processor/canvas-full-video.mjs','package-lock.json'])assert.throws(()=>assertIncidentNativeTree(head,args=>args[0]==='diff'&&args[2]===p.source?Buffer.from(read(args).toString()+file+'\n'):read(args)));
+  for(const file of Object.keys(p.specs))assert.throws(()=>assertIncidentNativeTree(head,args=>args[0]==='show'&&args[1]===`${head}:${file}`?Buffer.from('unreviewed fixture'):read(args)));
+  const verified=verifyIncidentNativeRepair(directory,head,{allowPending:true});assert.equal(verified.before.length,35);assert.deepEqual(verified.worker,{originalPassed:1665,progressPassed:7,correctedPassed:0,total:1672});
+  const wrapper=incidentNativeContinuation(commands[41].run);assert(wrapper.includes('--list --reporter=json')&&wrapper.includes('--test-name-pattern=')&&wrapper.includes('node scripts/test-q2-runtime.mjs'));
+  const active=wrapper.slice(wrapper.lastIndexOf('\nelse\n')+6);assert(!active.includes('npm run test:workers')&&!active.includes('npm run test:homepage-ffmpeg-processor')&&!active.includes('--reporter=list,json'));assert.throws(()=>incidentNativeContinuation('npm run test:workers'));
+  const vm=await import('node:vm'),runner=fs.readFileSync('scripts/local-release.mjs','utf8'),writer=runner.slice(runner.indexOf('      record.runtimes=commandRuntimes(command)'),runner.indexOf('      state.commands[index] = record;'));
+  const globals={...await import('./lib/local-release-evidence.mjs'),...await import('./lib/local-release-browser.mjs'),...await import('./lib/canvas-export-release.mjs'),...await import('./lib/canvas-export-browser.mjs'),commandRuntimes};
+  for(const index of [17,40,41]){const execute=source=>{const record={};vm.runInNewContext(source,{...globals,state:{preflightContinuation:{source:p.source}},index,command:commands[index],record});return record;};const expected=index===17?incidentNativeGuard(commands[index].run):index===41?incidentNativeContinuation(commands[index].run):undefined;assert.equal(execute(writer).continuation,expected);if(expected){const broken=writer.split('\n').filter(line=>!line.includes(`INCIDENT_NATIVE_PREFLIGHT.source&&index===${index})record.continuation`)).join('\n');assert.notEqual(execute(broken).continuation,expected);}}
+  const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'incident-native-proof-')),original=path.join(temporary,'original'),bundle=path.join(temporary,'bundle');
+  try{
+    const {prepareIncidentNativeEvidence}=await import('./local-release.mjs');
+    fs.mkdirSync(original,{recursive:true});fs.copyFileSync(path.join(directory,'reuse/preflight-checkpoint.json'),path.join(original,'checkpoint.json'));
+    fs.cpSync(path.join(directory,'reuse/incident-worker-origin'),path.join(original,'bundle'),{recursive:true});
+    fs.mkdirSync(path.join(original,'runtime/q2-runtime-evidence'),{recursive:true});fs.writeFileSync(path.join(original,'runtime/q2-runtime-evidence/copy-boundary.json'),'synthetic-copy-countercheck');
+    assert.equal(prepareIncidentNativeEvidence(original,bundle,head,path.join(temporary,'runtime')).before.length,35);
+    for(const root of [bundle,temporary])assert.equal(fs.readFileSync(path.join(root,'runtime/q2-runtime-evidence/copy-boundary.json'),'utf8'),'synthetic-copy-countercheck');
+    fs.mkdirSync(path.join(bundle,'test-results'));fs.mkdirSync(path.join(bundle,'logs'));
+    const discovery=fs.readFileSync(path.join(bundle,'reuse/incident-worker-origin/test-results/incident-worker-discovery.json'));
+    const report=path.join(bundle,'test-results/incident-native-worker-discovery.json');fs.writeFileSync(report,discovery);
+    const fresh=path.join(bundle,'test-results/incident-launcher-fresh.tap'),tap=`TAP version 13\nok 1 - ${incidentLauncherFailure}\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n`;
+    fs.writeFileSync(fresh,tap);assert.equal(verifyIncidentNativeRepair(bundle,head).result.launcherFresh,1);
+    const cli=action=>spawnSync(process.execPath,['scripts/local-release.mjs',action,bundle],{encoding:'utf8'});
+    for(const action of ['verify-incident-native-pending','verify-incident-native-repair']){const result=cli(action);assert.equal(result.status,0,result.stderr);assert.doesNotThrow(()=>JSON.parse(result.stdout));}
+    for(const invalid of [tap.replace('ok 1','not ok 1'),tap+`ok 2 - ${incidentLauncherFailure}\n`,tap.replace('# fail 0','# fail 1'),tap.replace(incidentLauncherFailure,'Unrelated case')]){fs.writeFileSync(fresh,invalid);assert.throws(()=>verifyIncidentNativeRepair(bundle,head));}
+    fs.writeFileSync(fresh,tap.replace('ok 1','not ok 1'));assert.notEqual(cli('verify-incident-native-repair').status,0,'Actual CLI blocks native execution after a failed launcher');fs.writeFileSync(fresh,tap);
+    const wrongDiscovery=JSON.parse(discovery);wrongDiscovery.suites.pop();fs.writeFileSync(report,JSON.stringify(wrongDiscovery));assert.throws(()=>verifyIncidentNativeRepair(bundle,head));fs.writeFileSync(report,discovery);
+    const evidence={...context,preflightContinuation:{source:p.source,checkpoint:p.checkpoint},commands:commands.map((command,i)=>p.retain.includes(i)?{...old.commands[i],reusedFrom:old.commands[i].reusedFrom||p.source}:{command,exitCode:0,...(i===17?{continuation:incidentNativeGuard(command.run)}:i===41?{continuation:incidentNativeContinuation(command.run)}:{})})};
+    for(const i of p.retain)fs.copyFileSync(path.join(directory,old.commands[i].log),path.join(bundle,old.commands[i].log));
+    evidence.commands[17].log='logs/17.log';fs.writeFileSync(path.join(bundle,'logs/17.log'),'Incident native continuation: 1672 Worker, FFmpeg and 34 launcher passes retained; one launcher and the full native runtime remain mandatory.');verifyIncidentNativeContinuation(bundle,evidence,commands);
+    for(const mutate of [e=>e.commands[41].reusedFrom=p.source,e=>delete e.commands[41].continuation,e=>e.commands[17].continuation='npm run test:local-release',e=>e.commands.pop()]){const bad=structuredClone(evidence);mutate(bad);assert.throws(()=>verifyIncidentNativeContinuation(bundle,bad,commands));}
+    for(const file of ['reuse/preflight-failed.log','reuse/incident-worker-origin/test-results/incident-worker-fresh.json','reuse/incident-worker-origin/reuse/incident-preflight-origin/reuse/preflight-checkpoint.json']){const target=path.join(bundle,file),saved=fs.readFileSync(target);fs.appendFileSync(target,'forged');assert.throws(()=>verifyIncidentNativeRepair(bundle,head));fs.writeFileSync(target,saved);}
+    fs.unlinkSync(path.join(original,'bundle/test-results/incident-worker-selected.json'));assert.throws(()=>prepareIncidentNativeEvidence(original,path.join(temporary,'missing'),head,path.join(temporary,'missing-runtime')),'Actual copy cannot conceal missing accepted proof');
+  }finally{fs.rmSync(temporary,{recursive:true,force:true});}
+  console.log('Incident native continuation: 1672 Worker, FFmpeg and 34 launcher passes retained; one launcher and the full native runtime remain mandatory.');
+}
+await testIncidentNativeContinuation();
