@@ -4,7 +4,7 @@ import { runAppearanceTests } from '../../appearance-runtime.mjs';
 import { runWebsiteAssistantTests } from '../../website-assistant-runtime.mjs';
 import { runModelPricingTests } from '../../model-pricing-runtime.mjs';
 import { runCanvasTests, runCanvasCompletionTests, runCanvasAudioTests, runCanvasAudioFitTests, runCanvasTransitionTests, runCanvasRetentionTests } from './canvas.mjs';
-import { runCanvasPolicyTailTests, runCanvasActionsTailTests, runCanvasSettlementContinuationTests, runCanvasSettlementRecoveryTests, runCanvasAssistantContinuationTests, runCanvasAssistantTailTests, runCanvasAssistantRateTailTests } from './canvas-policy-tail.mjs';
+import { runCanvasPolicyTailTests, runCanvasActionsTailTests, runCanvasSettlementContinuationTests, runCanvasSettlementRecoveryTests, runCanvasAssistantContinuationTests, runCanvasAssistantTailTests, runCanvasAssistantRateTailTests, runCanvasNotificationControlTests } from './canvas-policy-tail.mjs';
 import {runCanvasReadinessRecoveryTests} from './canvas-readiness-recovery.mjs';
 import { runModelStatusTests } from '../../admin-model-status-runtime.mjs';
 import fs from 'node:fs';
@@ -43,6 +43,7 @@ export const runtimeSuites = Object.freeze([
 // Miniflare outbound denial and sanitized bindings are defense in depth, not an
 // invented attestation of that external OS boundary.
 export function selectedRuntimeSuites(suite) {
+  if(suite==='canvas-notification-controls')return [['canvas',runCanvasNotificationControlTests,{}],runtimeSuites.find(([name])=>name==='canvas-reliability')];
   // Closed continuation after the 0113 native migration failure. Full retains all 15 suites.
   if(suite==='canvas-notification-migration')return runtimeSuites.filter(([name])=>!['references','q4-memory'].includes(name));
   // Preserve the normal Canvas D1/Images/AI bindings and result identity.

@@ -1,9 +1,10 @@
+import {requiresPrivateMediaImage} from './ci-test-selection.mjs';
 import {EXPORT_DELIVERY_BROWSER_POLICY,verifyExportDeliveryBrowserReport} from './canvas-export-browser.mjs';
 import {EXPORT_DELIVERY_PREFLIGHT,EXPORT_DELIVERY_SELECTION_PREFLIGHT,EXPORT_DELIVERY_DISCOVERY_PREFLIGHT,EXPORT_DELIVERY_HOSTING_PREFLIGHT,EXPORT_DELIVERY_SDK_PREFLIGHT,EXPORT_DELIVERY_BROWSER_PREFLIGHT,exportDeliveryCorrectionProfile,assertExportDeliveryTree,assertExportDeliverySelectionTree,exportDeliveryPrefix,exportDeliverySelectionPrefix,verifyExportDeliveryReuse} from './canvas-export-release.mjs';
 import {READINESS_CONTINUATION,assertReadinessTree,STORED_PLAN_CONTINUATION,assertStoredPlanTree} from './local-release-browser.mjs';
 import {canvasReadinessRecoveryInventory} from '../../tests/helpers/q2-runtime/canvas-readiness-recovery.mjs';
 import {canvasSettlementContinuationInventory,canvasSettlementRecoveryRetainedInventory,canvasSettlementRecoveryInventory} from '../../tests/helpers/q2-runtime/canvas-policy-tail.mjs';
-import {canvasPolicyPrefix,canvasPolicyTailInventory} from '../../tests/helpers/q2-runtime/canvas-policy-tail.mjs';
+import {canvasNotificationControlInventory,canvasNotificationControlDiscoveryCount,canvasNotificationControlDiscoveryHash,canvasPolicyPrefix,canvasPolicyTailInventory} from '../../tests/helpers/q2-runtime/canvas-policy-tail.mjs';
 // Local execution is trusted only through authenticated repository-writer
 // transport, exact committed inputs and complete command/report/candidate hashes.
 // It does not grant environment approval or authorize a production write.
@@ -16,8 +17,8 @@ import { environmentInputs, environmentKey, toolchainPins } from './local-releas
 import { gitSelection, tree, verifyManifest, verifyProofs, candidateProof, proofJobs, REPOSITORY } from '../pages-candidate.mjs';
 import { verifyFrontend } from './frontend-hosting.mjs';
 import { browserRows } from './browser-fixture-repair.mjs';
-import { passedBrowserCase, ASSISTANT_BROWSER_PREFLIGHT, SETTLEMENT_BROWSER_PREFLIGHT, AUTONOMY_BROWSER_WORKER_PROGRESS, isAutonomyBrowserWorkerProgress, AUTONOMY_BROWSER_DOC_PROGRESS, isAutonomyBrowserDocProgress, AUTONOMY_BROWSER_PROGRESS, isAutonomyBrowserProgress, AUTONOMY_BROWSER_POLICY, AUTONOMY_BROWSER_PREFLIGHT, assertAutonomyBrowserTree, verifyAutonomyBrowserReport, verifyAutonomyImageReuse, MODEL_BROWSER_POLICY, MODEL_BROWSER_PREFLIGHT, verifyModelBrowserReport, LOCAL_BROWSER_POLICY, readMigrationBrowserPool, SMOOTH_BROWSER_POLICY, SMOOTH_BROWSER_CONTINUATION, EXAMPLE_CACHE_CONTINUATION, WORKSPACE_CONTINUATION, AUDIO_FIT_CONTINUATION, INSPECTOR_CONTINUATION,EXPORT_BROWSER_CONTINUATION, smoothProfile, isSmoothContinuation, assertSmoothContinuationTree, verifySmoothBrowserReport, restoreSmoothBrowserProof } from './local-release-browser.mjs';
-export {ASSISTANT_BROWSER_PREFLIGHT,SETTLEMENT_BROWSER_PREFLIGHT,AUTONOMY_BROWSER_WORKER_PROGRESS,AUTONOMY_BROWSER_DOC_PROGRESS,AUTONOMY_BROWSER_PROGRESS,AUTONOMY_BROWSER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT} from './local-release-browser.mjs';
+import { RELIABILITY_BROWSER_PREFLIGHT,reliabilityBrowserAffectedTitles,modelBrowserRetained,passedBrowserCase, ASSISTANT_BROWSER_PREFLIGHT, SETTLEMENT_BROWSER_PREFLIGHT, AUTONOMY_BROWSER_WORKER_PROGRESS, isAutonomyBrowserWorkerProgress, AUTONOMY_BROWSER_DOC_PROGRESS, isAutonomyBrowserDocProgress, AUTONOMY_BROWSER_PROGRESS, isAutonomyBrowserProgress, AUTONOMY_BROWSER_POLICY, AUTONOMY_BROWSER_PREFLIGHT, assertAutonomyBrowserTree, verifyAutonomyBrowserReport, verifyAutonomyImageReuse, MODEL_BROWSER_POLICY, MODEL_BROWSER_PREFLIGHT, verifyModelBrowserReport, LOCAL_BROWSER_POLICY, readMigrationBrowserPool, SMOOTH_BROWSER_POLICY, SMOOTH_BROWSER_CONTINUATION, EXAMPLE_CACHE_CONTINUATION, WORKSPACE_CONTINUATION, AUDIO_FIT_CONTINUATION, INSPECTOR_CONTINUATION,EXPORT_BROWSER_CONTINUATION, smoothProfile, isSmoothContinuation, assertSmoothContinuationTree, verifySmoothBrowserReport, restoreSmoothBrowserProof } from './local-release-browser.mjs';
+export {RELIABILITY_BROWSER_PREFLIGHT,ASSISTANT_BROWSER_PREFLIGHT,SETTLEMENT_BROWSER_PREFLIGHT,AUTONOMY_BROWSER_WORKER_PROGRESS,AUTONOMY_BROWSER_DOC_PROGRESS,AUTONOMY_BROWSER_PROGRESS,AUTONOMY_BROWSER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT} from './local-release-browser.mjs';
 
 export const LOCAL_REQUIRED_JOBS = { 'release-compatibility': [
   'Preflight complete static release plan', 'Select tests from changed files',
@@ -526,7 +527,7 @@ export function verifyLocalEvidence(directory, expected, { now = Date.now(), sel
     if(evidence.repair&&['Run selected auth and admin tests','Run selected homepage core tests'].includes(command.name))assert.equal(result.browserContinuation,LOCAL_BROWSER_POLICY);
     else if(evidence.preflightContinuation?.source===EXPORT_DELIVERY_BROWSER_PREFLIGHT.source&&command.name==='Run selected auth and admin tests')assert.equal(result.browserContinuation,EXPORT_DELIVERY_BROWSER_POLICY);
     else if(evidence.preflightContinuation?.source===AUTONOMY_BROWSER_PREFLIGHT.source&&['Run selected homepage core tests','Run selected auth and admin tests'].includes(command.name))assert.equal(result.browserContinuation,AUTONOMY_BROWSER_POLICY);
-    else if((evidence.readinessContinuation||evidence.storedPlanContinuation||[ASSISTANT_BROWSER_PREFLIGHT.source,SETTLEMENT_BROWSER_PREFLIGHT.source,MODEL_BROWSER_PREFLIGHT.source].includes(evidence.preflightContinuation?.source))&&['Run selected homepage core tests','Run selected auth and admin tests'].includes(command.name))assert.equal(result.browserContinuation,MODEL_BROWSER_POLICY);
+    else if((evidence.readinessContinuation||evidence.storedPlanContinuation||[RELIABILITY_BROWSER_PREFLIGHT.source,ASSISTANT_BROWSER_PREFLIGHT.source,SETTLEMENT_BROWSER_PREFLIGHT.source,MODEL_BROWSER_PREFLIGHT.source].includes(evidence.preflightContinuation?.source))&&['Run selected homepage core tests','Run selected auth and admin tests'].includes(command.name))assert.equal(result.browserContinuation,MODEL_BROWSER_POLICY);
     else if(isSmoothContinuation(evidence.permissionContinuation?.source)&&command.name==='Run selected auth and admin tests')assert.equal(result.browserContinuation,SMOOTH_BROWSER_POLICY);
     else assert(!result.browserContinuation,'Unreviewed browser continuation');
     assert(result.durationMs >= 0 && Number.isFinite(result.durationMs));
@@ -1597,6 +1598,7 @@ export function assistantBrowserGuard(command){assert.equal(command,'npm run tes
 export const settlementBrowserContinuation=(command,scope='homepage')=>modelBrowserContinuation(command,scope).replace('model-browser-continuation','settlement-browser-continuation');
 export function settlementBrowserGuard(command){assert.equal(command,'npm run test:local-release');return command+' -- --settlement-browser-only';}
 export function verifyModelBrowserRepair(directory,head,{allowPending=false,profile:p=MODEL_BROWSER_PREFLIGHT}={}) {
+  if(p===RELIABILITY_BROWSER_PREFLIGHT)return verifyReliabilityBrowserReports(directory,head,{allowPending});
   assert([MODEL_BROWSER_PREFLIGHT,SETTLEMENT_BROWSER_PREFLIGHT,ASSISTANT_BROWSER_PREFLIGHT].includes(p),'Unknown closed browser profile');assertCanvasPreflightTree(head,gitBytes,p);
   const pinned=(file,hash)=>{const bytes=fs.readFileSync(path.join(directory,'reuse',file));assert.equal(sha256(bytes),hash,`Changed original browser evidence: ${file}`);return bytes;};
   const original=JSON.parse(pinned('preflight-checkpoint.json',p.checkpoint));
@@ -1879,8 +1881,9 @@ export function canvasExampleBrowserContinuation(command){
   assert.equal(command.split(passed).length,2);assert(command.includes("--grep 'Canvas transition examples'"));
   return command.replace(passed,''); // Pinned decoded-asset pass remains in the archived original log.
 }
-export const canvasPreflightProfile=source=>[RELIABILITY_NATIVE_PREFLIGHT,RELIABILITY_WORKER_PREFLIGHT,EXPORT_DELIVERY_BROWSER_PREFLIGHT,EXPORT_DELIVERY_SDK_PREFLIGHT,EXPORT_DELIVERY_HOSTING_PREFLIGHT,EXPORT_DELIVERY_DISCOVERY_PREFLIGHT,EXPORT_DELIVERY_SELECTION_PREFLIGHT,EXPORT_DELIVERY_PREFLIGHT,ASSISTANT_BROWSER_PREFLIGHT,ASSISTANT_NATIVE_RATE,ASSISTANT_NATIVE_TAIL,ASSISTANT_NATIVE_PROGRESS,ASSISTANT_NATIVE_PREFLIGHT,ASSISTANT_WORKER_PREFLIGHT,ASSISTANT_PREFLIGHT,SETTLEMENT_BROWSER_PREFLIGHT,SETTLEMENT_NATIVE_PROGRESS,SETTLEMENT_NATIVE_PREFLIGHT,SETTLEMENT_HOSTING_PREFLIGHT,SETTLEMENT_PREFLIGHT,CANVAS_POLICY_NATIVE_PREFLIGHT,CANVAS_POLICY_WORKER_PREFLIGHT,AUTONOMY_BROWSER_PREFLIGHT,AUTONOMY_NATIVE_PREFLIGHT,CANVAS_PREFLIGHT,EXPORT_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,EXAMPLE_PREFLIGHT,EXAMPLE_BROWSER_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].find(p=>p.source===source)||null;
+export const canvasPreflightProfile=source=>[RELIABILITY_BROWSER_PREFLIGHT,RELIABILITY_NATIVE_PREFLIGHT,RELIABILITY_WORKER_PREFLIGHT,EXPORT_DELIVERY_BROWSER_PREFLIGHT,EXPORT_DELIVERY_SDK_PREFLIGHT,EXPORT_DELIVERY_HOSTING_PREFLIGHT,EXPORT_DELIVERY_DISCOVERY_PREFLIGHT,EXPORT_DELIVERY_SELECTION_PREFLIGHT,EXPORT_DELIVERY_PREFLIGHT,ASSISTANT_BROWSER_PREFLIGHT,ASSISTANT_NATIVE_RATE,ASSISTANT_NATIVE_TAIL,ASSISTANT_NATIVE_PROGRESS,ASSISTANT_NATIVE_PREFLIGHT,ASSISTANT_WORKER_PREFLIGHT,ASSISTANT_PREFLIGHT,SETTLEMENT_BROWSER_PREFLIGHT,SETTLEMENT_NATIVE_PROGRESS,SETTLEMENT_NATIVE_PREFLIGHT,SETTLEMENT_HOSTING_PREFLIGHT,SETTLEMENT_PREFLIGHT,CANVAS_POLICY_NATIVE_PREFLIGHT,CANVAS_POLICY_WORKER_PREFLIGHT,AUTONOMY_BROWSER_PREFLIGHT,AUTONOMY_NATIVE_PREFLIGHT,CANVAS_PREFLIGHT,EXPORT_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,EXAMPLE_PREFLIGHT,EXAMPLE_BROWSER_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].find(p=>p.source===source)||null;
 export function assertCanvasPreflightTree(head,read=gitBytes,profile=CANVAS_PREFLIGHT){
+  if(profile===RELIABILITY_BROWSER_PREFLIGHT)return assertReliabilityBrowserTree(head,read);
   if(profile===RELIABILITY_NATIVE_PREFLIGHT)return assertReliabilityNativeTree(head,read);
   if(profile===RELIABILITY_WORKER_PREFLIGHT)return assertReliabilityWorkerTree(head,read);
   if(exportDeliveryCorrectionProfile(profile.source))return assertExportDeliverySelectionTree(head,read,profile);
@@ -2202,6 +2205,7 @@ export function verifyWorkspaceGuardUnion(before,after){
 }
 export function canvasPreflightPrefix(bytes,{sha,base,planHash,environment,nativeBrowsers,commands,selection},read=gitBytes){
   const original=JSON.parse(bytes),profile=canvasPreflightProfile(original.sha)||CANVAS_PREFLIGHT;
+  if(profile===RELIABILITY_BROWSER_PREFLIGHT)return reliabilityBrowserPrefix(bytes,{sha,base,planHash,environment,nativeBrowsers,commands,selection},read);
   if(profile===RELIABILITY_NATIVE_PREFLIGHT)return reliabilityNativePrefix(bytes,{sha,base,planHash,environment,nativeBrowsers,commands,selection},read);
   if(profile===RELIABILITY_WORKER_PREFLIGHT)return reliabilityWorkerPrefix(bytes,{sha,base,planHash,environment,nativeBrowsers,commands,selection},read);
   if(exportDeliveryCorrectionProfile(profile.source))return exportDeliverySelectionPrefix(bytes,{sha,base,planHash,environment,nativeBrowsers,commands,selection},read,profile);
@@ -2309,6 +2313,7 @@ export function verifyExportGuardUnion(before,after){
   assert.equal(new Set(after.map(r=>r.title)).size,after.length);assert(after.every(r=>before.some(old=>old.title===r.title)));
 }
 export function verifyCanvasPreflight(directory,evidence,commands){
+  if(evidence.preflightContinuation?.source===RELIABILITY_BROWSER_PREFLIGHT.source)return verifyReliabilityBrowserContinuation(directory,evidence,commands);
   if(evidence.preflightContinuation?.source===RELIABILITY_NATIVE_PREFLIGHT.source)return verifyReliabilityNativeContinuation(directory,evidence,commands);
   if(evidence.preflightContinuation?.source===RELIABILITY_WORKER_PREFLIGHT.source)return verifyReliabilityWorkerContinuation(directory,evidence,commands);
   if(evidence.preflightContinuation?.source===EXPORT_DELIVERY_PREFLIGHT.source||exportDeliveryCorrectionProfile(evidence.preflightContinuation?.source)){
@@ -3193,4 +3198,124 @@ export function verifyReliabilityNativeContinuation(directory,evidence,commands)
   verifyReliabilityNativeRepair(directory,evidence.sha);verifyReliabilityNativeSelection(directory,evidence.sha);assert.equal(evidence.commands.length,commands.length);
   for(const[i,row]of evidence.commands.entries())if(p.retain.includes(i))assert.deepEqual(row,{...old.commands[i],reusedFrom:p.source});
   else{assert(!row.reusedFrom&&!row.browserContinuation);if(i===17)assert.equal(row.continuation,reliabilityNativeGuard(commands[i].run));else if(i===41)assert.equal(row.continuation,reliabilityNativeContinuation(commands[i].run));else assert(!row.continuation);}
+}
+
+const reliabilityBrowserTools=['scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/lib/local-release-browser.mjs','scripts/test-local-release.mjs'];
+export function assertReliabilityBrowserTree(head,read=gitBytes){
+  const p=RELIABILITY_BROWSER_PREFLIGHT,files=(base,sha)=>read(['diff','--name-only',base,sha]).toString().trim().split('\n').filter(Boolean).sort();
+  assertReliabilityNativeTree(p.source,read);
+  assert.deepEqual(read(['rev-list','--parents','-n','1',p.productSource]).toString().trim().split(/\s+/),[p.productSource,p.source]);
+  assert.deepEqual(files(p.source,p.productSource),Object.keys(p.specs).sort(),'Unreviewed notification correction');
+  assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,p.productSource]);
+  assert.deepEqual(files(p.productSource,head),[...reliabilityBrowserTools,...Object.keys(p.toolSpecs)].sort(),'Unreviewed continuation changes');
+  for(const[file,hash]of Object.entries({...p.specs,...p.toolSpecs}))assert.equal(sha256(read(['show',`${head}:${file}`])),hash,`Changed reviewed notification input ${file}`);
+  const before=read(['show',`${p.source}:scripts/test-local-release.mjs`]).toString(),after=read(['show',`${head}:scripts/test-local-release.mjs`]).toString();
+  const entry="if(process.argv.includes('--reliability-browser-only')) {\n  assert.deepEqual(process.argv.slice(2),['--reliability-browser-only']);\n  await testReliabilityBrowserContinuation();process.exit(0);\n}\n\n",tail='\nasync function testReliabilityBrowserContinuation() {';
+  assert.equal(after.split(entry).length,2);assert.equal(after.split(tail).length,2);assert.equal(after.split(tail)[0].replace(entry,''),before,'Previously passed verifier assertions changed');
+  const nativeBefore=read(['show',`${p.source}:tests/helpers/q2-runtime/canvas-policy-tail.mjs`]).toString(),nativeAfter=read(['show',`${head}:tests/helpers/q2-runtime/canvas-policy-tail.mjs`]).toString();
+  assert(nativeAfter.startsWith(nativeBefore),'Existing native callback wrappers changed');
+  const launcherBefore=read(['show',`${p.source}:scripts/test-q2-runtime-launcher.mjs`]).toString(),launcherAfter=read(['show',`${head}:scripts/test-q2-runtime-launcher.mjs`]).toString();
+  assert(launcherAfter.startsWith(launcherBefore),'Previously passed launcher assertions changed');
+}
+export function reliabilityBrowserPrefix(bytes,current,read=gitBytes){
+  const p=RELIABILITY_BROWSER_PREFLIGHT;assertReliabilityBrowserTree(current.sha,read);assert.equal(sha256(bytes),p.checkpoint);
+  const old=JSON.parse(bytes);assert.equal(old.sha,p.source);assert.equal(old.status,'failed');assert.equal(old.commands.length,50);
+  assert(old.commands.slice(0,49).every(row=>row.exitCode===0));assert.equal(old.commands[49].exitCode,1);assert.equal(old.commands[49].logHash,p.failedLog);
+  assert.deepEqual(old.preflightContinuation,{source:RELIABILITY_NATIVE_PREFLIGHT.source,checkpoint:RELIABILITY_NATIVE_PREFLIGHT.checkpoint});
+  for(const key of ['base','planHash'])assert.equal(old[key],current[key]);
+  const env=({reused,preparationMs,...rest})=>rest;assert.deepEqual(env(old.environment),env(current.environment));assert.equal(old.nativeBrowsers.key,current.nativeBrowsers.key);
+  const flags=({files,reasons,...rest})=>rest;assert.deepEqual(flags(old.selection),flags(current.selection));assert.equal(requiresPrivateMediaImage(current.selection.files),false,'No private-media image was tested in the original scope');
+  assert.deepEqual(current.commands,selectedCommands(old.selection,{GITHUB_SHA:current.sha,CANDIDATE_BASE:current.base}));assert.equal(current.commands.length,52);
+  for(const index of p.retain)assert.deepEqual(old.commands[index].command,current.commands[index]);return old;
+}
+export function verifyReliabilityBrowserOrigin(directory,head,{read=gitBytes}={}){
+  const p=RELIABILITY_BROWSER_PREFLIGHT;assertReliabilityBrowserTree(head,read);
+  const pinned=(file,hash)=>{const bytes=fs.readFileSync(path.join(directory,file));assert.equal(sha256(bytes),hash,`Changed notification origin evidence ${file}`);return bytes;};
+  const original=JSON.parse(pinned('reuse/preflight-checkpoint.json',p.checkpoint));assert.equal(original.sha,p.source);assert.equal(original.status,'failed');assert.equal(original.commands.length,50);
+  const origin=path.join(directory,'reuse/reliability-browser-origin'),commands=selectedCommands(original.selection,{GITHUB_SHA:p.source,CANDIDATE_BASE:original.base});assert.equal(commands.length,52);
+  // The prior run stopped at browser command49. Validate its real completed
+  // prefix and native union, never fabricate the unexecuted Auth/final commands.
+  for(const[i,row]of original.commands.entries()){
+    assert.deepEqual(row.command,commands[i]);assert.equal(row.exitCode,i===49?1:0);assert.equal(sha256(fs.readFileSync(path.join(origin,row.log))),row.logHash);
+  }
+  pinned('reuse/preflight-failed.log',p.failedLog);
+  const prior=verifyReliabilityNativeRepair(origin,p.source,{read});verifyReliabilityNativeSelection(origin,p.source,{read});
+  const originalPrefix=reliabilityNativePrefix(fs.readFileSync(path.join(origin,'reuse/preflight-checkpoint.json')),{...original,commands},read);
+  for(const[i,row]of original.commands.entries())if(i<49){
+    if(RELIABILITY_NATIVE_PREFLIGHT.retain.includes(i))assert.deepEqual(row,{...originalPrefix.commands[i],reusedFrom:originalPrefix.commands[i].reusedFrom||RELIABILITY_NATIVE_PREFLIGHT.source});
+    else{assert(!row.reusedFrom&&!row.browserContinuation);if(i===17)assert.equal(row.continuation,reliabilityNativeGuard(commands[i].run));else if(i===41)assert.equal(row.continuation,reliabilityNativeContinuation(commands[i].run));else assert(!row.continuation);}
+  }
+  const freshOriginal=JSON.parse(pinned('reuse/reliability-browser-origin/test-results/reliability-native-workers.json',p.workerReport));
+  const resolved=new Map(executedWorkers(freshOriginal).map(row=>[row.id,row])),workers=prior.previous.map(row=>resolved.get(row.id)||row);assert.equal(workers.length,1653);assert(workers.every(passedOnce));
+  const native=JSON.parse(pinned('reuse/reliability-browser-origin/'+p.nativeResult,p.nativeHash));
+  assert.deepEqual(native.provenance,JSON.parse(pinned('reuse/reliability-browser-origin/'+p.nativeResult.replace(/result\.json$/,'build-provenance.json'),p.nativeBuild)));
+  assert.equal(native.passed,443);assert.equal(native.failedSuites,0);assert(native.reports.flatMap(row=>row.records).every(row=>row.status==='PASS'));
+  const previous=browserRows(JSON.parse(pinned('reuse/model-browser-original.json',p.report)));assert.equal(previous.length,p.required);assert.equal(sha256(JSON.stringify(previous)),p.rows);
+  const affected=previous.filter(row=>reliabilityBrowserAffectedTitles.includes(row.title));assert.equal(affected.length,52);assert.equal(new Set(affected.map(row=>row.title)).size,26);
+  assert(previous.filter(row=>!passedBrowserCase(row)).every(row=>affected.includes(row)),'Unreviewed additional browser failure');
+  const standard=browserRows(JSON.parse(pinned('reuse/model-browser-standard.json',p.standardDiscovery)),{discovery:true});
+  const auth=standard.filter(row=>row.project==='chromium'&&(/^(auth-admin|wallet-nav|locale|oma2-q1-member)\.spec\.js$/.test(row.file)||row.file.startsWith('oma2-q3-')));
+  assert.equal(sha256(JSON.stringify(auth)),p.authDiscovery);assert.equal(auth.length,p.authRequired);
+  const overlap=previous.filter(row=>auth.some(item=>item.key===row.key));assert.equal(overlap.length,p.authReused);assert(overlap.every(row=>row.file==='locale.spec.js'&&passedBrowserCase(row)));
+  for(const[file,hash]of Object.entries(p.homepageReports))pinned('test-results/'+file,hash);
+  return {original,origin,workers,native,previous,retainedNative:prior.native.reports.filter(row=>['references','q4-memory'].includes(row.suite))};
+}
+export function verifyReliabilityControlNativeUnion(previous,fresh,retainedNative){
+  assert.equal(previous.passed,443);assert.equal(previous.failedSuites,0);assert.equal(previous.reports.length,13);
+  assert.deepEqual(retainedNative.map(row=>[row.suite,row.records.length]),[['references',3],['q4-memory',10]]);assert(retainedNative.flatMap(row=>row.records).every(row=>row.status==='PASS'));
+  const canvas=previous.reports.find(row=>row.suite==='canvas'),reliability=previous.reports.find(row=>row.suite==='canvas-reliability');
+  assert.equal(canvas.records.length,canvasNotificationControlDiscoveryCount);assert.equal(sha256(JSON.stringify(canvas.records.map(row=>row.name))),canvasNotificationControlDiscoveryHash);assert.equal(reliability.records.length,6);
+  assert(previous.reports.flatMap(row=>row.records).every(row=>row.status==='PASS'));assert.equal(fresh.passed,19);assert.equal(fresh.failedSuites,0);assert.deepEqual(fresh.reports.map(row=>row.suite),['canvas','canvas-reliability']);
+  assert.deepEqual(fresh.reports[0].records,canvasNotificationControlInventory.map(name=>({name,status:'PASS'})));assert.deepEqual(fresh.reports[1].records,reliability.records);
+  const metrics=fresh.reports[0].metrics.filter(row=>row.notificationControls);assert.equal(metrics.length,1);
+  assert.deepEqual(metrics[0].notificationControls,{retained:canvas.records.map(row=>row.name).filter(name=>!canvasNotificationControlInventory.includes(name)),discovery:canvas.records.map(row=>row.name),fresh:[...canvasNotificationControlInventory]});
+  return {nativeRetained:437,nativeFresh:19,nativeTotal:456};
+}
+export function verifyReliabilityControlProvenance(previous,fresh,build){
+  assert.deepEqual(fresh,build,'Actual fresh build provenance must match the executed runtime');
+  const source='js/shared/canvas-notification-contract.mjs',hash=RELIABILITY_BROWSER_PREFLIGHT.specs[source];assert.equal(previous.sourceLedger.filter(row=>row.path===source).length,1);
+  assert.deepEqual(fresh.sourceLedger,previous.sourceLedger.map(row=>row.path===source?{...row,sha256:hash}:row),'Only reviewed notification copy may change compiled source inputs');
+  for(const key of ['versions','compatibilityDate','workerdBinarySha256'])assert.deepEqual(fresh[key],previous[key]);assert.match(fresh.bundleSha256,/^[a-f0-9]{64}$/);
+  const migration='0113_canvas_notifications_and_lifecycle.sql';assert.equal(previous.migrations.filter(row=>row.path===migration).length,1);assert.equal(fresh.migrations.filter(row=>row.path===migration).length,1);
+  assert.deepEqual(fresh.migrations,previous.migrations.map(row=>row.path===migration?{...row,sha256:RELIABILITY_BROWSER_PREFLIGHT.specs['workers/auth/migrations/'+migration]}:row));
+}
+export function verifyReliabilityControlRepair(directory,head,{allowPending=false,read=gitBytes}={}){
+  const prior=verifyReliabilityBrowserOrigin(directory,head,{read}),fullFile=path.join(directory,'test-results/reliability-control-discovery.json');
+  if(!fs.existsSync(fullFile)){assert(allowPending,'Missing complete Worker discovery');return prior;}
+  const full=parseDiscovery(fs.readFileSync(fullFile,'utf8'));assert.deepEqual(full.errors,[]);const discovery=workerDiscovery(full),identity=rows=>rows.map(({id,file,title})=>({id,file,title})).sort((a,b)=>a.id.localeCompare(b.id));assert.deepEqual(identity(discovery),identity(prior.workers));
+  if(allowPending)return {...prior,discovery};
+  const selected=parseDiscovery(fs.readFileSync(path.join(directory,'test-results/reliability-control-selected.json'),'utf8'));assert.deepEqual(selected.errors,[]);assert.deepEqual(identity(workerDiscovery(selected)),identity(prior.workers.filter(row=>reliabilityNativeWorkerNames.includes(row.title))));
+  const report=JSON.parse(fs.readFileSync(path.join(directory,'test-results/reliability-control-workers.json')));verifyReliabilityNativeWorkers(prior.workers,discovery,report);
+  const log=fs.readFileSync(path.join(directory,'test-results/reliability-control.log'),'utf8');verifyNativeLocalReports(directory,log);
+  const refs=log.split('\n').flatMap(line=>{try{const row=JSON.parse(line);return row.q2LinuxEvidence?[row.q2LinuxEvidence]:[];}catch{return [];}});assert.equal(refs.length,1);
+  const folder=path.join(directory,'runtime',refs[0].slice('/tmp/bitbi-release/'.length));assert.equal(JSON.parse(fs.readFileSync(path.join(folder,'launcher-result.json'))).hostedImage.GITHUB_SHA,head);
+  const names=fs.readdirSync(path.join(folder,'reports')).filter(name=>name==='result.json'||name.endsWith('__result.json'));assert.equal(names.length,1);
+  const fresh=JSON.parse(fs.readFileSync(path.join(folder,'reports',names[0]))),build=JSON.parse(fs.readFileSync(path.join(folder,'reports',names[0].replace(/result\.json$/,'build-provenance.json'))));
+  verifyReliabilityControlProvenance(prior.native.provenance,fresh.provenance,build);
+  const alias=tapResults(fs.readFileSync(path.join(directory,'test-results/reliability-control-alias.tap'),'utf8'));assert.deepEqual(alias.filter(row=>row.status!=='skipped'),[{title:'Canvas notification controls continuation pins original discovery and refreshes only actual consumers',status:'passed'}]);
+  return {...prior,result:{workerRetained:1637,workerFresh:16,workerTotal:1653,...verifyReliabilityControlNativeUnion(prior.native,fresh,prior.retainedNative)}};
+}
+export function verifyReliabilityControlSelection(directory,head){
+  const prior=verifyReliabilityControlRepair(directory,head,{allowPending:true}),report=parseDiscovery(fs.readFileSync(path.join(directory,'test-results/reliability-control-selected.json'),'utf8'));assert.deepEqual(report.errors,[]);
+  const identity=rows=>rows.map(({id,file,title})=>({id,file,title})).sort((a,b)=>a.id.localeCompare(b.id));assert.deepEqual(identity(workerDiscovery(report)),identity(prior.workers.filter(row=>reliabilityNativeWorkerNames.includes(row.title))));
+}
+export function verifyReliabilityBrowserReports(directory,head,{allowPending=false}={}){
+  const prior=verifyReliabilityBrowserOrigin(directory,head);if(allowPending)return {...prior,result:null};
+  const result={};for(const scope of ['homepage','auth']){
+    const prefix=scope==='auth'?'model-browser-auth':'model-browser',raw=JSON.parse(fs.readFileSync(path.join(directory,`test-results/${prefix}-fresh.json`)));assert.deepEqual(raw.errors,[]);assert.equal(raw.config.workers,1);assert(raw.config.projects.every(row=>row.retries===0));
+    const discovery=browserRows(JSON.parse(fs.readFileSync(path.join(directory,`test-results/${prefix}-discovery.json`))),{discovery:true}),report=JSON.parse(fs.readFileSync(path.join(directory,`test-results/candidate-${scope}.json`)));
+    assert.equal(report.scope,scope);assert.deepEqual(report.previous,prior.previous);assert.deepEqual(report.discovery,discovery);assert.deepEqual(report.fresh,browserRows(raw));result[scope]=verifyModelBrowserReport(report,head);
+  }return {...prior,result};
+}
+export const reliabilityBrowserContinuation=(command,scope='homepage')=>modelBrowserContinuation(command,scope).replace('model-browser-continuation','reliability-browser-continuation');
+export function reliabilityBrowserGuard(command){assert.equal(command,'npm run test:local-release');return command+' -- --reliability-browser-only';}
+export function reliabilityControlContinuation(command){
+  return reliabilityNativeContinuation(command).replaceAll('reliability-native','reliability-control').replace('--suite canvas-notification-migration','--suite canvas-notification-controls');
+}
+export function verifyReliabilityBrowserContinuation(directory,evidence,commands){
+  const p=RELIABILITY_BROWSER_PREFLIGHT;assert.deepEqual(evidence.preflightContinuation,{source:p.source,checkpoint:p.checkpoint});
+  const old=reliabilityBrowserPrefix(fs.readFileSync(path.join(directory,'reuse/preflight-checkpoint.json')),{...evidence,commands});verifyReliabilityControlRepair(directory,evidence.sha);verifyReliabilityBrowserReports(directory,evidence.sha);assert.equal(evidence.commands.length,commands.length);
+  for(const[i,row]of evidence.commands.entries())if(p.retain.includes(i))assert.deepEqual(row,{...old.commands[i],reusedFrom:old.commands[i].reusedFrom||p.source});
+  else{assert(!row.reusedFrom);if([49,50].includes(i)){assert.equal(row.browserContinuation,MODEL_BROWSER_POLICY);assert.equal(row.continuation,reliabilityBrowserContinuation(commands[i].run,i===50?'auth':'homepage'));}
+    else{assert(!row.browserContinuation);if(i===17)assert.equal(row.continuation,reliabilityBrowserGuard(commands[i].run));else if(i===41)assert.equal(row.continuation,reliabilityControlContinuation(commands[i].run));else assert(!row.continuation);}}
 }

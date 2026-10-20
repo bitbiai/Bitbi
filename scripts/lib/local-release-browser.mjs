@@ -326,6 +326,52 @@ export function assertReadinessTree(head,read=args=>execFileSync('git',args,{max
   const entry="if(process.argv.includes('--readiness-only')) {\n  assert.deepEqual(process.argv.slice(2),['--readiness-only']);\n  await testReadinessContinuation();process.exit(0);\n}\n\n",tail='\nasync function testReadinessContinuation() {';
   assert.equal(after.split(tail).length,2);assert.equal(after.split(tail)[0].replace(entry,''),before,'Existing release assertions changed');assert(after.endsWith('\nawait testReadinessContinuation();\n'));
 }
+// Closed continuation of the notification/control repair. Original failed
+// reports remain immutable; affected passes are explicitly refreshed as well.
+export const RELIABILITY_BROWSER_PREFLIGHT=Object.freeze({
+  source:'dbf724caf071547f5ed36b76f2bf84e2f3419a08',productSource:'93c1c96943678ae4947e9fbb28f1fc85ef522cac',
+  run:'dbf724caf071547f5ed36b76f2bf84e2f3419a08-9e2f166c-963c-4090-9fc2-145e67881e6d',
+  checkpoint:'5919f6e433c78e8f90efcd452a85eb15a996a191b7f113d9feaea5c1f84e8363',failedLog:'509141f9d165b94ea62983c748d78ab03f41b8237ba8818a96755c7eff24e5b4',report:'f0e6880075eb6c241190aa5751dc4f63d2606f717b59a3e20b17b9c881e3b817',rows:'3371237bcd70008115c5dc5b3783b0a55c4049c49ba32db98c366f8c6ceeda7c',discovery:'6e3f325f5a748defbd0c7009dff70de8605d654fd2f3d89726c2717c08946147',required:650,
+  standardDiscovery:'7863755cd94b2512656b0a7059815a52bc9aaaf20ee94815c2282914ac255f57',standardFile:'homepage-discovery-r15YHs/standard.json',
+  authDiscovery:MODEL_BROWSER_PREFLIGHT.authDiscovery,authRequired:709,authReused:25,
+  homepageReports:Object.freeze({'homepage-functional.json':'04a059d811ea267259674f5e0aa26fe2e395f3a5c7a646355d20178cb8316db3','homepage-discovery.json':'e9bdd82295bf972d08979a8a74deb12f8fca8fa79d8b77acccefcc0b8dc491a1'}),
+  nativeResult:'runtime/q2-runtime-evidence/native-kq8hOA/reports/bitbi-q2-runtime-HkM5Br__result.json',nativeHash:'b99b4d874e773f76c8700b7910cca3d243f35605696a64fc1f66a54ce3c8ed41',
+  nativeBuild:'29f1480fb64b9ed79edf29c5ff5df50c6d6e47a65f463ddad83c88ed038a3dd7',
+  workerReport:'ec294581177880248816fb9f7d4a6e7fb03fd57ca99539f5410af182f03171f2',
+  specs:Object.freeze({
+  "workers/auth/migrations/0113_canvas_notifications_and_lifecycle.sql": "adb162a47473c1cfd84204653ab4a210cc768f9bc4f382a2f967e90527756772",
+  "js/shared/canvas-notification-contract.mjs": "f01a16f079b5160306cdc6790cc71d326da6c5a49f87a727d93ddde7b400ecd4",
+  "tests/helpers/canvas-notifications-control.mjs": "62286d11369a8fd8d624164c1dead3de71ea29beba8580309c3c79d55734893f",
+  "tests/helpers/canvas-agent-ui.cjs": "f7f498bbdad7e71adb757f69ce6f2bcc9b89a27023f90201ebbad0f63d6176ee",
+  "tests/helpers/canvas-agent-autonomy-ui.cjs": "5d1b8553dd9373b4067e00a6c2b7391f8dc57f46e109c34d8ce765147c523bc9",
+  "tests/helpers/canvas-notifications-ui.cjs": "cf7e10ef49d9f6df0fa1132c97bdc3d2ebda9e88ea16a4965e383f4eb46a3fe4",
+  "tests/helpers/canvas-music-preview.cjs": "8842a6b66175fcb9e01120b21078e3534916bd0bb734a9818a8a661f8bd0246d",
+  "tests/oma2-q1-canvas.spec.js": "19977de40c0bd123da9c9a8e100b94bc155eb832ae11d061367fabc7287f379e",
+  "tests/canvas.spec.js": "9c99f570d92224780182880374b19786281a434955a1d009f2ab3ffe5a66ad80",
+  "docs/runbooks/REGRESSION_REGISTER.md": "a28d04b94091c809a5ff41f0f42266b1356454541913a2913438f8f23d87b392"
+}),toolSpecs:Object.freeze({
+  "tests/helpers/q2-runtime/canvas-policy-tail.mjs": "ff38be2d6598e24ace088ebe963354e2829c47d835b47a6d4c8b1ae66fa68348",
+  "tests/helpers/q2-runtime/runner.mjs": "8da45a441a3cf2e40bbd1b50a871f83f8da300b22c344b3b1c0462a132bc6089",
+  "tests/helpers/q2-runtime/linux-hosted.mjs": "e30da64752edaf7c541ff5ac1b1bc295fe16d885f9c97b762cb0f9811b5a96c3",
+  "tests/helpers/q2-runtime/linux-runtime-child.mjs": "7f9ae7d3c4577f46e26e6ce3f4b9cbd6e7368ceb1844d607a3c57f94f4e879c2",
+  "tests/helpers/q2-runtime/linux-bootstrap.py": "ae2248df6f98abb6d091908d85c44ad69205efdf0f190ec4d686b441e066f79b",
+  "scripts/test-q2-runtime-launcher.mjs": "f2d7fde3c3409c6f65da4fd21e14bad002179ca6a7b3a915a04c332a39bb6fef"
+}),
+  retain:Object.freeze([1,4,5,6,8,9,10,11,13,14,15,18,19,20,21,22,23,24,25,26,28,30,31,32,33,38,39,42,43,45,46]),
+});
+export const reliabilityBrowserAffectedTitles=Object.freeze(['en','de'].flatMap(locale=>[
+  ...['admission','duration','recovery','conversation'].map(name=>`Canvas agent ${locale}: ${name}`),
+  ...['proposal','budget_edits'].map(name=>`Canvas autonomy ${locale}: persisted ${name}`),
+  `Canvas notifications ${locale}: displayed acknowledgements and account lifecycle`,
+  `Canvas full video ordered clips ${locale}: existing reference-only Seedance, failure, keyboard and reload`,
+  ...['',' during metadata arrival'].map(suffix=>`Canvas full video music ${locale}: explicit versions, persisted gain and saved preview${suffix}`),
+  `Canvas music audition ${locale}: decoded gain, timeline, selection and no render`,
+  `P13 ${locale}: rapid same/different nodes, content/config/title/move survive reload`,
+  `P13 ${locale}: mobile panels and resize retain the same inflight editor without extra writes`,
+]));
+export function modelBrowserRetained(previous,profile){
+  return new Map(previous.filter(row=>passedBrowserCase(row)&&!(profile===RELIABILITY_BROWSER_PREFLIGHT&&reliabilityBrowserAffectedTitles.includes(row.title))).map(row=>[row.key,row]));
+}
 export function verifyModelBrowserReport(report,sha) {
   if(report.retainedSource){
     const p=report.retainedSource===READINESS_CONTINUATION.source?READINESS_CONTINUATION:STORED_PLAN_CONTINUATION;
@@ -333,23 +379,23 @@ export function verifyModelBrowserReport(report,sha) {
     const {retainedSource,...original}=report;original.sha=retainedSource;
     assert.equal(sha256(JSON.stringify(original)),p.reports[report.scope],'Retained complete browser evidence changed');
   }
-  const p=report.source===ASSISTANT_BROWSER_PREFLIGHT.source?ASSISTANT_BROWSER_PREFLIGHT:report.source===SETTLEMENT_BROWSER_PREFLIGHT.source?SETTLEMENT_BROWSER_PREFLIGHT:MODEL_BROWSER_PREFLIGHT;
+  const p=report.source===RELIABILITY_BROWSER_PREFLIGHT.source?RELIABILITY_BROWSER_PREFLIGHT:report.source===ASSISTANT_BROWSER_PREFLIGHT.source?ASSISTANT_BROWSER_PREFLIGHT:report.source===SETTLEMENT_BROWSER_PREFLIGHT.source?SETTLEMENT_BROWSER_PREFLIGHT:MODEL_BROWSER_PREFLIGHT;
   assert.equal(report.policy,MODEL_BROWSER_POLICY);assert.equal(report.sha,sha);assert.equal(report.source,p.source);assert(['homepage','auth'].includes(report.scope));
   const auth=report.scope==='auth';
   assert.equal(sha256(JSON.stringify(report.previous)),p.rows,'Original failed browser results changed');
   assert.equal(sha256(JSON.stringify(report.discovery)),auth?p.authDiscovery:p.discovery,'Required browser discovery changed');
   assert.equal(report.previous.length,p.required);assert.equal(report.discovery.length,auth?p.authRequired:p.required);
-  const retained=new Map(report.previous.filter(passedBrowserCase).map(row=>[row.key,row]));
+  const retained=modelBrowserRetained(report.previous,p);
   const counts=verifyBrowserUnion(report.discovery,retained,report.fresh);
   if(auth)assert.equal(counts.reused,p.authReused,'Auth must retain exactly the already passed locale cases');
   assert.deepEqual(report.counts,counts);return counts;
 }
 export async function runModelBrowserContinuation(scope='homepage',env=process.env,profile=MODEL_BROWSER_PREFLIGHT) {
   const {verifyModelBrowserRepair}=await import('./local-release-evidence.mjs');
-  assert([MODEL_BROWSER_PREFLIGHT,SETTLEMENT_BROWSER_PREFLIGHT,ASSISTANT_BROWSER_PREFLIGHT].includes(profile),'Unknown closed browser profile');
+  assert([MODEL_BROWSER_PREFLIGHT,SETTLEMENT_BROWSER_PREFLIGHT,ASSISTANT_BROWSER_PREFLIGHT,RELIABILITY_BROWSER_PREFLIGHT].includes(profile),'Unknown closed browser profile');
   assert(['homepage','auth'].includes(scope));assert.equal(env.GITHUB_JOB,'browser-validation');assert.equal(env.CI,'1');
   const {previous}=verifyModelBrowserRepair('.local-release',env.GITHUB_SHA,{allowPending:true,profile});
-  const retained=new Map(previous.filter(passedBrowserCase).map(row=>[row.key,row]));
+  const retained=modelBrowserRetained(previous,profile);
   const prefix=scope==='auth'?'model-browser-auth':'model-browser';
   const run=(name,args,discovery=false)=>{
     const file=path.resolve(`test-results/${prefix}-${name}.json`);fs.rmSync(file,{force:true});

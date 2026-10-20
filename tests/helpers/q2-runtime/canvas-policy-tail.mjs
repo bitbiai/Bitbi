@@ -226,3 +226,31 @@ export async function runCanvasAssistantRateTailTests(f){
   assert.equal(fresh.length,100,'Every remaining assistant rate Canvas callback must execute');
   f.metrics.push({assistantRateTail:{retained:discovery.slice(0,canvasAssistantRateTailRetainedCount),discovery,currentfullcount:canvasAssistantRateTailCount,fresh}});
 }
+
+// Closed continuation of dbf724ca's native acceptance. These actual callers
+// read the changed notification view; other Canvas callbacks retain their
+// original evidence. The normal suite still executes its complete inventory.
+export const canvasNotificationControlInventory=Object.freeze([
+  ...['bootstrap','duration','explicit','button','isolation','allowance'].map(name=>'canvas_conversation_decision_'+name),
+  ...['immediate','delegation','stale-project','stale-brief','stale-price','consent-isolation','concurrent-approval'].map(name=>'canvas_natural_chat_native_'+name),
+]);
+export const canvasNotificationControlDiscoveryCount=267;
+export const canvasNotificationControlDiscoveryHash='9f41365aff215f22be923d5564703618ac5b828607df719071f55345e479d83f';
+export async function runCanvasNotificationControlTests(f){
+  const {createHash}=await import('node:crypto');
+  const discovery=[],fresh=[],scoped=Object.create(f);
+  scoped.test=async(name,operation)=>{
+    assert(!discovery.includes(name),'Duplicate notification control callback');discovery.push(name);
+    if(canvasNotificationControlInventory.includes(name)){fresh.push(name);await f.test(name,operation);}
+  };
+  // All original migrations, authentication and fixture setup outside test
+  // callbacks initialize fresh D1. No database snapshot or substitute test body.
+  await runCanvasTests(scoped);
+  assert.deepEqual(fresh,canvasNotificationControlInventory,'Missing or reordered notification control callbacks');
+  assert.equal(discovery.length,canvasNotificationControlDiscoveryCount,'Complete Canvas notification discovery changed');
+  assert.equal(createHash('sha256').update(JSON.stringify(discovery)).digest('hex'),canvasNotificationControlDiscoveryHash,'Canvas notification membership/order changed');
+  const retained=discovery.filter(name=>!canvasNotificationControlInventory.includes(name));
+  assert.equal(retained.length,254,'Retained Canvas notification inventory changed');
+  assert.equal(createHash('sha256').update(JSON.stringify(retained)).digest('hex'),'f9d9ab5a7277ae27bc7aaad3d66bd38306f27830efafff7cd4ffc7a77cf3c4d0','Retained Canvas notification membership/order changed');
+  f.metrics.push({notificationControls:{retained,discovery,fresh}});
+}

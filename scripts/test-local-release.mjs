@@ -21,6 +21,11 @@ import { LOCAL_IMPORT_REPAIR, assertImportRepairWorkflow, localRepairCommand, ve
 import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,assertPermissionContinuationTree,permissionContinuationPrefix,CANVAS_STAGE_CASES,canvasStageContinuation} from './lib/local-release-evidence.mjs';
 import {testLocalMediaProcess} from './test-local-media-process.mjs';
 
+if(process.argv.includes('--reliability-browser-only')) {
+  assert.deepEqual(process.argv.slice(2),['--reliability-browser-only']);
+  await testReliabilityBrowserContinuation();process.exit(0);
+}
+
 if(process.argv.includes('--reliability-native-only')) {
   assert.deepEqual(process.argv.slice(2),['--reliability-native-only']);
   await testReliabilityNativeContinuation();process.exit(0);
@@ -3772,3 +3777,67 @@ async function testReliabilityNativeContinuation() {
   console.log('Native notification continuation: authentic 1653 Worker union with16 affected view callers fresh; FFmpeg/33launcher and13 independent native passes retained;13 migration-dependent suites require fresh setup and completion. Forged/missing/retried evidence and source/selection changes reject.');
 }
 await testReliabilityNativeContinuation();
+
+async function testReliabilityBrowserContinuation() {
+  const {RELIABILITY_BROWSER_PREFLIGHT:p,modelBrowserRetained,MODEL_BROWSER_POLICY,verifyModelBrowserReport,reliabilityBrowserAffectedTitles}=await import('./lib/local-release-browser.mjs');
+  const {canvasPreflightProfile,assertReliabilityBrowserTree,reliabilityBrowserPrefix,verifyReliabilityBrowserOrigin,verifyReliabilityControlNativeUnion,verifyReliabilityControlProvenance,reliabilityBrowserGuard,reliabilityBrowserContinuation,reliabilityControlContinuation,verifyReliabilityNativeWorkers}=await import('./lib/local-release-evidence.mjs');
+  const {canvasNotificationControlInventory}=await import('../tests/helpers/q2-runtime/canvas-policy-tail.mjs');
+  assert.equal(canvasPreflightProfile(p.source),p);assert.equal(reliabilityBrowserAffectedTitles.length,26);
+  assert.equal(new Set(reliabilityBrowserAffectedTitles).size,26);assert.equal(reliabilityBrowserGuard('npm run test:local-release'),'npm run test:local-release -- --reliability-browser-only');
+  assert.throws(()=>reliabilityBrowserGuard('echo skipped'));
+  if(!process.argv.includes('--reliability-browser-only'))return;
+  const head=execFileSync('git',['rev-parse','HEAD']).toString().trim(),read=args=>execFileSync('git',args,{maxBuffer:64*1024*1024});
+  assertReliabilityBrowserTree(head,read);
+  for(const file of ['js/pages/canvas/main.js','workers/auth/src/routes/canvas.js','services/homepage-ffmpeg-processor/processor.mjs','tests/helpers/q2-runtime/canvas.mjs']){
+    assert.throws(()=>assertReliabilityBrowserTree(head,args=>args[0]==='diff'&&args[2]===head?Buffer.concat([read(args),Buffer.from(file+'\n')]):read(args)),/Unreviewed continuation/);
+  }
+  for(const file of Object.keys({...p.specs,...p.toolSpecs}))assert.throws(()=>assertReliabilityBrowserTree(head,args=>args[0]==='show'&&args[1]===`${head}:${file}`?Buffer.from('changed'):read(args)),/Changed reviewed/);
+  assert.throws(()=>assertReliabilityBrowserTree(head,args=>args[0]==='rev-list'&&args.at(-1)===head?Buffer.from(`${head} ${p.source}`):read(args)));
+  const directory='.local-release',originalBytes=fs.readFileSync(path.join(directory,'reuse/preflight-checkpoint.json'));
+  const origin=verifyReliabilityBrowserOrigin(directory,head),old=origin.original,commands=selectedCommands(old.selection,{GITHUB_SHA:head,CANDIDATE_BASE:old.base});
+  const context={...old,sha:head,commands};assert.deepEqual(reliabilityBrowserPrefix(originalBytes,context),old);
+  for(const change of [c=>c.base='f'.repeat(40),c=>c.commands.pop(),c=>c.environment.key='foreign',c=>c.nativeBrowsers.key='foreign',c=>c.selection.full=true,c=>c.selection.files.push('workers/media/src/index.js')]){
+    const changed=structuredClone(context);change(changed);assert.throws(()=>reliabilityBrowserPrefix(originalBytes,changed));
+  }
+  const modified=structuredClone(old);modified.commands[41].exitCode=1;assert.throws(()=>reliabilityBrowserPrefix(Buffer.from(JSON.stringify(modified)),context));
+  assert.throws(()=>reliabilityControlContinuation('npm run test:workers'));
+  const workerCommand=reliabilityControlContinuation(commands[41].run);assert(workerCommand.includes('--suite canvas-notification-controls'));assert(workerCommand.includes('--workers=1 --retries=0'));assert(!workerCommand.includes('npm run test:workers'));
+  assert.equal(reliabilityBrowserContinuation(commands[49].run),'node scripts/local-release.mjs reliability-browser-continuation');assert(reliabilityBrowserContinuation(commands[50].run,'auth').includes('reliability-browser-continuation auth'));
+  assert.throws(()=>reliabilityBrowserContinuation(commands[49].run+'\necho bypass'));
+  const raw=JSON.parse(fs.readFileSync(path.join(directory,'reuse/model-browser-original.json'))),discovery=browserRows(raw,{discovery:true}),previous=origin.previous;
+  assert.equal(sha256(JSON.stringify(discovery)),p.discovery);
+  const retained=modelBrowserRetained(previous,p),fresh=previous.filter(row=>!retained.has(row.key)).map(row=>({...row,status:'expected',results:[{status:'passed',retry:0}]}));
+  assert.equal(fresh.length,52);assert(fresh.every(row=>reliabilityBrowserAffectedTitles.includes(row.title)));
+  const report={policy:MODEL_BROWSER_POLICY,sha:head,source:p.source,scope:'homepage',previous,discovery,fresh,counts:verifyBrowserUnion(discovery,retained,fresh)};
+  assert.deepEqual(verifyModelBrowserReport(report,head),{required:650,reused:598,executed:52});
+  for(const change of [r=>r.fresh.pop(),r=>r.fresh.push(r.fresh[0]),r=>r.fresh[0].results[0].retry=1,r=>r.fresh[0].results[0].status='skipped',r=>r.previous[0].title+=' forged',r=>r.discovery.pop(),r=>r.counts.executed=0]){
+    const changed=structuredClone(report);change(changed);assert.throws(()=>verifyModelBrowserReport(changed,head));
+  }
+  const canvas=origin.native.reports.find(row=>row.suite==='canvas'),reliability=origin.native.reports.find(row=>row.suite==='canvas-reliability');
+  const native={passed:19,failedSuites:0,reports:[{suite:'canvas',records:canvasNotificationControlInventory.map(name=>({name,status:'PASS'})),metrics:[{notificationControls:{retained:canvas.records.map(row=>row.name).filter(name=>!canvasNotificationControlInventory.includes(name)),discovery:canvas.records.map(row=>row.name),fresh:[...canvasNotificationControlInventory]}}]},structuredClone(reliability)]};
+  assert.deepEqual(verifyReliabilityControlNativeUnion(origin.native,native,origin.retainedNative),{nativeRetained:437,nativeFresh:19,nativeTotal:456});
+  for(const change of [n=>n.reports[0].records.pop(),n=>n.reports[1].records[0].status='FAIL',n=>n.reports[0].metrics[0].notificationControls.discovery.pop(),n=>n.reports[0].metrics[0].notificationControls.retained.pop(),n=>n.reports.reverse(),n=>n.failedSuites=1]){
+    const changed=structuredClone(native);change(changed);assert.throws(()=>verifyReliabilityControlNativeUnion(origin.native,changed,origin.retainedNative));
+  }
+  const before=origin.native.provenance,provenance=structuredClone(before),source='js/shared/canvas-notification-contract.mjs',migration='0113_canvas_notifications_and_lifecycle.sql';
+  provenance.sourceLedger.find(row=>row.path===source).sha256=p.specs[source];provenance.migrations.find(row=>row.path===migration).sha256=p.specs['workers/auth/migrations/'+migration];
+  verifyReliabilityControlProvenance(before,provenance,structuredClone(provenance));
+  for(const change of [v=>v.sourceLedger.find(row=>row.path!==source).sha256='f'.repeat(64),v=>v.migrations.find(row=>row.path!==migration).sha256='f'.repeat(64),v=>v.versions.node='foreign',v=>v.workerdBinarySha256='f'.repeat(64),v=>v.sourceLedger.find(row=>row.path===source).sha256='f'.repeat(64)]){
+    const changed=structuredClone(provenance);change(changed);assert.throws(()=>verifyReliabilityControlProvenance(before,changed,changed));
+  }
+  assert.throws(()=>verifyReliabilityControlProvenance(before,provenance,before));
+  const missingOld=structuredClone(before),missingFresh=structuredClone(provenance);missingOld.migrations=missingOld.migrations.filter(row=>row.path!==migration);missingFresh.migrations=missingFresh.migrations.filter(row=>row.path!==migration);
+  assert.throws(()=>verifyReliabilityControlProvenance(missingOld,missingFresh,missingFresh));
+  const worker=JSON.parse(fs.readFileSync(path.join(origin.origin,'test-results/reliability-native-workers.json')));
+  assert.deepEqual(verifyReliabilityNativeWorkers(origin.workers,origin.workers,worker),{workerRetained:1637,workerFresh:16,workerTotal:1653});
+  const brokenWorker=structuredClone(worker);brokenWorker.stats.expected=15;assert.throws(()=>verifyReliabilityNativeWorkers(origin.workers,origin.workers,brokenWorker));
+  // A missing/changed actual original receipt must fail closed, never silently
+  // replace evidence with a synthetic successful report or another source.
+  const file=path.join(origin.origin,'logs/41.log'),bytes=fs.readFileSync(file);
+  try{fs.writeFileSync(file,Buffer.concat([bytes,Buffer.from('\nchanged')]));assert.throws(()=>verifyReliabilityBrowserOrigin(directory,head));}finally{fs.writeFileSync(file,bytes);}
+  const guard=spawnSync(process.execPath,['--test','--test-name-pattern=^Canvas notification controls continuation pins original discovery and refreshes only actual consumers$','scripts/test-q2-runtime-launcher.mjs'],{encoding:'utf8',maxBuffer:4*1024*1024});
+  fs.mkdirSync(path.join(directory,'test-results'),{recursive:true});fs.writeFileSync(path.join(directory,'test-results/reliability-control-alias.tap'),guard.stdout);assert.equal(guard.status,0,guard.stdout+'\n'+guard.stderr);
+  assert.deepEqual(tapResults(guard.stdout).filter(row=>row.status!=='skipped'),[{title:'Canvas notification controls continuation pins original discovery and refreshes only actual consumers',status:'passed'}]);
+  console.log('Notification continuation: original browser/Worker/native receipts, exact affected selections, strict source guards and broken/resume controls passed.');
+}
+await testReliabilityBrowserContinuation();
