@@ -3,6 +3,7 @@ const {SqliteD1Database,applyAuthMigrations}=require('./sqlite-d1.js');
 const {createAuthTestEnv}=require('./auth-worker-harness.js');
 const withinGain=(a,min,max)=>a.input>.05&&a.original/a.input>min&&a.original/a.input<max;
 const withinFade=a=>a.time>=24&&a.time<24.6&&a.input>.05&&a.original>0&&a.original/a.input<.3;
+const musicWithMutedOriginal=a=>a.input>.05&&a.original<.005&&a.music>.035;
 const queueRendering=(previous,delivered,processor)=>previous.then(()=>delivered).then(processor);
 exports.audioUi=async({page,expect,locale,browserName,mockSharedAuth,createCanvasApiMock,info})=>{
   // The paired-window oracle accepts intended gain, but rejects the stale unity
@@ -11,6 +12,8 @@ exports.audioUi=async({page,expect,locale,browserName,mockSharedAuth,createCanva
   for(const a of [{input:.1,original:.1},{input:0,original:0},{input:.1,original:.02},{input:.1,original:.04}])expect(withinGain(a,.24,.36)).toBe(false);
   expect(withinFade({time:24.3,input:.1,original:.015})).toBe(true);
   for(const a of [{time:24.3,input:0,original:0},{time:24.3,input:.1,original:0},{time:24.3,input:.1,original:.06},{time:24.3,input:.1,original:.1},{time:23.9,input:.1,original:.015},{time:24.6,input:.1,original:.015}])expect(withinFade(a)).toBe(false);
+  expect(musicWithMutedOriginal({input:.1,original:.001,music:.06})).toBe(true);
+  for(const a of [{input:0,original:0,music:0},{input:0,original:0,music:.06},{input:.1,original:0,music:0},{input:.1,original:0,music:.033418737752423246},{input:.1,original:.02,music:.06}])expect(musicWithMutedOriginal(a)).toBe(false);
   // The same queue used below must remain pending until both the HTTP delivery
   // and processor finish; exposing an already-resolved promise races Refresh.
   let deliver,finish,started,processStarted=false,completed=false;
@@ -71,12 +74,15 @@ exports.audioUi=async({page,expect,locale,browserName,mockSharedAuth,createCanva
   const originalOn=()=>sound.getByRole('checkbox',{name:de?'Originalton aktiv':'Original audio enabled',exact:true});
   const musicOn=()=>sound.getByRole('checkbox',{name:de?'Musik als Hintergrund hinzufügen':'Add music as background',exact:true});
   const nodeVideo=()=>inspector.locator('.canvas-output > video');
-  const signal=()=>page.evaluate(()=>{
+  const signalSamples=[];
+  const signal=async()=>{const sample=await page.evaluate(()=>{
     const source=window.canvasAudioMeters.filter(x=>x.input&&x.context.state==='running').at(-1),dest=window.canvasAudioMeters.find(x=>x.context===source?.context&&x.output);
     if(!source||!dest)return {input:0,original:0,music:0};
-    const amp=(meter,hz)=>{const pcm=new Float32Array(meter.fftSize);meter.getFloatTimeDomainData(pcm);let r=0,im=0,w=0;for(let i=0;i<pcm.length;i++){const a=.5-.5*Math.cos(2*Math.PI*i/(pcm.length-1));r+=pcm[i]*a*Math.cos(2*Math.PI*hz*i/source.context.sampleRate);im+=pcm[i]*a*Math.sin(2*Math.PI*hz*i/source.context.sampleRate);w+=a;}return 2*Math.hypot(r,im)/w;};
-    return {input:amp(source.input,1000),original:amp(dest.output,1000),music:amp(dest.output,440),time:source.video.currentTime};
-  });
+    const read=meter=>{const pcm=new Float32Array(meter.fftSize);meter.getFloatTimeDomainData(pcm);return pcm;};
+    const input=read(source.input),output=read(dest.output);
+    const amp=(pcm,hz)=>{let r=0,im=0,w=0;for(let i=0;i<pcm.length;i++){const a=.5-.5*Math.cos(2*Math.PI*i/(pcm.length-1));r+=pcm[i]*a*Math.cos(2*Math.PI*hz*i/source.context.sampleRate);im+=pcm[i]*a*Math.sin(2*Math.PI*hz*i/source.context.sampleRate);w+=a;}return 2*Math.hypot(r,im)/w;};
+    return {input:amp(input,1000),original:amp(output,1000),music:amp(output,440),time:source.video.currentTime};
+  });signalSamples.push(sample);if(signalSamples.length>16)signalSamples.shift();return sample;};
   try {
     await page.goto(de?'/de/canvas/':'/canvas/');await open(f.first.id);
     await expect(inspector.locator('.canvas-asset-type')).toHaveText(de?'Video':'Video');
@@ -168,8 +174,22 @@ exports.audioUi=async({page,expect,locale,browserName,mockSharedAuth,createCanva
       await expect.poll(async()=>(await signal()).input).toBeGreaterThan(.05);
       await nodeVideo().evaluate(v=>{v.currentTime=3.5;});
       await expect.poll(async()=>(await signal()).music).toBeGreaterThan(.035);
-      await originalOn().uncheck();await expect.poll(async()=>(await signal()).original).toBeLessThan(.005);
-      expect((await signal()).music).toBeGreaterThan(.035);await nodeVideo().evaluate(v=>v.pause());await originalOn().check();
+      await originalOn().uncheck();
+      // Both controls must hold in one usable decoded window after the async
+      // worklet update. A silent input or a later unrelated sample proves neither.
+      await expect.poll(async()=>musicWithMutedOriginal(await signal())).toBe(true);
+      // Calibrate the same live meter through the real control: muting music
+      // must invalidate the positive oracle even though original audio is muted.
+      await musicOn().uncheck();await nodeVideo().scrollIntoViewIfNeeded();
+      await nodeVideo().evaluate(v=>{v.currentTime=3.5;});
+      let mutedSample;
+      await expect.poll(async()=>{mutedSample=await signal();return mutedSample.input>.05&&mutedSample.original<.005&&mutedSample.music<.005;}).toBe(true);
+      expect(musicWithMutedOriginal(mutedSample)).toBe(false);
+      await musicOn().check();await nodeVideo().scrollIntoViewIfNeeded();
+      await nodeVideo().evaluate(v=>{v.currentTime=3.5;});
+      await expect.poll(async()=>musicWithMutedOriginal(await signal())).toBe(true);
+      await nodeVideo().evaluate(v=>v.pause());await originalOn().check();
+      expect(exports).toHaveLength(2);
     }
     await open(f.first.id);
     await inspector.locator('input[type=file]').setInputFiles(path.join(__dirname,'../fixtures/media/h3-frame.png'));
@@ -182,5 +202,5 @@ exports.audioUi=async({page,expect,locale,browserName,mockSharedAuth,createCanva
     expect(f.calls).toHaveLength(0);expect(errors).toEqual([]);
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
     await page.screenshot({path:info.outputPath(`canvas-audio-${locale}.png`)});
-  } catch(error) {console.log(JSON.stringify(await page.evaluate(()=>({videos:[...document.querySelectorAll('video')].map(v=>({src:v.getAttribute('src'),time:v.currentTime,paused:v.paused,ready:v.readyState,error:v.error?.code,tracks:v.audioTracks?.length,decoded:v.webkitAudioDecodedByteCount})),contexts:window.canvasAudioMeters.map(m=>({state:m.context.state,input:!!m.input,output:!!m.output})),status:[...document.querySelectorAll('.canvas-sound [role=status]')].map(e=>e.textContent)}))));console.log(JSON.stringify({errors,consoleErrors}));throw error;} finally {await rendering;await page.unrouteAll({behavior:'wait'});DB.close();fs.rmSync(fixtureDir,{recursive:true,force:true});}
+  } catch(error) {console.log(JSON.stringify(await page.evaluate(()=>({videos:[...document.querySelectorAll('video')].map(v=>({src:v.getAttribute('src'),time:v.currentTime,paused:v.paused,ready:v.readyState,error:v.error?.code,tracks:v.audioTracks?.length,decoded:v.webkitAudioDecodedByteCount})),contexts:window.canvasAudioMeters.map(m=>({state:m.context.state,input:!!m.input,output:!!m.output})),status:[...document.querySelectorAll('.canvas-sound [role=status]')].map(e=>e.textContent)}))));console.log(JSON.stringify({errors,consoleErrors,signalSamples}));throw error;} finally {await rendering;await page.unrouteAll({behavior:'wait'});DB.close();fs.rmSync(fixtureDir,{recursive:true,force:true});}
 };

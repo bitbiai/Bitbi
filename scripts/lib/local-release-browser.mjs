@@ -409,7 +409,7 @@ export const reliabilityBrowserRetryTitles=Object.freeze(['en','de'].flatMap(loc
   `Canvas full video ordered clips ${locale}: existing reference-only Seedance, failure, keyboard and reload`,
 ]));
 export function modelBrowserRetained(previous,profile,progress){
-  const retained=new Map(previous.filter(row=>passedBrowserCase(row)&&!(profile===RELIABILITY_BROWSER_PREFLIGHT&&reliabilityBrowserAffectedTitles.includes(row.title))).map(row=>[row.key,row]));
+  const retained=new Map(previous.filter(row=>passedBrowserCase(row)&&!(profile===INCIDENT_BROWSER_PREFLIGHT&&incidentBrowserAffectedTitles.includes(row.title))&&!(profile===RELIABILITY_BROWSER_PREFLIGHT&&reliabilityBrowserAffectedTitles.includes(row.title))).map(row=>[row.key,row]));
   if(progress){const p=RELIABILITY_BROWSER_PREFLIGHT;assert.equal(profile,p);assert.equal(progress.sha,p.browserProgress.source);assert.equal(sha256(JSON.stringify(progress.rows)),p.browserProgress.rows);
     assert.deepEqual(sorted(progress.rows).map(identity),sorted(previous.filter(row=>!retained.has(row.key))).map(identity),'Progress must be the original52 affected cases');
     assert(progress.rows.filter(row=>!passedBrowserCase(row)).every(row=>reliabilityBrowserRetryTitles.includes(row.title)),'An additional failure needs explicit correction');
@@ -428,7 +428,7 @@ export function verifyModelBrowserReport(report,sha) {
     const {retainedSource,...original}=report;original.sha=retainedSource;
     assert.equal(sha256(JSON.stringify(original)),p.reports[report.scope],'Retained complete browser evidence changed');
   }
-  const p=report.source===RELIABILITY_BROWSER_PREFLIGHT.source?RELIABILITY_BROWSER_PREFLIGHT:report.source===ASSISTANT_BROWSER_PREFLIGHT.source?ASSISTANT_BROWSER_PREFLIGHT:report.source===SETTLEMENT_BROWSER_PREFLIGHT.source?SETTLEMENT_BROWSER_PREFLIGHT:MODEL_BROWSER_PREFLIGHT;
+  const p=report.source===INCIDENT_BROWSER_PREFLIGHT.source?INCIDENT_BROWSER_PREFLIGHT:report.source===RELIABILITY_BROWSER_PREFLIGHT.source?RELIABILITY_BROWSER_PREFLIGHT:report.source===ASSISTANT_BROWSER_PREFLIGHT.source?ASSISTANT_BROWSER_PREFLIGHT:report.source===SETTLEMENT_BROWSER_PREFLIGHT.source?SETTLEMENT_BROWSER_PREFLIGHT:MODEL_BROWSER_PREFLIGHT;
   assert.equal(report.policy,MODEL_BROWSER_POLICY);assert.equal(report.sha,sha);assert.equal(report.source,p.source);assert(['homepage','auth'].includes(report.scope));
   const auth=report.scope==='auth';
   assert.equal(sha256(JSON.stringify(report.previous)),p.rows,'Original failed browser results changed');
@@ -441,7 +441,7 @@ export function verifyModelBrowserReport(report,sha) {
 }
 export async function runModelBrowserContinuation(scope='homepage',env=process.env,profile=MODEL_BROWSER_PREFLIGHT) {
   const {verifyModelBrowserRepair}=await import('./local-release-evidence.mjs');
-  assert([MODEL_BROWSER_PREFLIGHT,SETTLEMENT_BROWSER_PREFLIGHT,ASSISTANT_BROWSER_PREFLIGHT,RELIABILITY_BROWSER_PREFLIGHT].includes(profile),'Unknown closed browser profile');
+  assert([INCIDENT_BROWSER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT,SETTLEMENT_BROWSER_PREFLIGHT,ASSISTANT_BROWSER_PREFLIGHT,RELIABILITY_BROWSER_PREFLIGHT].includes(profile),'Unknown closed browser profile');
   assert(['homepage','auth'].includes(scope));assert.equal(env.GITHUB_JOB,'browser-validation');assert.equal(env.CI,'1');
   const {previous,progress}=verifyModelBrowserRepair('.local-release',env.GITHUB_SHA,{allowPending:true,profile});
   const retained=modelBrowserRetained(previous,profile,progress);
@@ -878,3 +878,83 @@ export function restoreSmoothBrowserProof(directory,{sha,verifyOnly=false}) {
   if(verifyOnly)assert.deepEqual(JSON.parse(fs.readFileSync(file)),report);else fs.writeFileSync(file,JSON.stringify(report));
   return report;
 }
+
+// Two reviewed fixture corrections; every changed helper consumer is fresh.
+export const INCIDENT_BROWSER_PREFLIGHT=Object.freeze({
+  "source": "52256d120ff89b4feaff9a1491e6f4d1356aaf6b",
+  "checkpoint": "89b5d0fd4989274bf15129de69f0997806f968f02acf5169d2d056de929e59dc",
+  "failedLog": "87ae11019d3fec86542a689c2a3c4edf2eda68bfc15aac5430debcf82d48d369",
+  "completedGuardLog": "e6e3c956919847b751a3ff7129081f72b3791947d65923fd40187e1c850a3b5a",
+  "nativeLog": "4549f1ffbea311396d9112babe86a4b310251829a62c6e1e242a075fff0e2f72",
+  "report": "2179c61bd0d6404c012486f5c8c38a97a20484508425a2702f3267ef68de2197",
+  "rows": "a2e3ce4b70d4fa040b39d5a3a203a660bedebd59f0ffe79851ce470ad5814f9f",
+  "discovery": "72b2673af099785789a1db49bd53c2eb0d4f14e3214eb41f2e07af76c6375f76",
+  "required": 662,
+  "standardFile": "homepage-discovery-ie9UHl/standard.json",
+  "standardDiscovery": "cfead1f0253d3fe5affaea62e9615efc6e6bb7ab494819d31adff99f6a4292b7",
+  "authDiscovery": "7f7b08cedcd4e7883649e1210b89e8179b867ce7e9611481df2b8a22c0c6b903",
+  "authRequired": 709,
+  "authReused": 25,
+  "manifest": "54fe096f8f1e353e7b17ae4da9bb2a526836cee50de3c8d65f9451527f436516",
+  "proof": "9c23af78bc6e134fcce87eb8aa433280a727edce65f9565077873baa92e3e7bb",
+  "hostingLog": "f9226c7ae0e9d6c659e8a2b19f47e7eaa4fcff22ab67a13d230e431d38dffd5d",
+  "homepageReports": {
+    "homepage-functional.json": "50f8b47bec9513ed663d85668b5f562ed64affe450802b04d5d3fbac6c5cc99c",
+    "homepage-discovery.json": "bb97734bc5e7caf779e9db6e7ab0f0881c3cbe427c7834338c392d3449dd6abf"
+  },
+  "nativeProof": {
+    "runtime/q2-runtime-evidence/native-UIMMmS/launcher-result.json": "ce538334ff61fc2571a753874bf434fa230eae98bb03c802962211454c47cb26",
+    "runtime/q2-runtime-evidence/native-UIMMmS/reports/bitbi-q2-runtime-3csKHg__build-provenance.json": "083933a63707b780f7560acba94a09f9920eccc4e7b5f21356fb36fc081cfe80",
+    "runtime/q2-runtime-evidence/native-UIMMmS/reports/bitbi-q2-runtime-3csKHg__result.json": "2f29e05ad447cdfb728a520eb059056e256df95c46a7a33eb5b68b2582c8bc78",
+    "runtime/q2-runtime-evidence/native-UIMMmS/reports/isolation-result.json": "c609013b5a939b464aaa1834e97286e6ec5c0f4eb4c069f1af40770a6527b11e",
+    "runtime/q2-runtime-evidence/native-UIMMmS/reports/isolation-final.json": "3722a729b374515d022042aa6df90f8f984b91c3086a0a52d42884219ce98055"
+  },
+  "specs": {
+    "tests/helpers/canvas-conversation-natural-ui.cjs": "ea8e4ccc20d774543e942d01a3fe428810f7820175f340fcc53b62964285def2",
+    "tests/helpers/canvas-audio-ui.cjs": "64297ec0cfeaa4c7e3cd65be7c185a6c8c1901cc6eca1b7b12030d4f559a5de6"
+  },
+  "retain": [
+    1,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    13,
+    14,
+    15,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    45,
+    46
+  ]
+});
+export const incidentBrowserAffectedTitles=Object.freeze([
+  ...['en','de'].flatMap(locale=>[`Canvas conversation ${locale}: natural immediate approval and pending bee`,`Canvas asset audio ${locale}: typed references, persistent controls and real export`]),
+]);

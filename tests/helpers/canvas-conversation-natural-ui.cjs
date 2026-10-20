@@ -22,8 +22,15 @@ module.exports=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock
     const panel=page.locator('#canvasAgentPanel'),composer=panel.locator('.canvas-agent__composer'),input=composer.locator('textarea');
     const now=panel.getByRole('button',{name:de?'Mach mir den Film jetzt!':'Make my film now!',exact:true});
     await expect(now).toBeVisible();await panel.locator('.canvas-agent__approval-prompt').click();
-    const allowance=panel.locator('.canvas-agent__allowance');await allowance.locator('input').fill('3000');
-    await allowance.getByRole('button').click();await expect(allowance).toBeHidden();
+    const allowance=panel.locator('.canvas-agent__allowance');
+    const budget=allowance.getByRole('spinbutton',{name:de?'Maximal für dieses Gespräch (Credits)':'Maximum for this conversation (credits)',exact:true});
+    const diagnostics=allowance.locator('input[name="diagnostics"]');
+    await expect(budget).toHaveAttribute('name','briefingBudget');await expect(diagnostics).not.toBeChecked();
+    await budget.fill('3000');await expect(budget).toHaveValue('3000');await expect(diagnostics).not.toBeChecked();
+    await allowance.getByRole('button',{name:de?'Dieses Gesprächsbudget freigeben':'Authorize this briefing allowance',exact:true}).click();await expect(allowance).toBeHidden();
+    const allowanceRequests=requests.filter(r=>r.path.endsWith('/conversation/allowance')&&r.method==='POST');
+    expect(allowanceRequests).toHaveLength(1);expect(allowanceRequests[0].body).toMatchObject({capCredits:3000,diagnostics:false});
+    expect((await c.read()).allowance).toMatchObject({capCredits:3000,diagnosticsAuthorized:false});
     const idea=de?'Ein lustiger 45 Sekunden Film mit Musik: Eine Schnecke sitzt auf einem Blatt, das Ameisen abschneiden.':'A funny 45 second film with music: a snail sits on a leaf that ants cut off.';
     await input.fill(idea);await input.press('Enter');
     const bee=panel.locator('.canvas-agent__bee:visible');await expect(bee).toHaveCount(1);

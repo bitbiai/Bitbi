@@ -21,6 +21,11 @@ import { LOCAL_IMPORT_REPAIR, assertImportRepairWorkflow, localRepairCommand, ve
 import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,assertPermissionContinuationTree,permissionContinuationPrefix,CANVAS_STAGE_CASES,canvasStageContinuation} from './lib/local-release-evidence.mjs';
 import {testLocalMediaProcess} from './test-local-media-process.mjs';
 
+if(process.argv.includes('--incident-browser-only')) {
+  assert.deepEqual(process.argv.slice(2),['--incident-browser-only']);
+  await testIncidentBrowserContinuation();process.exit(0);
+}
+
 if(process.argv.includes('--incident-native-only')) {
   assert.deepEqual(process.argv.slice(2),['--incident-native-only']);
   await testIncidentNativeContinuation();process.exit(0);
@@ -4227,3 +4232,76 @@ async function testIncidentNativeContinuation() {
   console.log('Incident native continuation: 1672 Worker, FFmpeg and 34 launcher passes retained; one launcher and the full native runtime remain mandatory.');
 }
 await testIncidentNativeContinuation();
+
+async function testIncidentBrowserContinuation() {
+  const {INCIDENT_BROWSER_PREFLIGHT:p,incidentBrowserAffectedTitles,modelBrowserRetained,MODEL_BROWSER_POLICY,verifyModelBrowserReport}=await import('./lib/local-release-browser.mjs');
+  const {assertIncidentBrowserTree,incidentBrowserPrefix,verifyIncidentBrowserOrigin,verifyIncidentBrowserReports,incidentBrowserGuard,incidentBrowserContinuation,verifyIncidentBrowserContinuation,restoreCanvasHostingProof}=await import('./lib/local-release-evidence.mjs');
+  assert.equal(incidentBrowserGuard('npm run test:local-release'),'npm run test:local-release -- --incident-browser-only');assert.throws(()=>incidentBrowserGuard('echo passed'));
+  assert.deepEqual(incidentBrowserAffectedTitles,['en','de'].flatMap(locale=>[`Canvas conversation ${locale}: natural immediate approval and pending bee`,`Canvas asset audio ${locale}: typed references, persistent controls and real export`]));
+  if(!process.argv.includes('--incident-browser-only'))return;
+  const directory='.local-release',read=args=>execFileSync('git',args),head=read(['rev-parse','HEAD']).toString().trim(),bytes=fs.readFileSync(path.join(directory,'reuse/preflight-checkpoint.json')),old=JSON.parse(bytes);
+  const selection=gitSelection(old.base,head),commands=selectedCommands(selection,{GITHUB_SHA:head,CANDIDATE_BASE:old.base}),context={...old,sha:head,commands,selection};
+  assert.deepEqual(incidentBrowserPrefix(bytes,context),old);assertIncidentBrowserTree(head);
+  for(const change of [v=>v.base='0'.repeat(40),v=>v.environment.image='sha256:'+'0'.repeat(64),v=>v.nativeBrowsers.key='different',v=>v.selection.workers=false,v=>v.commands[49].run+='echo extra']){const bad=structuredClone(context);change(bad);assert.throws(()=>incidentBrowserPrefix(bytes,bad));}
+  assert.throws(()=>incidentBrowserPrefix(Buffer.from(JSON.stringify({...old,status:'passed'})),context));
+  for(const file of ['workers/auth/src/lib/canvas-agent-execution.js','js/pages/canvas/agent.js','services/homepage-ffmpeg-processor/canvas-full-video.mjs','package-lock.json'])assert.throws(()=>assertIncidentBrowserTree(head,args=>args[0]==='diff'&&args[2]===p.source?Buffer.from(read(args).toString()+file+'\n'):read(args)));
+  for(const file of Object.keys(p.specs))assert.throws(()=>assertIncidentBrowserTree(head,args=>args[0]==='show'&&args[1]===`${head}:${file}`?Buffer.from('unreviewed fixture'):read(args)));
+  const origin=verifyIncidentBrowserOrigin(directory,head),retained=modelBrowserRetained(origin.previous,p);
+  assert.equal(origin.previous.filter(passedBrowserCase).length,657);assert.equal(retained.size,654);
+  const changed=origin.previous.filter(row=>incidentBrowserAffectedTitles.includes(row.title));assert.equal(changed.length,8);assert.equal(changed.filter(passedBrowserCase).length,3);assert(changed.every(row=>!retained.has(row.key)));
+  const vm=await import('node:vm'),runner=fs.readFileSync('scripts/local-release.mjs','utf8'),writer=runner.slice(runner.indexOf('      record.runtimes=commandRuntimes(command)'),runner.indexOf('      state.commands[index] = record;'));
+  const globals={...await import('./lib/local-release-evidence.mjs'),...await import('./lib/local-release-browser.mjs'),...await import('./lib/canvas-export-release.mjs'),...await import('./lib/canvas-export-browser.mjs'),commandRuntimes};
+  for(const index of [17,41,49,50,51]){
+    const execute=source=>{const record={};vm.runInNewContext(source,{...globals,state:{preflightContinuation:{source:p.source}},index,command:commands[index],record});return record;};
+    const expected=index===17?incidentBrowserGuard(commands[index].run):[49,50].includes(index)?incidentBrowserContinuation(commands[index].run,index===50?'auth':'homepage'):undefined;
+    assert.equal(execute(writer).continuation,expected);assert.equal(execute(writer).browserContinuation,[49,50].includes(index)?MODEL_BROWSER_POLICY:undefined);
+    if(expected){const broken=writer.split('\n').filter(line=>!line.includes('INCIDENT_BROWSER_PREFLIGHT.source&&'+(index===17?'index===17':'[49,50].includes(index)'))).join('\n');assert.notEqual(execute(broken).continuation,expected,'The real receipt writer must bind every transformed command');}
+  }
+  assert.equal(incidentBrowserContinuation(commands[49].run),'node scripts/local-release.mjs incident-browser-continuation');assert(incidentBrowserContinuation(commands[50].run,'auth').includes('incident-browser-continuation auth'));assert.throws(()=>incidentBrowserContinuation('npm run test:auth','auth'));
+  for(const index of [17,34,44,47,48,49,50,51])assert(!p.retain.includes(index));assert(p.retain.includes(40)&&p.retain.includes(41)&&p.retain.includes(45)&&p.retain.includes(46));
+  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'incident-browser-proof-')),original=path.join(temp,'original'),bundle=path.join(temp,'bundle'),workspace=path.join(temp,'workspace');
+  try {
+    const {prepareIncidentBrowserEvidence}=await import('./local-release.mjs');
+    fs.mkdirSync(original,{recursive:true});fs.copyFileSync(path.join(directory,'reuse/preflight-checkpoint.json'),path.join(original,'checkpoint.json'));
+    fs.cpSync(path.join(directory,'reuse/incident-native-origin'),path.join(original,'bundle'),{recursive:true});fs.cpSync(path.join(original,'bundle/runtime'),path.join(original,'runtime'),{recursive:true});
+    fs.mkdirSync(path.join(original,'source/test-results'),{recursive:true});fs.copyFileSync(path.join(directory,'reuse/model-browser-original.json'),path.join(original,'source/test-results/candidate-homepage.json'));
+    fs.cpSync(path.join(original,'bundle/candidate'),path.join(original,'source/candidate'),{recursive:true});
+    fs.mkdirSync(path.dirname(path.join(original,'bundle/test-results',p.standardFile)),{recursive:true});fs.copyFileSync(path.join(directory,'reuse/model-browser-standard.json'),path.join(original,'bundle/test-results',p.standardFile));
+    assert.equal(prepareIncidentBrowserEvidence(original,bundle,head,path.join(temp,'runtime')).previous.length,662);
+    for(const file of Object.keys(p.nativeProof)){assert.equal(sha256(fs.readFileSync(path.join(bundle,file))),p.nativeProof[file]);assert.equal(sha256(fs.readFileSync(path.join(temp,file))),p.nativeProof[file]);}
+    const reports=path.join(bundle,'test-results'),save=(name,value)=>fs.writeFileSync(path.join(reports,name),JSON.stringify(value));
+    const discoveries={homepage:browserRows(JSON.parse(fs.readFileSync(path.join(bundle,'reuse/model-browser-original.json'))),{discovery:true}),auth:origin.auth};
+    const rawRows=rows=>({config:{workers:1,projects:[...new Set(rows.map(row=>row.project))].map(name=>({name,retries:0}))},suites:[{title:'Synthetic verifier calibration only',suites:rows.map(row=>({title:row.key,specs:[{id:row.key.slice(row.project.length+1),file:row.file,title:row.title,line:1,column:1,tests:[{projectName:row.project,expectedStatus:row.expectedStatus,status:row.status,results:row.results}]}]}))}],errors:[],stats:{expected:rows.length,unexpected:0,flaky:0,skipped:0}});
+    const accepted={},freshRaw={},expected={homepage:{required:662,reused:654,executed:8},auth:{required:709,reused:25,executed:684}};
+    for(const [scope,discovery]of Object.entries(discoveries)) {
+      const fresh=discovery.filter(row=>!retained.has(row.key)).map(row=>({...row,expectedStatus:'passed',status:'expected',results:[{status:'passed',retry:0,error:false}]}));
+      const report={policy:MODEL_BROWSER_POLICY,sha:head,source:p.source,scope,previous:origin.previous,discovery,fresh,counts:verifyBrowserUnion(discovery,retained,fresh)};assert.deepEqual(verifyModelBrowserReport(report,head),expected[scope]);
+      for(const mutate of [v=>v.previous.pop(),v=>v.discovery.pop(),v=>v.discovery.push(v.discovery[0]),v=>v.fresh.pop(),v=>v.fresh.push(v.fresh[0]),v=>v.fresh.push(origin.previous.find(row=>retained.has(row.key))),v=>v.fresh[0].results[0].status='failed',v=>v.fresh[0].results[0].retry=1,v=>v.fresh[0].status='flaky',v=>v.fresh[0].results[0].error=true,v=>v.counts.executed=0]){const bad=structuredClone(report);mutate(bad);assert.throws(()=>verifyModelBrowserReport(bad,head));}
+      const prefix=scope==='auth'?'model-browser-auth':'model-browser';save(`${prefix}-discovery.json`,rawRows(discovery));save(`${prefix}-selected-discovery.json`,rawRows(discovery.filter(row=>!retained.has(row.key))));save(`${prefix}-fresh.json`,rawRows(fresh));save(`candidate-${scope}.json`,report);accepted[scope]=report;freshRaw[scope]=rawRows(fresh);
+    }
+    assert.deepEqual(verifyIncidentBrowserReports(bundle,head).result,expected);
+    const proof=(core=accepted.homepage,account=accepted.auth)=>candidateProof({sha:head,selection:{homepage:true,auth:true}},{job:'browser-validation',readJson:file=>file.endsWith('candidate-auth.json')?account:core});assert.equal(proof().tests,1371);assert.throws(()=>proof(accepted.auth,accepted.homepage));assert.throws(()=>proof(accepted.homepage,null));
+    // Drive the actual CLI and shared runner against synthetic child reports.
+    // This tests selection/receipts only; no browser runs or acceptance is fabricated.
+    fs.mkdirSync(path.join(workspace,'bin'),{recursive:true});fs.mkdirSync(path.join(workspace,'test-results'));fs.symlinkSync(bundle,path.join(workspace,'.local-release'));
+    for(const file of fs.readdirSync('.'))if(!['.git','.local-release','test-results','bin'].includes(file))fs.symlinkSync(path.resolve(file),path.join(workspace,file));
+    for(const scope of ['homepage','auth']){const prefix=scope==='auth'?'model-browser-auth':'model-browser';for(const name of ['discovery','selected-discovery','fresh'])fs.copyFileSync(path.join(reports,`${prefix}-${name}.json`),path.join(workspace,`${scope}-${name}.json`));}
+    const stub=`#!${process.execPath}\nconst fs=require('node:fs');process.on('uncaughtException',error=>{fs.writeFileSync('synthetic-child-error.log',error.stack);process.exitCode=1;});const assert=require('node:assert/strict'),args=process.argv.slice(2),scope=args[1]==='test:auth'?'auth':'homepage',selected=args.includes('--test-list'),name=args.includes('--list')?(selected?'selected-discovery':'discovery'):'fresh';assert.equal(args[0],'run');assert.equal(args[1],scope==='auth'?'test:auth':'test:homepage-core');if(selected){assert(args.includes('--workers=1')&&args.includes('--retries=0'));const rows=fs.readFileSync(args[args.indexOf('--test-list')+1],'utf8').trim().split('\\n');assert.equal(rows.length,scope==='auth'?684:8);assert.equal(new Set(rows).size,rows.length);}const data=fs.readFileSync(scope+'-'+name+'.json');fs.writeFileSync(process.env.PLAYWRIGHT_JSON_OUTPUT_NAME,data);\n`;
+    fs.writeFileSync(path.join(workspace,'bin/npm'),stub,{mode:0o700});
+    const script=path.resolve('scripts/local-release.mjs'),env={...process.env,PATH:path.join(workspace,'bin')+path.delimiter+process.env.PATH,GIT_DIR:path.resolve('.git'),GIT_WORK_TREE:process.cwd(),CI:'1',GITHUB_JOB:'browser-validation',GITHUB_SHA:head};
+    const cli=(action,...args)=>spawnSync(process.execPath,[script,action,...args],{cwd:workspace,env,encoding:'utf8'});
+    for(const scope of ['homepage','auth']){const run=cli('incident-browser-continuation',scope);assert.equal(run.status,0,run.stderr+(fs.existsSync(path.join(workspace,'synthetic-child-error.log'))?fs.readFileSync(path.join(workspace,'synthetic-child-error.log'),'utf8'):''));const report=JSON.parse(fs.readFileSync(path.join(workspace,`test-results/candidate-${scope}.json`)));assert.deepEqual(report,accepted[scope]);}
+    for(const action of ['verify-incident-browser-pending','verify-incident-browser-repair']){const result=cli(action,bundle);assert.equal(result.status,0,result.stderr);assert.doesNotThrow(()=>JSON.parse(result.stdout));}
+    const broken=structuredClone(freshRaw.homepage);broken.suites[0].suites[0].specs[0].tests[0].results[0].status='failed';fs.writeFileSync(path.join(workspace,'homepage-fresh.json'),JSON.stringify(broken));assert.notEqual(cli('incident-browser-continuation','homepage').status,0,'Actual browser CLI cannot accept a failed corrected case');
+    const invalidSelected=rawRows(discoveries.homepage);fs.writeFileSync(path.join(workspace,'homepage-selected-discovery.json'),JSON.stringify(invalidSelected));assert.notEqual(cli('incident-browser-continuation','homepage').status,0,'Actual CLI checks exact selection before running fresh cases');
+    for(const scope of ['homepage','auth']){const prefix=scope==='auth'?'model-browser-auth':'model-browser';for(const mutate of [v=>v.config.workers=2,v=>v.config.projects[0].retries=1,v=>v.errors.push({message:'synthetic child failure'}),v=>v.suites[0].suites[0].specs.pop()]){const bad=structuredClone(freshRaw[scope]);mutate(bad);save(`${prefix}-fresh.json`,bad);assert.throws(()=>verifyIncidentBrowserReports(bundle,head));save(`${prefix}-fresh.json`,freshRaw[scope]);}}
+    const evidence={...context,preflightContinuation:{source:p.source,checkpoint:p.checkpoint},commands:commands.map((command,i)=>p.retain.includes(i)?{...old.commands[i],reusedFrom:old.commands[i].reusedFrom||p.source}:{command,exitCode:0,...(i===17?{continuation:incidentBrowserGuard(command.run)}:[49,50].includes(i)?{continuation:incidentBrowserContinuation(command.run,i===50?'auth':'homepage'),browserContinuation:MODEL_BROWSER_POLICY}:{})})};
+    fs.mkdirSync(path.join(bundle,'logs'));for(const i of p.retain)fs.copyFileSync(path.join(original,'bundle',old.commands[i].log),path.join(bundle,old.commands[i].log));evidence.commands[17].log='logs/17.log';fs.writeFileSync(path.join(bundle,'logs/17.log'),'Incident browser continuation: 654 homepage passes retained; eight changed consumers and 684 Auth cases required.');
+    fs.cpSync(path.join(original,'bundle/candidate'),path.join(bundle,'candidate'),{recursive:true});restoreCanvasHostingProof(bundle);verifyIncidentBrowserContinuation(bundle,evidence,commands);
+    for(const mutate of [v=>v.commands[49].reusedFrom=p.source,v=>delete v.commands[50].continuation,v=>delete v.commands[49].browserContinuation,v=>v.commands.pop(),v=>v.commands[41].logHash='0'.repeat(64)]){const bad=structuredClone(evidence);mutate(bad);assert.throws(()=>verifyIncidentBrowserContinuation(bundle,bad,commands));}
+    for(const file of ['reuse/preflight-failed.log','reuse/model-browser-original.json','reuse/model-browser-standard.json','reuse/incident-native-origin/logs/41.log','reuse/incident-native-origin/reuse/incident-worker-origin/reuse/preflight-checkpoint.json',...Object.keys(p.nativeProof).map(name=>'reuse/incident-native-origin/'+name)]){const target=path.join(bundle,file),saved=fs.readFileSync(target);fs.appendFileSync(target,'tamper');assert.throws(()=>verifyIncidentBrowserOrigin(bundle,head));fs.writeFileSync(target,saved);}
+    fs.unlinkSync(path.join(original,'bundle/test-results/incident-launcher-fresh.tap'));assert.throws(()=>prepareIncidentBrowserEvidence(original,path.join(temp,'missing'),head,path.join(temp,'missing-runtime')),'Actual copier must not hide missing nested provenance');
+  } finally {fs.rmSync(temp,{recursive:true,force:true});}
+  console.log('Incident browser continuation: 654 homepage passes retained; eight changed consumers and 684 Auth cases required.');
+}
+await testIncidentBrowserContinuation();
