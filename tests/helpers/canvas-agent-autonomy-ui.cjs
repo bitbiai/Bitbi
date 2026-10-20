@@ -70,14 +70,16 @@ exports.proposal=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMo
         holdTakeover.response=true;
         await panel.getByRole('button',{name:de?'Manuell übernehmen':'Take over manually',exact:true}).click();
         await expect.poll(()=>typeof holdTakeover.releaseResponse).toBe('function');
-        expect((await f.observe()).status).toBe('manual_takeover');await expect(inspect).toBeDisabled();
+        expect((await f.observe()).status).toBe('taken_over');await expect(inspect).toBeDisabled();
         expect(requests.filter(item=>item.method!=='GET').map(item=>item.body)).toEqual([{action:'takeover'}]);
         const takeoverResponse=page.waitForResponse(response=>response.request().method()==='POST'&&new URL(response.url()).pathname===`${f.projectPath}/agent/${f.runId}/control`);
         holdTakeover.releaseResponse();expect(await (await takeoverResponse).finished()).toBeNull();
         await expect.poll(()=>typeof holdTakeover.releaseProjectRead).toBe('function');
-        await expect(panel.locator('h3')).toHaveText(de?'Manuell übernommen':'Taken over manually');await expect(inspect).toBeDisabled();
+        // The run has been accepted, but control() renders its final state
+        // only after view() completes. The open-project control remains busy.
+        await expect(inspect).toBeDisabled();
         const projectResponse=page.waitForResponse(response=>response.request().method()==='GET'&&new URL(response.url()).pathname===f.projectPath);
-        holdTakeover.releaseProjectRead();expect(await (await projectResponse).finished()).toBeNull();await expect(inspect).toBeEnabled();await expect(panel).toBeHidden();
+        holdTakeover.releaseProjectRead();expect(await (await projectResponse).finished()).toBeNull();await expect(inspect).toBeEnabled();await expect(panel.locator('h3')).toHaveText(de?'Manuell übernommen':'Taken over manually');await expect(panel).toBeHidden();
         await page.reload();await page.locator('#canvasAgentToggle').click();if(await page.locator('#canvasAgentPanel').isVisible())await page.locator('#canvasAgentPanel').getByRole('tab',{name:locale==='de'?'Projekt & Produktion':'Project & production',exact:true}).click();
         await expect(panel.locator('h3')).toHaveText(de?'Manuell übernommen':'Taken over manually');
         await expect(panel.locator('.canvas-agent__plan')).toContainText('House construction');
