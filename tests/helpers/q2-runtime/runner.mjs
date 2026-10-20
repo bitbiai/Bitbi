@@ -43,6 +43,8 @@ export const runtimeSuites = Object.freeze([
 // Miniflare outbound denial and sanitized bindings are defense in depth, not an
 // invented attestation of that external OS boundary.
 export function selectedRuntimeSuites(suite) {
+  // Closed continuation after the 0113 native migration failure. Full retains all 15 suites.
+  if(suite==='canvas-notification-migration')return runtimeSuites.filter(([name])=>!['references','q4-memory'].includes(name));
   // Preserve the normal Canvas D1/Images/AI bindings and result identity.
   if(suite==='canvas-export-delivery')return [['canvas',runCanvasExportDeliveryTests,{}]];
   if(suite==='canvas-readiness-recovery')return [['canvas',runCanvasReadinessRecoveryTests,{}]];

@@ -1206,3 +1206,29 @@ test('Canvas reliability runs additive native callers with the complete staged h
   assert.deepEqual(calls,['before','/canvas-notifications-migration-seed','after']);
   await assert.rejects(()=>runCanvasReliabilityTests({migrations:[],rows:async()=>[]}),/populated lifecycle migration/);
 });
+
+test('Canvas notification migration continuation retains only independent completed suites',async()=>{
+  const {selectedRuntimeSuites,runtimeSuites}=await import('../tests/helpers/q2-runtime/runner.mjs');
+  const alias='canvas-notification-migration',selected=selectedRuntimeSuites(alias);
+  assert.equal(runtimeSuites.length,15);assert.deepEqual(selectedRuntimeSuites(),runtimeSuites);
+  assert.deepEqual(selected,runtimeSuites.filter(([name])=>!['references','q4-memory'].includes(name)));
+  assert.equal(selected.length,13);assert(selected.every(row=>runtimeSuites.includes(row)),'Original callbacks/options/setup must be retained');
+  assert.equal(parseRuntimeArgs(['--suite',alias],{}).suite,alias);
+  assert.throws(()=>parseRuntimeArgs(['--suite',alias,'--suite','canvas'],{}));
+  for(const invalid of [alias+'-other','references,q4-memory']){
+    assert.throws(()=>parseRuntimeArgs(['--suite',invalid],{}));assert.throws(()=>selectedRuntimeSuites(invalid));
+  }
+  assert.match(read('tests/helpers/q2-runtime/linux-bootstrap.py'),/\+ \["canvas-notification-migration"\]/);
+  const child=spawnSync(process.execPath,['--experimental-vm-modules','--input-type=module','-e',`
+    import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import {createContext,SourceTextModule,SyntheticModule} from 'node:vm';
+    const source=readFileSync('tests/helpers/q2-runtime/linux-runtime-child.mjs','utf8');
+    for(const suite of ['canvas-notification-migration','canvas-notification-migration-other'])for(const fault of [null,'platform','uid','gid']){
+      const calls=[],context=createContext({process:{platform:fault==='platform'?'darwin':'linux',getuid:()=>fault==='uid'?0:65534,getgid:()=>fault==='gid'?0:65534}});
+      const modules={'node:assert/strict':{default:assert},'node:fs':{readFileSync:file=>{assert.equal(file,'/runtime/boundary.json');calls.push('boundary');return JSON.stringify({suite});}},'./runner.mjs':{runQ2Runtime:async(args,selected)=>{assert.deepEqual(Array.from(args),['--artifacts','/artifacts']);assert.equal(selected,suite);calls.push('run');}}};
+      const load=async name=>{assert(modules[name]);calls.push(name);const m=new SyntheticModule(Object.keys(modules[name]),function(){for(const [key,value]of Object.entries(modules[name]))this.setExport(key,value);},{context});await m.link(()=>{});await m.evaluate();return m;};
+      const module=new SourceTextModule(source,{context,importModuleDynamically:load});await module.link(load);
+      if(!fault&&suite==='canvas-notification-migration'){await module.evaluate();assert.deepEqual(calls,['node:assert/strict','node:fs','boundary','./runner.mjs','run']);}
+      else{await assert.rejects(module.evaluate());assert(!calls.includes('./runner.mjs'));if(fault)assert(!calls.includes('boundary'));}
+    }
+  `],{cwd:root,encoding:'utf8',timeout:15000});assert.equal(child.status,0,child.stderr);
+});

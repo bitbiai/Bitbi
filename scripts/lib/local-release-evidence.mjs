@@ -1879,8 +1879,9 @@ export function canvasExampleBrowserContinuation(command){
   assert.equal(command.split(passed).length,2);assert(command.includes("--grep 'Canvas transition examples'"));
   return command.replace(passed,''); // Pinned decoded-asset pass remains in the archived original log.
 }
-export const canvasPreflightProfile=source=>[RELIABILITY_WORKER_PREFLIGHT,EXPORT_DELIVERY_BROWSER_PREFLIGHT,EXPORT_DELIVERY_SDK_PREFLIGHT,EXPORT_DELIVERY_HOSTING_PREFLIGHT,EXPORT_DELIVERY_DISCOVERY_PREFLIGHT,EXPORT_DELIVERY_SELECTION_PREFLIGHT,EXPORT_DELIVERY_PREFLIGHT,ASSISTANT_BROWSER_PREFLIGHT,ASSISTANT_NATIVE_RATE,ASSISTANT_NATIVE_TAIL,ASSISTANT_NATIVE_PROGRESS,ASSISTANT_NATIVE_PREFLIGHT,ASSISTANT_WORKER_PREFLIGHT,ASSISTANT_PREFLIGHT,SETTLEMENT_BROWSER_PREFLIGHT,SETTLEMENT_NATIVE_PROGRESS,SETTLEMENT_NATIVE_PREFLIGHT,SETTLEMENT_HOSTING_PREFLIGHT,SETTLEMENT_PREFLIGHT,CANVAS_POLICY_NATIVE_PREFLIGHT,CANVAS_POLICY_WORKER_PREFLIGHT,AUTONOMY_BROWSER_PREFLIGHT,AUTONOMY_NATIVE_PREFLIGHT,CANVAS_PREFLIGHT,EXPORT_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,EXAMPLE_PREFLIGHT,EXAMPLE_BROWSER_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].find(p=>p.source===source)||null;
+export const canvasPreflightProfile=source=>[RELIABILITY_NATIVE_PREFLIGHT,RELIABILITY_WORKER_PREFLIGHT,EXPORT_DELIVERY_BROWSER_PREFLIGHT,EXPORT_DELIVERY_SDK_PREFLIGHT,EXPORT_DELIVERY_HOSTING_PREFLIGHT,EXPORT_DELIVERY_DISCOVERY_PREFLIGHT,EXPORT_DELIVERY_SELECTION_PREFLIGHT,EXPORT_DELIVERY_PREFLIGHT,ASSISTANT_BROWSER_PREFLIGHT,ASSISTANT_NATIVE_RATE,ASSISTANT_NATIVE_TAIL,ASSISTANT_NATIVE_PROGRESS,ASSISTANT_NATIVE_PREFLIGHT,ASSISTANT_WORKER_PREFLIGHT,ASSISTANT_PREFLIGHT,SETTLEMENT_BROWSER_PREFLIGHT,SETTLEMENT_NATIVE_PROGRESS,SETTLEMENT_NATIVE_PREFLIGHT,SETTLEMENT_HOSTING_PREFLIGHT,SETTLEMENT_PREFLIGHT,CANVAS_POLICY_NATIVE_PREFLIGHT,CANVAS_POLICY_WORKER_PREFLIGHT,AUTONOMY_BROWSER_PREFLIGHT,AUTONOMY_NATIVE_PREFLIGHT,CANVAS_PREFLIGHT,EXPORT_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,EXAMPLE_PREFLIGHT,EXAMPLE_BROWSER_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].find(p=>p.source===source)||null;
 export function assertCanvasPreflightTree(head,read=gitBytes,profile=CANVAS_PREFLIGHT){
+  if(profile===RELIABILITY_NATIVE_PREFLIGHT)return assertReliabilityNativeTree(head,read);
   if(profile===RELIABILITY_WORKER_PREFLIGHT)return assertReliabilityWorkerTree(head,read);
   if(exportDeliveryCorrectionProfile(profile.source))return assertExportDeliverySelectionTree(head,read,profile);
   if(profile===EXPORT_DELIVERY_PREFLIGHT)return assertExportDeliveryTree(head,read);
@@ -2201,6 +2202,7 @@ export function verifyWorkspaceGuardUnion(before,after){
 }
 export function canvasPreflightPrefix(bytes,{sha,base,planHash,environment,nativeBrowsers,commands,selection},read=gitBytes){
   const original=JSON.parse(bytes),profile=canvasPreflightProfile(original.sha)||CANVAS_PREFLIGHT;
+  if(profile===RELIABILITY_NATIVE_PREFLIGHT)return reliabilityNativePrefix(bytes,{sha,base,planHash,environment,nativeBrowsers,commands,selection},read);
   if(profile===RELIABILITY_WORKER_PREFLIGHT)return reliabilityWorkerPrefix(bytes,{sha,base,planHash,environment,nativeBrowsers,commands,selection},read);
   if(exportDeliveryCorrectionProfile(profile.source))return exportDeliverySelectionPrefix(bytes,{sha,base,planHash,environment,nativeBrowsers,commands,selection},read,profile);
   if(profile===EXPORT_DELIVERY_PREFLIGHT)return exportDeliveryPrefix(bytes,{sha,base,planHash,environment,nativeBrowsers,commands,selection},read);
@@ -2307,6 +2309,7 @@ export function verifyExportGuardUnion(before,after){
   assert.equal(new Set(after.map(r=>r.title)).size,after.length);assert(after.every(r=>before.some(old=>old.title===r.title)));
 }
 export function verifyCanvasPreflight(directory,evidence,commands){
+  if(evidence.preflightContinuation?.source===RELIABILITY_NATIVE_PREFLIGHT.source)return verifyReliabilityNativeContinuation(directory,evidence,commands);
   if(evidence.preflightContinuation?.source===RELIABILITY_WORKER_PREFLIGHT.source)return verifyReliabilityWorkerContinuation(directory,evidence,commands);
   if(evidence.preflightContinuation?.source===EXPORT_DELIVERY_PREFLIGHT.source||exportDeliveryCorrectionProfile(evidence.preflightContinuation?.source)){
     verifyExportDeliveryReuse(directory,evidence,commands,{read:gitBytes,readFile:fs.readFileSync});
@@ -3031,4 +3034,163 @@ export function verifyReliabilityWorkerContinuation(directory,evidence,commands)
       else assert(!row.continuation,'Unreviewed command continuation');
     }
   }
+}
+
+// Native workerd limits compound SELECTs to five terms. Preserve the original
+// failed report and the two independent completed suites; the other 13 suites
+// repeat their real setup, including 27 dependent checks, against corrected SQL.
+export const RELIABILITY_NATIVE_PREFLIGHT=Object.freeze({
+  source:'66ae26841e0ef48b8cda32b17214614a03984823',schemaSource:'a1a45903b1bacab1ade45832811d6c02651e9dd7',productSource:'65a10a52d059b9f0a62c38569268c2f0f98bf94b',
+  checkpoint:'323fa4abe9e3137f26b94aa393e6a373a7d9ceef8619a06969559921cb05629c',
+  failedLog:'e82e7e67ecdbfaedbef4e1d77d5f5a7762b603ae08ed13213d1d9a8da884b60b',
+  workerReport:'376982c33a62f7b0f76b9cd06aaa87650ae1042a72c382c8bcd94d305cffa979',
+  discovery:'592bf0c3033fda66a9d8541eb5f69d035c2f2c2564a01eae69b47b42e9de6335',
+  nativeDirectory:'q2-runtime-evidence/native-0yGGKD',
+  nativeProof:Object.freeze({
+    'launcher-result.json':'3190754f071f33e0746f732bd0202b2af3eff343e357052511c72166c1ccb2cb',
+    'reports/isolation-result.json':'c609013b5a939b464aaa1834e97286e6ec5c0f4eb4c069f1af40770a6527b11e',
+    'reports/isolation-final.json':'3722a729b374515d022042aa6df90f8f984b91c3086a0a52d42884219ce98055',
+    'reports/bitbi-q2-runtime-5g5JAc__result.json':'a2c75ff9d77871f2f52527abce27db643ab8c12935b374d72b9b4db8f517d764',
+    'reports/bitbi-q2-runtime-5g5JAc__build-provenance.json':'9b2c17367d9a0c7202ef7bc2d76cdb75f745b27b549f261382b04bb0df8d43d3',
+  }),
+  specs:Object.freeze({
+    'workers/auth/migrations/0113_canvas_notifications_and_lifecycle.sql':'514a62df68e3241ac216404f3d9a825bd2f95e962ef2cbe989e4da7b85ba6cbc',
+    'tests/helpers/q2-runtime/canvas-reliability.mjs':'f14d1ac7ffb7b450c5e92a9c0e7670f06eddc3bf469eb25c671b9130175d06e2',
+    'workers/auth/src/lib/canvas-notifications.js':'854412ee85afc283cb349bcfe0b107b5231fc44c46cd8e7fae632a756f0eff14',
+    'tests/helpers/canvas-notifications-control.mjs':'fd8dd047fc56dcc80059de2fe972dc7605293a63fa0f5358de63ade653037ce5',
+  }),
+  retain:Object.freeze([1,4,5,6,8,9,10,11,13,14,15,18,19,20,21,22,23,24,25,26,30,31,32,33,38,39]),
+});
+export const reliabilityNativeWorkerNames=Object.freeze([
+  'Canvas reliability project deletion preserves committed results and immutable source identities',
+  'Canvas reliability notifications preserve ownership, explicit acknowledgements and real operation states',
+  'Canvas reliability populated notification migration preserves old receipts without fabricated reads',
+  ...['bootstrap','duration','explicit','button','isolation','allowance'].map(name=>`Canvas conversational decision ${name} binds real project authority without inference`),
+  ...['immediate','delegation','stale-project','stale-brief','stale-price','consent-isolation','concurrent-approval'].map(name=>`Canvas natural chat ${name} uses the existing durable production authority`),
+]);
+export const reliabilityNativeSuites=Object.freeze(['website-assistant','canvas','canvas-reliability','model-status','model-pricing','appearance','member-generation','native','recovery','q4-public-video','q4-stream','q4-video','q4-subscription']);
+const reliabilityNativeTools=[...reliabilityTools,'tests/helpers/q2-runtime/runner.mjs','tests/helpers/q2-runtime/linux-hosted.mjs','tests/helpers/q2-runtime/linux-runtime-child.mjs','tests/helpers/q2-runtime/linux-bootstrap.py','scripts/test-q2-runtime-launcher.mjs'];
+export function assertReliabilityNativeTree(head,read=gitBytes){
+  const p=RELIABILITY_NATIVE_PREFLIGHT,files=(base,sha)=>read(['diff','--name-only',base,sha]).toString().trim().split('\n').filter(Boolean).sort();
+  assertReliabilityWorkerTree(p.source,read);
+  assert.deepEqual(read(['rev-list','--parents','-n','1',p.schemaSource]).toString().trim().split(/\s+/),[p.schemaSource,p.source]);
+  assert.deepEqual(files(p.source,p.schemaSource),['workers/auth/migrations/0113_canvas_notifications_and_lifecycle.sql','tests/helpers/q2-runtime/canvas-reliability.mjs','docs/runbooks/REGRESSION_REGISTER.md'].sort());
+  assert.deepEqual(read(['rev-list','--parents','-n','1',p.productSource]).toString().trim().split(/\s+/),[p.productSource,p.schemaSource]);
+  assert.deepEqual(files(p.schemaSource,p.productSource),['workers/auth/src/lib/canvas-notifications.js','tests/helpers/canvas-notifications-control.mjs','tests/helpers/q2-runtime/canvas-reliability.mjs','docs/runbooks/REGRESSION_REGISTER.md'].sort());
+  assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,p.productSource]);
+  assert.deepEqual(files(p.productSource,head),[...reliabilityNativeTools].sort(),'Unreviewed product/fixture change');
+  for(const[file,hash]of Object.entries(p.specs))assert.equal(sha256(read(['show',`${head}:${file}`])),hash,`Changed native correction ${file}`);
+  const before=file=>read(['show',`${p.source}:${file}`]).toString(),after=file=>read(['show',`${head}:${file}`]).toString();
+  for(const file of reliabilityNativeTools.filter(file=>file.startsWith('tests/'))){
+    let expected=before(file);
+    if(file.endsWith('/runner.mjs'))expected=expected.replace('export function selectedRuntimeSuites(suite) {\n',"export function selectedRuntimeSuites(suite) {\n  // Closed continuation after the 0113 native migration failure. Full retains all 15 suites.\n  if(suite==='canvas-notification-migration')return runtimeSuites.filter(([name])=>!['references','q4-memory'].includes(name));\n");
+    else if(file.endsWith('.py'))expected=expected.replace('+ ["canvas-reliability"])','+ ["canvas-reliability"] + ["canvas-notification-migration"])');
+    else expected=expected.replaceAll("'canvas-export-delivery','canvas-reliability'","'canvas-export-delivery','canvas-notification-migration','canvas-reliability'").replaceAll('canvas-export-delivery|canvas-reliability','canvas-export-delivery|canvas-notification-migration|canvas-reliability');
+    assert.equal(after(file),expected,'Only the closed suite alias may alter native launch inputs');
+  }
+  const entry="if(process.argv.includes('--reliability-native-only')) {\n  assert.deepEqual(process.argv.slice(2),['--reliability-native-only']);\n  await testReliabilityNativeContinuation();process.exit(0);\n}\n\n";
+  const text=after('scripts/test-local-release.mjs'),tail='\nasync function testReliabilityNativeContinuation() {';
+  assert.equal(text.split(entry).length,2);assert.equal(text.split(tail).length,2);assert.equal(text.split(tail)[0].replace(entry,''),before('scripts/test-local-release.mjs'));
+  const launcher=after('scripts/test-q2-runtime-launcher.mjs'),marker="\ntest('Canvas notification migration continuation retains only independent completed suites',async()=>{";
+  assert.equal(launcher.split(marker).length,2);assert.equal(launcher.split(marker)[0],before('scripts/test-q2-runtime-launcher.mjs'));
+}
+export function reliabilityNativePrefix(bytes,current,read=gitBytes){
+  const p=RELIABILITY_NATIVE_PREFLIGHT;assertReliabilityNativeTree(current.sha,read);assert.equal(sha256(bytes),p.checkpoint);
+  const old=JSON.parse(bytes);assert.equal(old.sha,p.source);assert.equal(old.status,'failed');assert.equal(old.commands.length,42);
+  assert(old.commands.slice(0,41).every(row=>row.exitCode===0));assert.equal(old.commands[41].exitCode,1);assert.equal(old.commands[41].logHash,p.failedLog);
+  assert.deepEqual(old.preflightContinuation,{source:RELIABILITY_WORKER_PREFLIGHT.source,checkpoint:RELIABILITY_WORKER_PREFLIGHT.checkpoint});
+  for(const key of ['base','planHash'])assert.equal(old[key],current[key]);
+  const env=({reused,preparationMs,...rest})=>rest;assert.deepEqual(env(old.environment),env(current.environment));assert.equal(old.nativeBrowsers.key,current.nativeBrowsers.key);
+  const flags=({files,reasons,...rest})=>rest;assert.deepEqual(flags(old.selection),flags(current.selection));
+  assert.deepEqual(current.commands,selectedCommands(old.selection,{GITHUB_SHA:current.sha,CANDIDATE_BASE:current.base}));
+  for(const index of p.retain)assert.deepEqual(old.commands[index].command,current.commands[index]);return old;
+}
+export function verifyReliabilityNativeUnion(previous,fresh){
+  assert.equal(previous.passed,40);assert.equal(previous.failedSuites,13);assert.equal(previous.reports.length,15);
+  const retained=previous.reports.filter(row=>['references','q4-memory'].includes(row.suite));assert.equal(retained.length,2);assert(retained.every(row=>!row.failure));
+  assert.deepEqual(retained.map(row=>row.records.length),[3,10]);assert(retained.flatMap(row=>row.records).every(row=>row.status==='PASS'));
+  const partial=previous.reports.filter(row=>!retained.includes(row));assert.deepEqual(partial.map(row=>row.suite),reliabilityNativeSuites);
+  assert(partial.every(row=>row.failure?.message.includes('too many terms in compound SELECT')));
+  assert.equal(partial.reduce((n,row)=>n+row.records.length,0),27);
+  assert.equal(fresh.failedSuites,0);assert.deepEqual(fresh.reports.map(row=>row.suite),reliabilityNativeSuites);
+  let count=0;for(const row of fresh.reports){assert(!row.failure);assert(row.records.length>0);assert(row.records.every(item=>item.status==='PASS'));assert.equal(new Set(row.records.map(item=>item.name)).size,row.records.length);
+    for(const old of partial.find(other=>other.suite===row.suite).records)assert(row.records.some(item=>item.name===old.name),'Dependent setup assertion disappeared');count+=row.records.length;}
+  assert.equal(fresh.passed,count);assert.equal(fresh.reports.find(row=>row.suite==='canvas-reliability').records.length,6);
+  return {nativeRetained:13,nativeFresh:count,dependentChecksRepeated:27,nativeTotal:count+13};
+}
+export function verifyReliabilityNativeProvenance(previous,fresh,build){
+  assert.deepEqual(fresh,build,'Report does not match native build provenance');
+  const unchanged=({migrations,sourceLedger,bundleSha256,...rest})=>rest;assert.deepEqual(unchanged(fresh),unchanged(previous),'Native dependencies/runtime changed');
+  const source='workers/auth/src/lib/canvas-notifications.js',ledger=previous.sourceLedger.map(row=>row.path===source?{...row,sha256:RELIABILITY_NATIVE_PREFLIGHT.specs[source]}:row);
+  assert.equal(ledger.filter(row=>row.path===source).length,1);assert.notEqual(previous.sourceLedger.find(row=>row.path===source).sha256,ledger.find(row=>row.path===source).sha256);
+  assert.deepEqual(fresh.sourceLedger,ledger,'Only the exact reviewed notification bind repair may change application sources');
+  assert.match(fresh.bundleSha256,/^[a-f0-9]{64}$/);assert.notEqual(fresh.bundleSha256,previous.bundleSha256,'Old application bundle cannot claim the notification bind repair');
+  const file='0113_canvas_notifications_and_lifecycle.sql',expected=previous.migrations.map(row=>row.path===file?{...row,sha256:RELIABILITY_NATIVE_PREFLIGHT.specs['workers/auth/migrations/'+file]}:row);
+  assert.equal(expected.filter(row=>row.path===file).length,1);assert.notEqual(previous.migrations.find(row=>row.path===file).sha256,expected.find(row=>row.path===file).sha256);
+  assert.deepEqual(fresh.migrations,expected,'Fresh native runtime must use the corrected exact SQL with unchanged migration history');
+}
+export function verifyReliabilityNativeRepair(directory,head,{allowPending=false,read=gitBytes}={}){
+  const p=RELIABILITY_NATIVE_PREFLIGHT;assertReliabilityNativeTree(head,read);
+  const pinned=(file,hash)=>{const bytes=fs.readFileSync(path.join(directory,file));assert.equal(sha256(bytes),hash,`Changed native origin evidence ${file}`);return bytes;};
+  const old=JSON.parse(pinned('reuse/preflight-checkpoint.json',p.checkpoint)),origin=path.join(directory,'reuse/reliability-native-origin');
+  const complete=verifyReliabilityWorkerRepair(origin,p.source,{read});verifyReliabilityWorkerSelection(origin,p.source,{read});
+  const discovery=workerDiscovery(parseDiscovery(pinned('reuse/reliability-native-origin/test-results/reliability-worker-discovery.json',p.discovery).toString()));
+  const accepted=JSON.parse(pinned('reuse/reliability-native-origin/test-results/reliability-worker-fresh.json',p.workerReport));
+  const resolved=new Map(executedWorkers(accepted).map(row=>[row.id,row]));const previous=complete.previous.map(row=>resolved.get(row.id)||row);assert(previous.every(passedOnce));
+  const log=pinned('reuse/preflight-failed.log',p.failedLog).toString();assert.match(log,/"originalPassed":1645,"progressPassed":8,"correctedPassed":0,"total":1653/);
+  assert(log.includes('Canvas assembly: real 120-second/2880-frame export'));assert.match(log,/Private video reference FFmpeg: .*passed\./);
+  const launcher=log.split('> test:q2-runtime\n');assert.equal(launcher.length,2);assert.match(launcher[1],/# tests 33\n# suites 0\n# pass 33\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0/);
+  const records=Object.fromEntries(Object.entries(p.nativeProof).map(([file,hash])=>[file,JSON.parse(pinned('reuse/reliability-native-original/'+file,hash))]));
+  const native=records['reports/bitbi-q2-runtime-5g5JAc__result.json'];assert.deepEqual(native.provenance,records['reports/bitbi-q2-runtime-5g5JAc__build-provenance.json']);
+  assert.equal(records['launcher-result.json'].hostedImage.GITHUB_SHA,p.source);assert.equal(records['launcher-result.json'].status,1);
+  for(const file of ['reports/isolation-result.json','reports/isolation-final.json'])assert.equal(records[file].passed,true);
+  const identity=rows=>rows.map(({id,file,title})=>({id,file,title})).sort((a,b)=>a.id.localeCompare(b.id));
+  const currentFile=path.join(directory,'test-results/reliability-native-discovery.json');let current=null;
+  if(fs.existsSync(currentFile)){const result=parseDiscovery(fs.readFileSync(currentFile,'utf8'));assert.deepEqual(result.errors,[]);current=workerDiscovery(result);assert.deepEqual(identity(current),identity(discovery));}
+  const affected=previous.filter(row=>reliabilityNativeWorkerNames.includes(row.title));assert.equal(affected.length,16);
+  if(allowPending)return {old,previous,native,current,affected};assert(current,'Missing current full Worker discovery');
+  verifyReliabilityNativeWorkers(previous,current,JSON.parse(fs.readFileSync(path.join(directory,'test-results/reliability-native-workers.json'))));
+  const freshLog=fs.readFileSync(path.join(directory,'test-results/reliability-native.log'),'utf8');verifyNativeLocalReports(directory,freshLog);
+  const refs=freshLog.split('\n').flatMap(line=>{try{const row=JSON.parse(line);return row.q2LinuxEvidence?[row.q2LinuxEvidence]:[];}catch{return [];}});assert.equal(refs.length,1);
+  const folder=path.join(directory,'runtime',refs[0].slice('/tmp/bitbi-release/'.length));assert.equal(JSON.parse(fs.readFileSync(path.join(folder,'launcher-result.json'))).hostedImage.GITHUB_SHA,head);
+  const names=fs.readdirSync(path.join(folder,'reports')).filter(name=>name==='result.json'||name.endsWith('__result.json'));assert.equal(names.length,1);
+  const nativeFresh=JSON.parse(fs.readFileSync(path.join(folder,'reports',names[0]))),buildFile=names[0].replace(/result\.json$/,'build-provenance.json');
+  verifyReliabilityNativeProvenance(native.provenance,nativeFresh.provenance,JSON.parse(fs.readFileSync(path.join(folder,'reports',buildFile))));
+  const alias=tapResults(fs.readFileSync(path.join(directory,'test-results/reliability-native-alias.tap'),'utf8'));
+  assert.deepEqual(alias.filter(row=>row.status!=='skipped'),[{title:'Canvas notification migration continuation retains only independent completed suites',status:'passed'}]);
+  return {old,previous,native,result:{workerRetained:1637,workerFresh:16,workerTotal:1653,processorRetained:true,launcherRetained:33,launcherFresh:1,...verifyReliabilityNativeUnion(native,nativeFresh)}};
+}
+export function verifyReliabilityNativeWorkers(previous,discovery,report){
+  const identity=rows=>rows.map(({id,file,title})=>({id,file,title})).sort((a,b)=>a.id.localeCompare(b.id));
+  assert.equal(previous.length,1653);assert.equal(new Set(previous.map(row=>row.id)).size,1653);assert(previous.every(passedOnce));
+  assert.deepEqual(identity(discovery),identity(previous));const affected=previous.filter(row=>reliabilityNativeWorkerNames.includes(row.title));assert.equal(affected.length,16);
+  assert.deepEqual(report.errors,[]);assert.equal(report.config.workers,1);assert(report.config.projects.every(row=>row.retries===0));
+  assert.deepEqual({expected:report.stats.expected,unexpected:report.stats.unexpected,flaky:report.stats.flaky,skipped:report.stats.skipped},{expected:16,unexpected:0,flaky:0,skipped:0});
+  const fresh=executedWorkers(report);assert.deepEqual(identity(fresh),identity(affected));assert(fresh.every(passedOnce),'Every affected view caller must pass once');
+  return {workerRetained:1637,workerFresh:16,workerTotal:1653};
+}
+export function verifyReliabilityNativeSelection(directory,head,options={}){
+  const {affected}=verifyReliabilityNativeRepair(directory,head,{...options,allowPending:true});const report=parseDiscovery(fs.readFileSync(path.join(directory,'test-results/reliability-native-selected.json'),'utf8'));assert.deepEqual(report.errors,[]);
+  const identity=rows=>rows.map(({id,file,title})=>({id,file,title})).sort((a,b)=>a.id.localeCompare(b.id));assert.deepEqual(identity(workerDiscovery(report)),identity(affected));return affected;
+}
+export function reliabilityNativeGuard(command){assert.equal(command,'npm run test:local-release');return command+' -- --reliability-native-only';}
+export function reliabilityNativeContinuation(command){
+  assert.equal(command.split('  npm run test:workers').length,2);assert(command.endsWith('else\n  npm run test:workers\nfi\n'));
+  const grep=reliabilityNativeWorkerNames.map(value=>value.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|');
+  const lines=['set -o pipefail','mkdir -p .local-release/test-results',
+    'PLAYWRIGHT_JSON_OUTPUT_NAME= npx playwright test -c playwright.workers.config.js --list --reporter=json > .local-release/test-results/reliability-native-discovery.json',
+    'node scripts/local-release.mjs verify-reliability-native-pending .local-release',
+    `PLAYWRIGHT_JSON_OUTPUT_NAME= npx playwright test -c playwright.workers.config.js --grep '(?:${grep})$' --list --reporter=json > .local-release/test-results/reliability-native-selected.json`,
+    'node scripts/local-release.mjs verify-reliability-native-selection .local-release',
+    `PLAYWRIGHT_JSON_OUTPUT_NAME=.local-release/test-results/reliability-native-workers.json npx playwright test -c playwright.workers.config.js --grep '(?:${grep})$' --output=test-results/reliability-native-workers --workers=1 --retries=0 --reporter=list,json`,
+    'node scripts/test-q2-runtime.mjs --suite canvas-notification-migration 2>&1 | tee .local-release/test-results/reliability-native.log',
+    'mkdir -p .local-release/runtime','cp -a /tmp/bitbi-release/q2-runtime-evidence .local-release/runtime/',
+    'node scripts/local-release.mjs verify-reliability-native-repair .local-release'];return command.replace('  npm run test:workers',()=>lines.map(line=>'  '+line).join('\n'));
+}
+export function verifyReliabilityNativeContinuation(directory,evidence,commands){
+  const p=RELIABILITY_NATIVE_PREFLIGHT;assert.deepEqual(evidence.preflightContinuation,{source:p.source,checkpoint:p.checkpoint});
+  const old=reliabilityNativePrefix(fs.readFileSync(path.join(directory,'reuse/preflight-checkpoint.json')),{...evidence,commands});
+  verifyReliabilityNativeRepair(directory,evidence.sha);verifyReliabilityNativeSelection(directory,evidence.sha);assert.equal(evidence.commands.length,commands.length);
+  for(const[i,row]of evidence.commands.entries())if(p.retain.includes(i))assert.deepEqual(row,{...old.commands[i],reusedFrom:p.source});
+  else{assert(!row.reusedFrom&&!row.browserContinuation);if(i===17)assert.equal(row.continuation,reliabilityNativeGuard(commands[i].run));else if(i===41)assert.equal(row.continuation,reliabilityNativeContinuation(commands[i].run));else assert(!row.continuation);}
 }

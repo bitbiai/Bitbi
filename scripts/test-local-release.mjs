@@ -21,6 +21,11 @@ import { LOCAL_IMPORT_REPAIR, assertImportRepairWorkflow, localRepairCommand, ve
 import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,assertPermissionContinuationTree,permissionContinuationPrefix,CANVAS_STAGE_CASES,canvasStageContinuation} from './lib/local-release-evidence.mjs';
 import {testLocalMediaProcess} from './test-local-media-process.mjs';
 
+if(process.argv.includes('--reliability-native-only')) {
+  assert.deepEqual(process.argv.slice(2),['--reliability-native-only']);
+  await testReliabilityNativeContinuation();process.exit(0);
+}
+
 if(process.argv.includes('--reliability-worker-only')) {
   assert.deepEqual(process.argv.slice(2),['--reliability-worker-only']);
   await testReliabilityWorkerContinuation();process.exit(0);
@@ -3710,3 +3715,60 @@ async function testReliabilityWorkerContinuation() {
   console.log('Canvas reliability Worker continuation: authentic 1653 discovery, 1645 retained passes, eight mandatory fresh cases; changed sources, missing/forged/retried/extra reports and reused affected commands reject.');
 }
 await testReliabilityWorkerContinuation();
+
+async function testReliabilityNativeContinuation() {
+  const {RELIABILITY_NATIVE_PREFLIGHT:p,reliabilityNativeSuites,reliabilityNativeWorkerNames,
+    assertReliabilityNativeTree,reliabilityNativePrefix,reliabilityNativeGuard,reliabilityNativeContinuation,
+    verifyReliabilityNativeRepair,verifyReliabilityNativeSelection,verifyReliabilityNativeWorkers,verifyReliabilityNativeUnion,verifyReliabilityNativeProvenance}=await import('./lib/local-release-evidence.mjs');
+  const partial=reliabilityNativeSuites.map((suite,index)=>({suite,records:Array.from({length:index===0?27:0},(_,i)=>({name:`dependent-${i}`,status:'PASS'})),failure:{message:'D1_ERROR: too many terms in compound SELECT: SQLITE_ERROR'}}));
+  const independent=[['references',3],['q4-memory',10]].map(([suite,count])=>({suite,records:Array.from({length:count},(_,i)=>({name:`retained-${i}`,status:'PASS'})),failure:null}));
+  const previous={passed:40,failedSuites:13,reports:[...partial,...independent]};
+  const reports=partial.map(row=>({...row,failure:null,records:row.records.length?row.records:Array.from({length:row.suite==='canvas-reliability'?6:1},(_,i)=>({name:`fresh-${i}`,status:'PASS'}))}));
+  const fresh={passed:reports.reduce((n,row)=>n+row.records.length,0),failedSuites:0,reports};
+  const expected={nativeRetained:13,nativeFresh:fresh.passed,dependentChecksRepeated:27,nativeTotal:fresh.passed+13};assert.deepEqual(verifyReliabilityNativeUnion(previous,fresh),expected);
+  for(const mutate of [r=>r.reports.pop(),r=>r.reports.push(independent[0]),r=>r.reports[0].failure={message:'still blocked'},r=>r.reports[0].records.pop(),r=>r.reports[0].records[0].status='FAIL',r=>r.reports[0].records.push(r.reports[0].records[0]),r=>r.passed++]){const bad=structuredClone(fresh);mutate(bad);assert.throws(()=>verifyReliabilityNativeUnion(previous,bad));}
+  for(const mutate of [r=>r.reports.at(-1).failure={message:'original incomplete'},r=>r.reports[0].failure.message='a different failure',r=>r.reports.at(-1).records.pop(),r=>r.passed=41]){const bad=structuredClone(previous);mutate(bad);assert.throws(()=>verifyReliabilityNativeUnion(bad,fresh));}
+  assert.equal(reliabilityNativeGuard('npm run test:local-release'),'npm run test:local-release -- --reliability-native-only');assert.throws(()=>reliabilityNativeGuard('echo passed'));
+  assert.equal(reliabilityNativeWorkerNames.length,16);
+  const priorProvenance={bundleSha256:'a'.repeat(64),sourceLedger:[{path:'workers/auth/src/lib/canvas-notifications.js',sha256:'old-bind-query'},{path:'other-source.js',sha256:'same'}],migrations:[{path:'0112_previous.sql',sha256:'same'},{path:'0113_canvas_notifications_and_lifecycle.sql',sha256:'original-sql'}]};
+  const currentProvenance=structuredClone(priorProvenance);currentProvenance.migrations[1].sha256=p.specs['workers/auth/migrations/0113_canvas_notifications_and_lifecycle.sql'];currentProvenance.sourceLedger[0].sha256=p.specs['workers/auth/src/lib/canvas-notifications.js'];currentProvenance.bundleSha256='b'.repeat(64);
+  verifyReliabilityNativeProvenance(priorProvenance,currentProvenance,currentProvenance);
+  for(const mutate of [r=>r.bundleSha256='a'.repeat(64),r=>r.bundleSha256='different',r=>r.sourceLedger[0].sha256='changed',r=>r.sourceLedger[1].sha256='changed',r=>r.migrations[0].sha256='rewritten',r=>r.migrations[1].sha256='original-sql',r=>r.migrations.pop()]){const bad=structuredClone(currentProvenance);mutate(bad);assert.throws(()=>verifyReliabilityNativeProvenance(priorProvenance,bad,bad));}
+  assert.throws(()=>verifyReliabilityNativeProvenance(priorProvenance,currentProvenance,priorProvenance));
+  // Future ordinary callers test the pure union only. Historical source/cache
+  // requirements apply exclusively to this canonical closed continuation.
+  if(!process.argv.includes('--reliability-native-only'))return;
+  const directory='.local-release',read=args=>execFileSync('git',args),head=read(['rev-parse','HEAD']).toString().trim();
+  const bytes=fs.readFileSync(path.join(directory,'reuse/preflight-checkpoint.json')),old=JSON.parse(bytes);
+  const selection=gitSelection(old.base,head),commands=selectedCommands(selection,{GITHUB_SHA:head,CANDIDATE_BASE:old.base}),context={...old,sha:head,selection,commands};
+  assert.equal(selection.policy,'impact-v1');assert.equal(selection.full,false);assert(selection.homepage&&selection.workers&&selection.auth);
+  assert.deepEqual(reliabilityNativePrefix(bytes,context),old);assertReliabilityNativeTree(head);
+  for(const mutate of [r=>r.base='0'.repeat(40),r=>r.environment.image='sha256:'+'0'.repeat(64),r=>r.commands[1].run+='\necho changed',r=>r.selection.workers=false]){const bad=structuredClone(context);mutate(bad);assert.throws(()=>reliabilityNativePrefix(bytes,bad));}
+  assert.throws(()=>reliabilityNativePrefix(Buffer.from(JSON.stringify({...old,status:'passed'})),context));
+  for(const file of [...Object.keys(p.specs),'tests/helpers/q2-runtime/runner.mjs','tests/helpers/q2-runtime/linux-hosted.mjs','tests/helpers/q2-runtime/linux-runtime-child.mjs','tests/helpers/q2-runtime/linux-bootstrap.py'])assert.throws(()=>assertReliabilityNativeTree(head,args=>args[0]==='show'&&args[1]===`${head}:${file}`?Buffer.from('unreviewed source'):read(args)));
+  assert.throws(()=>assertReliabilityNativeTree(head,args=>args[0]==='diff'&&args[2]===p.productSource?Buffer.from(read(args).toString()+'workers/auth/src/routes/canvas.js\n'):read(args)));
+  assert.throws(()=>assertReliabilityNativeTree(head,args=>args[0]==='rev-list'&&args.at(-1)===head?Buffer.from(`${head} ${p.source}\n`):read(args)));
+  const pending=verifyReliabilityNativeRepair(directory,head,{allowPending:true});assert.equal(pending.previous.length,1653);assert.equal(pending.affected.length,16);assert.equal(pending.native.passed,40);
+  const wrapper=reliabilityNativeContinuation(commands[41].run);assert(wrapper.includes('--suite canvas-notification-migration')&&wrapper.includes('--retries=0')&&wrapper.includes('verify-reliability-native-selection'));
+  assert(!wrapper.includes('npm run test:homepage-ffmpeg-processor')&&!wrapper.includes('npm run test:q2-runtime')&&!wrapper.includes('npm run test:website-assistant')&&!wrapper.includes('  npm run test:workers\n'));
+  assert.throws(()=>reliabilityNativeContinuation('npm run test:workers'));
+  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'reliability-native-proof-'));
+  try{
+    fs.cpSync(path.join(directory,'reuse'),path.join(temp,'reuse'),{recursive:true});fs.mkdirSync(path.join(temp,'test-results'));
+    const full=JSON.parse(fs.readFileSync(path.join(directory,'reuse/reliability-native-origin/test-results/reliability-worker-discovery.json'))),selected=structuredClone(full),ids=new Set(pending.affected.map(row=>row.id));
+    const filter=suite=>{suite.specs=(suite.specs||[]).filter(spec=>ids.has(spec.id));for(const child of suite.suites||[])filter(child);};selected.suites.forEach(filter);
+    const report=structuredClone(selected);report.config.workers=1;report.config.projects.forEach(row=>row.retries=0);report.stats={expected:16,unexpected:0,flaky:0,skipped:0};
+    const mark=suite=>{for(const spec of suite.specs||[])for(const test of spec.tests){test.expectedStatus='passed';test.status='expected';test.results=[{status:'passed',retry:0}];}for(const child of suite.suites||[])mark(child);};report.suites.forEach(mark);
+    const write=(name,data)=>fs.writeFileSync(path.join(temp,'test-results',name),JSON.stringify(data,null,2));write('reliability-native-discovery.json',full);write('reliability-native-selected.json',selected);
+    assert.equal(verifyReliabilityNativeSelection(temp,head).length,16);
+    assert.deepEqual(verifyReliabilityNativeWorkers(pending.previous,pending.previous,report),{workerRetained:1637,workerFresh:16,workerTotal:1653});
+    for(const mutate of [r=>r.stats.expected=15,r=>r.config.projects[0].retries=1,r=>r.errors=[{message:'incomplete'}],r=>{const visit=suite=>{if(suite.specs?.length)suite.specs.pop();else for(const child of suite.suites||[])visit(child);};r.suites.forEach(visit);},r=>{const visit=suite=>{for(const spec of suite.specs||[])spec.tests[0].results.push({status:'passed',retry:1});for(const child of suite.suites||[])visit(child);};r.suites.forEach(visit);}]){const bad=structuredClone(report);mutate(bad);assert.throws(()=>verifyReliabilityNativeWorkers(pending.previous,pending.previous,bad));}
+    assert.throws(()=>verifyReliabilityNativeWorkers(pending.previous,pending.previous.slice(1),report));
+    write('reliability-native-selected.json',full);assert.throws(()=>verifyReliabilityNativeSelection(temp,head));write('reliability-native-selected.json',selected);
+    const log=path.join(temp,'reuse/preflight-failed.log'),raw=fs.readFileSync(log);fs.appendFileSync(log,'\nforged pass\n');assert.throws(()=>verifyReliabilityNativeRepair(temp,head,{allowPending:true}));fs.writeFileSync(log,raw);
+    const original=path.join(temp,'reuse/reliability-native-original/reports/bitbi-q2-runtime-5g5JAc__result.json');fs.writeFileSync(original,JSON.stringify({...pending.native,failedSuites:0}));assert.throws(()=>verifyReliabilityNativeRepair(temp,head,{allowPending:true}));
+  }finally{fs.rmSync(temp,{recursive:true,force:true});}
+  const alias=spawnSync(process.execPath,['--test','--test-name-pattern=^Canvas notification migration continuation retains only independent completed suites$','scripts/test-q2-runtime-launcher.mjs'],{encoding:'utf8',timeout:60000});assert.equal(alias.status,0,alias.stdout+'\n'+alias.stderr);const cases=tapResults(alias.stdout);assert.deepEqual(cases.filter(row=>row.status==='passed').map(row=>row.title),['Canvas notification migration continuation retains only independent completed suites']);fs.mkdirSync(path.join(directory,'test-results'),{recursive:true});fs.writeFileSync(path.join(directory,'test-results/reliability-native-alias.tap'),alias.stdout);
+  console.log('Native notification continuation: authentic 1653 Worker union with16 affected view callers fresh; FFmpeg/33launcher and13 independent native passes retained;13 migration-dependent suites require fresh setup and completion. Forged/missing/retried evidence and source/selection changes reject.');
+}
+await testReliabilityNativeContinuation();
