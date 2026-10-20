@@ -76,7 +76,7 @@ export default {
     if(path==='/canvas-explanation'&&['evidence','quoted','budget-scope'].includes(body.name))return Response.json(await canvasExplanationCase(env,body.name));
     if(path==='/canvas-incident'&&CANVAS_INCIDENT_CASES.includes(body.name))return Response.json(await canvasIncidentCase(env,body.name));
     if(path==='/canvas-agent-plan-interpretation'&&['recover','guards','crash','active','preflight'].includes(body.name))return Response.json(await canvasPlanInterpretationCase(env,body.name));
-    if(path==='/canvas-agent-plan-correction-review'&&['recover','guards','race'].includes(body.name))return Response.json(await canvasPlanCorrectionReviewCase(env,body.name));
+    if(path==='/canvas-agent-plan-correction-review'&&['recover','guards','race','format'].includes(body.name))return Response.json(await canvasPlanCorrectionReviewCase(env,body.name));
     if(path==='/canvas-assistant-migration-seed')return Response.json(await seedCanvasAssistantMigration(env));
     if(path==='/canvas-assistant-migration-verify')return Response.json(await verifyCanvasAssistantMigration(env,body));
     if(path==='/canvas-agent-preflight')return Response.json(await canvasAgentPreflightCase(env,body));

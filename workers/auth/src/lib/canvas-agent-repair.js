@@ -3,6 +3,7 @@ import { plannerProject } from '../routes/canvas-agent.js';
 import { canvasAssistantModelId } from '../../../../js/shared/canvas-assistant-models.mjs';
 import { nowIso,sha256Hex } from './tokens.js';
 import { canvasAgentEventStatement } from './canvas-agent-progress.js';
+import { canvasAgentParameterCorrectionFeedback } from './canvas-agent-plan-feedback.js';
 
 export async function assertCanvasAgentPlanningAllowed(env,run,issues=[],permission={}) {
     // Reviewing an already accepted answer authorizes its settlement and the
@@ -22,7 +23,8 @@ export async function quoteCanvasAgentCorrection(env,run,view,inventory,plan,iss
     const feedback=issues.slice(0,16).map(issue=>({code:issue.code,
         ...(issue.nodeKey?{nodeKey:issue.nodeKey}:{}),...(issue.modelId?{modelId:issue.modelId}:{}),
         ...(issue.field?{field:issue.field}:{}),...(issue.message?{message:String(issue.message).slice(0,800)}:{}),
-        ...(Array.isArray(issue.allowed)?{allowed:issue.allowed.filter(v=>typeof v==='string').slice(0,16)}:{})}));
+        ...(Array.isArray(issue.allowed)?{allowed:issue.allowed.filter(v=>typeof v==='string').slice(0,16)}:{}),
+        ...(canvasAgentParameterCorrectionFeedback(issue)||{})}));
     const payload={version:1,model:modelId,requestId:id,brief:JSON.parse(run.input_json).brief,
         durationMode:'creative',targetDurationSeconds:run.target_seconds,toleranceSeconds:run.tolerance_seconds,
         capabilityRevision:inventory.revision,capabilities:inventory,projectRevision:view.project.revision,currentProject:plannerProject(view),

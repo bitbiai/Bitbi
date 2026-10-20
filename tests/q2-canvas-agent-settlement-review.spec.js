@@ -2,7 +2,7 @@ const {test,expect}=require('@playwright/test');
 const {SqliteD1Database,applyAuthMigrations}=require('./helpers/sqlite-d1.js');
 const {createAuthTestEnv}=require('./helpers/auth-worker-harness.js');
 
-for(const name of ['recover','guards','race'])test(`Canvas reviewed invalid plan correction ${name}`,async()=>{
+for(const name of ['recover','guards','race','format'])test(`Canvas reviewed invalid plan correction ${name}`,async()=>{
     const DB=new SqliteD1Database();applyAuthMigrations(DB);
     try{
         const {canvasPlanCorrectionReviewCase}=await import('./helpers/canvas-agent-plan-correction-review-control.mjs');

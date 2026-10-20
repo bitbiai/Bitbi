@@ -2336,6 +2336,22 @@ operator continuation requires a separately hashed review, original allowance,
 current graph/brief/ownership and stop/expiry guards. An operational-only brief
 review must retain both original and effective evidence rather than overwrite
 pinned run fields. New reasoning gets its own bounded step and usage identity.
+The live follow-up exposed a second boundary: a completed correction again had
+an invalid terminal join, and its interpretation compared the original brief
+revision instead of inheriting the exact reviewed correction's effective brief.
+Inherit only that accepted step's reviewed context, with an atomic full-brief
+fence and no additional inference authority. Keep unsupported image format
+choices blocked: an adapter omitting a codec option does not guarantee JPEG.
+Preflight feedback must retain the safe `config.outputFormat` path and actual
+allowed values; the previous generic `config` feedback left the model without
+the precise rejected setting. Original and correction usage remain separate
+settled operations. The shared recovery fixture covers both original evidence,
+late replay, same-revision brief changes and the still-blocked format choice.
+An explicit operator review may derive a versioned native-format interpretation
+for the exact approved new image nodes and original response digest. This is an
+owner decision, not an automatic no-op repair: preserve the JPEG intent in the
+original answer and record the accepted change separately. Without that approval,
+preflight still blocks; interpretation cannot grant another planning attempt.
 Smallest controls live in the existing provider/settlement-review Worker specs,
 `canvas-reliability` native suite, and the shared interpretation helper. Private
 receipts and user identifiers remain outside Git.

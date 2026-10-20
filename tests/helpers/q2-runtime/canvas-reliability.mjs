@@ -7,7 +7,7 @@ export const canvasReliabilityInventory=Object.freeze([
   ...['evidence','quoted','budget-scope'].map(name=>`canvas_reliability_explanation_${name}`),
   ...['fallback','manual','model','fable','unknown','resolved','revoked','isolation','deleted'].map(name=>`canvas_reliability_incident_${name}`),
   ...['recover','guards','crash','active','preflight'].map(name=>`canvas_reliability_plan_interpretation_${name}`),
-  ...['recover','guards','race'].map(name=>`canvas_reliability_plan_correction_review_${name}`),
+  ...['recover','guards','race','format'].map(name=>`canvas_reliability_plan_correction_review_${name}`),
 ]);
 // This additive suite is also part of Full. It does not relabel or rerun the
 // previous Canvas/media evidence, and uses the same native Worker/D1 bindings.
@@ -59,7 +59,7 @@ export async function runCanvasReliabilityTests(f){
     const response=await f.control('/canvas-agent-plan-interpretation',{name});assert.equal(response.status,200,await response.clone().text());
     const result=await response.json();assert.equal(result.case,name);f.metrics.push(result);
   });
-  for(const name of ['recover','guards','race'])await f.test(`canvas_reliability_plan_correction_review_${name}`,async()=>{
+  for(const name of ['recover','guards','race','format'])await f.test(`canvas_reliability_plan_correction_review_${name}`,async()=>{
     const response=await f.control('/canvas-agent-plan-correction-review',{name});assert.equal(response.status,200,await response.clone().text());
     const result=await response.json();assert.equal(result.case,name);assert.equal(result.newPlanningCalls,name==='recover'?1:0);f.metrics.push(result);
   });

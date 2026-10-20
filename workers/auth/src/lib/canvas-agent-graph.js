@@ -2,7 +2,7 @@ import { CANVAS_AGENT_LIMITS } from '../../../../js/shared/canvas-agent-contract
 import { assertOmniReady } from './gemini-omni-readiness.js';
 import { H3_MODEL } from '../../../../js/shared/minimax-h3.mjs';
 import { readCanvasAgentBudget } from './canvas-agent-budget.js';
-import { canvasAgentValidationIssue, canvasAgentFeedbackError } from './canvas-agent-plan-feedback.js';
+import { canvasAgentValidationIssue, canvasAgentFeedbackError, canvasAgentParameterError, CANVAS_AGENT_CHOICE_CONTROLS } from './canvas-agent-plan-feedback.js';
 import { validateCanvasAgentPlan } from '../../../shared/canvas-agent-plan.mjs';
 import { getCanvasModelForRole } from '../../../../js/shared/canvas-model-contract.mjs';
 import { transitionTimeline } from '../../../../js/shared/canvas-transitions.mjs';
@@ -21,8 +21,10 @@ const TYPE_KIND={text_generation:'text',image_generation:'image',video_generatio
 function validateConfig(model,config,prompt) {
     const c=model.controls;
     if(prompt.length>(c.maxPromptLength||12000))agentFail('canvas_agent_prompt_limit');
-    const choices={aspectRatio:c.aspectRatioOptions,quality:c.qualityOptions,resolution:c.resolutionOptions,size:c.sizeOptions,outputFormat:c.outputFormatOptions,background:c.backgroundOptions};
-    for(const [key,options] of Object.entries(choices))if(config[key]!==undefined&&(!options?.length||!options.includes(config[key])))agentFail('canvas_agent_parameter_unsupported');
+    for(const [key,control] of Object.entries(CANVAS_AGENT_CHOICE_CONTROLS)){
+        const options=c[control];
+        if(config[key]!==undefined&&(!options?.length||!options.includes(config[key])))throw canvasAgentParameterError(key);
+    }
     const flags={steps:c.supportsSteps,seed:c.supportsSeed,width:c.supportsDimensions,height:c.supportsDimensions,negativePrompt:c.supportsNegativePrompt,generateAudio:c.supportsAudioToggle,watermark:c.supportsWatermark,safetyTolerance:c.supportsSafetyTolerance};
     for(const [key,supported] of Object.entries(flags))if(config[key]!==undefined&&!supported)agentFail('canvas_agent_parameter_unsupported');
     for(const key of ['maxTokens','temperature','reasoningEffort','textPurpose']){

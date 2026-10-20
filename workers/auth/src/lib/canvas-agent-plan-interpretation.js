@@ -10,6 +10,7 @@ import { CANVAS_FABLE_MODEL, canvasAssistantModelId } from '../../../../js/share
 import { stablePricingJson } from '../../../../js/shared/model-tariff.mjs';
 import { settlePinnedModelTariff } from './model-tariffs.js';
 import { nowIso, sha256Hex } from './tokens.js';
+import { CANVAS_PLAN_NATIVE_FORMAT_POLICY, assertCanvasPlanNativeFormatReviewSupported, deriveCanvasReviewedNativeFormat } from './canvas-agent-plan-format-review.js';
 
 const POLICY='canvas-plan-terminal-join-v1';
 const fail=code=>{throw Object.assign(new Error(code),{code,status:409});};
@@ -55,7 +56,7 @@ export function deriveCanvasTerminalTransition(raw,context){
     candidate.assembly.clips[index].transition={preset:'none'};
     return {plan:validateCanvasAgentPlan(candidate,context),diagnostic,change:{path:`plan.assembly.clips[${index}].transition`,from,to:{preset:'none'}}};
 }
-async function originalEvidence(env,input,{derive=true}={}){
+async function originalEvidence(env,input,{derive=true,formatApproval=null}={}){
     const ids=identities(input);
     const run=await env.DB.prepare('SELECT * FROM canvas_agent_runs WHERE id=? AND project_id=? AND user_id=?').bind(ids.runId,ids.projectId,ids.userId).first();
     const step=await env.DB.prepare('SELECT * FROM canvas_agent_steps WHERE id=? AND run_id=? AND usage_attempt_id=?').bind(ids.stepId,ids.runId,ids.usageAttemptId).first();
@@ -69,6 +70,9 @@ async function originalEvidence(env,input,{derive=true}={}){
         ||operation.dispatch_token!==usage.dispatch_token||canvasAssistantModelId(run.model_id)!==operation.model
         ||operation.reconcile_attempts>=5||step.allocation_credits!==usage.credit_cost)fail('canvas_agent_plan_interpretation_evidence_invalid');
     const saved=storedPlan(operation),derived=derive?deriveCanvasTerminalTransition(saved.raw,saved.context):null,metadata=parse(usage.metadata_json),stepInput=parse(step.input_json),stepReceipt=parse(step.receipt_json);
+    const responseDigest=await digest(operation.response_json);
+    const format=derived&&formatApproval?deriveCanvasReviewedNativeFormat(derived.plan,formatApproval,responseDigest):null;
+    if(format)derived.plan=validateCanvasAgentPlan(format.plan,saved.context);
     const caller=parse(operation.caller_policy_json),payload=stepInput.payload;
     if(!payload||payload.requestId!==operation.request_id||payload.model!==operation.model||await sha256Hex(JSON.stringify(payload))!==operation.input_digest
         ||stepReceipt.request?.inputDigest!==operation.input_digest||stepReceipt.operationId!==operation.id
@@ -88,9 +92,10 @@ async function originalEvidence(env,input,{derive=true}={}){
     if(ledger.length!==1||ledger[0].amount!==-chargedCredits||ledger[0].ai_dispatch_token!==operation.dispatch_token)
         fail('canvas_agent_plan_interpretation_billing_mismatch');
     const proposal=await env.DB.prepare('SELECT * FROM canvas_agent_proposals WHERE step_id=? AND run_id=?').bind(step.id,run.id).first();
-    const binding={version:1,policy:POLICY,...ids,modelId:operation.model,requestId:operation.request_id,inputDigest:operation.input_digest,
-        responseDigest:await digest(operation.response_json),receiptDigest:await digest(operation.receipt_json),contextDigest:await digest(operation.context_json),
+    const binding={version:format?2:1,policy:format?CANVAS_PLAN_NATIVE_FORMAT_POLICY:POLICY,...ids,modelId:operation.model,requestId:operation.request_id,inputDigest:operation.input_digest,
+        responseDigest,receiptDigest:await digest(operation.receipt_json),contextDigest:await digest(operation.context_json),
         stepReceiptDigest:await digest(step.receipt_json),tariffDigest:await digest(metadata.model_tariff),...(derived?{planDigest:await digest(derived.plan),diagnostic:derived.diagnostic,change:derived.change}:{}),chargedCredits,originalReconcileAttempts:operation.reconcile_attempts};
+    if(format)Object.assign(binding,{formatApproval:format.approval,formatChanges:format.changes});
     return {ids,run,step,operation,usage,project,proposal,binding,plan:derived?.plan,rawPlan:saved.raw,diagnostic:diagnoseStoredCanvasPlan(operation),ledger};
 }
 function storedInterpretation(value){
@@ -103,33 +108,58 @@ function storedInterpretation(value){
 export async function readValidCanvasPlanInterpretation(env,run,step){
     const proposal=await env.DB.prepare('SELECT interpretation_json FROM canvas_agent_proposals WHERE step_id=? AND run_id=?').bind(step.id,run.id).first();
     if(!proposal?.interpretation_json)return null;
-    const stored=parse(proposal.interpretation_json),value=await originalEvidence(env,stored.binding);
+    const stored=parse(proposal.interpretation_json),value=await originalEvidence(env,stored.binding,{formatApproval:stored.binding.version===2?stored.binding.formatApproval:null});
     const checked=storedInterpretation(value);
     if(!checked||checked.reviewDigest!==await digest({binding:checked.binding,authority:checked.authority})
         ||run.id!==value.run.id||step.id!==value.step.id)fail('canvas_agent_plan_interpretation_conflict');
     return value.plan;
 }
+async function inheritedCorrectionReview(env,value,conversation){
+    const {run,step}=value,parent=await env.DB.prepare("SELECT * FROM canvas_agent_proposals WHERE run_id=? AND json_extract(interpretation_json,'$.authority.strategy')='bounded-correction' LIMIT 1").bind(run.id).first();
+    if(!parent||parent.step_id===step.id)return null;
+    const record=parse(parent.interpretation_json),{assertCanvasPlanReviewCurrent,allowsReviewedCanvasCorrection}=await import('./canvas-agent-plan-correction-review.js');
+    const authority=await assertCanvasPlanReviewCurrent(env,run,record);
+    if(!await allowsReviewedCanvasCorrection(env,run,record,{stepId:step.id}))fail('canvas_agent_plan_interpretation_authority_changed');
+    const original=await originalEvidence(env,record.binding),verified=storedInterpretation(original);
+    if(!verified||verified.reviewDigest!==record.reviewDigest||original.step.id!==parent.step_id)
+        fail('canvas_agent_plan_interpretation_conflict');
+    // Inherit only the exact reviewed result's brief, never its right to make
+    // another request. Both the immutable review and current brief are fenced
+    // again in the same batch that persists this separate interpretation.
+    return {authority:{effectiveBriefRevision:authority.effectiveBriefRevision,effectiveBriefDigest:authority.effectiveBriefDigest,
+        inheritedReview:{stepId:parent.step_id,reviewDigest:record.reviewDigest,correctionStepId:step.id}},
+        guard:env.DB.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM canvas_agent_proposals p
+          JOIN canvas_agent_runs r ON r.id=p.run_id JOIN canvas_agent_conversations c ON c.project_id=r.project_id AND c.user_id=r.user_id
+          WHERE p.step_id=? AND p.run_id=? AND p.interpretation_json=? AND r.repair_attempts=1
+          AND c.state='active' AND c.brief_revision=? AND c.brief_json=?) THEN 1 ELSE json_extract('[]','$[') END`)
+            .bind(parent.step_id,run.id,parent.interpretation_json,authority.effectiveBriefRevision,conversation.brief_json)};
+}
 async function evidence(env,input,activeRun=null){
-    if(input.strategy!==undefined&&input.strategy!=='bounded-correction'||activeRun&&input.strategy)fail('canvas_agent_plan_interpretation_approval_invalid');
-    const value=await originalEvidence(env,input),stored=storedInterpretation(value);
+    if(input.strategy!==undefined&&!['bounded-correction','reviewed-correction-result'].includes(input.strategy)||activeRun&&input.strategy)fail('canvas_agent_plan_interpretation_approval_invalid');
+    if(input.formatApproval!==undefined&&(activeRun||input.strategy!=='reviewed-correction-result'))fail('canvas_agent_plan_format_approval_invalid');
+    const value=await originalEvidence(env,input,{formatApproval:input.formatApproval}),stored=storedInterpretation(value);
     if(stored){
         if(stored.reviewDigest!==await digest({binding:stored.binding,authority:stored.authority}))fail('canvas_agent_plan_interpretation_conflict');
         return {...value,stored,reviewDigest:stored.reviewDigest,replay:true};
     }
     const {run,step,project}=value,now=nowIso();
-    const permittedState=activeRun?run.status==='planning'&&run.lease_token===activeRun.lease_token&&run.lease_until>now:run.status==='blocked'&&run.error_code==='canvas_agent_plan_invalid';
+    const permittedState=activeRun?run.status==='planning'&&run.lease_token===activeRun.lease_token&&run.lease_until>now:run.status==='blocked'
+        &&(run.error_code==='canvas_agent_plan_invalid'||input.strategy==='reviewed-correction-result'&&run.error_code==='canvas_agent_plan_interpretation_authority_changed');
     if(!permittedState||run.phase!=='planning'||run.expires_at<=now
         ||!activeRun&&run.lease_until&&run.lease_until>now||project.deleted_at||project.user_status!=='active'||project.revision!==run.expected_revision
         ||String(env.CANVAS_AGENT_ENABLED)!=='true')fail('canvas_agent_plan_interpretation_authority_changed');
     const conversation=await env.DB.prepare('SELECT brief_revision,brief_json,state FROM canvas_agent_conversations WHERE project_id=? AND user_id=?').bind(run.project_id,run.user_id).first();
     const reviewed=input.strategy==='bounded-correction'
         ?await (await import('./canvas-agent-plan-correction-review.js')).reviewCanvasPlanCorrectionAuthority(env,value,conversation,input):null;
+    const inherited=activeRun||input.strategy==='reviewed-correction-result'?await inheritedCorrectionReview(env,value,conversation):null;
+    if(input.strategy==='reviewed-correction-result'&&!inherited)fail('canvas_agent_plan_interpretation_authority_changed');
     const stopped=await env.DB.prepare("SELECT run_id FROM canvas_agent_controls WHERE run_id=? AND action IN ('pause','cancel','takeover') LIMIT 1").bind(run.id).first();
     const latest=await env.DB.prepare("SELECT id FROM canvas_agent_steps WHERE run_id=? AND kind='plan' ORDER BY rowid DESC LIMIT 1").bind(run.id).first();
     const competing=await env.DB.prepare("SELECT id FROM canvas_agent_runs WHERE project_id=? AND id!=? AND purpose='production' AND status IN ('queued','planning','applying','running','exporting') LIMIT 1").bind(run.project_id,run.id).first();
-    if(stopped||competing||latest?.id!==step.id||run.brief_revision!==null&&(!reviewed&&conversation?.brief_revision!==run.brief_revision||conversation?.state==='cancelled'))
+    if(stopped||competing||latest?.id!==step.id||run.brief_revision!==null&&(!reviewed&&!inherited&&conversation?.brief_revision!==run.brief_revision||conversation?.state==='cancelled'))
         fail('canvas_agent_plan_interpretation_authority_changed');
     if(value.proposal)fail('canvas_agent_plan_interpretation_conflict');
+    if(input.formatApproval)assertCanvasPlanNativeFormatReviewSupported();
     const {canvasAgentProject}=await import('../routes/canvas-agent.js'),{canvasAgentCapabilities}=await import('./canvas-agent-capabilities.js');
     const {preflightCanvasAgentGraph}=await import('./canvas-agent-graph.js');
     const view=await canvasAgentProject(env,run.user_id,run.project_id),inventory=await canvasAgentCapabilities(env);
@@ -141,11 +171,12 @@ async function evidence(env,input,activeRun=null){
     const authority={projectRevision:run.expected_revision,briefRevision:run.brief_revision,budgetRevision:run.budget_revision,
         capCredits:run.budget_credits,tariffRevision:run.tariff_revision,capabilityRevision:run.capability_revision,
         expiresAt:run.expires_at,committedCredits:(correction?.quotedBudget||preflight.budget).committedCredits,estimatedMediaCredits:preflight.estimatedCredits??null,
-        allowNewReasoning:Boolean(activeRun),...(correction||{})};
-    return {...value,preflight,authority,correctionGuard:reviewed?.guard,reviewDigest:await digest({binding:value.binding,authority}),replay:false};
+        allowNewReasoning:Boolean(activeRun)&&!inherited,...(correction||{}),...(inherited?.authority||{})};
+    return {...value,preflight,authority,correctionGuard:reviewed?.guard||inherited?.guard,reviewDigest:await digest({binding:value.binding,authority}),replay:false};
 }
-function report(value){return {version:1,policy:POLICY,...value.ids,reviewDigest:value.reviewDigest,replay:value.replay,
+function report(value){return {version:value.binding.version,policy:value.binding.policy,...value.ids,reviewDigest:value.reviewDigest,replay:value.replay,
     diagnostic:value.binding.diagnostic,change:value.binding.change,chargedCredits:value.binding.chargedCredits,
+    ...(value.binding.formatApproval?{formatApproval:value.binding.formatApproval,formatChanges:value.binding.formatChanges}:{}),
     newInferenceCalls:0,newCharges:0,planNodes:value.plan.nodes.length,assemblyClips:value.plan.assembly.clips.length,
     ...(value.authority||value.stored?.authority?{authority:value.authority||value.stored.authority}:{}),runStatus:value.run.status,observedAt:nowIso()};}
 export async function previewCanvasPlanInterpretation(env,input){return report(await evidence(env,input));}
@@ -155,7 +186,7 @@ async function applyInterpretation(env,input,activeRun=null){
     if(input.reviewDigest!==value.reviewDigest||!/^[A-Za-z0-9_.:/-]{1,160}$/.test(input.authorizationRef||'')
         ||!/^[A-Za-z0-9_.:@/-]{1,100}$/.test(input.actor||''))fail('canvas_agent_plan_interpretation_approval_invalid');
     if(value.replay){if(value.stored.actor!==input.actor||value.stored.authorizationRef!==input.authorizationRef)fail('canvas_agent_plan_interpretation_conflict');return report(value);}
-    const now=nowIso(),record={binding:value.binding,authority:value.authority,reviewDigest:value.reviewDigest,allowNewReasoning:activeRun?1:0,actor:input.actor,authorizationRef:input.authorizationRef,createdAt:now};
+    const now=nowIso(),record={binding:value.binding,authority:value.authority,reviewDigest:value.reviewDigest,allowNewReasoning:value.authority.allowNewReasoning?1:0,actor:input.actor,authorizationRef:input.authorizationRef,createdAt:now};
     const prior=`EXISTS(SELECT 1 FROM canvas_agent_proposals WHERE step_id=? AND run_id=? AND json_extract(interpretation_json,'$.reviewDigest')=?
       AND json_extract(interpretation_json,'$.actor')=? AND json_extract(interpretation_json,'$.authorizationRef')=?)`;
     const priorArgs=[step.id,run.id,value.reviewDigest,input.actor,input.authorizationRef];
@@ -180,13 +211,14 @@ async function applyInterpretation(env,input,activeRun=null){
           AND (SELECT COALESCE(SUM(committed),0) FROM canvas_agent_step_costs WHERE project_id=?)=? THEN 1 ELSE json_extract('[]','$[') END`)
             .bind(run.tariff_revision,run.project_id,value.authority.committedCredits),
         env.DB.prepare(`INSERT INTO canvas_agent_proposals(step_id,run_id,plan_json,status,validation_json,interpretation_json,created_at,updated_at)
-          VALUES(?,?,?,'proposed',?,?,?,?) ON CONFLICT(step_id) DO NOTHING`).bind(step.id,run.id,JSON.stringify(value.plan),JSON.stringify({issues:value.preflight.issues,repairs:[value.binding.change]}),JSON.stringify(record),now,now),
+          VALUES(?,?,?,'proposed',?,?,?,?) ON CONFLICT(step_id) DO NOTHING`).bind(step.id,run.id,JSON.stringify(value.plan),JSON.stringify({issues:value.preflight.issues,repairs:[value.binding.change,...(value.binding.formatChanges||[])]}),JSON.stringify(record),now,now),
         env.DB.prepare(`SELECT CASE WHEN ${prior} THEN 1 ELSE json_extract('[]','$[') END`).bind(...priorArgs),
         env.DB.prepare(`UPDATE canvas_agent_runs SET status='planning',phase='planning',error_code=NULL,cause_json=NULL,next_attempt_at=?,updated_at=?
-          WHERE id=? AND status='blocked' AND error_code='canvas_agent_plan_invalid'`).bind(now,now,run.id),
+          WHERE id=? AND status='blocked' AND error_code=?`).bind(now,now,run.id,run.error_code),
         env.DB.prepare(`INSERT INTO canvas_agent_events(run_id,event_key,type,payload_json,created_at) VALUES(?,?,'decision_summary',?,?) ON CONFLICT(run_id,event_key) DO NOTHING`)
-          .bind(run.id,`plan-interpretation:${step.id}`,JSON.stringify({code:'canvas_agent_saved_plan_interpreted',phase:'planning',policy:POLICY,reviewDigest:value.reviewDigest,
+          .bind(run.id,`plan-interpretation:${step.id}`,JSON.stringify({code:'canvas_agent_saved_plan_interpreted',phase:'planning',policy:value.binding.policy,reviewDigest:value.reviewDigest,
             operationId:operation.id,stepId:step.id,diagnostic:value.binding.diagnostic,change:value.binding.change,newInferenceCalls:0,newCharges:0,
+            ...(value.binding.formatApproval?{formatApprovalRef:value.binding.formatApproval.approvalRef,formatChanges:value.binding.formatChanges}:{}),
             ...(value.authority.boundedCorrection?{authorizedCorrectionStepId:value.authority.boundedCorrection.stepId,correctionCeilingCredits:value.authority.boundedCorrection.ceilingCredits}:{} )}),now),
     ]);
     if(!activeRun)await (await import('./canvas-agent-store.js')).wakeCanvasAgent(env,run.id);

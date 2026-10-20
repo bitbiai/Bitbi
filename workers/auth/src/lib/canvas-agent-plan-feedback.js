@@ -2,6 +2,38 @@ import { isGptImage25Model } from '../../../../js/shared/gpt-image-25-contract.m
 import { H3_MODEL, H3_LIMITS } from '../../../../js/shared/minimax-h3.mjs';
 import { OMNI_MODEL } from '../../../../js/shared/gemini-omni-contract.mjs';
 import { SEEDANCE_25_MODEL, SEEDANCE_25_REFERENCE_LIMITS } from '../../../../js/shared/seedance-25-contract.mjs';
+import { getCanvasModelForRole } from '../../../../js/shared/canvas-model-contract.mjs';
+
+// Parameter names are application-owned; values come only from the integrated
+// model contract. Never quote the rejected value or an arbitrary exception.
+export const CANVAS_AGENT_CHOICE_CONTROLS=Object.freeze({aspectRatio:'aspectRatioOptions',quality:'qualityOptions',resolution:'resolutionOptions',size:'sizeOptions',outputFormat:'outputFormatOptions',background:'backgroundOptions'});
+export function canvasAgentParameterError(key) {
+    return Object.assign(canvasAgentFeedbackError('canvas_agent_parameter_unsupported'),
+        Object.hasOwn(CANVAS_AGENT_CHOICE_CONTROLS,key)?{parameterKey:key}:{});
+}
+function parameterFeedback(field,modelId) {
+    const key=typeof field==='string'&&field.startsWith('config.')?field.slice(7):null;
+    const model=typeof modelId==='string'?getCanvasModelForRole(modelId,'member'):null;
+    if(!model||!Object.hasOwn(CANVAS_AGENT_CHOICE_CONTROLS,key))return null;
+    const options=model.controls[CANVAS_AGENT_CHOICE_CONTROLS[key]];
+    const exposed=Array.isArray(options)&&options.length>0;
+    const reason=exposed?'value_not_allowed':'parameter_not_exposed';
+    return {field:`config.${key}`,reason,
+        message:exposed?`${reason}: Choose a supported value for config.${key} from allowed. Preserve any confirmed creative requirement with an eligible model if necessary.`
+            :`${reason}: This Canvas model does not expose config.${key}. Omit that setting, or choose an eligible model that explicitly supports it if it is a confirmed requirement.${key==='outputFormat'?' Response transport such as url or b64_json does not select the image file format.':''}`,
+        allowed:exposed?options.filter(value=>typeof value==='string'&&value.length<=500&&!/[\u0000-\u001f\u007f]/.test(value)).slice(0,16):[]};
+}
+
+// Reconstruct new correction feedback from the current server contract, not
+// serialized allowed/message/reason fields. Accepted step payloads stay pinned.
+export function canvasAgentParameterCorrectionFeedback(issue) {
+    if(issue?.code!=='canvas_agent_parameter_unsupported')return null;
+    const precise=parameterFeedback(issue.field,issue.modelId);
+    const [field,message]=MESSAGES.canvas_agent_parameter_unsupported;
+    if(!precise)return {field,message,allowed:[]};
+    // The existing AI repair envelope deliberately has no reason property.
+    return {field:precise.field,message:precise.message,allowed:precise.allowed};
+}
 
 // Conditional constraints describe the integrated Canvas adapters, not an
 // independent provider API. Their validators remain authoritative at dispatch.
@@ -59,10 +91,13 @@ const MESSAGES={
     canvas_agent_target_duration_invalid:['assembly.targetDurationSeconds','Choose a creative target within the admitted production duration bounds.'],
 };
 export function canvasAgentValidationIssue(error,node=null,model=null) {
-    const known=MESSAGES[error?.code];
+    const known=Object.hasOwn(MESSAGES,error?.code)?MESSAGES[error.code]:null;
     const code=known?error.code:'canvas_agent_parameter_unsupported';
     const [field,message]=known||MESSAGES[code];
+    const precise=code==='canvas_agent_parameter_unsupported'&&Object.hasOwn(CANVAS_AGENT_CHOICE_CONTROLS,error?.parameterKey)
+        ?parameterFeedback(`config.${error.parameterKey}`,model?.id):null;
     return {code,nodeKey:node?.key||null,modelId:model?.id||node?.modelId||null,field,message,
+        ...(precise||{}),
         ...(model?{constraints:canvasAgentModelConstraints(model)}:{})};
 }
 export function canvasAgentFeedbackError(code) {return Object.assign(new Error(code),{code,status:400});}
