@@ -18,9 +18,10 @@ export async function handleCanvasNotifications(ctx,userId) {
         const parsed = await readJsonBodyOrResponse(ctx.request,{maxBytes:BODY_LIMITS.smallJson});
         if (parsed.response) return parsed.response;
         // route-policy: account.canvas.notifications.read-markers
-        if (match[1] === 'read') return respond({ok:true,data:await readCanvasNotifications(ctx.env,userId,parsed.body)});
+        if (ctx.method === 'POST' && match[1] === 'read') return respond({ok:true,data:await readCanvasNotifications(ctx.env,userId,parsed.body)});
         // route-policy: account.canvas.notifications.client
-        return respond({ok:true,data:await recordCanvasClientNotification(ctx.env,userId,parsed.body)},201);
+        if (ctx.method === 'POST' && match[1] === 'client') return respond({ok:true,data:await recordCanvasClientNotification(ctx.env,userId,parsed.body)},201);
+        return respond({ok:false,code:'method_not_allowed'},405);
     } catch (error) {
         const status = error.status >= 400 && error.status <= 499 ? error.status : 500;
         return respond({ok:false,code:status === 500 ? 'canvas_notifications_unavailable' : error.code},status);
