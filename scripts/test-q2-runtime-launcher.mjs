@@ -413,6 +413,7 @@ test('default native runtime plan stages every actual suite and control input', 
     'tests/helpers/canvas-agent-model-operation-control.mjs', 'tests/helpers/canvas-agent-model-operation-cases.mjs', 'tests/helpers/canvas-agent-settlement-review-control.mjs',
     'tests/helpers/canvas-image-scheduling-control.mjs', 'tests/helpers/canvas-agent-h3-recovery-control.mjs','tests/helpers/canvas-assistant-migration-control.mjs','tests/helpers/canvas-assistant-model-control.mjs', 'tests/helpers/canvas-conversation-decisions-control.mjs',
     'tests/helpers/canvas-agent-preflight-control.mjs', 'tests/helpers/canvas-agent-autonomy-control.mjs', 'tests/helpers/canvas-agent-conversation-control.mjs', 'tests/helpers/canvas-agent-conversation-recovery-control.mjs', 'tests/helpers/canvas-agent-natural-control.mjs', 'tests/helpers/canvas-agent-action-recovery-control.mjs',
+    'tests/helpers/canvas-project-lifecycle-control.mjs','tests/helpers/canvas-notifications-control.mjs','tests/helpers/canvas-agent-explanation-control.mjs',
     'tests/website-assistant-runtime.mjs', 'tests/helpers/website-assistant-policy.mjs',
     'js/shared/flux-2-max-identity.mjs', 'tests/helpers/canvas-smooth-control.mjs',
   ]) {
@@ -1173,4 +1174,35 @@ test('Canvas export delivery pins actual native callers and rejects incomplete d
     }
   `],{cwd:root,encoding:'utf8',timeout:15000});
   assert.equal(child.status,0,child.stderr);
+});
+
+test('Canvas reliability runs additive native callers with the complete staged helper graph',async()=>{
+  const {runCanvasReliabilityTests,canvasReliabilityInventory}=await import('../tests/helpers/q2-runtime/canvas-reliability.mjs');
+  const {selectedRuntimeSuites,runtimeSuites}=await import('../tests/helpers/q2-runtime/runner.mjs');
+  assert.deepEqual(canvasReliabilityInventory,[
+    'canvas_reliability_populated_notifications_migration','canvas_reliability_committed_project_lifecycle',
+    'canvas_reliability_owned_notification_history','canvas_reliability_explanation_evidence',
+    'canvas_reliability_explanation_quoted','canvas_reliability_explanation_budget-scope',
+  ]);
+  assert.equal(parseRuntimeArgs(['--suite','canvas-reliability'],{}).suite,'canvas-reliability');
+  assert.throws(()=>parseRuntimeArgs(['--suite','canvas-reliability','--suite','canvas'],{}));
+  assert.throws(()=>parseRuntimeArgs(['--suite','canvas-reliability-other'],{}));
+  assert.equal(selectedRuntimeSuites('canvas-reliability')[0][1],runCanvasReliabilityTests);
+  assert.equal(runtimeSuites.find(([name])=>name==='canvas-reliability')[1],runCanvasReliabilityTests,'Full also discovers the new native callers');
+  assert.match(read('tests/helpers/q2-runtime/linux-bootstrap.py'),/\+ \["canvas-reliability"\]/);
+  const required=['tests/helpers/canvas-project-lifecycle-control.mjs','tests/helpers/canvas-notifications-control.mjs','tests/helpers/canvas-agent-explanation-control.mjs'];
+  const validate=plan=>{for(const file of required)assert(plan.includes(file),'Missing reliability helper in staged runtime');};
+  validate(stageInputPlan());for(const missing of required)assert.throws(()=>validate(stageInputPlan().filter(file=>file!==missing)),/Missing reliability helper/);
+  // Calibrate the real entrypoint: all six callbacks and the populated forward
+  // migration are discovered without executing providers or nested assertions.
+  const names=[],calls=[],snapshot={rows:[{input_json:'{}'}]};
+  await runCanvasReliabilityTests({
+    migrations:[{path:'0112_synthetic.sql',statements:['before']},{path:'0113_synthetic.sql',statements:['after']}],
+    db:{prepare:sql=>sql,batch:async statements=>calls.push(statements[0])},
+    control:async path=>{assert.equal(path,'/canvas-notifications-migration-seed');calls.push(path);return Response.json(snapshot);},
+    test:async name=>names.push(name),rows:async()=>[],
+  });
+  assert.deepEqual(names,canvasReliabilityInventory);
+  assert.deepEqual(calls,['before','/canvas-notifications-migration-seed','after']);
+  await assert.rejects(()=>runCanvasReliabilityTests({migrations:[],rows:async()=>[]}),/populated lifecycle migration/);
 });

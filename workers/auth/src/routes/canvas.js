@@ -86,6 +86,23 @@ function respond(ctx, body, init) {
   return withCorrelationId(json(body, init), ctx.correlationId || null);
 }
 
+// Reclamation is already retried by durable maintenance. Once a creative write
+// has committed, a transient cleanup failure must not turn it into a failed
+// deletion or an apparently failed (and potentially paid) generation.
+async function reclaimAfterCanvasCommit(ctx, userId) {
+  try {
+    await reclaimCanvasMedia(ctx.env, userId);
+    return { cleanupPending: false };
+  } catch (error) {
+    logDiagnostic({
+      level: 'warn', service: 'auth', event: 'canvas_cleanup_pending',
+      correlationId: ctx.correlationId || null,
+      ...getErrorFields(error, { includeMessage: false }),
+    });
+    return { cleanupPending: true, ...(ctx.correlationId ? { diagnosticRef: ctx.correlationId } : {}) };
+  }
+}
+
 function safeJsonParse(value, fallback) {
   if (typeof value !== "string" || !value) return fallback;
   try {
@@ -533,30 +550,36 @@ async function updateProject(ctx, userId, projectId) {
     thumbnailAssetId = parsed.body.thumbnail_asset_id ? (await assertAssetOwnership(ctx.env, userId, parsed.body.thumbnail_asset_id)).id : null;
   }
   const dimensions=Object.hasOwn(parsed.body,'workspace_width')||Object.hasOwn(parsed.body,'workspace_height')?await updateWorkspace(ctx.env,userId,projectId,parsed.body):{};
-  if(Object.keys(parsed.body).every(key=>['workspace_width','workspace_height'].includes(key)))
-    return respond(ctx,{ok:true,data:{project:projectRecord(await requireProject(ctx.env,userId,projectId))}});
+  if(Object.keys(parsed.body).every(key=>['workspace_width','workspace_height'].includes(key))) {
+    const current=await requireProject(ctx.env,userId,projectId);
+    if(!current)return respond(ctx,{ok:false,error:'Canvas project not found.',code:'project_not_found'},{status:404});
+    return respond(ctx,{ok:true,data:{project:projectRecord(current)}});
+  }
   const now = nowIso();
-  await ctx.env.DB.prepare(
+  const changed = await ctx.env.DB.prepare(
     `UPDATE canvas_projects SET title = ?, thumbnail_asset_id = ?, updated_at = ?
-     WHERE id = ? AND user_id = ? AND deleted_at IS NULL`
-  ).bind(title, thumbnailAssetId, now, projectId, userId).run();
+     WHERE id = ? AND user_id = ? AND deleted_at IS NULL RETURNING id`
+  ).bind(title, thumbnailAssetId, now, projectId, userId).first();
+  if(changed?.id!==projectId)return respond(ctx,{ok:false,error:'Canvas project not found.',code:'project_not_found'},{status:404});
   return respond(ctx, { ok: true, data: { project: { ...projectRecord(project), ...dimensions, title, thumbnail_asset_id: thumbnailAssetId, updated_at: now } } });
 }
 
 async function deleteProject(ctx, userId, projectId) {
   const limited = await enforceWriteLimit(ctx, userId);
   if (limited) return limited;
-  const project = await requireProject(ctx.env, userId, projectId);
+  // An owner's tombstone is the receipt for a DELETE whose HTTP response was
+  // lost. Do not repeat the soft-delete trigger or reveal other owners' rows.
+  const project = await ctx.env.DB.prepare('SELECT id,deleted_at FROM canvas_projects WHERE id=? AND user_id=?').bind(projectId,userId).first();
   if (!project) return respond(ctx, { ok: false, error: "Canvas project not found.", code: "project_not_found" }, { status: 404 });
   const now = nowIso();
-  await ctx.env.DB.batch([
+  if (!project.deleted_at) await ctx.env.DB.batch([
     ctx.env.DB.prepare("UPDATE canvas_projects SET deleted_at = ?, updated_at = ? WHERE id = ? AND user_id = ? AND deleted_at IS NULL").bind(now, now, projectId, userId),
     ctx.env.DB.prepare("UPDATE canvas_nodes SET deleted_at = ?, updated_at = ? WHERE project_id = ? AND user_id = ? AND deleted_at IS NULL").bind(now, now, projectId, userId),
     ctx.env.DB.prepare("UPDATE canvas_edges SET deleted_at = ?, updated_at = ? WHERE project_id = ? AND user_id = ? AND deleted_at IS NULL").bind(now, now, projectId, userId),
     ctx.env.DB.prepare("UPDATE canvas_runs SET deleted_at = ?, updated_at = ? WHERE project_id = ? AND user_id = ? AND deleted_at IS NULL").bind(now, now, projectId, userId),
   ]);
-  await reclaimCanvasMedia(ctx.env,userId);
-  return respond(ctx, { ok: true, data: { id: projectId, deleted: true, assets_deleted: false } });
+  const cleanup = await reclaimAfterCanvasCommit(ctx,userId);
+  return respond(ctx, { ok: true, data: { id: projectId, deleted: true, assets_deleted: false, ...cleanup } });
 }
 
 async function createNode(ctx, userId, projectId) {
@@ -587,13 +610,18 @@ async function createNode(ctx, userId, projectId) {
   if (type === 'asset_reference') content = normalizeJsonObject(assetId ? {asset:await canvasReferenceAsset(ctx.env,userId,assetId)} : {}, {field:'content'});
   const id = randomTokenHex(16);
   const now = nowIso();
-  await ctx.env.DB.prepare(
+  const created = await ctx.env.DB.prepare(
     `INSERT INTO canvas_nodes (
        id, project_id, user_id, type, title, x, y, width, height, model_id,
        config_json, content_json, output_json, asset_id, created_at, updated_at, deleted_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, NULL, ?, ?, ?, NULL)`
-  ).bind(id, projectId, userId, type, title || null, x, y, modelId, config.encoded, content.encoded, assetId, now, now).run();
-  await ctx.env.DB.prepare("UPDATE canvas_projects SET updated_at = ? WHERE id = ? AND user_id = ?").bind(now, projectId, userId).run();
+     ) SELECT ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, NULL, ?, ?, ?, NULL
+       WHERE EXISTS(SELECT 1 FROM canvas_projects WHERE id = ? AND user_id = ? AND deleted_at IS NULL)
+       RETURNING id`
+  ).bind(id, projectId, userId, type, title || null, x, y, modelId, config.encoded, content.encoded, assetId, now, now, projectId, userId).first();
+  // The parent may have been deleted while request bodies/assets were checked.
+  // RETURNING proves this insert, independent of revision-trigger change counts.
+  if(created?.id!==id)return respond(ctx,{ok:false,error:'Canvas project not found.',code:'project_not_found'},{status:404});
+  await ctx.env.DB.prepare("UPDATE canvas_projects SET updated_at = ? WHERE id = ? AND user_id = ? AND deleted_at IS NULL").bind(now, projectId, userId).run();
   return respond(ctx, { ok: true, data: { node: nodeRecord({ id, project_id: projectId, type, title, x, y, width: null, height: null, model_id: modelId, config_json: config.encoded, content_json: content.encoded, output_json: null, asset_id: assetId, created_at: now, updated_at: now }) } }, { status: 201 });
 }
 
@@ -626,13 +654,17 @@ async function updateNode(ctx, userId, projectId, nodeId, { expectedRevision = n
     `UPDATE canvas_nodes
      SET title = ?, x = ?, y = ?, width = ?, height = ?, model_id = ?, config_json = ?, content_json = ?, asset_id = ?, updated_at = ?
      WHERE id = ? AND project_id = ? AND user_id = ? AND deleted_at IS NULL
+       AND EXISTS(SELECT 1 FROM canvas_projects p WHERE p.id=canvas_nodes.project_id AND p.user_id=canvas_nodes.user_id AND p.deleted_at IS NULL)
        AND (? IS NULL OR EXISTS(SELECT 1 FROM canvas_projects p WHERE p.id=canvas_nodes.project_id AND p.revision=? AND p.deleted_at IS NULL))
      RETURNING id`
   ).bind(title || null, x, y, width, height, modelId, config.encoded, content.encoded, assetId, now, nodeId, projectId, userId, expectedRevision, expectedRevision).first();
   // D1 meta.changes includes the node/project revision trigger writes. The
   // returned target proves this guarded mutation, independent of that total.
-  if (expectedRevision !== null && changed?.id !== nodeId) return respond(ctx, {ok:false,code:'canvas_project_changed'}, {status:409});
-  await ctx.env.DB.prepare("UPDATE canvas_projects SET updated_at = ? WHERE id = ? AND user_id = ?").bind(now, projectId, userId).run();
+  if(changed?.id!==nodeId) {
+    if(expectedRevision!==null)return respond(ctx,{ok:false,code:'canvas_project_changed'},{status:409});
+    return respond(ctx,{ok:false,error:'Canvas node not found.',code:'node_not_found'},{status:404});
+  }
+  await ctx.env.DB.prepare("UPDATE canvas_projects SET updated_at = ? WHERE id = ? AND user_id = ? AND deleted_at IS NULL").bind(now, projectId, userId).run();
   return respond(ctx, { ok: true, data: { node: nodeRecord({ ...current, title, x, y, width, height, model_id: modelId, config_json: config.encoded, content_json: content.encoded, asset_id: assetId, updated_at: now }) } });
 }
 
@@ -647,8 +679,8 @@ async function deleteNode(ctx, userId, projectId, nodeId) {
     ctx.env.DB.prepare("UPDATE canvas_edges SET deleted_at = ?, updated_at = ? WHERE project_id = ? AND user_id = ? AND deleted_at IS NULL AND (source_node_id = ? OR target_node_id = ?)").bind(now, now, projectId, userId, nodeId, nodeId),
     ctx.env.DB.prepare("UPDATE canvas_projects SET updated_at = ? WHERE id = ? AND user_id = ?").bind(now, projectId, userId),
   ]);
-  await reclaimCanvasMedia(ctx.env,userId);
-  return respond(ctx, { ok: true, data: { id: nodeId, deleted: true, asset_deleted: false } });
+  const cleanup = await reclaimAfterCanvasCommit(ctx,userId);
+  return respond(ctx, { ok: true, data: { id: nodeId, deleted: true, asset_deleted: false, ...cleanup } });
 }
 
 async function createEdge(ctx, userId, projectId) {
@@ -674,16 +706,26 @@ async function createEdge(ctx, userId, projectId) {
   const config = normalizeJsonObject(proposed, { field: "config" });
   const id = randomTokenHex(16);
   const now = nowIso();
+  let created;
   try {
-    await ctx.env.DB.prepare(
+    created = await ctx.env.DB.prepare(
       `INSERT INTO canvas_edges (id, project_id, user_id, source_node_id, target_node_id, label, config_json, created_at, updated_at, deleted_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`
-    ).bind(id, projectId, userId, sourceNodeId, targetNodeId, label || null, config.encoded, now, now).run();
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL
+       WHERE EXISTS(SELECT 1 FROM canvas_projects WHERE id = ? AND user_id = ? AND deleted_at IS NULL)
+         AND EXISTS(SELECT 1 FROM canvas_nodes WHERE id = ? AND project_id = ? AND user_id = ? AND deleted_at IS NULL)
+         AND EXISTS(SELECT 1 FROM canvas_nodes WHERE id = ? AND project_id = ? AND user_id = ? AND deleted_at IS NULL)
+       RETURNING id`
+    ).bind(id, projectId, userId, sourceNodeId, targetNodeId, label || null, config.encoded, now, now,
+      projectId,userId,sourceNodeId,projectId,userId,targetNodeId,projectId,userId).first();
   } catch (error) {
     if (String(error).includes("UNIQUE")) return respond(ctx, { ok: false, error: "These nodes are already connected.", code: "edge_exists" }, { status: 409 });
     throw error;
   }
-  await ctx.env.DB.prepare("UPDATE canvas_projects SET updated_at = ? WHERE id = ? AND user_id = ?").bind(now, projectId, userId).run();
+  if(created?.id!==id) {
+    if(!await requireProject(ctx.env,userId,projectId))return respond(ctx,{ok:false,error:'Canvas project not found.',code:'project_not_found'},{status:404});
+    return respond(ctx,{ok:false,error:'Edge nodes must belong to this Canvas project.',code:'node_not_found'},{status:404});
+  }
+  await ctx.env.DB.prepare("UPDATE canvas_projects SET updated_at = ? WHERE id = ? AND user_id = ? AND deleted_at IS NULL").bind(now, projectId, userId).run();
   return respond(ctx, { ok: true, data: { edge: edgeRecord({ id, project_id: projectId, source_node_id: sourceNodeId, target_node_id: targetNodeId, label, config_json: config.encoded, created_at: now, updated_at: now }) } }, { status: 201 });
 }
 
@@ -703,7 +745,13 @@ async function updateEdge(ctx, userId, projectId, edgeId) {
   const config = normalizeJsonObject(await prepareCanvasVideoEdge(ctx, ctx.canvasUser, edge, proposed, parsed.body.frame_image), { field: "config" });
   await validateExportEdge(ctx.env,userId,projectId,edge.source_node_id,edge.target_node_id,proposed);
   const now = nowIso();
-  await ctx.env.DB.prepare("UPDATE canvas_edges SET label = ?, config_json = ?, updated_at = ? WHERE id = ? AND project_id = ? AND user_id = ? AND deleted_at IS NULL").bind(label || null, config.encoded, now, edgeId, projectId, userId).run();
+  const changed=await ctx.env.DB.prepare(`UPDATE canvas_edges SET label = ?, config_json = ?, updated_at = ?
+    WHERE id = ? AND project_id = ? AND user_id = ? AND deleted_at IS NULL
+      AND EXISTS(SELECT 1 FROM canvas_projects p WHERE p.id=canvas_edges.project_id AND p.user_id=canvas_edges.user_id AND p.deleted_at IS NULL)
+      AND EXISTS(SELECT 1 FROM canvas_nodes n WHERE n.id=canvas_edges.source_node_id AND n.project_id=canvas_edges.project_id AND n.user_id=canvas_edges.user_id AND n.deleted_at IS NULL)
+      AND EXISTS(SELECT 1 FROM canvas_nodes n WHERE n.id=canvas_edges.target_node_id AND n.project_id=canvas_edges.project_id AND n.user_id=canvas_edges.user_id AND n.deleted_at IS NULL)
+    RETURNING id`).bind(label || null, config.encoded, now, edgeId, projectId, userId).first();
+  if(changed?.id!==edgeId)return respond(ctx,{ok:false,error:'Canvas edge not found.',code:'edge_not_found'},{status:404});
   return respond(ctx, { ok: true, data: { edge: edgeRecord({ ...edge, label, config_json: config.encoded, updated_at: now }) } });
 }
 
@@ -1243,8 +1291,8 @@ async function runNode(ctx, session, projectId, nodeId) {
       ).bind(outputState.encoded, assetId, completedAt, nodeId, projectId, userId,node.creative_revision ?? 0,idempotencyKey),
       ctx.env.DB.prepare("UPDATE canvas_projects SET thumbnail_asset_id = COALESCE(thumbnail_asset_id, ?), updated_at = ? WHERE id = ? AND user_id = ? AND deleted_at IS NULL").bind(assetId, completedAt, projectId, userId),
     ]);
-    await reclaimCanvasMedia(ctx.env,userId);
-    return respond(ctx, { ok: true, data: { run: runRecord({ id: runId, project_id: projectId, node_id: nodeId, model_id: model.id, operation_type: `canvas.${capability}.generate`, status: "completed", input_json: inputJson, output_json: outputState.encoded, asset_id: assetId, error_code: null, error_message: null, created_at: existing?.created_at || now, updated_at: completedAt, completed_at: completedAt }), idempotent_replay: false } });
+    const cleanup = await reclaimAfterCanvasCommit(ctx,userId);
+    return respond(ctx, { ok: true, data: { run: runRecord({ id: runId, project_id: projectId, node_id: nodeId, model_id: model.id, operation_type: `canvas.${capability}.generate`, status: "completed", input_json: inputJson, output_json: outputState.encoded, asset_id: assetId, error_code: null, error_message: null, created_at: existing?.created_at || now, updated_at: completedAt, completed_at: completedAt }), idempotent_replay: false, ...cleanup } });
   } catch (error) {
     const failedAt = nowIso();
     const saveUnavailable = checkpointStored && ["INVALID_SAVE_REFERENCE", "SAVE_REFERENCE_EXPIRED", "SAVE_REFERENCE_UNAVAILABLE"].includes(error.code);
@@ -1331,6 +1379,10 @@ export async function handleCanvas(ctx) {
   ctx = { ...ctx, canvasUser: session.user };
   const { pathname, method } = ctx;
   try {
+    if (pathname.startsWith('/api/account/canvas/notifications')) {
+      const { handleCanvasNotifications } = await import('./canvas-notifications.js');
+      return await handleCanvasNotifications(ctx,userId);
+    }
     if (pathname.includes('/agent')) {
       const { handleCanvasAgent } = await import('./canvas-agent.js');
       return await handleCanvasAgent(ctx, session);

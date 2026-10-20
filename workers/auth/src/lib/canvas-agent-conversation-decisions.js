@@ -8,6 +8,7 @@ import {getModelTariff} from './model-tariffs.js';
 import {canvasAgentProject,startCanvasAgent} from '../routes/canvas-agent.js';
 import {ensureConversation,conversationGuard,conversationCosts,canvasConversationBlocker,productionBrief,userDuration,durationQuestion} from './canvas-agent-conversation.js';
 import {quoteCanvasImmediateScope,validCanvasAssistantQuoteAdmission} from './canvas-agent-immediate.js';
+import {canvasConversationReadIntent} from './canvas-agent-conversation-context.js';
 
 const retainedBriefMarker='… [Full user brief retained in the conversation.]';
 const parse=value=>JSON.parse(value||'null');
@@ -144,7 +145,7 @@ export async function confirmCanvasConversationDecision(ctx,session,projectId,in
  if(!result.ok){const error=await result.json();agentFail(error.code||'canvas_agent_start_review_required',result.status);}return true;
 }
 export async function handleCanvasConversationDecisionMessage(ctx,session,view,row,input,key){
- if(detectCanvasDirectControl(input.text))return false;
+ if(detectCanvasDirectControl(input.text)||canvasConversationReadIntent(input.text))return false;
  const env=ctx.env,brief=parse(row.brief_json),pending=await current(env,row.project_id),intent=canvasConversationDecisionIntent(input.text,{locale:input.locale,budgetAsked:pending?.kind==='production_budget'&&parse(pending.scope_json).questionConversationRevision===row.revision});
  const count=await env.DB.prepare("SELECT COUNT(*) AS n FROM canvas_agent_turns WHERE project_id=? AND state!='deleted'").bind(row.project_id).first();
  if(count.n>=80)agentFail('canvas_agent_conversation_limit');

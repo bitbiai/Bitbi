@@ -23,6 +23,17 @@ function createContext() {
 }
 
 {
+ const migration='0113_canvas_notifications_and_lifecycle.sql';
+ const {assertSupportedBackendMigrations}=await import('./lib/backend-publication.mjs');
+ assertSupportedBackendMigrations([migration]);
+ const plan=createReleasePlanFromRepo(repoRoot,{files:[`workers/auth/migrations/${migration}`,'workers/shared/canvas-agent/skills/project-explanations.mjs','js/shared/canvas-notification-contract.mjs','canvas/index.html','de/canvas/index.html']});
+ assert.deepEqual(plan.workerDeploys.map(step=>step.worker),['ai','auth']);
+ assert.equal(plan.schemaApplies[0].latestMigration,migration);
+ assert.equal(plan.deploySteps[0].type,'schema-checkpoint');assert.equal(plan.deploySteps.at(-1).type,'static');
+ assert.throws(()=>assertSupportedBackendMigrations(['9999_unknown.sql']),/Unexpected pending migrations/);
+}
+
+{
   const {backendContinuationSupported}=await import('./lib/backend-continuation.mjs');
   const {assertSupportedBackendMigrations}=await import('./lib/backend-publication.mjs');
   const migration='0099_seedance_25_custom_tariffs.sql';

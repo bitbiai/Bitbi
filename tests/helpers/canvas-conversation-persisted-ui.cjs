@@ -73,7 +73,9 @@ module.exports = async ({ page, expect, locale, info, mockSharedAuth, createCanv
         const currentRun = (await f.data(await f.request(f.route))).run;
         expect(currentRun.status).toBe('queued');
         await submitMessage(de ? 'Wie weit bist du?' : 'How far along are you?', false);
-        await expect(transcript).toContainText(de ? 'Produktion: vorgemerkt. Projektlimit: 5000' : 'Production: queued. Project limit: 5000');
+        await expect(transcript).toContainText(de ? 'Produktion: vorgemerkt.' : 'Production: waiting.');
+        await expect(transcript).toContainText(de ? 'Freigegebenes Projektlimit: 5000 Credits' : 'Authorized project cap: 5000 credits');
+        await expect(transcript.locator('[data-kind=system]').last()).toContainText(de?'Stand:':'Observed:');
         expect((await f.data(await f.request(f.route))).run.status).toBe('queued');
         expect((await f.data(await f.request(f.projectPath))).project.revision).toBe(firstRevision);
         expect(c.calls).toHaveLength(2);

@@ -28,29 +28,36 @@ exports.proposal=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMo
         expect(Object.hasOwn(f.input,'targetDurationSeconds')).toBe(false);
         await f.deliver();expect(f.calls).toHaveLength(1);
         const panel=await mount({page,locale,mockSharedAuth,createCanvasApiMock,f,requests,errors});
-        const log=panel.getByRole('log'),check=panel.getByRole('button',{name:de?'Status prüfen':'Check status',exact:true});
+        const inbox=page.locator('#canvasNotificationsPanel'),check=panel.getByRole('button',{name:de?'Status prüfen':'Check status',exact:true});
         await expect(panel.locator('h3')).toHaveText(de?'Antwort des Anbieters ausstehend':'Waiting for the provider response');
-        await expect(log).toContainText('model.background');
-        await expect(log).not.toContainText('Keep the same house and neighboring duck pool');
-        await expect(panel.locator('.canvas-agent__activity')).toContainText(de?'keine laufenden Zusammenfassungen':'does not deliver live summaries');
+        await expect(panel.locator('.canvas-agent__events,.canvas-agent__activity')).toHaveCount(0);
+        const originalNotices=await f.data(await f.request('/api/account/canvas/notifications'));
+        const dispatched=originalNotices.items.find(item=>item.source==='event'&&item.details.tool==='model.background');
+        expect(dispatched).toBeTruthy();await page.locator('#canvasNotificationsToggle').click();
+        await expect(inbox.locator(`[data-notification-id="${dispatched.id}"]`)).toContainText(de?'Planungsauftrag angenommen.':'Planning request accepted.');
+        await expect(inbox).not.toContainText('Keep the same house and neighboring duck pool');
+        await inbox.getByRole('button',{name:de?'Meldungen schließen':'Close notifications',exact:true}).click();
         expect((await f.complete()).status).toBe(200);
         await check.click();await expect(panel.locator('.canvas-agent__plan')).toContainText('House construction');
-        await expect(log).toContainText('Keep the same house and neighboring duck pool');
+        await expect(panel.locator('.canvas-agent__plan')).toContainText('Keep the same house and neighboring duck pool');
         expect((await f.data(await f.request(f.projectPath))).nodes).toHaveLength(0);
         // The real queue discovers the bad combination and retains its feedback
         // before any second model call or media submission.
         await f.deliver();const before=await f.observe();
         expect(before.proposedPlan.validation.issues.some(issue=>issue.code==='canvas_agent_h3_reference_modes_mixed')).toBe(true);
         await check.click();await expect(panel.locator('.canvas-agent__plan')).toContainText('H3 cannot combine');
-        await expect(panel.locator('.canvas-agent__cause')).toContainText(de?'Korrektur':'correct');
         expect(f.calls).toHaveLength(1);
-        const eventIds=await log.locator('li').evaluateAll(nodes=>nodes.map(node=>node.dataset.eventId));expect(new Set(eventIds).size).toBe(eventIds.length);
+        await page.locator('#canvasNotificationsToggle').click();
+        const eventIds=await inbox.locator('[data-notification-id^="event:"]').evaluateAll(nodes=>nodes.map(node=>node.dataset.notificationId));
+        expect(eventIds.length).toBeGreaterThan(0);expect(new Set(eventIds).size).toBe(eventIds.length);
+        await expect(inbox).not.toContainText('Keep the same house and neighboring duck pool');
+        await inbox.getByRole('button',{name:de?'Meldungen schließen':'Close notifications',exact:true}).click();
         // Explicit manual takeover is the only browser mutation in this case.
         await panel.getByRole('button',{name:de?'Manuell übernehmen':'Take over manually',exact:true}).click();
         await page.reload();await page.locator('#canvasAgentToggle').click();if(await page.locator('#canvasAgentPanel').isVisible())await page.locator('#canvasAgentPanel').getByRole('tab',{name:locale==='de'?'Projekt & Produktion':'Project & production',exact:true}).click();
         await expect(panel.locator('h3')).toHaveText(de?'Manuell übernommen':'Taken over manually');
         await expect(panel.locator('.canvas-agent__plan')).toContainText('House construction');
-        await expect(panel.locator('.canvas-agent__cause')).toBeVisible();
+        await expect(panel.locator('.canvas-agent__cause')).toHaveCount(0);
         const after=await f.observe();expect(after.proposedPlan.revision).toBe(before.proposedPlan.revision);expect(after.chargedCredits).toBe(before.chargedCredits);
         await f.deliver();expect(f.calls).toHaveLength(1);expect((await f.data(await f.request(f.projectPath))).nodes).toHaveLength(0);
         expect(requests.filter(item=>item.method!=='GET').map(item=>item.body)).toEqual([{action:'takeover'}]);
@@ -101,7 +108,7 @@ exports.budget=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock
             expect(requests.filter(item=>item.path.endsWith('/budget'))).toEqual([]);
             const saved=await f.request(nodePath,'PATCH',held.request().postDataJSON());expect(saved.status).toBe(200);
             await held.fulfill({status:saved.status,headers:Object.fromEntries(saved.headers),body:await responseBytes(saved)});
-            await expect(panel).toContainText(de?'Preise oder Projekt wurden geändert':'Prices or the project changed');
+            await require('./canvas-agent-ui.cjs').expectNotification({page,expect,locale},'canvas_agent_project_changed');
             const decisions=requests.filter(item=>item.path.endsWith('/budget'));expect(decisions).toHaveLength(1);
             expect(decisions[0].body.expectedRevision).toBe(amendment.project_revision);
             expect((await DB.prepare('SELECT budget_credits FROM canvas_agent_runs WHERE id=?').bind(run.id).first()).budget_credits).toBe(200);

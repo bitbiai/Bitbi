@@ -7,6 +7,7 @@ module.exports=async options=>{
   const clips=state.nodes.map(n=>({nodeId:n.id,runId:n.output.runId,assetId:n.output.assetId,version:n.output.sourceVersion,modelId:n.model_id,createdAt:now}));
   const media='/api/plain/canvas-preview/video.mp4',old={id:id(12),status:'ready',storage:'canvas',asset:{id:id(13),file_url:media},recipe:{videos:clips},audio_timeline:[]};
   const posts=[],accepted=new Map();let latest=old,reads=0,losePost=false,stall=false,denied=false,delayed=[];
+  function projectNotice(){const code=latest.status==='queued'&&latest.processing?.blocked?'media_delivery_exhausted':latest.status==='failed'&&!latest.asset?latest.error_code||'canvas_export_failed':latest.asset?'canvas_export_ready':'canvas_export_processing';const notificationId=`export:${latest.id}:${code}`;state.notifications=state.notifications.filter(item=>item.source!=='export'||item.details?.exportId!==latest.id||item.id===notificationId);if(!state.notifications.some(item=>item.id===notificationId))state.notifications.unshift({id:notificationId,source:'export',kind:'export',code,projectId:project,createdAt:new Date().toISOString(),readAt:null,confirmed:true,diagnosticRef:latest.id,details:{exportId:latest.id}});}
   await page.route(/\/full-video(?:\?.*)?$/,async route=>{
     const req=route.request(),key=req.headers()['idempotency-key'],url=new URL(req.url());
     if(req.method()==='POST'){
@@ -15,6 +16,7 @@ module.exports=async options=>{
       if(losePost){losePost=false;return route.abort('failed');}
     }else {reads++;if(denied)return route.fulfill({status:403,json:{ok:false,code:'permission_denied'}});if(stall){delayed.push(route);return;}}
     const lookup=url.searchParams.get('requestKey');
+    projectNotice();
     return route.fulfill({json:{ok:true,data:{eligible:true,availableClips:clips,current:old,export:lookup?accepted.get(lookup)||latest:latest,...(lookup?{submission:{found:accepted.has(lookup)}}:{})}}});
   });
   await visit();await select(3);
@@ -26,6 +28,8 @@ module.exports=async options=>{
   const message=inspector.getByRole('status',{name:de?'Exportstatus':'Export status',exact:true});
   const identity=inspector.getByLabel(de?'Angezeigter Export':'Displayed export',{exact:true});
   const displayed=inspector.locator('.canvas-full-video > div:last-child > video');
+  const inbox=page.locator('#canvasNotificationsPanel'),inboxToggle=page.locator('#canvasNotificationsToggle');
+  const checkNotice=async(code,text)=>{await inboxToggle.click();const item=inbox.locator(`[data-code="${code}"]`).first();await expect(item).toBeVisible();if(text)await expect(item).toContainText(text);await inbox.getByRole('button',{name:de?'Meldungen schließen':'Close notifications'}).click();};
   await expect(create).toBeEnabled();await page.clock.install();await page.clock.pauseAt(new Date());
   await create.click();await expect.poll(()=>posts.length).toBe(1);await expect(connection).toHaveText('');await expect(create).toBeDisabled();
   await expect(identity).toContainText(de?'Vorherige fertige Version':'Previous completed version');
@@ -39,13 +43,13 @@ module.exports=async options=>{
   }
   await expect(create).toBeDisabled();expect(posts).toHaveLength(1);
   latest={...latest,status:'queued',processing:{stage:'waiting_for_media',blocked:true,errorCode:'media_delivery_exhausted',diagnosticRef:latest.id}};
-  await page.clock.runFor(30000);await expect(message).toContainText(de?'Medienverarbeitung ist blockiert':'Media processing is blocked');
-  await expect(message).toContainText(latest.id);await expect(create).toBeDisabled();expect(posts).toHaveLength(1);
+  await page.clock.runFor(30000);await checkNotice('media_delivery_exhausted',latest.id);await expect(message).toHaveText('');
+  await expect(create).toBeDisabled();expect(posts).toHaveLength(1);
   latest={...latest,status:'failed',error_code:'canvas_media_filter_invalid'};
-  await page.clock.runFor(30000);await expect(message).toContainText(de?'Dieser Versuch ist beendet':'This attempt has ended');await expect(create).toBeEnabled();
+  await page.clock.runFor(30000);await checkNotice('canvas_media_filter_invalid');await expect(message).toHaveText('');await expect(create).toBeEnabled();
   const terminalReads=reads;await page.clock.runFor(60000);expect(reads).toBe(terminalReads);
   latest={...latest,asset:old.asset,error_code:'canvas_poster_failed'};
-  await refresh.click();await expect(message).toContainText(de?'Video verfügbar. Vorschau':'Video available. Preview');
+  await refresh.click();await expect(message).toContainText(de?'Gesamtvideo bereit':'Full video ready');
   await expect(message).not.toContainText(de?'Verarbeitung fehlgeschlagen':'Processing failed');await expect(displayed).toHaveAttribute('src',media);
   await create.click();await expect.poll(()=>posts.length).toBe(2);await expect(connection).toHaveText('');
   const before=reads;await page.clock.runFor(5000);await expect.poll(()=>reads).toBeGreaterThan(before);await expect(connection).toHaveText('');
@@ -53,7 +57,7 @@ module.exports=async options=>{
   // Accepted POST whose response is lost reconnects by its original key,
   // never by automatic POST. Reopening retains the accepted server identity.
   losePost=true;await create.click();await expect.poll(()=>posts.length).toBe(3);
-  await expect(connection).toContainText(de?'nicht bestätigt':'not yet confirmed');await expect(create).toBeDisabled();
+  await checkNotice('canvas_connection_interrupted');await expect(connection).toHaveText('');await expect(create).toBeDisabled();
   await page.clock.runFor(5000);await expect(connection).toHaveText('');expect(posts).toHaveLength(3);
   await select(2);await select(3);await expect(connection).toHaveText('');await expect(create).toBeDisabled();expect(posts).toHaveLength(3);
   // Browsers can freeze hidden/BFCache pages. Neither transition replays POST;
@@ -70,13 +74,13 @@ module.exports=async options=>{
   // A hung read reaches a bounded deadline. A read-only retry reconnects and
   // a late old response cannot overwrite the recovered terminal state.
   stall=true;await refresh.click();await expect.poll(()=>delayed.length).toBe(1);
-  await page.clock.runFor(30000);await expect(connection).toContainText(de?'unterbrochen':'interrupted');await expect(create).toBeDisabled();
+  await page.clock.runFor(30000);await checkNotice('canvas_connection_interrupted');await expect(connection).toHaveText('');await expect(create).toBeDisabled();
   stall=false;await page.clock.runFor(5000);await expect(create).toBeEnabled();
   for(const route of delayed)await route.fulfill({json:{ok:true,data:{export:{id:'stale',status:'processing'}}}}).catch(()=>{});
   await expect(create).toBeEnabled();expect(posts).toHaveLength(3);
   // Permanent access denial is not a transient outage: stop automated reads
   // and block another render until an explicit successful access check.
-  denied=true;await refresh.click();await expect(connection).toContainText(de?'Zugriff prüfen':'Check access');await expect(create).toBeDisabled();
+  denied=true;await refresh.click();await checkNotice('canvas_connection_interrupted');await expect(connection).toHaveText('');await expect(create).toBeDisabled();
   const deniedReads=reads;await page.clock.runFor(60000);await page.evaluate(()=>window.dispatchEvent(new Event('online')));expect(reads).toBe(deniedReads);
   denied=false;await refresh.click();await expect(create).toBeEnabled();
   // Edits not rendered yet must never relabel an earlier file as their output.

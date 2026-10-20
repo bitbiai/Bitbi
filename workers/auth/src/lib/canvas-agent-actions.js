@@ -13,9 +13,9 @@ import { getModelTariff, quoteModelTariff } from './model-tariffs.js';
 import { saveCanvasExport } from './canvas-export-recipes.js';
 import { saveCanvasMedia } from './canvas-media-storage.js';
 import { enforceSensitiveUserRateLimit } from './sensitive-write-limit.js';
-import { readCanvasAgentBudget } from './canvas-agent-budget.js';
 import { nowIso, sha256Hex, randomTokenHex } from './tokens.js';
 import { agentFail, publicAgentRun } from './canvas-agent-store.js';
+import { canvasConversationExecutionFacts, canvasConversationStatusText, canvasConversationReadIntent } from './canvas-agent-conversation-context.js';
 
 const parse=value=>value?JSON.parse(value):null;
 const runControl = new Set(['production_pause','production_resume','production_cancel','production_takeover']);
@@ -65,11 +65,16 @@ export async function canvasAgentActionContext(env,userId,projectId){
   const {view}=await owned(env,userId,projectId),run=await currentRun(env,projectId,userId);
   const project=plannerProject(view);project.nodes=project.nodes.map(node=>({...node,title:String(node.title||'').slice(0,60),
     config:Object.fromEntries(Object.entries(node.config||{}).filter(([key])=>['prompt','duration','aspectRatio','resolution','seed','steps','originalAudio','generateAudio','maxTokens','temperature'].includes(key)).map(([key,value])=>[key,typeof value==='string'?value.slice(0,160):value])),
-    content:undefined,output:node.output?{kind:node.output.kind,runId:node.output.runId||null}:null}));
-  delete project.edges;
+    content:undefined,output:node.output?{kind:node.output.kind,assetId:node.output.assetId||null,sourceVersion:node.output.sourceVersion||null,runId:node.output.runId||null}:null}));
+  // Reference edges and assembly order are different facts. Keep both, with
+  // only their existing IDs/roles; never include imported metadata or URLs.
+  project.edges=(project.edges||[]).map(edge=>({id:edge.id,sourceNodeId:edge.sourceNodeId,targetNodeId:edge.targetNodeId,
+    role:typeof edge.config?.role==='string'?edge.config.role.slice(0,64):null,
+    purpose:typeof edge.config?.purpose==='string'?edge.config.purpose.slice(0,64):null}));
   return {...project,revision:view.project.revision,lastControlId:await canvasAgentActionControlId(env,projectId),actionTypes:CANVAS_AGENT_ACTION_TYPES,
     transitions:TRANSITIONS.map(({id,parameter,min,max})=>({id,...parameter?{parameter,min,max}:{}})),
-    production:run?{id:run.id,status:run.status,phase:run.phase,budgetCredits:run.budget_credits,budgetRevision:run.budget_revision,errorCode:run.error_code}:null};
+    production:run?{id:run.id,status:run.status,phase:run.phase,budgetCredits:run.budget_credits,budgetRevision:run.budget_revision,errorCode:run.error_code}:null,
+    execution:await canvasConversationExecutionFacts(env,userId,projectId)};
 }
 export async function prepareCanvasAgentActionStatements(env,{userId,projectId,turnId,actions,expectedRevision,locale,expectedControlId}){
   const valid=validateCanvasAgentActions(actions,{projectRevision:expectedRevision});
@@ -152,7 +157,11 @@ async function prepareAction(env,row,user,view,expectedRevision){
     return prepared;
   }
   if(briefControl[action.type])return {...base,body:{action:briefControl[action.type],expectedConversationRevision:conversation.revision,locale}};
-  if(action.type==='allowance_propose')return {...base,body:{capCredits:action.number,expectedConversationRevision:conversation.revision},tariffRevision:(await getModelTariff(env)).revision};
+  if(action.type==='allowance_propose'){
+    const source=await env.DB.prepare('SELECT user_text FROM canvas_agent_turns WHERE id=? AND project_id=?').bind(row.turn_id,row.project_id).first();
+    if(!/(?:gesprächsbudget|gesprächslimit|(?:briefing|conversation|chat)\s+(?:budget|allowance|limit))/iu.test(source?.user_text||''))agentFail('canvas_agent_budget_scope_required');
+    return {...base,body:{capCredits:action.number,expectedConversationRevision:conversation.revision},tariffRevision:(await getModelTariff(env)).revision};
+  }
   if(action.type==='regenerate')return {...base,...await regenerationQuote(env,user,view,action)};
   if(action.type.startsWith('node_')||action.type.startsWith('original_audio_')){
     const node=view.nodes.find(node=>node.id===action.targetId);if(!node)agentFail('node_not_found',404);
@@ -224,7 +233,8 @@ async function applyAction(env,row,user,view,prepared,originalRequest=null){
     const {approveCanvasBriefingAllowance}=await import('../routes/canvas-agent-conversation.js');
     const conversation=await env.DB.prepare('SELECT * FROM canvas_agent_conversations WHERE project_id=? AND user_id=?').bind(row.project_id,user.id).first();
     await approveCanvasBriefingAllowance(ctx('agent/conversation/allowance',prepared.body,prepared.tariffRevision),conversation,prepared.body,key);
-    return {effect:{kind:'refresh'}};
+    const current=await env.DB.prepare('SELECT allowance_credits FROM canvas_agent_conversations WHERE project_id=? AND user_id=?').bind(row.project_id,user.id).first();
+    return {effect:{kind:'refresh'},text:locale==='de'?`Das Gesprächsbudget ist mit ${current.allowance_credits} Credits freigegeben. Das Projektlimit der Produktion wurde dadurch nicht verändert.`:`The briefing allowance is authorized at ${current.allowance_credits} credits. This has not changed the production project cap.`};
   }
   if(['budget_accept','budget_decline'].includes(action.type)){
     const limited=await enforceSensitiveUserRateLimit(ctx('agent',{}),{userId:user.id,scope:'canvas-agent-write-user',maxRequests:30,windowMs:3600000,component:'canvas-agent'});if(limited)await responseData(limited);
@@ -271,12 +281,7 @@ async function applyAction(env,row,user,view,prepared,originalRequest=null){
       brief.duration.targetDurationSeconds?`${brief.duration.targetDurationSeconds} ${locale==='de'?'Sekunden':'seconds'}`:null].filter(Boolean).join('\n')|| (locale==='de'?'Noch keine Filmidee gespeichert.':'No film idea has been saved yet.')};
   }
   if(action.type==='status'){
-    const run=await currentRun(env,row.project_id,user.id);
-    if(!run)return {text:locale==='de'?'Noch keine Produktion gestartet.':'No production has started.'};
-    const costs=await readCanvasAgentBudget(env,run),states={queued:['queued','vorgemerkt'],planning:['planning','Planung'],applying:['saving the plan','Plan speichern'],running:['producing','Produktion läuft'],exporting:['exporting','Export läuft'],completed:['completed','fertig'],paused:['paused','pausiert'],cancelled:['stopped','gestoppt'],taken_over:['manual control','manuelle Kontrolle'],blocked:['blocked','blockiert'],review_required:['needs review','Prüfung erforderlich'],clarification_required:['needs clarification','Rückfrage erforderlich']};
-    const state=states[run.status]?.[locale==='de'?1:0]||(locale==='de'?'Prüfung erforderlich':'needs review');
-    return {text:locale==='de'?`Produktion: ${state}. Projektlimit: ${costs.capCredits} Credits. Abgebucht: ${costs.chargedCredits}; reserviert: ${costs.reservedCredits}; ungeklärter Ausgang: ${costs.pendingOutcomeCredits}.`
-      :`Production: ${state}. Project limit: ${costs.capCredits} credits. Charged: ${costs.chargedCredits}; reserved: ${costs.reservedCredits}; uncertain outcome: ${costs.pendingOutcomeCredits}.`,effect:{kind:'refresh'}};
+    return {text:canvasConversationStatusText(await canvasConversationExecutionFacts(env,user.id,row.project_id),locale),effect:{kind:'refresh'}};
   }
   if(action.type==='start_now'){
     const turn=await env.DB.prepare('SELECT user_text FROM canvas_agent_turns WHERE id=? AND project_id=?').bind(row.turn_id,row.project_id).first();
@@ -303,11 +308,13 @@ async function executeOne(env,row,{request=null,confirmed=false}={}){
       pending:accepted.status!=='completed',runId:accepted.id,revision:view.project.revision,controlId:input.expectedControlId,
       effect:{kind:'focus_node',targetId:action.targetId}}));
   }
-  const turn=await env.DB.prepare('SELECT state FROM canvas_agent_turns WHERE id=? AND project_id=?').bind(row.turn_id,row.project_id).first();
+  const turn=await env.DB.prepare('SELECT state,user_text FROM canvas_agent_turns WHERE id=? AND project_id=?').bind(row.turn_id,row.project_id).first();
   const conversation=await env.DB.prepare('SELECT state FROM canvas_agent_conversations WHERE project_id=? AND user_id=?').bind(row.project_id,row.user_id).first();
   if((!conversation||conversation.state!=='active')&&!['brief_resume','status','brief_summary','show_project','show_result','focus_node'].includes(action.type)&&row.state!=='executing')return finish(env,row,'failed',summary(row,'failed',{code:'canvas_agent_conversation_stopped'}));
   if(!turn||['deleted','cancelled'].includes(turn.state))return finish(env,row,'failed',summary(row,'failed',{code:'canvas_agent_action_source_changed'}));
   if(['completed','failed','review_required'].includes(row.state))return row;
+  if(row.state==='proposed'&&canvasConversationReadIntent(turn.user_text)&&!['status','brief_summary','show_project','show_result','focus_node'].includes(action.type))
+    return finish(env,row,'failed',summary(row,'failed',{code:'canvas_agent_explanation_only'}));
   if(row.state==='confirmation_required'&&!confirmed)return row;
   const priorAction=await env.DB.prepare('SELECT state,result_json FROM canvas_agent_action_receipts WHERE turn_id=? AND ordinal<? ORDER BY ordinal DESC LIMIT 1').bind(row.turn_id,row.ordinal).first();
   const currentControlId=await canvasAgentActionControlId(env,row.project_id),expectedControlId=priorAction?.state==='completed'?(parse(priorAction.result_json)?.controlId??input.expectedControlId):input.expectedControlId;

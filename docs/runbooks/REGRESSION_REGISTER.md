@@ -2076,6 +2076,39 @@ contract to accommodate an incorrectly assembled artifact.
 
 ### Canvas conversational briefing and duration admission — 2026-10-18
 
+Reliability follow-up, 2026-10-20 (investigated serving source `844e6d1c`):
+the project-delete trigger physically removed conversation turns that immutable
+start/decision receipts still reference. A populated old-trigger countercontrol
+fails the actual DELETE transaction with a foreign-key constraint; migration 0113
+retains/redacts turn identities and fences late work. The affected live project
+has that reference shape and remains undeleted; its original HTTP exception was
+not retained, so the historical request failure is not independently proven.
+Post-commit cleanup failures are separate: report the committed operation with
+pending cleanup, rather than inviting another deletion or paid generation.
+An earlier access check also cannot authorize a late graph write: keep current
+project/node deletion predicates in the mutation and verify its returned row
+before reporting a successful save. Exercise deletion between the read and write.
+
+Another verified boundary replaced model answers with action acknowledgements.
+Preserve validated dialogue and model/application provenance; project explanations
+read bounded current receipts without reconciling or editing. A recorded
+`production.reconcile` event names a reconciliation boundary, not the cause.
+The observed blocked plan had exhausted its correction allowance and retained a
+trim-outside-source validation error. Conversation allowance and production cap
+were different records; generic limit text must not silently modify the former.
+
+Notifications project canonical source/outcome identities into a viewer-owned
+inbox. Read only explicitly acknowledged, presented IDs; a later failure or
+concurrent arrival remains unread. Remove superseded mutable projections, retain
+immutable events, and fence old-account asynchronous responses. Actual callers:
+`tests/q2-canvas-reliability.spec.js`, conversation/provider specs, additive native
+`canvas-reliability`, and EN/DE Chromium/WebKit `tests/canvas.spec.js`. The native
+suite stages its full helper graph and tests the populated migration, old-trigger
+failure, cleanup faults, no-double-charge replay, tenant isolation, read races and
+quoted-command/budget-scope controls. Existing editable-film/audio/export callers
+remain required. Exact execution/publication evidence belongs in the canonical
+local-release checkpoint; private incident records stay outside Git.
+
 The automatic-delivery follow-up was reproduced on published source `ee5eb71f`
 (run `39117449171/1`): the real message endpoint acknowledged a queued turn with
 no model-operation ID or step receipt, and projected `canObserve:false`. The

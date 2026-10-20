@@ -1,4 +1,5 @@
 import {runCanvasExportDeliveryTests} from './canvas-export-delivery.mjs';
+import {runCanvasReliabilityTests} from './canvas-reliability.mjs';
 import { runAppearanceTests } from '../../appearance-runtime.mjs';
 import { runWebsiteAssistantTests } from '../../website-assistant-runtime.mjs';
 import { runModelPricingTests } from '../../model-pricing-runtime.mjs';
@@ -24,6 +25,7 @@ import { runPublicVideoTests } from '../../q4-runtime-public-video.mjs';
 export const runtimeSuites = Object.freeze([
   ['website-assistant', runWebsiteAssistantTests, { q4Control: 'website-assistant-control.mjs' }],
   ['canvas', runCanvasTests, {}],
+  ['canvas-reliability', runCanvasReliabilityTests, {}],
   ['model-status', runModelStatusTests, {}],
   ['model-pricing', runModelPricingTests, {}],
   ['appearance', runAppearanceTests, {}],
@@ -57,7 +59,7 @@ export function selectedRuntimeSuites(suite) {
   if (suite === 'canvas-audio-fit') return [['canvas-audio-fit', runCanvasAudioFitTests, {}]];
   if (suite === 'canvas-audio') return [['canvas-audio', runCanvasAudioTests, {}]];
   if (suite === 'canvas-completion') return [['canvas-completion', runCanvasCompletionTests, {}]];
-  if (suite && !['member-generation','model-status','model-pricing','appearance','canvas','q4-stream','website-assistant'].includes(suite)) throw new Error('Unsupported native suite');
+  if (suite && !['member-generation','model-status','model-pricing','appearance','canvas','canvas-reliability','q4-stream','website-assistant'].includes(suite)) throw new Error('Unsupported native suite');
   return suite ? runtimeSuites.filter(([name]) => name === suite) : runtimeSuites;
 }
 

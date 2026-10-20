@@ -7,9 +7,10 @@ import modelSelection from './skills/model-selection.mjs';
 import canvasEditing from './skills/canvas-editing.mjs';
 import generationAndRecovery from './skills/generation-and-recovery.mjs';
 import reviewAndExport from './skills/review-and-export.mjs';
+import projectExplanations from './skills/project-explanations.mjs';
 
 // Static imports are the approval boundary. Never resolve paths from project data.
-export const CANVAS_AGENT_POLICY_VERSION = 'canvas-policy-3';
+export const CANVAS_AGENT_POLICY_VERSION = 'canvas-policy-4';
 const phases = Object.freeze({
   briefing: Object.freeze([creativeBriefing, conversationActions]),
   planning: Object.freeze([storyAndContinuity, modelSelection, canvasEditing, generationAndRecovery]),
@@ -18,10 +19,11 @@ const phases = Object.freeze({
   explanation: Object.freeze([creativeBriefing, conversationActions, canvasEditing, generationAndRecovery]),
 });
 function selected(phase, version = CANVAS_AGENT_POLICY_VERSION) {
-  if (!Object.hasOwn(phases, phase) || !['canvas-policy-1', 'canvas-policy-2', CANVAS_AGENT_POLICY_VERSION].includes(version)) throw new TypeError('canvas_agent_policy_phase_invalid');
+  if (!Object.hasOwn(phases, phase) || !['canvas-policy-1', 'canvas-policy-2', 'canvas-policy-3', CANVAS_AGENT_POLICY_VERSION].includes(version)) throw new TypeError('canvas_agent_policy_phase_invalid');
   const skills=version === 'canvas-policy-1' && ['briefing','explanation'].includes(phase)
     ? (phase === 'briefing' ? [legacyBriefing] : [legacyBriefing,canvasEditing,generationAndRecovery]) : phases[phase];
-  return [version === CANVAS_AGENT_POLICY_VERSION ? neutralCore : core, personality, ...skills];
+  return [['canvas-policy-3',CANVAS_AGENT_POLICY_VERSION].includes(version) ? neutralCore : core, personality, ...skills,
+    ...(version===CANVAS_AGENT_POLICY_VERSION&&['briefing','explanation'].includes(phase)?[projectExplanations]:[])];
 }
 export function canvasAgentSystem(phase, version = CANVAS_AGENT_POLICY_VERSION) {
   return selected(phase, version).map(entry => entry.purpose

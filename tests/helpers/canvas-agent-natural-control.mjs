@@ -200,6 +200,10 @@ export async function canvasNaturalCase(base,name){
   check(intent.state==='approval_required'&&intent.quote.proposedCapCredits>0&&intent.quote.planningCredits>0,'Immediate mode displays a real priced cap before any paid work');
   check(c.calls.length===0&&await productionCount()===0&&await count('SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0',f.owner)===0,'A quoted intention does not create inference, a production run or a charge');
   const view=await c.read();check(view.allowance.capCredits===0,'Production consent stays separate from briefing allowance');
+  const acknowledgement=view.messages.find(message=>message.id===`${intent.id}:reply`);
+  check(acknowledgement?.kind==='operation_ack'&&acknowledgement.provenance==='application','Immediate request persistence is an application receipt, not an assistant answer');
+  const notices=await expected(await f.request('/api/account/canvas/notifications'),200);
+  check(notices.items.some(item=>item.details.intentId===intent.id),'The original immediate request remains visible in owned notifications while its real approval card stays available');
   check(view.brief.duration.choice===(name==='delegation'?'delegated':'explicit')&&view.brief.duration.targetDurationSeconds===(name==='delegation'?null:45),'Only explicit immediate mode delegates absent duration and preserves numeric duration');
   check(intent.quote.scope.brief.includes('Biene')&&intent.quote.scope.brief.includes('Fabrik'),'Unsent composer idea reaches the actual quote scope');
   const approved=approval(intent);

@@ -24,3 +24,16 @@ export function canvasImmediateStartRequested(text) {
   return /^(?:(?:bitte|keine weiteren fragen[,;:]?|ohne weitere fragen[,;:]?)\s+)*(?:mach|mache|erstell|erstelle|produzier|produziere|starte)\b[\s\S]{0,70}\b(?:film|video|produktion)\b[\s\S]{0,30}\b(?:jetzt|sofort)\b/u.test(value)
     ||/^(?:(?:please|no more questions[,;:]?|can you|could you)\s+)*(?:start|make|create|produce)\b[\s\S]{0,70}\b(?:film|video|production)\b[\s\S]{0,30}\bnow\b/u.test(value);
 }
+
+// Recognize explanatory requests, not isolated story keywords. These requests
+// cannot become spending/editing instructions through a model's action proposal.
+export function canvasConversationReadIntent(text) {
+  const value=String(text||'').normalize('NFKC').trim();
+  if(value.length>6000)return null;
+  const question=/^(?:was (?:bedeutet|heißt|ist)|warum|wieso|weshalb|erklär(?:e)?(?: mir)?|kannst du (?:mir )?erklären|what (?:does|is)|why|explain|can you explain)\b/iu.test(value);
+  const guidance=/^(?:wie\s+(?:kann|könnte)\s+ich\b[\s\S]{0,150}\b(?:verbessern|gestalten|ändern|bearbeiten)|how\s+(?:can|could)\s+i\b[\s\S]{0,150}\b(?:improve|change|edit|shape))\b/iu.test(value);
+  if(/^["“„«`][\s\S]+["”»`][.!?]?$/u.test(value))return 'explanation';
+  if(question&&/production\.reconcile/iu.test(value))return 'reconcile_explanation';
+  if(question||guidance)return 'explanation';
+  return null;
+}

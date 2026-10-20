@@ -13613,7 +13613,13 @@ class MockD1 {
       return { results: deepClone(rows) };
     }
 
-    if (query.includes('FROM canvas_projects')) {
+    if (query === 'SELECT id,deleted_at FROM canvas_projects WHERE id=? AND user_id=?') {
+      const [id, userId] = bindings;
+      const row = this.state.canvasProjects.find((item) => item.id === id && item.user_id === userId);
+      return row ? { id: row.id, deleted_at: row.deleted_at ?? null } : null;
+    }
+
+    if (query.startsWith('SELECT ') && query.includes('FROM canvas_projects')) {
       if (query.startsWith('SELECT COUNT(*) AS count')) {
         const [userId] = bindings;
         return { count: this.state.canvasProjects.filter((item) => item.user_id === userId && !item.deleted_at).length };
@@ -13664,6 +13670,7 @@ class MockD1 {
       const [title, thumbnailAssetId, updatedAt, id, userId] = bindings;
       const row = this.state.canvasProjects.find((item) => item.id === id && item.user_id === userId && !item.deleted_at);
       if (row) Object.assign(row, { title, thumbnail_asset_id: thumbnailAssetId, updated_at: updatedAt });
+      if (query.endsWith('RETURNING id')) return row ? { id: row.id } : null;
       return { success: true, meta: { changes: row ? 1 : 0 } };
     }
 
@@ -13688,7 +13695,7 @@ class MockD1 {
       return { success: true, meta: { changes: row ? 1 : 0 } };
     }
 
-    if (query.includes('FROM canvas_nodes')) {
+    if (query.startsWith('SELECT ') && query.includes('FROM canvas_nodes')) {
       if (query.startsWith('SELECT COUNT(*) AS count')) {
         const [projectId, userId] = bindings;
         return { count: this.state.canvasNodes.filter((item) => item.project_id === projectId && item.user_id === userId && !item.deleted_at).length };
@@ -13708,14 +13715,19 @@ class MockD1 {
 
     if (query.startsWith('INSERT INTO canvas_nodes')) {
       const [id, projectId, userId, type, title, x, y, modelId, configJson, contentJson, assetId, createdAt, updatedAt] = bindings;
+      if (query.endsWith('RETURNING id') && !this.state.canvasProjects.some(p => p.id === bindings[13] && p.user_id === bindings[14] && !p.deleted_at)) return null;
       this.state.canvasNodes.push({ id, project_id: projectId, user_id: userId, type, title, x, y, width: null, height: null, model_id: modelId, config_json: configJson, content_json: contentJson, output_json: null, asset_id: assetId, created_at: createdAt, updated_at: updatedAt, deleted_at: null });
+      if (query.endsWith('RETURNING id')) return { id };
       return { success: true, meta: { changes: 1 } };
     }
 
     if (query.startsWith('UPDATE canvas_nodes SET title = ?')) {
       const [title, x, y, width, height, modelId, configJson, contentJson, assetId, updatedAt, id, projectId, userId] = bindings;
-      const row = this.state.canvasNodes.find((item) => item.id === id && item.project_id === projectId && item.user_id === userId && !item.deleted_at);
+      const project = this.state.canvasProjects.find(p => p.id === projectId && p.user_id === userId && !p.deleted_at);
+      const allowed = !query.endsWith('RETURNING id') || (project && (bindings[13] == null || Number(project.revision || 0) === bindings[14]));
+      const row = allowed && this.state.canvasNodes.find((item) => item.id === id && item.project_id === projectId && item.user_id === userId && !item.deleted_at);
       if (row) Object.assign(row, { title, x, y, width, height, model_id: modelId, config_json: configJson, content_json: contentJson, asset_id: assetId, updated_at: updatedAt });
+      if (query.endsWith('RETURNING id')) return row ? { id: row.id } : null;
       return { success: true, meta: { changes: row ? 1 : 0 } };
     }
 
@@ -13742,7 +13754,7 @@ class MockD1 {
       return { success: true, meta: { changes: row ? 1 : 0 } };
     }
 
-    if (query.includes('FROM canvas_edges')) {
+    if (query.startsWith('SELECT ') && query.includes('FROM canvas_edges')) {
       if (query.startsWith('SELECT COUNT(*) AS count')) {
         const [projectId, userId] = bindings;
         return { count: this.state.canvasEdges.filter((item) => item.project_id === projectId && item.user_id === userId && !item.deleted_at).length };
@@ -13762,14 +13774,20 @@ class MockD1 {
 
     if (query.startsWith('INSERT INTO canvas_edges')) {
       const [id, projectId, userId, sourceNodeId, targetNodeId, label, configJson, createdAt, updatedAt] = bindings;
+      if (query.endsWith('RETURNING id') && (!this.state.canvasProjects.some(p => p.id === bindings[9] && p.user_id === bindings[10] && !p.deleted_at)
+        || ![11,14].every(offset => this.state.canvasNodes.some(n => n.id === bindings[offset] && n.project_id === bindings[offset+1] && n.user_id === bindings[offset+2] && !n.deleted_at)))) return null;
       this.state.canvasEdges.push({ id, project_id: projectId, user_id: userId, source_node_id: sourceNodeId, target_node_id: targetNodeId, label, config_json: configJson, created_at: createdAt, updated_at: updatedAt, deleted_at: null });
+      if (query.endsWith('RETURNING id')) return { id };
       return { success: true, meta: { changes: 1 } };
     }
 
     if (query.startsWith('UPDATE canvas_edges SET label = ?')) {
       const [label, configJson, updatedAt, id, projectId, userId] = bindings;
       const row = this.state.canvasEdges.find((item) => item.id === id && item.project_id === projectId && item.user_id === userId && !item.deleted_at);
+      if (query.endsWith('RETURNING id') && (!row || !this.state.canvasProjects.some(p => p.id === projectId && p.user_id === userId && !p.deleted_at)
+        || ![row.source_node_id,row.target_node_id].every(nodeId => this.state.canvasNodes.some(n => n.id === nodeId && n.project_id === projectId && n.user_id === userId && !n.deleted_at)))) return null;
       if (row) Object.assign(row, { label, config_json: configJson, updated_at: updatedAt });
+      if (query.endsWith('RETURNING id')) return row ? { id: row.id } : null;
       return { success: true, meta: { changes: row ? 1 : 0 } };
     }
 

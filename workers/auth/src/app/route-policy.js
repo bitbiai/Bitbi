@@ -89,6 +89,9 @@ const adminJsonWrite = (id, method, path, owner, bodyMaxBytesName, rateLimitId, 
 });
 
 export const ROUTE_POLICIES = Object.freeze([
+  safeRead('account.canvas.notifications.list','GET','/api/account/canvas/notifications','canvas'),
+  userJsonWrite('account.canvas.notifications.read-markers','POST','/api/account/canvas/notifications/read','canvas','smallJson','canvas-notifications-write-user'),
+  userJsonWrite('account.canvas.notifications.client','POST','/api/account/canvas/notifications/client','canvas','smallJson','canvas-notifications-write-user'),
   safeRead('account.canvas.agent.capabilities','GET','/api/account/canvas/agent/capabilities','canvas'),
   safeRead('account.canvas.agent.conversation.read','GET','/api/account/canvas/projects/:projectId/agent/conversation','canvas'),
   userJsonWrite('account.canvas.agent.conversation.messages','POST','/api/account/canvas/projects/:projectId/agent/conversation/messages','canvas','smallJson','canvas-agent-conversation-write-user'),

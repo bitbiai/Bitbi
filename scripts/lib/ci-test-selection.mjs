@@ -56,6 +56,7 @@ const SHARED_WORKER_FILE_MAP = new Map([
   ["workers/shared/canvas-assistant-fable.mjs", ["auth", "ai"]],
   ["js/shared/canvas-assistant-models.mjs", ["auth", "ai"]],
   ["js/shared/canvas-conversation-decision-intent.mjs", ["auth"]],
+  ["js/shared/canvas-notification-contract.mjs", ["auth"]],
   ["js/shared/canvas-grok-admission.mjs", ["auth", "ai"]],
   ["workers/shared/canvas-agent-dialogue.mjs", ["auth", "ai"]],
   ["workers/shared/canvas-agent-actions.mjs", ["auth", "ai"]],
@@ -65,6 +66,7 @@ const SHARED_WORKER_FILE_MAP = new Map([
   ["workers/shared/canvas-agent/manifest.mjs", ["auth", "ai"]],
   ["workers/shared/canvas-agent/skills/creative-briefing.mjs", ["auth", "ai"]],
   ["workers/shared/canvas-agent/skills/conversation-actions.mjs", ["auth", "ai"]],
+  ["workers/shared/canvas-agent/skills/project-explanations.mjs", ["auth", "ai"]],
   ["workers/shared/canvas-agent/skills/story-and-continuity.mjs", ["auth", "ai"]],
   ["workers/shared/canvas-agent/skills/model-selection.mjs", ["auth", "ai"]],
   ["workers/shared/canvas-agent/skills/canvas-editing.mjs", ["auth", "ai"]],
@@ -514,6 +516,7 @@ const AUTH_SHARED_PATTERNS = [
 ];
 
 const HOMEPAGE_CORE_TEST_FILES = new Set([
+  "tests/helpers/canvas-notifications-ui.cjs", "tests/helpers/canvas-export-lifecycle-ui.cjs", "tests/helpers/canvas-inspector-ui.cjs",
   "tests/helpers/canvas-audio-ui.cjs", "tests/helpers/canvas-transition-examples-ui.cjs",
   "tests/helpers/canvas-agent-ui.cjs", "tests/helpers/canvas-agent-model-recovery-ui.cjs", "tests/helpers/canvas-agent-autonomy-ui.cjs", "tests/helpers/canvas-assembly-editing-ui.cjs",
   "tests/helpers/canvas-conversation-budget-ui.cjs",
@@ -590,6 +593,8 @@ const AUTH_TEST_FILES = new Set([
 // the other via tests/release-transition/workers.spec.js. Keep these identities
 // exact; an unreviewed neighboring fixture must retain full selection.
 const EXACT_WORKER_TEST_FILES = new Set([
+  'tests/q2-canvas-reliability.spec.js', 'tests/helpers/canvas-notifications-control.mjs',
+  'tests/helpers/canvas-project-lifecycle-control.mjs', 'tests/helpers/canvas-agent-explanation-control.mjs',
   'tests/rel01/routes/workers.spec.js',
   'tests/helpers/release-transition-legacy-contract.cjs',
   'tests/q2-canvas-agent-readiness.spec.js',

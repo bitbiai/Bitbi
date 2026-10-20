@@ -97,6 +97,9 @@ export async function canvasAssistantModelSwitchCase(env) {
     await c.data((await c.send('A 45 second comic film about a dog.')).response);await c.deliver();
     const old=await c.pending(),original=await f.db.prepare('SELECT * FROM canvas_agent_model_operations WHERE run_id=?').bind(old.run_id).first();
     check(original.model==='xai/grok-4.7'&&c.calls.length===1,'Original accepted Grok operation exists');
+    const grokContext=JSON.parse(c.calls[0].body.input.messages[1].content);
+    check(grokContext.currentProject.execution.observedAt&&grokContext.currentProject.execution.budgets.briefing.capCredits===10000,
+      'Grok receives the observed project evidence and explicitly scoped briefing allowance');
     const before=await c.read(),body={modelId:CANVAS_FABLE_MODEL,expectedConversationRevision:before.revision,expectedModelRevision:before.reasoningModel.revision};
     await c.data(await c.post('/model',body,'switch-original-fable'));await c.data(await c.post('/model',body,'switch-original-fable'));
     const unchanged=await f.db.prepare('SELECT * FROM canvas_agent_model_operations WHERE id=?').bind(original.id).first();
@@ -108,11 +111,16 @@ export async function canvasAssistantModelSwitchCase(env) {
     const call=fableCalls[0],context=JSON.parse(call.body.input.messages[0].content);
     check(context.brief.fields.style.value==='comic'&&context.brief.duration.targetDurationSeconds===45
       &&context.recentMessages.some(message=>message.text.includes('comic film')),'Canonical confirmed brief, duration and visible history cross models');
+    check(context.currentProject.execution.observedAt&&context.currentProject.execution.budgets.briefing.capCredits===10000
+      &&context.currentProject.conversationSources.some(source=>source.modelId==='xai/grok-4.7'),
+      'Fable receives the same evidence contract and explicit attribution of previous visible replies');
+    check(call.body.input.system===c.calls[0].body.input.messages[0].content&&call.body.input.system.includes('project-explanations v1'),
+      'Both native adapters receive the same current Canvas policy and explanation skill');
     check(context.recentMessages.every(message=>Object.keys(message).every(key=>['id','role','text'].includes(key))),
       'Only canonical visible message fields cross models; capability descriptions may legitimately discuss thinking');
     await c.data(await select('xai/grok-4.7','switch-back-grok'));
     const result={id:call.id,state:'Completed',provider:'anthropic',model:CANVAS_FABLE_MODEL,result:{id:call.id+'-response',type:'message',role:'assistant',model:'claude-fable-5',stop_reason:'end_turn',
-      content:[{type:'thinking',thinking:'PRIVATE reasoning',signature:'PRIVATE signature'},{type:'text',text:JSON.stringify({text:'The comic dog arrives with a funny surprise.',scope:'canvas',intent:'continue',updates:[],questions:[],actions:[]})}],
+        content:[{type:'thinking',thinking:'PRIVATE reasoning',signature:'PRIVATE signature'},{type:'text',text:JSON.stringify({text:'The comic dog arrives with a funny surprise.',scope:'canvas',intent:'continue',updates:[],questions:[],actions:[{type:'status',targetId:null,value:null,number:null,secondaryNumber:null,ids:[],revision:context.projectRevision}]})}],
       usage:{input_tokens:160,output_tokens:200,cache_read_input_tokens:0,cache_creation_input_tokens:0}}};
     const callback=new URL(call.body.options.webhookUrl);
     check((await f.request(callback.pathname,'POST',result)).ok,'Original Fable callback remains valid after selection changes');
@@ -125,6 +133,9 @@ export async function canvasAssistantModelSwitchCase(env) {
     check(!JSON.stringify(ops).includes('PRIVATE'),'Hidden native provider blocks never enter stored receipts');
     check(reopened.messages.some(message=>message.role==='assistant'&&message.modelId===CANVAS_FABLE_MODEL)
       &&reopened.messages.some(message=>message.role==='assistant'&&message.modelId==='xai/grok-4.7'),'Historical message attribution survives reopen');
+    check(reopened.messages.some(message=>message.modelId===CANVAS_FABLE_MODEL&&message.text==='The comic dog arrives with a funny surprise.')
+      &&reopened.actions.some(action=>action.type==='status'&&action.state==='completed'),
+      'A successful application action stays separate from the preserved natural model answer');
     check(reopened.reasoningModel.modelId==='xai/grok-4.7'&&reopened.brief.fields.style.value==='comic','Reopen keeps current choice and prior known facts');
     const malformed=await select('unintegrated/provider','switch-unintegrated');check(malformed.status===400,'Unintegrated models fail before any inference');
     const {changeModelAvailability}=await import('../../workers/auth/src/lib/model-availability.js');

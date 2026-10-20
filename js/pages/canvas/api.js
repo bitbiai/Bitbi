@@ -1,8 +1,14 @@
 import { modelPricingRequestHeaders, refreshModelPricing } from '../../shared/model-pricing-client.js';
 import { TARIFF_HEADER } from '../../shared/model-tariff.mjs';
 const BASE = '/api/account/canvas';
+let sessionRevision=0,sessionSuspended=false;
+const requests=new Set();
+export function suspendCanvasSession(value){sessionSuspended=Boolean(value);}
+export function invalidateCanvasSession(){sessionSuspended=true;sessionRevision++;for(const controller of requests)controller.abort();requests.clear();}
 
 async function requestUrl(url, { method = 'GET', body, idempotencyKey, signal, responseKey = 'data', timeoutMs = 0, tariffRevision } = {}) {
+    if(sessionSuspended)return {ok:false,status:0,code:'canvas_session_unconfirmed',error:'Canvas session is not confirmed.',data:null};
+    const revision=sessionRevision;
     const headers = { Accept: 'application/json', ...modelPricingRequestHeaders() };
     if(tariffRevision!==undefined){
         if(!Number.isSafeInteger(tariffRevision)||tariffRevision<0)return {ok:false,status:400,code:'model_pricing_stale',data:null};
@@ -11,6 +17,7 @@ async function requestUrl(url, { method = 'GET', body, idempotencyKey, signal, r
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
     const controller=new AbortController(),abort=()=>controller.abort();let timedOut=false;
+    requests.add(controller);
     if(signal?.aborted)controller.abort();else signal?.addEventListener('abort',abort,{once:true});
     const timer=timeoutMs?setTimeout(()=>{timedOut=true;controller.abort();},timeoutMs):null;
     try {
@@ -23,6 +30,7 @@ async function requestUrl(url, { method = 'GET', body, idempotencyKey, signal, r
         });
         let payload = null;
         try { payload = await response.json(); } catch { payload = null; }
+        if(revision!==sessionRevision||controller.signal.aborted)return {ok:false,status:0,code:revision===sessionRevision&&timedOut?'request_timeout':'request_aborted',data:null};
         if (payload?.code === 'model_pricing_stale') {
             await refreshModelPricing();
             payload.error = document.documentElement.lang === 'de'
@@ -34,12 +42,13 @@ async function requestUrl(url, { method = 'GET', body, idempotencyKey, signal, r
             ok: false,
             status: response.status,
             code: payload?.code || 'request_failed',
+            diagnosticRef: /^[A-Za-z0-9:_-]{1,160}$/.test(response.headers.get('X-Correlation-ID') || '') ? response.headers.get('X-Correlation-ID') : null,
             error: payload?.error || 'Canvas request failed.',
             data: payload?.data || null,
         };
     } catch (error) {
-        return { ok: false, status: 0, code: timedOut?'request_timeout':signal?.aborted?'request_aborted':'network_error', error: 'Canvas request could not be confirmed.', data: null };
-    } finally {clearTimeout(timer);signal?.removeEventListener('abort',abort);}
+        return { ok: false, status: 0, code: revision!==sessionRevision?'request_aborted':timedOut?'request_timeout':controller.signal.aborted?'request_aborted':'network_error', error: 'Canvas request could not be confirmed.', data: null };
+    } finally {requests.delete(controller);clearTimeout(timer);signal?.removeEventListener('abort',abort);}
 }
 
 function request(path, options) {
@@ -51,6 +60,9 @@ export { request as canvasRequest };
 function id(value) { return encodeURIComponent(String(value || '')); }
 
 export const canvasApi = Object.freeze({
+    notifications: (cursor,signal) => request(`/notifications?limit=40${cursor?'&cursor='+id(cursor):''}`,{signal,timeoutMs:15000}),
+    notificationRead: ids => request('/notifications/read',{method:'POST',body:{ids},timeoutMs:15000}),
+    notificationClient: body => request('/notifications/client',{method:'POST',body,timeoutMs:15000,idempotencyKey:body.requestId}),
     listProjects: () => request('/projects'),
     createProject: (body) => request('/projects', { method: 'POST', body }),
     getProject: (projectId, signal, timeoutMs) => request(`/projects/${id(projectId)}`, { signal, timeoutMs }),

@@ -6,14 +6,24 @@ export async function canvasConversationDecisionCase(base,name){
  const data=async response=>{const body=await response.json();check(response.ok,`${response.status}/${body.code}`);return body.data;};
  const send=async text=>{const sent=await c.send(text);return {...sent,body:await data(sent.response)};};
  const productions=async()=>(await f.db.prepare("SELECT * FROM canvas_agent_runs WHERE project_id=? AND purpose='production' AND id!=? ORDER BY rowid").bind(f.project,f.runId).all()).results;
+ const assertAcknowledgement=async()=>{
+  const accepted=await f.db.prepare("SELECT d.id,t.id AS turn_id FROM canvas_agent_conversation_decisions d JOIN canvas_agent_turns t ON t.project_id=d.project_id AND t.request_key=d.decision_key WHERE d.project_id=? AND d.state='consumed' ORDER BY d.rowid DESC LIMIT 1").bind(f.project).first();
+  check(accepted,'Approval has a persisted decision and exact source turn');
+  const reply=(await c.read()).messages.find(message=>message.id===`${accepted.turn_id}:reply`);
+  check(reply?.kind==='operation_ack'&&reply.provenance==='application','A consumed approval receipt is application activity, not a new assistant answer');
+  const notifications=await data(await f.request('/api/account/canvas/notifications'));
+  check(notifications.items.some(item=>item.details.decisionId===accepted.id),'Hidden approval acknowledgement remains available in the owned notification center');
+ };
  try{
   if(name==='allowance'){
    await send('Gesprächsbudget 200 Credits');const proposal=await c.read();
    check(proposal.pendingDecision.kind==='briefing_allowance'&&proposal.allowance.capCredits===0,'The natural allowance is only a proposal before affirmative consent');
+   check(proposal.messages.at(-1).kind==='decision','The real pending allowance question remains in the conversation');
    const accepted=await send('Ja');await data(await c.post('/messages',accepted.input,accepted.key));
    check((await c.read()).allowance.capCredits===200,'Natural confirmation uses the existing authoritative allowance');
    check((await productions()).length===0&&c.calls.length===0,'Briefing consent does not dispatch inference or authorize film production');
    check((await f.db.prepare("SELECT COUNT(*) AS n FROM canvas_agent_conversation_actions WHERE project_id=? AND request_key LIKE 'decision-allowance:%'").bind(f.project).first()).n===1,'Replay creates one existing allowance receipt');
+   await assertAcknowledgement();
    return {case:name,productions:0,providerCalls:0};
   }
   if(name==='money-clarification'){
@@ -45,6 +55,7 @@ export async function canvasConversationDecisionCase(base,name){
   }else{
    await send(name==='duration'?'3.000':'3000 Credits');view=await c.read();
    check(view.pendingDecision?.kind==='production_start'&&view.pendingDecision.scope.capCredits===3000,'The stated cap creates a server-owned pending start decision');
+   check(view.messages.at(-1).kind==='decision','The final scoped production question stays visible until actual confirmation');
    check((await productions()).length===0&&c.calls.length===0,'A budget proposal is not start approval');
    check(JSON.stringify(view.brief)===creative,'Budget text cannot overwrite creative decisions');
    const decision=view.pendingDecision;
@@ -91,6 +102,7 @@ export async function canvasConversationDecisionCase(base,name){
   check((await f.db.prepare('SELECT revision FROM canvas_projects WHERE id=?').bind(f.project).first()).revision===graph,'Budget conversation does not mutate the creative graph');
   check(c.calls.length===0,'Starting queues work without synchronously calling a model');
   check((await f.db.prepare("SELECT COUNT(*) AS n FROM canvas_agent_conversation_decisions WHERE project_id=? AND state='consumed'").bind(f.project).first()).n===1,'Exactly one persisted decision is consumed');
+  await assertAcknowledgement();
   check(!(await f.db.prepare('PRAGMA foreign_key_check').all()).results.length,'All decision references remain valid');
   return {case:name,productions:1,providerCalls:0};
  }finally{c.restore();}

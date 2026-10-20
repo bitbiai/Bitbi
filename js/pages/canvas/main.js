@@ -29,6 +29,9 @@ import { initSiteHeader } from '../../shared/site-header.js?v=__ASSET_VERSION__'
 import { initAuthEntryActions } from '../../shared/auth-entry-actions.js?v=__ASSET_VERSION__';
 import { canvasApi } from './api.js?v=__ASSET_VERSION__';
 import { createCanvasAgentPanel } from './agent.js?v=__ASSET_VERSION__';
+import {createCanvasNotifications,canvasNotice,refreshCanvasNotifications} from './notifications.js?v=__ASSET_VERSION__';
+import {invalidateCanvasSession,suspendCanvasSession} from './api.js?v=__ASSET_VERSION__';
+import {getAuthState} from '../../shared/auth-state.js?v=__ASSET_VERSION__';
 import { generationEditState, generationEditMessage } from './generation-edit-state.js?v=__ASSET_VERSION__';
 import { createCanvasAssetPicker } from './asset-picker.js?v=__ASSET_VERSION__';
 import { createCanvasState, createCanvasSaveQueue } from './state.js?v=__ASSET_VERSION__';
@@ -94,7 +97,7 @@ const dom = Object.freeze({
     connect: document.getElementById('canvasConnect'), deleteSelection: document.getElementById('canvasDeleteSelection'), hint: document.getElementById('canvasSelectionHint'),
     nodes: document.getElementById('canvasNodes'), edges: document.getElementById('canvasEdges'), empty: document.getElementById('canvasEmpty'), viewport: document.getElementById('canvasViewport'),
     inspectorTitle: document.getElementById('canvasInspectorTitle'), inspector: document.getElementById('canvasInspectorBody'), history: document.getElementById('canvasRunHistory'),
-    credits: document.getElementById('canvasCredits'), toast: document.getElementById('canvasToast'),
+    credits: document.getElementById('canvasCredits'),
     organizationField: document.getElementById('canvasOrganizationField'), organization: document.getElementById('canvasOrganization'),
     quickTextImageVideo: document.getElementById('canvasQuickTextImageVideo'),
 });
@@ -104,7 +107,8 @@ const assetPicker = createCanvasAssetPicker({ german: isGerman, onApply: assignA
 let legacyAssetLabels;
 let runningNodeId = null;
 let projectTransition = false;
-let toastTimer = 0;
+let notifications;
+let workspaceActor=null,sessionInvalidated=false;
 const pendingRunKeys = new Map();
 let workflowAnalysis = { byNode: new Map(), edgeStates: new Map() };
 let agentPanel = null;
@@ -164,11 +168,12 @@ function el(tag, className, text) {
 }
 
 function showToast(message) {
-    window.clearTimeout(toastTimer);
-    dom.toast.textContent = message;
-    dom.toast.hidden = false;
-    toastTimer = window.setTimeout(() => { dom.toast.hidden = true; }, 3600);
+    const codes={projectCreated:'canvas_project_created',projectDeleted:'canvas_project_deleted',nodeAdded:'canvas_node_added',connected:'canvas_connection_created',runComplete:'canvas_run_complete',saveFailed:'canvas_save_failed',networkError:'network_error'};
+    const key=Object.keys(codes).find(key=>copy[key]===message);
+    if(['projectCreated','projectDeleted','runComplete'].includes(key)){refreshCanvasNotifications();return;}
+    canvasNotice(message,{code:key?codes[key]:'canvas_client_notice'});
 }
+function reportError(result){if(['request_aborted','canvas_session_unconfirmed'].includes(result?.code))return;canvasNotice(errorMessage(result),{code:result?.code||'canvas_client_notice',errorCode:result?.code,diagnosticRef:result?.diagnosticRef,status:result?.status});}
 
 function errorMessage(result) {
     const referenceError=h3ReferenceError(result?.code,isGerman);if(referenceError)return referenceError;
@@ -227,7 +232,7 @@ const projectSave = createCanvasSaveQueue({
     },
     delay: 650,
     onChange: renderSaveState,
-    onError: (result) => showToast(errorMessage(result)),
+    onError: (result) => reportError(result),
     onConfirm(result, { identity: [projectId], patch, pending }) {
         const project = store.state.projects.find((item) => item.id === projectId);
         applyConfirmedPatch(project, result.data.project, patch, pending);
@@ -242,7 +247,7 @@ const nodeSave = createCanvasSaveQueue({
         return checkedSaveResult(result, result.data?.node, nodeId, patch, projectId);
     },
     onChange: renderSaveState,
-    onError: (result) => showToast(errorMessage(result)),
+    onError: (result) => reportError(result),
     onConfirm(result, { identity: [projectId, nodeId], patch, pending }) {
         if (store.state.project?.id !== projectId) return;
         const node = store.state.nodes.find((item) => item.id === nodeId);
@@ -568,7 +573,7 @@ function renderInspector() {
                     const result=await canvasApi.updateEdge(store.state.project.id,edge.id,{config});
                     if(edgeSignal.aborted)return;
                     if(result.ok){Object.assign(edge,result.data.edge);renderGraph();renderInspector();dom.inspector.querySelector('[data-export-purpose]')?.focus({preventScroll:true});}
-                    else {purpose.disabled=false;purpose.value=edge.config?.purpose||'';showToast(errorMessage(result));}
+                    else {purpose.disabled=false;purpose.value=edge.config?.purpose||'';reportError(result);}
                 });
                 dom.inspector.append(field(isGerman?'Verbindungszweck':'Connection purpose',purpose));
             }
@@ -762,7 +767,7 @@ function renderInspector() {
             }
         }
         const videoState = canvasVideoRunState(store.state.runs, node.id, videoCopy);
-        const status = el('div', 'canvas-run-status', runningNodeId === node.id ? copy.running : inspectorRunError(node) || videoState.message); status.id = 'canvasNodeRunStatus'; status.setAttribute('role', 'status'); dom.inspector.append(status);
+        const status = el('div', 'canvas-run-status', runningNodeId === node.id ? copy.running : inspectorRunError(node) || nodeRunStatus(videoState)); status.id = 'canvasNodeRunStatus'; status.setAttribute('role', 'status'); dom.inspector.append(status);
         const editState=el('p','canvas-muted');editState.setAttribute('role','status');editState.setAttribute('aria-label',isGerman?'Stand der Generierung':'Generation freshness');dom.inspector.append(editState);
         const run = el('button', 'canvas-button canvas-button--primary', runningNodeId === node.id ? copy.running : copy.run);
         run.type = 'button'; run.disabled = runningNodeId === node.id || canvasVideoRunState(store.state.runs, node.id, videoCopy).blocked || !model?.runnable || model.areaEnabled===false || omniCanvasBlocked(node) || Boolean(inputContext.validation); run.addEventListener('click', () => void runSelectedNode(node)); dom.inspector.append(run);
@@ -867,9 +872,9 @@ async function createProject() {
     if (title === null || !title.trim()) return;
     return withProjectTransition(async () => {
         const result = await canvasApi.createProject({ title: title.trim(), locale: isGerman ? 'de' : 'en' });
-        if (!result.ok) return showToast(errorMessage(result));
-        store.state.projects.unshift(result.data.project);
-        if (await loadProject(result.data.project.id)) showToast(copy.projectCreated);
+        if (!result.ok) return reportError(result);
+        store.state.projects.unshift(result.data.project);renderProjects();refreshCanvasNotifications();
+        await loadProject(result.data.project.id);
     });
 }
 
@@ -888,13 +893,21 @@ async function deleteProject(project) {
     if (!window.confirm(copy.deleteProject)) return;
     return withProjectTransition(async () => {
         const deleted = await canvasApi.deleteProject(project.id);
-        if (!deleted.ok) return showToast(errorMessage(deleted));
+        if (!deleted.ok) {
+            // A lost DELETE reply is not permission to delete again. Confirm
+            // current owned visibility using reads before clearing this graph.
+            const [listed,current]=await Promise.all([canvasApi.listProjects(),canvasApi.getProject(project.id)]);
+            const absent=listed.ok&&Array.isArray(listed.data?.projects)&&!listed.data.projects.some(item=>item.id===project.id)&&current.status===404&&current.code==='project_not_found';
+            if(!absent)return reportError(deleted);
+            store.state.projects=listed.data.projects;
+        }
+        if(deleted.ok&&deleted.data?.cleanupPending)canvasNotice('',{code:'canvas_cleanup_pending',projectId:project.id,projectTitle:project.title,diagnosticRef:deleted.data.diagnosticRef});
         store.state.projects = store.state.projects.filter((item) => item.id !== project.id);
         if (store.state.project?.id === project.id) {
             store.state.project = null; store.state.nodes = []; store.state.edges = []; store.state.runs = [];
             if (store.state.projects[0]) await loadProject(store.state.projects[0].id); else { dom.title.value = copy.newProject; renderAll(); }
         } else renderProjects();
-        showToast(copy.projectDeleted);
+        refreshCanvasNotifications();
     });
 }
 
@@ -906,7 +919,7 @@ async function loadProject(projectId, { preserveSelection = false } = {}) {
     const selected=preserveSelection&&store.state.project?.id===projectId?store.state.selected:null;
     videoObservation.abort(); videoObservation = new AbortController();
     const result = await canvasApi.getProject(projectId);
-    if (!result.ok) return showToast(errorMessage(result));
+    if (!result.ok) return reportError(result);
     store.state.project = result.data.project;
     store.state.nodes = result.data.nodes || [];
     store.state.edges = result.data.edges || [];
@@ -940,7 +953,7 @@ async function addNode() {
         content: {},
     };
     const result = await canvasApi.createNode(projectId, body);
-    if (!result.ok) return showToast(errorMessage(result));
+    if (!result.ok) return reportError(result);
     if (store.state.project?.id !== projectId) return;
     if (!store.state.nodes.some((node) => node.id === result.data.node.id)) store.state.nodes.push(result.data.node);
     store.state.selected = { kind: 'node', id: result.data.node.id }; renderAll(); showToast(copy.nodeAdded);
@@ -993,7 +1006,7 @@ async function connectNodes(sourceId, targetId) {
     const source=store.state.nodes.find(node=>node.id===sourceId),target=store.state.nodes.find(node=>node.id===targetId);
     const config=canvasNodeMediaKind(source)==='audio'&&canvasNodeMediaKind(target)==='video'?{purpose:EXPORT_MUSIC_PURPOSE}:{};
     const result = await canvasApi.createEdge(projectId, { source_node_id: sourceId, target_node_id: targetId,config });
-    if (!result.ok) return showToast(errorMessage(result));
+    if (!result.ok) return reportError(result);
     if (store.state.project?.id !== projectId) return;
     if (!store.state.edges.some((edge) => edge.id === result.data.edge.id)) store.state.edges.push(result.data.edge);
     store.state.selected = { kind: 'edge', id: result.data.edge.id }; store.state.connecting = false; store.state.connectionSourceId = null; renderGraph(); renderInspector(); showToast(copy.connected);
@@ -1006,7 +1019,7 @@ async function deleteSelection() {
     if (!confirmed) return;
     return withProjectTransition(async () => {
         const result = selected.kind === 'node' ? await canvasApi.deleteNode(store.state.project.id, selected.id) : await canvasApi.deleteEdge(store.state.project.id, selected.id);
-        if (!result.ok) return showToast(errorMessage(result));
+        if (!result.ok) return reportError(result);
         if (selected.kind === 'node') {
             store.state.nodes = store.state.nodes.filter((node) => node.id !== selected.id);
             store.state.edges = store.state.edges.filter((edge) => edge.source_node_id !== selected.id && edge.target_node_id !== selected.id);
@@ -1084,10 +1097,10 @@ async function runSelectedNode(node) {
     runningNodeId = null;
     if (!result.ok) {
         if (result.status !== 0 && !['canvas_run_in_progress', 'canvas_image_save_pending', 'canvas_image_save_unavailable', 'image_save_reference_missing', 'image_save_checkpoint_failed'].includes(result.code)) pendingRunKeys.delete(node.id);
-        inspectorRunError(node, errorMessage(result));
-        if (status) { status.textContent = errorMessage(result); status.dataset.kind = 'error'; }
+        inspectorRunError(node, ['canvas_image_save_pending','canvas_image_save_unavailable','image_save_reference_missing','image_save_checkpoint_failed'].includes(result.code)?videoCopy.statuses.ingesting:result.status===0?videoCopy.statuses.outcome_unknown:copy.failed);
+        if (status) { status.textContent = inspectorRunError(node); status.dataset.kind = 'error'; }
         if (result.data?.run) store.state.runs = [result.data.run, ...store.state.runs.filter((run) => run.id !== result.data.run.id)].slice(0, 40);
-        renderInspector(); renderHistory(); showToast(errorMessage(result)); return;
+        renderInspector(); renderHistory(); reportError(result); return;
     }
     pendingRunKeys.delete(node.id);
     const run = result.data.run;
@@ -1096,12 +1109,18 @@ async function runSelectedNode(node) {
     renderAll(); showToast(copy.runComplete);
 }
 
+function nodeRunStatus(state){
+    const run=state.run;if(!run)return '';
+    const value=run.observation_error||run.error_code==='canvas_video_review_required'&&run.video_job_status!=='failed'?'outcome_unknown':run.video_job_status||(run.error_code==='canvas_video_pending'?'processing':run.status);
+    return videoCopy.statuses[value]||'';
+}
+
 // Update status text without rebuilding focused inputs or interrupting media.
 function renderVideoStatus(node) {
     const state = canvasVideoRunState(store.state.runs, node.id, videoCopy);
     if (!state.run?.video_job_id) return;
     const status = store.state.selected?.id === node.id && document.getElementById('canvasNodeRunStatus');
-    if (status) status.textContent = state.message;
+    if (status) status.textContent = nodeRunStatus(state);
     const badge = dom.nodes.querySelector(`[data-node-id="${node.id}"] .canvas-node__status`);
     if (badge) {
         badge.textContent = videoCopy.statuses[state.run.video_job_status || state.run.status] || videoCopy.statuses.running;
@@ -1128,7 +1147,7 @@ async function observeVideo(node, projectId, key, jobId, organizationId) {
     if (!result.ok) {
         if (result.data?.run) store.addRun(result.data.run);
         else { const run = store.state.runs.find(item => item.video_job_id === jobId); if (run) run.observation_error = true; }
-        renderVideoStatus(node); renderHistory(); showToast(canvasVideoRunState(store.state.runs, node.id, videoCopy).message); return;
+        renderVideoStatus(node); renderHistory();canvasNotice(canvasVideoRunState(store.state.runs,node.id,videoCopy).message,{projectId,code:result.code,errorCode:result.code,diagnosticRef:result.diagnosticRef,status:result.status});return;
     }
     const run = result.data.run;
     node.output = run.output; node.asset_id = run.asset_id; pendingRunKeys.delete(node.id);
@@ -1169,6 +1188,8 @@ async function loadCredits() {
 }
 
 function bindEvents() {
+    const initialAuth=getAuthState();if(initialAuth.sessionConfirmed&&initialAuth.loggedIn)workspaceActor=initialAuth.user?.id||null;
+    notifications=createCanvasNotifications({button:document.getElementById('canvasNotificationsToggle'),panel:document.getElementById('canvasNotificationsPanel'),german:isGerman,getProject:()=>store.state.project,openProject});
     agentPanel = createCanvasAgentPanel({root:document.getElementById('canvasAgentBody'),german:isGerman,getState:()=>store.state,flush:flushSaves,
         newProject:()=>void createProject(),refreshProject:projectId=>withProjectTransition(()=>loadProject(projectId,{preserveSelection:true})),openProject:async projectId=>{await openProject(projectId);showPanel(compactWorkspace.matches?'graph':'inspector');},
         showResult:async(projectId,nodeId)=>{await openProject(projectId);if(store.state.project?.id!==projectId||!store.state.nodes.some(node=>node.id===nodeId))return;store.state.selected={kind:'node',id:nodeId};renderGraph();renderInspector();showPanel('inspector');const output=dom.inspector.querySelector('.canvas-output');if(output){output.tabIndex=-1;output.focus({preventScroll:true});output.scrollIntoView({block:'start'});}}});
@@ -1193,12 +1214,26 @@ function bindEvents() {
     document.addEventListener('keydown', (event) => {
         if (assetPicker.isOpen()) return;
         if (!['Delete', 'Backspace'].includes(event.key) || !store.state.selected) return;
-        if (event.target.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+        if (event.target.closest?.('input, textarea, select, [contenteditable="true"], #canvasNotificationsPanel')) return;
         event.preventDefault(); void deleteSelection();
     });
     window.addEventListener('beforeunload', (event) => {
+        if(sessionInvalidated)return;
         if (!nodeSave.dirty && !projectSave.dirty && !runningNodeId) return;
         event.preventDefault(); event.returnValue = '';
+    });
+    document.addEventListener('bitbi:auth-change',event=>{
+        const auth=event.detail||getAuthState();
+        if(!auth.sessionConfirmed){suspendCanvasSession(true);document.querySelector('.canvas-layout').inert=true;dom.title.disabled=true;dom.organization.disabled=true;return;}
+        const actor=auth.loggedIn&&typeof auth.user?.id==='string'?auth.user.id:null;
+        if(workspaceActor&&actor!==workspaceActor){
+            sessionInvalidated=true;invalidateCanvasSession();notifications.stop();videoObservation.abort();inspectorAbort.abort();agentPanel?.setVisible(false);
+            store.state.projects=[];store.setProjectGraph({project:null,nodes:[],edges:[],runs:[]});dom.app.hidden=true;dom.app.inert=true;
+            // New cookies must never send the previous actor's deferred saves or
+            // conversation requests. Reload creates a clean authenticated workspace.
+            window.location.reload();return;
+        }
+        workspaceActor=actor;suspendCanvasSession(false);document.querySelector('.canvas-layout').inert=false;dom.title.disabled=false;dom.organization.disabled=false;if(!projectTransition)dom.app.inert=false;
     });
 }
 
@@ -1219,9 +1254,10 @@ async function init() {
 
     dom.denied.hidden = true;
     dom.app.hidden = false;
+    notifications.start();
     store.state.projects = projectsResult.data.projects || [];
     const modelsResult = await canvasApi.listModels();
-    if (!modelsResult.ok) showToast(errorMessage(modelsResult));
+    if (!modelsResult.ok) reportError(modelsResult);
     else {
         store.state.models = (modelsResult.data.models || []).map(model => isGerman && isGptImage25Model(model.id) ? { ...model, description: 'Bildgenerierung mit transparentem PNG/WebP und automatischen Einstellungen. Bearbeitung mit bis zu 16 Referenzen wartet auf verifizierte Referenzpreise.', disabledReason: model.runnable ? null : 'Verifizierte Cloudflare-Preise und Kontozugriff stehen noch aus.' } : model);
         store.state.organizations = modelsResult.data.organizations || [];

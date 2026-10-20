@@ -53,9 +53,9 @@ export function parseRuntimeArgs(args, env = {}) {
     if (args[i] === '--preflight' && !result.preflight) result.preflight = true;
     else if (args[i] === '--artifacts' && !explicitArtifacts && args[i + 1] && !args[i + 1].startsWith('--')) {
       result.artifacts = args[++i]; explicitArtifacts = true;
-    } else if (args[i] === '--suite' && !result.suite && ['member-generation','model-status','model-pricing','appearance','canvas','canvas-settlement-continuation','canvas-settlement-recovery','canvas-assistant-continuation','canvas-assistant-tail','canvas-assistant-rate-tail','canvas-export-delivery','canvas-readiness-recovery','canvas-policy-tail','canvas-actions-tail','canvas-completion','canvas-audio','canvas-audio-fit','canvas-transitions','canvas-retention','q4-stream','website-assistant'].includes(args[i+1])) {
+    } else if (args[i] === '--suite' && !result.suite && ['member-generation','model-status','model-pricing','appearance','canvas','canvas-settlement-continuation','canvas-settlement-recovery','canvas-assistant-continuation','canvas-assistant-tail','canvas-assistant-rate-tail','canvas-export-delivery','canvas-reliability','canvas-readiness-recovery','canvas-policy-tail','canvas-actions-tail','canvas-completion','canvas-audio','canvas-audio-fit','canvas-transitions','canvas-retention','q4-stream','website-assistant'].includes(args[i+1])) {
       result.suite = args[++i];
-    } else throw new Error('Usage: test-q2-runtime [--preflight] [--suite member-generation|model-status|model-pricing|appearance|canvas|canvas-settlement-continuation|canvas-settlement-recovery|canvas-assistant-continuation|canvas-assistant-tail|canvas-assistant-rate-tail|canvas-export-delivery|canvas-readiness-recovery|canvas-policy-tail|canvas-actions-tail|canvas-completion|canvas-audio|canvas-audio-fit|canvas-transitions|canvas-retention|q4-stream|website-assistant] [--artifacts <outside-repository-directory>]');
+    } else throw new Error('Usage: test-q2-runtime [--preflight] [--suite member-generation|model-status|model-pricing|appearance|canvas|canvas-settlement-continuation|canvas-settlement-recovery|canvas-assistant-continuation|canvas-assistant-tail|canvas-assistant-rate-tail|canvas-export-delivery|canvas-reliability|canvas-readiness-recovery|canvas-policy-tail|canvas-actions-tail|canvas-completion|canvas-audio|canvas-audio-fit|canvas-transitions|canvas-retention|q4-stream|website-assistant] [--artifacts <outside-repository-directory>]');
   }
   return result;
 }
@@ -93,6 +93,9 @@ export function stageInputPlan() {
     'workers/ai/src', 'tests/helpers/elevenlabs-member-control.mjs', 'tests/fixtures/media/member-music.mp3', 'tests/fixtures/media/member-music.opus',
     'tests/helpers/canvas-contributors-control.mjs',
     'tests/helpers/canvas-agent-control.mjs',
+    'tests/helpers/canvas-project-lifecycle-control.mjs',
+    'tests/helpers/canvas-notifications-control.mjs',
+    'tests/helpers/canvas-agent-explanation-control.mjs',
     'tests/helpers/canvas-agent-settlement-review-control.mjs',
     'tests/helpers/canvas-image-scheduling-control.mjs',
     'tests/helpers/canvas-agent-readiness-control.mjs',

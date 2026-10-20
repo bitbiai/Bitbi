@@ -12,6 +12,7 @@ import { canvasAssistantAvailability } from './canvas-agent-assistant-models.js'
 import { detectCanvasDirectControl } from '../../../../js/shared/canvas-agent-control-intent.mjs';
 import {canvasAgentActionContext,prepareCanvasAgentActionStatements,executeCanvasAgentActions,publicCanvasAgentActions,recoverCanvasAgentActions} from './canvas-agent-actions.js';
 import { canvasDialogueProjectEvidence,canvasDialogueDelivery,canvasDialogueFailure,logCanvasDialogueStage } from './canvas-agent-dialogue-state.js';
+import { canvasConversationExecutionFacts,canvasConversationStatusText,canvasConversationReadIntent,canvasReconcileExplanation } from './canvas-agent-conversation-context.js';
 
 export const BRIEF_FIELDS=CANVAS_AGENT_BRIEF_FIELDS;
 export const emptyBrief=()=>({version:1,revision:0,fields:{},duration:{targetDurationSeconds:null,choice:null,asked:false,sourceMessageId:null},openQuestions:[]});
@@ -37,6 +38,15 @@ export async function conversationCosts(env,projectId) {
         COALESCE(SUM(c.reserved),0) AS reserved,COALESCE(SUM(c.pending),0) AS pending
         FROM canvas_agent_step_costs c JOIN canvas_agent_runs r ON r.id=c.run_id WHERE c.project_id=? AND r.purpose='briefing'`).bind(projectId).first();
 }
+// Existing approval/start receipts identify application acknowledgements. Their
+// text is not a discriminator; pending questions have no consumed receipt.
+const applicationReceiptSelect=`(EXISTS(SELECT 1 FROM canvas_agent_conversation_actions a
+    JOIN canvas_agent_conversation_decisions d ON d.id=json_extract(a.input_json,'$.decisionId') AND d.project_id=a.project_id
+    JOIN canvas_projects p ON p.id=d.project_id AND p.user_id=d.user_id
+    WHERE a.project_id=t.project_id AND a.request_key=t.request_key AND json_extract(a.input_json,'$.kind')='decision'
+      AND d.decision_key=a.request_key AND d.state IN ('consumed','cancelled'))
+    OR EXISTS(SELECT 1 FROM canvas_agent_start_intents i JOIN canvas_projects p ON p.id=i.project_id AND p.user_id=i.user_id
+      WHERE i.id=t.id AND i.project_id=t.project_id AND t.request_key='immediate:'||i.request_key)) AS application_receipt`;
 export async function conversationView(env,projectId,userId) {
     if(!await ensureConversation(env,projectId,userId))agentFail('canvas_project_not_found',404);
     await observeCanvasConversationReceipts(env,projectId,userId);
@@ -48,12 +58,15 @@ export async function conversationView(env,projectId,userId) {
         WHEN (SELECT status FROM canvas_agent_runs WHERE id=run_id) IN ('cancelled','taken_over') THEN 'cancelled' ELSE 'failed' END,
         error_code=(SELECT error_code FROM canvas_agent_runs WHERE id=run_id),updated_at=?
         WHERE project_id=? AND state='pending' AND run_id IN (SELECT id FROM canvas_agent_runs WHERE status IN ('blocked','review_required','cancelled','taken_over'))`).bind(nowIso(),projectId).run();
-    const turns=(await env.DB.prepare("SELECT t.*,r.model_id AS reply_model_id FROM canvas_agent_turns t LEFT JOIN canvas_agent_runs r ON r.id=t.run_id WHERE t.project_id=? AND t.state!='deleted' ORDER BY t.rowid").bind(projectId).all()).results;
+    const turns=(await env.DB.prepare(`SELECT t.*,r.model_id AS reply_model_id,s.receipt_json AS dialogue_receipt,s.input_json AS dialogue_input,${applicationReceiptSelect}
+        FROM canvas_agent_turns t LEFT JOIN canvas_agent_runs r ON r.id=t.run_id
+        LEFT JOIN canvas_agent_steps s ON s.run_id=t.run_id AND s.step_key='dialogue'
+        WHERE t.project_id=? AND t.state!='deleted' ORDER BY t.rowid`).bind(projectId).all()).results;
     const evidence=await canvasDialogueProjectEvidence(env,projectId),byTurn=new Map(evidence.map(item=>[item.turn_id,item]));
     const blockers=evidence.map(item=>({...canvasDialogueDelivery(item),turnId:item.turn_state==='deleted'?null:item.turn_id})).filter(item=>item.blocking);
-    const messages=turns.flatMap(t=>[...(t.user_text?[{id:t.id,role:'user',text:t.user_text,status:'completed'}]:[]),...(t.assistant_text?[{id:`${t.id}:reply`,role:'assistant',text:t.assistant_text,status:'completed'}]
+    const messages=turns.flatMap(t=>[...(t.user_text?[{id:t.id,role:'user',text:t.user_text,status:'completed',provenance:'user',kind:'message'}]:[]),...(t.assistant_text?[{id:`${t.id}:reply`,role:'assistant',text:canvasConversationReplyText(t),status:'completed'}]
         :[{id:`${t.id}:reply`,role:'assistant',text:'',status:t.state,code:t.error_code||null}])].map(message=>message.role==='assistant'
-            ?{...message,...(t.run_id?{modelId:t.reply_model_id||CANVAS_AGENT_MODEL}:{}),...(actions.some(action=>action.turnId===t.id)?{text:actions.filter(action=>action.turnId===t.id).map(action=>action.text).join('\n')}:{}),delivery:canvasDialogueDelivery(byTurn.get(t.id))}:message));
+            ?{...message,...canvasConversationReplySource(t,actions),delivery:canvasDialogueDelivery(byTurn.get(t.id))}:message));
     const costs=await conversationCosts(env,projectId),tariff=await getModelTariff(env);
     let suggestedAllowanceCredits=null;
     try {
@@ -77,6 +90,36 @@ export async function conversationView(env,projectId,userId) {
             remainingCredits:Math.max(0,row.allowance_credits-costs.committed),tariffRevision:tariff.revision,suggestedAllowanceCredits}},
         availability:await (await import('./canvas-agent-assistant-models.js')).canvasAssistantAvailability(env,selectedModel,{dialogue:true})};
 }
+// A model reply and an application action receipt have different authors and
+// identities. Recover the original validated answer from historical receipts
+// whose old UI projection replaced it with a generic action acknowledgement.
+const historicalOperationAcknowledgement=turn=>['Dein Auftrag ist gespeichert. Die Ergebnisse erscheinen hier.','Your request is saved. Its results will appear here.'].some(text=>turn.assistant_text?.startsWith(text));
+export function canvasConversationReplyText(turn) {
+    const replaced=historicalOperationAcknowledgement(turn);
+    if(replaced&&turn.run_id&&turn.dialogue_receipt&&turn.dialogue_input){try{
+        const input=JSON.parse(turn.dialogue_input),receipt=JSON.parse(turn.dialogue_receipt);
+        const dialogue=validateCanvasAgentDialogueReply(receipt.dialogue||receipt.data?.dialogue,{messageId:turn.id,dialogueVersion:input.payload.version,projectRevision:input.payload.projectRevision});
+        if(dialogue.actions?.length){
+            const question=input.askDuration?durationQuestion(input.payload.locale):null;
+            return question&&!/(?:duration|how long|wie lang|dauer)/i.test(dialogue.text)?`${dialogue.text}\n\n${question}`:dialogue.text;
+        }
+    }catch{/* Invalid historical evidence cannot manufacture a replacement reply. */}}
+    return turn.assistant_text;
+}
+export function canvasConversationReplySource(turn,actions=[]) {
+    if(turn.application_receipt===1)return {provenance:'application',kind:'operation_ack'};
+    if(turn.run_id&&historicalOperationAcknowledgement(turn)&&canvasConversationReplyText(turn)===turn.assistant_text)
+        return {provenance:'application',kind:'operation_ack'};
+    if(turn.run_id){
+        const proposed=actions.filter(action=>action.turnId===turn.id&&!['status','brief_summary','show_project','show_result','focus_node'].includes(action.type));
+        return {provenance:'model',kind:'answer',modelId:turn.reply_model_id||CANVAS_AGENT_MODEL,
+            ...(proposed.length?{proposedActions:{source:'action_receipts',ids:proposed.map(action=>action.id),
+                state:proposed.every(action=>action.state==='completed')?'completed':proposed.some(action=>['failed','review_required','cancelled'].includes(action.state))?'attention_required':'unconfirmed'}}:{})};
+    }
+    const related=actions.filter(action=>action.turnId===turn.id),control=detectCanvasDirectControl(turn.user_text);
+    if(control==='status'||canvasConversationReadIntent(turn.user_text))return {provenance:'application',kind:'local_explanation'};
+    return {provenance:'application',kind:related.length||control?'operation_ack':'decision'};
+}
 export async function canvasConversationBlocker(env,projectId) {
     const evidence=await canvasDialogueProjectEvidence(env,projectId);
     return evidence.map(item=>canvasDialogueDelivery(item)).find(item=>item.blocking)||null;
@@ -84,10 +127,10 @@ export async function canvasConversationBlocker(env,projectId) {
 // Recover only the local follow-up of an already accepted ready reply. This
 // reads its pinned receipt; it neither reruns inference nor reapplies the brief.
 async function ensureCompletedConversationBudgetQuestion(env,run){
-    const saved=await env.DB.prepare(`SELECT t.id,t.state,s.input_json,s.receipt_json FROM canvas_agent_turns t
+    const saved=await env.DB.prepare(`SELECT t.id,t.state,t.user_text,s.input_json,s.receipt_json FROM canvas_agent_turns t
         JOIN canvas_agent_steps s ON s.run_id=t.run_id AND s.step_key='dialogue'
         WHERE t.run_id=? AND t.state='completed' AND s.status='completed'`).bind(run.id).first();
-    if(!saved?.receipt_json)return;
+    if(!saved?.receipt_json||canvasConversationReadIntent(saved.user_text))return;
     const input=JSON.parse(saved.input_json),receipt=JSON.parse(saved.receipt_json);
     const dialogue=validateCanvasAgentDialogueReply(receipt.dialogue||receipt.data?.dialogue,{messageId:saved.id,dialogueVersion:input.payload.version,projectRevision:input.payload.projectRevision});
     if(dialogue?.intent==='ready')await (await import('./canvas-agent-conversation-decisions.js')).ensureCanvasConversationBudgetQuestion(env,run.project_id,run.user_id);
@@ -196,6 +239,7 @@ export function pauseForBriefChange(env,projectId) {
 export function conversationLocale(view) { return view.project?.locale==='de'?'de':'en'; }
 async function localControlTurn(env,view,row,input,key) {
     const type=detectCanvasDirectControl(input.text);if(!type)return false;
+    if(type==='status')return localExplanationTurn(env,row,input,key,canvasConversationStatusText(await canvasConversationExecutionFacts(env,row.user_id,row.project_id),input.locale));
     const id=randomTokenHex(16),now=nowIso();
     const actions=[{type,targetId:null,value:null,number:null,secondaryNumber:null,ids:[],revision:view.project.revision}];
     const receipts=await prepareCanvasAgentActionStatements(env,{userId:row.user_id,projectId:row.project_id,turnId:id,actions,expectedRevision:view.project.revision,locale:input.locale});
@@ -205,12 +249,26 @@ async function localControlTurn(env,view,row,input,key) {
     await executeCanvasAgentActions(env,{userId:row.user_id,projectId:row.project_id,turnId:id});
     return true;
 }
+async function localExplanationTurn(env,row,input,key,text) {
+    const now=nowIso();
+    await env.DB.batch([conversationGuard(env,row),env.DB.prepare('UPDATE canvas_agent_conversations SET revision=revision+1,updated_at=? WHERE project_id=?').bind(now,row.project_id),
+        env.DB.prepare("INSERT INTO canvas_agent_turns(id,project_id,request_key,input_json,conversation_revision,brief_revision,user_text,assistant_text,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,'completed',?,?)")
+            .bind(randomTokenHex(16),row.project_id,key,JSON.stringify(input),row.revision+1,row.brief_revision,input.text,text,now,now)]);
+    return true;
+}
 export async function createConversationTurn(env,view,row,input,key) {
     const count=await env.DB.prepare("SELECT COUNT(*) AS n FROM canvas_agent_turns WHERE project_id=? AND state!='deleted'").bind(row.project_id).first();
     if(count.n>=80)agentFail('canvas_agent_conversation_limit');
     if(await localControlTurn(env,view,row,input,key))return;
+    const readIntent=canvasConversationReadIntent(input.text);
+    if(readIntent==='reconcile_explanation')return localExplanationTurn(env,row,input,key,
+        canvasReconcileExplanation(await canvasConversationExecutionFacts(env,row.user_id,row.project_id),input.text,input.locale));
     const modelId=canvasAssistantModelId(row.assistant_model_id);
-    const available=await canvasAgentDialogueAvailability(env,modelId);if(!available.available)agentFail(available.code,503);
+    const available=await canvasAgentDialogueAvailability(env,modelId);
+    if(readIntent&&(!available.available||row.allowance_credits<=(await conversationCosts(env,row.project_id)).committed))return localExplanationTurn(env,row,input,key,
+        (input.locale==='de'?'Canvas-Systemauskunft: Eine Modellantwort ist derzeit nicht freigegeben oder nicht verfügbar. Eine Frage oder ein zitiertes Kommando führt keine Aktion aus. Die gespeicherten Fakten sind:\n':'Canvas system information: A model reply is not currently authorized or available. A question or a quoted command does not execute an action. The stored facts are:\n')+
+        canvasConversationStatusText(await canvasConversationExecutionFacts(env,row.user_id,row.project_id),input.locale));
+    if(!available.available)agentFail(available.code,503);
     const inventory=await canvasAgentCapabilities(env),costs=await conversationCosts(env,row.project_id);
     if(row.state!=='active')agentFail('canvas_agent_conversation_saved');
     if(row.allowance_credits<=costs.committed)agentFail('canvas_agent_briefing_allowance_required',402);
@@ -219,7 +277,7 @@ export async function createConversationTurn(env,view,row,input,key) {
     const pending=await canvasConversationBlocker(env,row.project_id);
     if(pending)agentFail('canvas_agent_conversation_pending');
     const id=randomTokenHex(16),runId=randomTokenHex(16),stepId=randomTokenHex(16),now=nowIso();
-    const brief=JSON.parse(row.brief_json),duration=userDuration(input.text,brief,id);
+    const brief=JSON.parse(row.brief_json),duration=readIntent?null:userDuration(input.text,brief,id);
     if(duration)brief.duration=duration;
     const delegateOptional=/^(?:enough questions|no more questions|stop asking questions|genug fragen|keine weiteren fragen)[.!]?$/i.test(input.text.trim());
     if(delegateOptional){
@@ -227,17 +285,22 @@ export async function createConversationTurn(env,view,row,input,key) {
         brief.openQuestions=[];
     }
     // A free, deterministic first question is persisted even if inference fails.
-    const askDuration=!brief.duration.choice&&!brief.duration.asked;
+    const askDuration=!readIntent&&!brief.duration.choice&&!brief.duration.asked;
     if(askDuration)brief.duration.asked=true;
-    const recent=(await env.DB.prepare("SELECT id,user_text,assistant_text FROM canvas_agent_turns WHERE project_id=? AND state='completed' ORDER BY rowid DESC LIMIT 6").bind(row.project_id).all()).results.reverse();
+    const recent=(await env.DB.prepare(`SELECT t.id,t.run_id,t.user_text,t.assistant_text,r.model_id AS reply_model_id,
+        s.receipt_json AS dialogue_receipt,s.input_json AS dialogue_input,${applicationReceiptSelect} FROM canvas_agent_turns t
+        LEFT JOIN canvas_agent_runs r ON r.id=t.run_id LEFT JOIN canvas_agent_steps s ON s.run_id=t.run_id AND s.step_key='dialogue'
+        WHERE t.project_id=? AND t.state='completed' ORDER BY t.rowid DESC LIMIT 6`).bind(row.project_id).all()).results.reverse();
     const project=await canvasAgentActionContext(env,row.user_id,row.project_id);
+    project.conversationSources=recent.filter(t=>t.assistant_text&&canvasConversationReplySource(t).kind!=='operation_ack')
+        .map(t=>({id:`${t.id}_reply`,...canvasConversationReplySource(t)}));
     brief.revision=row.brief_revision+(duration||delegateOptional?1:0);
     const policy=await canvasAgentPolicyIdentity('briefing');
     const payload={version:CANVAS_AGENT_DIALOGUE_VERSION,model:modelId,requestId:runId,locale:input.locale,
         conversationRevision:row.revision+1,briefRevision:row.brief_revision+(duration||delegateOptional?1:0),projectRevision:view.project.revision,
         // A server-originated budget question has no user message. Preserve its
         // real assistant text without inventing an empty user history entry.
-        message:{id,text:input.text},brief,recentMessages:recent.flatMap(t=>[...(t.user_text?[{id:t.id,role:'user',text:t.user_text}]:[]),...(t.assistant_text?[{id:`${t.id}_reply`,role:'assistant',text:t.assistant_text.slice(0,6000)}]:[])]),
+        message:{id,text:input.text},brief,recentMessages:recent.flatMap(t=>[...(t.user_text?[{id:t.id,role:'user',text:t.user_text}]:[]),...(t.assistant_text&&canvasConversationReplySource(t).kind!=='operation_ack'?[{id:`${t.id}_reply`,role:'assistant',text:canvasConversationReplyText(t).slice(0,6000)}]:[])]),
         capabilities:inventory,currentProject:project,policy,
         privacyUser:`cau_${await sha256Hex(`canvas-agent-user:${row.user_id}`)}`,promptCacheKey:`cap_${await sha256Hex(`canvas-agent-project:${row.user_id}:${row.project_id}`)}`};
     while(payload.recentMessages.length&&new TextEncoder().encode(JSON.stringify(payload)).byteLength>CANVAS_AGENT_DIALOGUE_INPUT_MAX_BYTES)payload.recentMessages.splice(0,2);
@@ -282,17 +345,17 @@ export async function processCanvasAgentConversation(env,run,user,storageAttempt
         await env.DB.prepare("UPDATE canvas_agent_turns SET state='cancelled',error_code='canvas_agent_conversation_changed',updated_at=? WHERE id=? AND state!='deleted'").bind(nowIso(),turn.id).run();
         return agentTransition(env,run,{status:'completed',phase:'briefing'});
     }
-    const brief=JSON.parse(current.brief_json),old=JSON.stringify(brief.fields);
-    for(const update of dialogue.updates){
+    const brief=JSON.parse(current.brief_json),old=JSON.stringify(brief.fields),readOnly=Boolean(canvasConversationReadIntent(turn.user_text));
+    for(const update of readOnly?[]:dialogue.updates){
         if(!BRIEF_FIELDS.includes(update.field)||update.sourceMessageId!==turn.id||typeof update.value!=='string'||update.value.length>1000)continue;
         if(update.field==='delegatedChoices'&&brief.fields.delegatedChoices?.sourceMessageId===turn.id&&brief.fields.delegatedChoices.provenance==='delegated')continue;
         const provenance=['user_stated','assistant_proposed','corrected','unresolved'].includes(update.provenance)?update.provenance:'assistant_proposed';
         brief.fields[update.field]={value:update.value,provenance,sourceMessageId:turn.id,revision:current.brief_revision+1};
     }
     const changed=old!==JSON.stringify(brief.fields);
-    brief.openQuestions=Array.isArray(dialogue.questions)?dialogue.questions.slice(0,2):[];
+    if(!readOnly)brief.openQuestions=Array.isArray(dialogue.questions)?dialogue.questions.slice(0,2):[];
     if(brief.duration.choice)brief.openQuestions=brief.openQuestions.filter(q=>!/(?:duration|how long|wie lang|dauer)/i.test(q));
-    let text=dialogue.actions?.length?(acceptedInput.payload.locale==='de'?'Dein Auftrag ist gespeichert. Die Ergebnisse erscheinen hier.':'Your request is saved. Its results will appear here.'):dialogue.text;
+    let text=dialogue.text;
     if(JSON.parse(step.input_json).askDuration){
         const question=durationQuestion(JSON.parse(step.input_json).payload.locale);
         if(!/(?:duration|how long|wie lang|dauer)/i.test(text))text=`${text}\n\n${question}`;
@@ -302,7 +365,7 @@ export async function processCanvasAgentConversation(env,run,user,storageAttempt
     const statements=[conversationGuard(env,current),env.DB.prepare('UPDATE canvas_agent_conversations SET revision=revision+1,brief_revision=?,brief_json=?,updated_at=? WHERE project_id=?')
         .bind(brief.revision,JSON.stringify(brief),nowIso(),run.project_id),
         env.DB.prepare("UPDATE canvas_agent_turns SET state='completed',assistant_text=?,error_code=NULL,updated_at=? WHERE id=? AND state IN ('pending','review_required','failed')").bind(text.slice(0,8000),nowIso(),turn.id)];
-    statements.push(...await prepareCanvasAgentActionStatements(env,{userId:run.user_id,projectId:run.project_id,turnId:turn.id,actions:dialogue.actions||[],expectedRevision:acceptedInput.payload.projectRevision,expectedControlId:acceptedInput.payload.currentProject.lastControlId,locale:acceptedInput.payload.locale}));
+    statements.push(...await prepareCanvasAgentActionStatements(env,{userId:run.user_id,projectId:run.project_id,turnId:turn.id,actions:readOnly?[]:dialogue.actions||[],expectedRevision:acceptedInput.payload.projectRevision,expectedControlId:acceptedInput.payload.currentProject.lastControlId,locale:acceptedInput.payload.locale}));
     if(changed&&dialogue.updates.some(u=>['user_stated','corrected'].includes(u.provenance)))statements.push(pauseForBriefChange(env,run.project_id));
     try {await env.DB.batch(statements);} catch(error) {
         const latest=await conversationRow(env,run.project_id,run.user_id);
@@ -312,7 +375,7 @@ export async function processCanvasAgentConversation(env,run,user,storageAttempt
     }
     await agentTransition(env,run,{status:'completed',phase:'briefing',error_code:null,cause_json:null});
     await executeCanvasAgentActions(env,{userId:run.user_id,projectId:run.project_id,turnId:turn.id});
-    if(dialogue.intent==='ready')await (await import('./canvas-agent-conversation-decisions.js')).ensureCanvasConversationBudgetQuestion(env,run.project_id,run.user_id);
+    if(!readOnly&&dialogue.intent==='ready')await (await import('./canvas-agent-conversation-decisions.js')).ensureCanvasConversationBudgetQuestion(env,run.project_id,run.user_id);
     logCanvasDialogueStage('completed',{runId:run.id,stepId:step.id,turnId:turn.id,dispatchState:'succeeded',receiptState:'completed'});
 }
 export function productionBrief(row) {

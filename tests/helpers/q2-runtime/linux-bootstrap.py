@@ -257,7 +257,7 @@ def main():
     parser.add_argument("--node-sha256", required=True)
     parser.add_argument("--uid", required=True, type=int)
     parser.add_argument("--gid", required=True, type=int)
-    parser.add_argument("--suite", choices=["member-generation", "model-status", "model-pricing", "appearance", "canvas", "canvas-completion", "canvas-audio", "canvas-audio-fit", "canvas-transitions", "canvas-retention", "q4-stream", "website-assistant"] + ["canvas-policy-tail"] + ["canvas-actions-tail"] + ["canvas-settlement-continuation"] + ["canvas-settlement-recovery"] + ["canvas-assistant-continuation"] + ["canvas-assistant-tail"] + ["canvas-assistant-rate-tail"] + ["canvas-readiness-recovery"] + ["canvas-export-delivery"])
+    parser.add_argument("--suite", choices=["member-generation", "model-status", "model-pricing", "appearance", "canvas", "canvas-completion", "canvas-audio", "canvas-audio-fit", "canvas-transitions", "canvas-retention", "q4-stream", "website-assistant"] + ["canvas-policy-tail"] + ["canvas-actions-tail"] + ["canvas-settlement-continuation"] + ["canvas-settlement-recovery"] + ["canvas-assistant-continuation"] + ["canvas-assistant-tail"] + ["canvas-assistant-rate-tail"] + ["canvas-readiness-recovery"] + ["canvas-export-delivery"] + ["canvas-reliability"])
     parser.add_argument("--mode", required=True, choices=["preflight", "runtime"])
     args = parser.parse_args()
     session = Path(args.session)

@@ -17,6 +17,19 @@ import {isCanvasInspectorChange,isCanvasTransitionExampleChange} from './lib/can
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 
+{
+ const workers=['tests/q2-canvas-reliability.spec.js','tests/helpers/canvas-notifications-control.mjs',
+   'tests/helpers/canvas-project-lifecycle-control.mjs','tests/helpers/canvas-agent-explanation-control.mjs'];
+ for(const file of workers){const chosen=selectCiTests([file]);assert(chosen.workers&&!chosen.full,`${file}: existing Worker caller`);}
+ for(const file of ['tests/helpers/canvas-notifications-ui.cjs','tests/helpers/canvas-inspector-ui.cjs']){
+  const ui=selectCiTests([file]);assert(ui.homepage&&!ui.full,`${file} belongs to the existing dual-engine Canvas caller`);
+ }
+ const mixed=selectCiTests([...workers,'tests/helpers/canvas-notifications-ui.cjs','workers/auth/src/routes/canvas.js','workers/auth/migrations/0113_canvas_notifications_and_lifecycle.sql','workers/shared/canvas-agent/skills/project-explanations.mjs']);
+ assert(mixed.workers&&mixed.auth&&mixed.homepage&&!mixed.full,'Persistence, policy, account and browser boundaries stay selected');
+ for(const file of workers)assert(selectCiTests([file+'.unknown']).full,'Unknown neighboring tests retain full discovery');
+ assert(selectCiTests([...workers,'tests/helpers/unreviewed-notifications.mjs']).full,'No prefix exemption for new tests');
+}
+
 if(process.argv.includes('--canvas-export-delivery-only')) {
   assert.deepEqual(process.argv.slice(2),['--canvas-export-delivery-only']);
   await testExportDeliverySelection();process.exit(0);

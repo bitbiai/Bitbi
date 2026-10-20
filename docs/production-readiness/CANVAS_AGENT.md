@@ -1,5 +1,58 @@
 # Canvas production assistant
 
+## Notifications and project lifecycle
+
+**Notifications / Meldungen** is a workspace-wide toolbar control, available without
+a selected project. Automatic Canvas notices appear here; chat remains a conversation.
+Node state, ordinary production progress and spending questions retain their normal
+controls. The exclamation badge means unread items, not unresolved work. The explicit
+read action acknowledges only IDs presented in the visible panel. Fetching, switching
+projects, reloading or a concurrent arrival never acknowledges other items.
+
+[`canvas-notifications.js`](../../workers/auth/src/lib/canvas-notifications.js) projects
+existing project, action, event, generation and export records. Migration 0113 adds
+only viewer-owned read markers, a rollout timestamp and bounded browser transport
+notices; it does not add an execution ledger. Stable source/outcome identities deduplicate
+polls and reconnects. Existing resolved history starts read, while unresolved failures
+remain unread. Source history follows its existing retention. Browser-only notices
+contain allowlisted codes, optional diagnostic references and HTTP status, never raw
+messages, stacks, provider payloads or credentials; they remain explicitly unconfirmed,
+with a 500-item/90-day bound. Offline notices stay in the same UI and reconcile by their
+original identity. Notification APIs are authenticated, private/no-store and CSRF
+protected for writes. Reading or acknowledging cannot authorize any project action.
+
+Project deletion retains immutable turn IDs referenced by historical spending/start
+receipts while redacting the creative conversation and draft. This replaces the
+conversation cascade that conflicted with those foreign keys. Same-owner tombstone
+replays are safe; a failed post-commit media cleanup does not undo a saved deletion,
+node change or generation result. Existing cleanup/recovery handles retained sources
+and separately saved Assets; no deletion implies a refund or deletion of all Assets.
+
+The shared runtime explanation skill distinguishes an event label such as
+`production.reconcile` from its recorded error code. A requested explanation stays
+in chat and cannot become a repair or spending action. The briefing allowance and
+production cap are separate scopes. An ambiguous budget message asks which scope
+the user means; a model proposal cannot turn a generic project limit into a larger
+conversation allowance. Historical approved caps and receipts are never rewritten.
+
+### Reliability controls
+
+| Risk / reproduced boundary | Repair | Actual regression caller |
+| --- | --- | --- |
+| Project deletion cascaded through turns referenced by immutable decisions; populated D1 rejected the transaction | Retain/redact turn identities, fence deleted projects, preserve receipts | `q2-canvas-reliability.spec.js`; native `canvas-reliability` suite, including the old-trigger failure control |
+| Cleanup failure after a committed deletion/node removal/output looked like a failed operation | Return the committed outcome with separate pending cleanup; replay observes existing results | Same lifecycle caller, three cleanup boundaries and late-work controls |
+| Deletion could occur between an earlier graph access check and a later write | Guard current project/node ownership and deletion state in the write; require the returned row before reporting success | Same real lifecycle caller with a deletion interleaved before the mutation |
+| Action results replaced useful model explanations | Keep validated model text and provenance; project facts include errors, validation and separate budgets | `q2-canvas-agent-conversation.spec.js`, signed Grok/Fable adapter tests and native explanation cases |
+| Generic limit text could become a conversation allowance instead of a project cap | Resolve explicit scope; reject an ungrounded model allowance proposal | Native/Node `budget-scope` case and existing conversational decision controls |
+| Polling and late replies could retain stale account/project presentation | Viewer fencing, confirmed account-switch reset and stable notification source identities | `tests/canvas.spec.js`, notification and persisted-conversation fixtures in EN/DE Chromium/WebKit |
+| Concurrent reads could hide unseen arrivals or material pending-to-failure outcomes | Acknowledge presented IDs only; source/outcome identities change on substantive outcomes | Authenticated notification caller plus native D1 and browser read-race controls |
+
+These controls use synthetic identities and providers. Production deletion symptoms
+must still be qualified against the actual request/state evidence; a reproduced
+foreign-key defect is not a retained historical HTTP trace. Existing editable-film,
+source retention, H3, soundtrack and export regressions remain independent acceptance
+paths. No new paid production is needed to exercise these repairs.
+
 The Canvas **Create with AI / Mit KI erstellen** panel is a project conversation.
 Describe the film, approve a bounded briefing allowance, and develop a saved
 **Project brief / Projektidee** with the selected assistant model. The allowance uses the existing
@@ -54,9 +107,9 @@ turns and new productions; accepted turns, production reasoning, receipts and
 tariffs remain pinned to their original model. Older replies retain attribution.
 Provider-private reasoning and response state never transfer between models.
 
-Policy package v3 has provider-neutral identity. Accepted v1/v2 policy content and
+Policy package v4 adds evidence-grounded project explanations to the provider-neutral identity. Accepted v1/v2/v3 policy content and
 hashes remain unchanged. The legacy v1 dialogue contract requires policy v1;
-action-capable v2 dialogue accepts its original policy v2 or current v3, never
+action-capable v2 dialogue accepts its original policy v2 or supported v3/v4, never
 the no-action v1 policy. Server-originated budget questions contribute only their
 actual assistant message to history, without an invented empty user message.
 Fable uses native schema output with strict application
@@ -70,7 +123,7 @@ transport sources are in the [runtime package](../../workers/shared/canvas-agent
 
 The release-controlled instruction package is
 [`workers/shared/canvas-agent/manifest.mjs`](../../workers/shared/canvas-agent/manifest.mjs),
-with a compact core/personality and seven platform-specific skill modules. Static
+with a compact core/personality and eight platform-specific skill modules. Static
 imports select briefing, planning, correction or evaluation instructions; project
 text cannot select files, publish rules or grant tools. These are Worker build
 inputs, excluded from the frontend website/import graph. The repository is
@@ -89,7 +142,11 @@ replacement ledger or browser-owned transcript. Existing projects receive an
 empty conversation; old activity is not fabricated into dialogue.
 
 Context contains the current brief, at most six recent completed exchanges,
-selected current-project node facts and current production state. Older messages
+selected current-project node facts and bounded execution facts: current production,
+recent events/actions, pending decisions, planning validation issues, stored-result
+summaries, exports and separate project/briefing budgets. Observations include source
+identities, timestamps and revisions. These reads never reconcile jobs or dispatch
+work. Older messages
 are omitted first to stay within 64 KiB; incomplete replies never update the brief.
 An 80-turn bound and a 4,096-token completion request control constrain dialogue.
 The request control is not treated as a verified billable-output ceiling. Prompt,
@@ -202,8 +259,10 @@ The model proposes the strict actions from
 [`canvas-agent-actions.mjs`](../../workers/shared/canvas-agent-actions.mjs).
 [`canvas-agent-actions.js`](../../workers/auth/src/lib/canvas-agent-actions.js)
 resolves ownership and current targets, calls the same ordinary services, and
-returns persisted effects or explicit failures. Chat displays these authoritative
-results rather than an unchecked claim in model text. Straightforward known
+returns persisted effects or explicit failures. The notification center displays
+automatic receipts; chat retains actual model answers, application-authored questions
+and explicit spending decisions with distinct provenance. Model answers are not
+replaced by generic action acknowledgements. Straightforward known
 status, pause, stop, resume and takeover commands use free deterministic handling;
 other natural phrasing uses the bounded dialogue allowance and typed proposals.
 A delayed chat reply cannot prevent an emergency production pause. No new

@@ -37,6 +37,9 @@ for(const locale of ['en','de'])test(`Canvas transition examples ${locale}: isol
 for(const locale of ['en','de'])test(`Canvas export lifecycle ${locale}: observation and submission recovery`,async({page},info)=>{
     await require('./helpers/canvas-export-lifecycle-ui.cjs')({page,expect,locale,info,mockSharedAuth,createCanvasApiMock});
 });
+for(const locale of ['en','de'])test(`Canvas notifications ${locale}: displayed acknowledgements and account lifecycle`,async({page},info)=>{
+    await require('./helpers/canvas-notifications-ui.cjs')({page,expect,locale,info,mockSharedAuth,createCanvasApiMock});
+});
 for(const locale of ['en','de'])for(const feature of ['workspace','transitions'])test(`Canvas workspace transitions ${locale}: ${feature}`,async({page},info)=>{
   await require('./helpers/canvas-workspace-transitions-ui.cjs')[feature]({page,expect,locale,info,mockSharedAuth,createCanvasApiMock});
 });
@@ -107,7 +110,7 @@ async function mockSharedAuth(page, loggedIn = true, role = 'user') {
 
 function createCanvasApiMock(page, { authenticated = true, modelPayload = null } = {}) {
   const projectId = '11111111111111111111111111111111';
-  const state = { projects: [], nodes: [], edges: [], runs: [], modelRequests: 0, requests: [] };
+  const state = { projects: [], nodes: [], edges: [], runs: [], notifications: [], notificationReads: [], notificationClients: [], modelRequests: 0, requests: [] };
   const imageModel = {
     id: '@cf/black-forest-labs/flux-1-schnell', label: 'FLUX.1 Schnell', vendor: 'Cloudflare', capability: 'image',
     description: 'Fast image model.', outputType: 'image', canvasEnabled: true, runnable: true, disabledReason: null,
@@ -123,6 +126,19 @@ function createCanvasApiMock(page, { authenticated = true, modelPayload = null }
     const method = request.method();
     state.requests.push({ method, pathname });
     if (!authenticated) return fulfill(route, { ok: false, error: 'Authentication required.', code: 'unauthorized' }, 401);
+    if(pathname==='/api/account/canvas/notifications'&&method==='GET'){
+      const offset=Number(new URL(request.url()).searchParams.get('cursor')||0),items=state.notifications.slice(offset,offset+40);
+      return fulfill(route,{items,nextCursor:offset+40<state.notifications.length?String(offset+40):null,unreadCount:state.notifications.filter(item=>!item.readAt).length,viewerId:'canvas-member',baselineAt:'2026-10-20T00:00:00.000Z'});
+    }
+    if(pathname==='/api/account/canvas/notifications/read'&&method==='POST'){
+      const {ids}=request.postDataJSON();state.notificationReads.push(ids);const readIds=[];for(const item of state.notifications)if(ids.includes(item.id)){item.readAt=new Date().toISOString();readIds.push(item.id);}
+      return fulfill(route,{viewerId:'canvas-member',readIds,unreadCount:state.notifications.filter(item=>!item.readAt).length});
+    }
+    if(pathname==='/api/account/canvas/notifications/client'&&method==='POST'){
+      const body=request.postDataJSON();state.notificationClients.push(body);let item=state.notifications.find(item=>item.id===`client:${body.requestId}`);
+      if(!item){item={id:`client:${body.requestId}`,source:'client',kind:'client',code:body.code,projectId:body.projectId||null,createdAt:new Date().toISOString(),readAt:null,confirmed:false,diagnosticRef:body.diagnosticRef,status:body.status||0,details:{...(body.errorCode?{errorCode:body.errorCode}:{})}};state.notifications.unshift(item);}
+      return fulfill(route,{viewerId:'canvas-member',item});
+    }
     if (pathname.endsWith('/models')) { state.modelRequests += 1; return fulfill(route, modelPayload || { models: [textModel, imageModel, videoModel], organizations: [], selected_organization_id: null, access: { role: 'user', is_admin: false } }); }
     if (pathname === '/api/account/canvas/projects' && method === 'GET') return fulfill(route, { projects: state.projects, applied_limit: 50 });
     if (pathname === '/api/account/canvas/projects' && method === 'POST') {
@@ -824,7 +840,7 @@ for (const locale of ['en', 'de']) test(`${locale}: admin Canvas uses registry o
   });
   const runButton = inspector.getByRole('button', { name: locale === 'de' ? 'Ausführen' : 'Run', exact: true });
   await runButton.click();
-  await expect(page.locator('#canvasToast')).toContainText(locale === 'de' ? 'Speichern ausstehend' : 'saving is pending');
+  await page.locator('#canvasNotificationsToggle').click();await expect(page.locator('#canvasNotificationsPanel')).toContainText('canvas_image_save_pending');
   await page.reload(); await page.locator('[data-node-id="'+imageNode.id+'"]').click();
   await runButton.click(); await expect.poll(() => calls.length).toBe(2);
   expect(calls[1]).toEqual(calls[0]); expect(calls[0].body.organization_id).toBe(org);
@@ -1007,7 +1023,7 @@ for (const locale of ['en', 'de']) test(`Canvas durable video status ${locale}: 
   await card.click();
   const button = page.locator('#canvasInspectorBody').getByRole('button', { name: locale === 'de' ? 'Ausführen' : 'Run', exact: true });
   await expect(button).toBeDisabled();
-  await expect(page.locator('#canvasNodeRunStatus')).toContainText(locale === 'de' ? 'erzeugt' : 'Generating');
+  await expect(page.locator('#canvasNodeRunStatus')).toHaveText(locale === 'de' ? 'Generierung' : 'Generating');
   const prompt = page.locator('#canvasInspectorBody textarea').first();
   await prompt.fill('Retained draft');
   // Advance only the test clock; no real ten-minute wait or new provider call.
@@ -1018,17 +1034,20 @@ for (const locale of ['en', 'de']) test(`Canvas durable video status ${locale}: 
     await expect(prompt).toHaveValue('Retained draft');
     await expect(prompt).toBeFocused();
   }
-  await expect(page.locator('#canvasNodeRunStatus')).toContainText(locale === 'de' ? 'Statusabruf beendet' : 'observation ended');
+  await expect(page.locator('#canvasNodeRunStatus')).toHaveText(locale === 'de' ? 'Prüfung erforderlich' : 'Review required');
   await expect(button).toBeDisabled(); expect(attachments).toBe(0);
+  await page.locator('#canvasNotificationsToggle').click();
+  await expect(page.locator('#canvasNotificationsPanel code').filter({hasText:'canvas_video_pending'}).first()).toHaveText(/canvas_video_pending/);
+  await page.keyboard.press('Escape');
   await page.reload(); await card.click();
   await expect(button).toBeDisabled();
   jobStatus = 'outcome_unknown';
   await page.clock.runFor(5000);
   await expect.poll(() => attachments).toBe(1);
-  await expect(page.locator('#canvasNodeRunStatus')).toContainText(locale === 'de' ? 'ungeklärt' : 'unresolved');
+  await expect(page.locator('#canvasNodeRunStatus')).toHaveText(locale === 'de' ? 'Prüfung erforderlich' : 'Review required');
   await expect(button).toBeDisabled();
   await page.reload(); await card.click();
-  await expect(page.locator('#canvasNodeRunStatus')).toContainText(locale === 'de' ? 'ungeklärt' : 'unresolved');
+  await expect(page.locator('#canvasNodeRunStatus')).toHaveText(locale === 'de' ? 'Prüfung erforderlich' : 'Review required');
   await expect(button).toBeDisabled(); expect(attachments).toBe(1);
   await expect(card.locator('.canvas-node__status')).toHaveText(locale === 'de' ? 'Prüfung erforderlich' : 'Review required');
   await page.locator('#canvasNodeRunStatus').scrollIntoViewIfNeeded();
@@ -1041,11 +1060,11 @@ for (const locale of ['en', 'de']) test(`Canvas durable video status ${locale}: 
   await page.setViewportSize({ width: 1440, height: 900 });
   Object.assign(run, { video_job_status: 'failed', error_message: 'Synthetic terminal provider failure' });
   await page.reload(); await card.click();
-  await expect(page.locator('#canvasNodeRunStatus')).toContainText(locale === 'de' ? 'Videoverarbeitung fehlgeschlagen' : 'Video processing failed');
+  await expect(page.locator('#canvasNodeRunStatus')).toHaveText(locale === 'de' ? 'Fehlgeschlagen' : 'Failed');
   await expect(button).toBeDisabled(); expect(attachments).toBe(1);
   Object.assign(run, { error_code: 'canvas_video_rejected', video_job_status: 'failed', video_job_id: null, retry_key: null, error_message: null });
   await page.reload(); await card.click();
-  await expect(page.locator('#canvasNodeRunStatus')).toContainText(locale === 'de' ? 'reservierten Credits wurden freigegeben' : 'Reserved credits were released');
+  await expect(page.locator('#canvasNodeRunStatus')).toHaveText(locale === 'de' ? 'Fehlgeschlagen' : 'Failed');
   await expect(button).toBeEnabled(); expect(attachments).toBe(1);
 });
 
@@ -1527,8 +1546,8 @@ for(const locale of ['en','de']) test(`Canvas H3 ${locale}: connected input role
   let code='h3_reference_file_duration',calls=0;
   await page.route(`**/nodes/${node}/run`,route=>{calls++;return route.fulfill({status:400,json:{ok:false,code,error:'Specific reference error'}});});
   const run=inspector.getByRole('button',{name:locale==='de'?'Ausführen':'Run',exact:true});
-  await run.click();await expect(page.locator('#canvasToast')).toContainText(locale==='de'?'zwischen 2 und 15 Sekunden':'between 2 and 15 seconds');
-  code='h3_reference_total_duration';await run.click();await expect(page.locator('#canvasToast')).toContainText(locale==='de'?'zusammen je Medienart':'per media type');
+  await run.click();await page.locator('#canvasNotificationsToggle').click();await expect(page.locator('#canvasNotificationsPanel')).toContainText(locale==='de'?'zwischen 2 und 15 Sekunden':'between 2 and 15 seconds');await page.keyboard.press('Escape');
+  code='h3_reference_total_duration';await run.click();await page.locator('#canvasNotificationsToggle').click();await expect(page.locator('#canvasNotificationsPanel')).toContainText(locale==='de'?'zusammen je Medienart':'per media type');await page.keyboard.press('Escape');
   expect(calls).toBe(2);await expect(inspector.getByRole('combobox',{name:locale==='de'?'Video weiterverwenden':'Reuse video'})).toHaveValue('reference_video');
 });
 

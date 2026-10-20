@@ -89,6 +89,7 @@ export function prepareBuild(artifactParent = os.tmpdir()) {
 }
 
 export async function createRuntime(build, name, { restricted = false, referenceOnly = false, q4Control = null } = {}) {
+  const canvasRuntime = ['canvas','canvas-reliability'].includes(name);
   const executionDir = path.join(build.workDir, name); fs.mkdirSync(executionDir);
   for (const folder of ['state', 'isolated', 'tmp', 'registry']) fs.mkdirSync(path.join(executionDir, folder));
   const counters = { outboundDenied: 0, serviceDenied: 0, structuredLogs: 0, toolLogs: 0 };
@@ -100,11 +101,11 @@ export async function createRuntime(build, name, { restricted = false, reference
     ENABLE_NEWS_PULSE_VISUAL_BUDGET: 'false', Q2_CONTROL_TOKEN: controlToken };
   if (name.startsWith('q4-')) Object.assign(bindings, { MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET: 'q4-stream-processor-synthetic-not-a-production-secret', ENABLE_MEMVID_STREAM_PREVIEWS: 'true', STREAM_ACCOUNT_ID: 'synthetic-q4-account', STREAM_API_TOKEN: 'test-q4-provider-no-credentials', STRIPE_LIVE_SUBSCRIPTION_PRICE_ID: 'price_q4_subscription_monthly' });
   for (const key of ['SESSION_HASH_SECRET', 'PAGINATION_SIGNING_SECRET', 'ADMIN_MFA_ENCRYPTION_KEY', 'ADMIN_MFA_PROOF_SECRET', 'ADMIN_MFA_RECOVERY_HASH_SECRET', 'AI_SAVE_REFERENCE_SIGNING_SECRET']) bindings[key] = `q2-synthetic-${key}-not-live-0000000000000000`;
-  if (name === 'canvas') Object.assign(bindings, { ENABLE_GROK_4_6: 'true', ENABLE_ADMIN_AI_TEXT_BUDGET: 'true', ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET: 'true', AI_SERVICE_AUTH_SECRET: 'q2-canvas-service-synthetic-not-live' });
+  if (canvasRuntime) Object.assign(bindings, { ENABLE_GROK_4_6: 'true', ENABLE_ADMIN_AI_TEXT_BUDGET: 'true', ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET: 'true', AI_SERVICE_AUTH_SECRET: 'q2-canvas-service-synthetic-not-live' });
   const deny = async () => { counters.outboundDenied += 1; throw new Error('Native test outbound denied'); };
   const denyService = async () => { counters.serviceDenied += 1; throw new Error('Native test provider service denied'); };
   const canvasProvider = { requests: [], fail: false };
-  if (name === 'canvas') {
+  if (canvasRuntime) {
     const sharp = requireAuth('sharp');
     const sample = { create: { width: 1024, height: 1024, channels: 4, background: { r: 20, g: 70, b: 100, alpha: 0.25 } } };
     canvasProvider.image25Fixtures = { png: await sharp(sample).png().toBuffer(), webp: await sharp(sample).webp({lossless:true}).toBuffer() };
@@ -152,10 +153,10 @@ export async function createRuntime(build, name, { restricted = false, reference
     if(caseName.startsWith('h3-rejection-'))return Response.json({errors:[{code:caseName==='h3-rejection-unknown'?7003:3003,message:'Invalid input: private prompt https://bitbi.ai/api/internal/ai/media-source/secret-token'}]},{status:400,headers:{'cf-ai-req-id':'synthetic-request-123','cf-aig-log-id':'synthetic-gateway-123'}});
     return Response.json({success:true,result:{state:'Completed',result:{task:{id:'synthetic-h3-'+caseName,model:'MiniMax-H3',status:caseName.startsWith('h3-callback')?'queued':caseName==='h3-failed'?'failed':'succeeded',resolution:input.resolution,duration:input.duration,content:{url:caseName.startsWith('canvas-')?'https://fixture.invalid/result.mp4':'https://fixture.invalid/member.mp4'},usage:{output_seconds:caseName==='h3-output-usage'||caseName.startsWith('canvas-')?4:input.duration,input_seconds:99,total_seconds:104}}}}});
   };
-  const shared = { modules: true, ...(['member-generation','canvas','canvas-completion','canvas-audio','canvas-audio-fit','canvas-transitions','canvas-retention','model-status'].includes(name) ? {images:{binding:'IMAGES'}} : {}), compatibilityDate: build.config.compatibility_date, bindings, d1Databases: { DB: `q2-${name}-db`, ...(name==='canvas'?{CANVAS_IMAGE_TEST_DB:'q2-canvas-image-scheduling-db'}:{}) },
+  const shared = { modules: true, ...(['member-generation','canvas','canvas-reliability','canvas-completion','canvas-audio','canvas-audio-fit','canvas-transitions','canvas-retention','model-status'].includes(name) ? {images:{binding:'IMAGES'}} : {}), compatibilityDate: build.config.compatibility_date, bindings, d1Databases: { DB: `q2-${name}-db`, ...(canvasRuntime?{CANVAS_IMAGE_TEST_DB:'q2-canvas-image-scheduling-db'}:{}) },
     r2Buckets: { USER_IMAGES: `q2-${name}-images`, PRIVATE_MEDIA: `q2-${name}-private`, AUDIT_ARCHIVE: `q2-${name}-archive` },
-    outboundService: name === 'canvas' ? canvasOutput : name==='member-generation' ? h3Rest : deny, serviceBindings: { AI_LAB: name === 'canvas' ? canvasService : denyService },
-    ...(name === 'canvas' ? { unsafeBindings: [{name:'AI',type:'q2-image25-ai',plugin:{name:'q2-image25-ai',package:fileURLToPath(new URL('./image25-ai-binding.mjs',import.meta.url))},options:{}}] } : {}), unsafeRegisterWorker: false };
+    outboundService: canvasRuntime ? canvasOutput : name==='member-generation' ? h3Rest : deny, serviceBindings: { AI_LAB: canvasRuntime ? canvasService : denyService },
+    ...(canvasRuntime ? { unsafeBindings: [{name:'AI',type:'q2-image25-ai',plugin:{name:'q2-image25-ai',package:fileURLToPath(new URL('./image25-ai-binding.mjs',import.meta.url))},options:{}}] } : {}), unsafeRegisterWorker: false };
   const limiterOwner = restricted ? 'q2-restricted' : 'q2-candidate';
   const limiter = owner => ({ PUBLIC_RATE_LIMITER: { className: 'AuthPublicRateLimiterDurableObject', useSQLite: true, ...(owner ? { scriptName: owner } : {}) } });
   const queues = { ACTIVITY_INGEST_QUEUE: `q2-${name}-activity`, AI_IMAGE_DERIVATIVES_QUEUE: `q2-${name}-derivatives`, AI_VIDEO_JOBS_QUEUE: `q2-${name}-videos` };
@@ -180,7 +181,7 @@ export async function createRuntime(build, name, { restricted = false, reference
     assert.ok(Object.values(control.metafile.outputs).every(output => output.imports.length === 0));
     fs.writeFileSync(path.join(executionDir, 'control-metafile.json'), JSON.stringify(control.metafile, null, 2), { flag: 'wx' });
     workers.push({ ...shared, name: 'q2-control', script: control.outputFiles[0].text,
-      durableObjects: {...limiter(limiterOwner),...(name==='canvas'?{CANVAS_IMAGE_RATE_TEST:{className:'CanvasImageRateTestDurableObject',useSQLite:true}}:{})}, queueProducers:queues });
+      durableObjects: {...limiter(limiterOwner),...(canvasRuntime?{CANVAS_IMAGE_RATE_TEST:{className:'CanvasImageRateTestDurableObject',useSQLite:true}}:{})}, queueProducers:queues });
   }
   if (name === 'native') workers.push({ name: 'q2-images', modules: true,
     compatibilityDate: build.config.compatibility_date, images: { binding: 'IMAGES' }, outboundService: deny,
@@ -189,7 +190,7 @@ export async function createRuntime(build, name, { restricted = false, reference
       try { return (await env.IMAGES.input(request.body).transform({width: 3, height: 2, fit: 'fill'}).output({format: 'image/png'})).response(); }
       catch (error) { return Response.json({error: error.message}, {status: 422}); }
     }};` });
-  if (name === 'canvas') workers.push({name:'q2-image25-ai',modules:true,compatibilityDate:build.config.compatibility_date,outboundService:deny,serviceBindings:{SYNTHETIC:canvasImage25Service},
+  if (canvasRuntime) workers.push({name:'q2-image25-ai',modules:true,compatibilityDate:build.config.compatibility_date,outboundService:deny,serviceBindings:{SYNTHETIC:canvasImage25Service},
     script:'export default {fetch(request,env){return env.SYNTHETIC.fetch(request);}};'});
   const mf = new Miniflare(convertV4MiniflareOptions({ rootPath: executionDir, host: '127.0.0.1', port: 0, cf: false,
     telemetry: { enabled: false }, logRequests: false, verbose: false, log: new Quiet(LogLevel.NONE), unsafeTriggerHandlers: true,
@@ -199,7 +200,7 @@ export async function createRuntime(build, name, { restricted = false, reference
   try {
     await mf.ready;
     const db = await mf.getD1Database('DB', 'q2-candidate'), bucket = await mf.getR2Bucket('USER_IMAGES', 'q2-candidate');
-    const imageDb=name==='canvas'?await mf.getD1Database('CANVAS_IMAGE_TEST_DB','q2-control'):null;
+    const imageDb=canvasRuntime?await mf.getD1Database('CANVAS_IMAGE_TEST_DB','q2-control'):null;
     const sql = (query, ...args) => db.prepare(query).bind(...args);
     const rows = async (query, ...args) => (await sql(query, ...args).all()).results;
     const scalar = async (query, ...args) => sql(query, ...args).first('value');

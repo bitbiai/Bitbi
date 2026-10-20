@@ -1,4 +1,7 @@
 import {seedCanvasAssistantMigration,verifyCanvasAssistantMigration} from '../canvas-assistant-migration-control.mjs';
+import {canvasProjectLifecycleCase} from '../canvas-project-lifecycle-control.mjs';
+import {canvasNotificationsCase,seedCanvasNotificationsMigration,verifyCanvasNotificationsMigration} from '../canvas-notifications-control.mjs';
+import {canvasExplanationCase} from '../canvas-agent-explanation-control.mjs';
 import {canvasAgentPreflightCase} from '../canvas-agent-preflight-control.mjs';
 import {seedCanvasConversationMigration,verifyCanvasConversationMigration,CANVAS_CONVERSATION_CASES,canvasConversationCase} from '../canvas-agent-conversation-control.mjs';
 import {canvasAssistantModelSwitchCase,canvasAssistantProductionCase} from '../canvas-assistant-model-control.mjs';
@@ -63,6 +66,11 @@ export default {
     if (request.method !== 'POST' || request.headers.get('x-q2-control') !== env.Q2_CONTROL_TOKEN) return new Response(null,{status:403});
     const path=new URL(request.url).pathname;
     const body=await request.json();
+    if(path==='/canvas-project-lifecycle')return Response.json(await canvasProjectLifecycleCase(env));
+    if(path==='/canvas-notifications')return Response.json(await canvasNotificationsCase(env));
+    if(path==='/canvas-notifications-migration-seed')return Response.json(await seedCanvasNotificationsMigration(env));
+    if(path==='/canvas-notifications-migration-verify')return Response.json(await verifyCanvasNotificationsMigration(env,body));
+    if(path==='/canvas-explanation'&&['evidence','quoted','budget-scope'].includes(body.name))return Response.json(await canvasExplanationCase(env,body.name));
     if(path==='/canvas-assistant-migration-seed')return Response.json(await seedCanvasAssistantMigration(env));
     if(path==='/canvas-assistant-migration-verify')return Response.json(await verifyCanvasAssistantMigration(env,body));
     if(path==='/canvas-agent-preflight')return Response.json(await canvasAgentPreflightCase(env,body));

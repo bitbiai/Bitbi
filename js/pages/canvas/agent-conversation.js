@@ -3,8 +3,9 @@ import { createCanvasTranscript } from './agent-transcript.js?v=__ASSET_VERSION_
 import { createCanvasConversationActions } from './agent-conversation-actions.js?v=__ASSET_VERSION__';
 import { canvasConversationCopy } from './agent-conversation-copy.js?v=__ASSET_VERSION__';
 import { CANVAS_AGENT_LIMITS } from '../../shared/canvas-agent-contract.mjs?v=__ASSET_VERSION__';
-import { detectCanvasDirectControl, canvasImmediateStartRequested } from '../../shared/canvas-agent-control-intent.mjs?v=__ASSET_VERSION__';
+import { detectCanvasDirectControl, canvasImmediateStartRequested,canvasConversationReadIntent } from '../../shared/canvas-agent-control-intent.mjs?v=__ASSET_VERSION__';
 import {canvasConversationDecisionIntent} from '../../shared/canvas-conversation-decision-intent.mjs?v=__ASSET_VERSION__';
+import {canvasNotice,refreshCanvasNotifications} from './notifications.js?v=__ASSET_VERSION__';
 
 const create = (tag, className = '', text = '') => { const node = document.createElement(tag); node.className = className; node.textContent = text; return node; };
 const button = (text, action, primary = false) => { const node = create('button', `canvas-button${primary ? ' canvas-button--primary' : ''}`, text); node.type = 'button'; node.addEventListener('click', action); return node; };
@@ -114,7 +115,11 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
 
     function path(suffix = '') { return `/projects/${encodeURIComponent(projectId)}/agent/conversation${suffix}`; }
     function storageKey() { return `bitbi:canvas-conversation-request:${projectId}`; }
-    function notify(text) { feedbackText=text;notice.textContent=activeTab==='chat'?text:'';projectNotice.textContent=activeTab==='project'?text:'';notice.hidden=!notice.textContent;projectNotice.hidden=!projectNotice.textContent; }
+    function notify(text,result={}) {
+        const conversational=[copy.correctHint,copy.durationNeeded,copy.productionApprove,copy.allowanceRequired,copy.allowanceInvalid].includes(text);
+        if(text&&(text!==feedbackText||result.code)&&!conversational&&text!==copy.loading){if([copy.saved,copy.cleared,copy.cancelled,copy.allowanceAccepted].includes(text))refreshCanvasNotifications();else canvasNotice(text,{code:text===copy.connectionRetry?'canvas_connection_interrupted':'canvas_client_notice',projectId,errorCode:result.code,status:result.status,diagnosticRef:result.diagnosticRef,...(pending?.key&&result.code?{key:`conversation:${projectId}:${pending.key}:${result.code}`}:{})});}
+        feedbackText=text;notice.textContent=conversational&&activeTab==='chat'?text:'';projectNotice.textContent=conversational&&activeTab==='project'?text:'';notice.hidden=!notice.textContent;projectNotice.hidden=!projectNotice.textContent;
+    }
     function remember() {
         // Only an unconfirmed immutable request is retained for safe replay. It
         // is removed after acknowledgement; this is never accepted chat history.
@@ -127,6 +132,7 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
         const next = data?.conversation;
         if (!valid(next) || (snapshot && next.revision < snapshot.revision)) return false;
         if (snapshot && next.briefRevision !== snapshot.briefRevision) approval.checked = false;
+        if(!snapshot||snapshot.revision!==next.revision)refreshCanvasNotifications();
         snapshot = next;
         if(data?.run?.projectId===projectId&&/^[a-f0-9]{32}$/.test(data.run.id||''))onRun(data.run);
         if (!draftDirty && !pending) { input.value = string(snapshot.draft); sizeComposer(); }
@@ -202,10 +208,10 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
         if(held&&!messages.some(message=>message.delivery?.diagnosticReference===held.diagnosticReference))messages.push({id:`held:${held.diagnosticReference||held.turnId||'request'}`,role:'system',status:'review_required',delivery:{...held,source:'system'}});
         if (busy && pending?.suffix === '/messages') messages.push({id:'local:sending',role:'system',status:'pending',delivery:{stage:'sending',source:'system'}});
         section.dataset.motion = visible && !closed && document.visibilityState !== 'hidden' ? 'active' : 'paused';
-        transcriptView.render(messages, {offline:disconnected,delayed:observationStarted>0&&Date.now()-observationStarted>45000}); renderBrief();renderImmediate();renderModelAndDecision();if(snapshot)actionView.render(snapshot.actions,{busy:blocked});
+        transcriptView.render(messages.filter(message=>message.kind!=='operation_ack'), {offline:disconnected,delayed:observationStarted>0&&Date.now()-observationStarted>45000}); renderBrief();renderImmediate();renderModelAndDecision();if(snapshot)actionView.render(snapshot.actions,{busy:blocked});
     }
     function updateSendAdmission(){
-        const text=input.value.trim(),direct=detectCanvasDirectControl(text),immediate=canvasImmediateStartRequested(text);
+        const text=input.value.trim(),direct=detectCanvasDirectControl(text)||canvasConversationReadIntent(text),immediate=canvasImmediateStartRequested(text);
         const localDecision=canvasConversationDecisionIntent(text,{locale:german?'de':'en',budgetAsked:snapshot?.pendingDecision?.kind==='production_budget'});
         const held=typeof snapshot?.canSend==='boolean'?!snapshot.canSend:snapshot?.messages.some(message=>message.status==='review_required');
         const blocked=busy||Boolean(pending)||!snapshot;
@@ -230,7 +236,9 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
     let immediateKey='';
     function renderImmediate(){
         const intent=snapshot?.immediateIntent,key=JSON.stringify(intent||null),changed=key!==immediateKey;immediateKey=key;
-        immediateCard.hidden=!intent;
+        immediateCard.hidden=!intent||intent.state!=='approval_required';
+        (intent?.state==='approval_required'?immediateCard:messageActions).append(cancelImmediate);
+        cancelImmediate.hidden=!intent||['started','cancelled'].includes(intent.state);
         if(!intent)return;
         immediateCard.dataset.state=intent.state;
         immediateTitle.textContent=copy.immediateTitle;
@@ -245,14 +253,14 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
     function showAllowance(){selectTab('chat');decisions.prepend(allowance);allowance.hidden=false;transcriptView.bottom();allowanceCap.focus({preventScroll:true});}
     function failure(response) {
         const stage=response.data?.delivery?.stage;
-        if(copy.delivery[stage])notify(copy.delivery[stage]);
-        else if (response.code === 'model_pricing_stale') { approval.checked = false; notify(copy.allowanceStale); }
-        else if (/revision|changed|stale/.test(response.code || '')) { approval.checked = false; notify(copy.stale); }
-        else if (response.code === 'canvas_agent_budget_exceeded') notify(copy.projectBudgetBlocked);
-        else if (/allowance|briefing_budget/.test(response.code || '')) { snapshot.allowanceRequired = true; notify(copy.allowanceRequired);showAllowance(); }
-        else if (/duration/.test(response.code || '')) notify(copy.durationNeeded);
-        else if (/pending|unknown|review/.test(response.code || '')) notify(copy.review);
-        else notify(copy.unavailable);
+        if(copy.delivery[stage])notify(copy.delivery[stage],response);
+        else if (response.code === 'model_pricing_stale') { approval.checked = false; notify(copy.allowanceStale,response); }
+        else if (/revision|changed|stale/.test(response.code || '')) { approval.checked = false; notify(copy.stale,response); }
+        else if (response.code === 'canvas_agent_budget_exceeded') notify(copy.projectBudgetBlocked,response);
+        else if (/allowance|briefing_budget/.test(response.code || '')) { snapshot.allowanceRequired = true; notify(copy.allowanceRequired,response);showAllowance(); }
+        else if (/duration/.test(response.code || '')) notify(copy.durationNeeded,response);
+        else if (/pending|unknown|review/.test(response.code || '')) notify(copy.review,response);
+        else notify(copy.unavailable,response);
     }
     async function sendRequest(suffix, body, tariffRevision) {
         if (busy || pending || !projectId) return;
@@ -286,7 +294,7 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
                 else if (request.body.action === 'clear') { input.value = ''; draftDirty = false; confirmation.hidden = true; notify(copy.cleared); }
                 else if (request.body.action === 'cancel') notify(copy.cancelled);
                 else notify('');
-            } else if (response.status === 0 || response.status >= 500) {selectTab('chat');notify(copy.unsent);}
+            } else if (response.status === 0 || response.status >= 500) {selectTab('chat');if(!['request_aborted','canvas_session_unconfirmed'].includes(response.code))notify(copy.unsent,response);}
             else { pending = null; remember(); failure(response); if (/revision|changed|stale/.test(response.code || '')) await observe(true); }
         } finally { if (current === epoch) { busy = false; render(); schedule(); } }
     }

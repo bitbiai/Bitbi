@@ -144,7 +144,7 @@ async function checkedPolicy(input, phase) {
   // Preserve accepted v2/policy-2 requests without pairing a newer schema with
   // the historical policy that explicitly grants no action proposals.
   if (phase === 'briefing' && (input.version === 1 ? version !== 'canvas-policy-1' : version === 'canvas-policy-1')) invalid('canvas_agent_policy_changed');
-  if (input.model === CANVAS_FABLE_MODEL && version !== CANVAS_AGENT_POLICY_VERSION) invalid('canvas_agent_policy_changed');
+  if (input.model === CANVAS_FABLE_MODEL && !['canvas-policy-3',CANVAS_AGENT_POLICY_VERSION].includes(version)) invalid('canvas_agent_policy_changed');
   let policy;
   try { policy = await canvasAgentPolicyIdentity(phase, version); } catch { invalid('canvas_agent_policy_changed'); }
   if (input.policy !== undefined && JSON.stringify(input.policy) !== JSON.stringify(policy)) invalid('canvas_agent_policy_changed');

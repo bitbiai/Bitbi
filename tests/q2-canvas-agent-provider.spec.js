@@ -31,7 +31,12 @@ test('Canvas Fable native planning shares policy and validation without private 
   const callerPolicy = { ...policy,model_id:fable };
   const prepared = await f.call('prepare',{kind:'plan',input:source},{callerPolicy});
   expect(prepared.status).toBe(200);
-  expect(prepared.body).toMatchObject({model:fable,context:{model:fable,modelContractVersion:'canvas-assistant-models-1',policy:{version:'canvas-policy-3'}}});
+  expect(prepared.body).toMatchObject({model:fable,context:{model:fable,modelContractVersion:'canvas-assistant-models-1',policy:{version:'canvas-policy-4'}}});
+  const {canvasAgentPolicyIdentity}=await import('../workers/shared/canvas-agent/manifest.mjs');
+  const retainedPolicy=await canvasAgentPolicyIdentity('planning','canvas-policy-3');
+  const historical=await f.call('prepare',{kind:'plan',input:{...source,policy:retainedPolicy}},{callerPolicy});
+  expect(historical.status).toBe(200);expect(historical.body.context.policy).toEqual(retainedPolicy);
+  expect((await f.call('prepare',{kind:'plan',input:{...source,policy:await canvasAgentPolicyIdentity('planning','canvas-policy-2')}},{callerPolicy})).status).toBe(400);
   expect(prepared.body.input).toMatchObject({max_tokens:16384,stream:false,thinking:{type:'adaptive'},output_config:{effort:'medium'}});
   expect(Object.keys(prepared.body.input).sort()).toEqual(['max_tokens','messages','output_config','stream','system','thinking']);
   expect(prepared.body.input.system).toContain('BITBI Canvas specialist');
@@ -69,6 +74,10 @@ test('Canvas model-neutral policy preserves every historical phase hash and pins
   const historical={
     'canvas-policy-1':{...common,briefing:'3c26ebd237a6a8e72b646e0c722a37e96192204c296061dc9d2c0c3cded2eb03',explanation:'2e30c6f89bab617a5988ac4a4536504ad085e2f909711f95baee7f1b1369491f'},
     'canvas-policy-2':{...common,briefing:'e637ccdf8abf9542f1836ddc11b1ee5d448dc04872e3ead12e5727f0a7f9ab30',explanation:'1ade31a4699c0624c2e53f25d8c16e32077599deea9350820c447536c4cd14c1'},
+    // Read independently from the published 844e6d1c Git tree, including its
+    // transitive static policy imports, frozen before this policy release.
+    'canvas-policy-3':{planning:'5e8f704183d0d9c4bb9eeb4733c1df7fe32090207e92b880c02d2c83f7b4e980',correction:'5e8f704183d0d9c4bb9eeb4733c1df7fe32090207e92b880c02d2c83f7b4e980',
+      evaluation:'1375a845ceee2f1b4dbeaaba0eff60c9cd9b012e20a102ec721616b7c8e1d3a1',briefing:'2c959701a05e88e25184778e6bd364fb843b7866789ad939d8cec304cf061bf0',explanation:'cf0f50dda45951bbe4e0ac37adfe864283394579d53cbf90d1dd78055ae9d7c8'},
   };
   for(const [version,phases]of Object.entries(historical))for(const [phase,sha256]of Object.entries(phases))expect((await canvasAgentPolicyIdentity(phase,version)).sha256).toBe(sha256);
   expect(canvasAgentSystem('planning')).not.toContain('Grok 4.7');
@@ -168,7 +177,7 @@ test('Canvas background evaluation prepares bounded images and keeps persisted v
   const prepared = await f.call('prepare', { kind: 'evaluate', input: source });
   expect(prepared.status).toBe(200);
   expect(prepared.body.context).toEqual({ model, modelContractVersion:'canvas-assistant-models-1', frames: [{ nodeId, timeSeconds: 2 }], metering: { version: 'canvas-grok-4.7-usage-v1', maxCompletionTokens: 2048 }, policy: {
-    version: 'canvas-policy-3', phase: 'evaluation', sha256: createHash('sha256').update(prepared.body.input.messages[0].content).digest('hex'),
+    version: 'canvas-policy-4', phase: 'evaluation', sha256: createHash('sha256').update(prepared.body.input.messages[0].content).digest('hex'),
     skills: ['core', 'personality', 'review-and-export'].map(id => ({ id, version: id === 'core' ? 2 : 1 })),
   } });
   expect(prepared.body.input).toMatchObject({ stream: false, max_completion_tokens: 2048, reasoning_effort: 'low' });
@@ -333,7 +342,7 @@ test('Canvas creative planning receives authoritative budget, conditional constr
   const result = await f.call('prepare', { kind: 'plan', input: source });
   expect(result.status).toBe(200);
   expect(result.body.context).toEqual({ model, modelContractVersion:'canvas-assistant-models-1', durationMode: 'creative', targetDurationSeconds: null, existingNodeIds: [nodeId], metering: { version: 'canvas-grok-4.7-usage-v1', maxCompletionTokens: 16384 }, policy: {
-    version: 'canvas-policy-3', phase: 'correction', sha256: createHash('sha256').update(result.body.input.messages[0].content).digest('hex'),
+    version: 'canvas-policy-4', phase: 'correction', sha256: createHash('sha256').update(result.body.input.messages[0].content).digest('hex'),
     skills: ['core', 'personality', 'story-and-continuity', 'model-selection', 'canvas-editing', 'generation-and-recovery'].map(id => ({ id, version: id === 'core' ? 2 : 1 })),
   } });
   const user = JSON.parse(result.body.input.messages[1].content);

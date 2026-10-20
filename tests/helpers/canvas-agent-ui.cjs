@@ -14,6 +14,17 @@ exports.responseBytes=async response=>{
     return Buffer.concat(chunks);
 };
 
+// Observe the canonical notification surface; never synthesize the original
+// failed/successful operation in order to display its acknowledgement.
+exports.expectNotification=async({page,expect,locale},code)=>{
+    const inbox=page.locator('#canvasNotificationsPanel');
+    if(!await inbox.isVisible())await page.locator('#canvasNotificationsToggle').click();
+    await inbox.getByRole('button',{name:locale==='de'?'Aktualisieren':'Refresh',exact:true}).click();
+    const item=inbox.locator('.canvas-notifications__item').filter({hasText:code}).last();
+    await expect(item).toBeVisible();await item.locator('summary').click();await expect(item.locator('code')).toContainText(code);
+    await inbox.getByRole('button',{name:locale==='de'?'Meldungen schließen':'Close notifications',exact:true}).click();
+};
+
 async function fixture({page,locale,mockSharedAuth,createCanvasApiMock}) {
     await page.setViewportSize({width:locale==='de'?390:1440,height:960});
     await mockSharedAuth(page);
@@ -197,7 +208,7 @@ exports.recovery=async({page,expect,locale,mockSharedAuth,createCanvasApiMock})=
     state.run={...state.run,phase:'waiting_limit'};
     await panel.getByRole('button',{name:locale==='de'?'Status prüfen':'Check status',exact:true}).click();
     await expect(panel.locator('h3')).toHaveText(locale==='de'?'Warten auf das nächste Zeitfenster':'Waiting for the next time window');
-    await expect(panel).toContainText(locale==='de'?'im nächsten Zeitfenster automatisch fortgesetzt':'continue automatically in the next time window');
+    await expect(panel.locator('.canvas-agent__counts')).toContainText('0 / 3');
     expect(state.posts.length).toBe(2);
     const stale=structuredClone(state.run);state.holdRead=true;
     await panel.getByRole('button',{name:locale==='de'?'Status prüfen':'Check status',exact:true}).click();
@@ -256,6 +267,7 @@ exports.unavailable=async({page,expect,locale,mockSharedAuth,createCanvasApiMock
     const creative=locale==='de'?'Ein lustiger Hund spielt neben einem Pool.':'A funny dog plays beside a pool.';
     await input.fill(creative);await expect(send).toBeDisabled();
     await input.fill(locale==='de'?'Gesprächsbudget 20 Credits':'Briefing allowance 20 credits');await expect(send).toBeEnabled();
+    await input.fill(locale==='de'?'Wie kann ich diesen Film verbessern?':'How can I improve this film?');await expect(send).toBeEnabled();
     await input.fill(creative);await expect(send).toBeDisabled();
     await composer.evaluate(node=>node.dispatchEvent(new Event('submit',{cancelable:true,bubbles:true})));
     expect(state.chatPosts).toEqual([]);expect(state.allowancePosts).toEqual([]);
@@ -267,12 +279,12 @@ exports.unavailable=async({page,expect,locale,mockSharedAuth,createCanvasApiMock
     await page.reload();await page.locator('#canvasAgentToggle').click();await showProject(panel,locale);
     await expect(panel.locator('h3')).toHaveText(locale==='de'?'Die Produktion benötigt Aufmerksamkeit. Vorhandene Ergebnisse bleiben im Projekt.':'The production needs attention. Existing results remain in the project.');
     await expect(panel.locator('video,img')).toHaveCount(0);
-    await expect(panel.locator('.canvas-agent__production details dd').last()).toHaveText('<img src=x onerror=alert(1)>');
+    await expect(panel.locator('.canvas-agent__production')).not.toContainText('<img src=x onerror=alert(1)>');
     expect(state.posts).toEqual([]);
 };
 
 exports.activity=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock})=>{
-    const {state,panel,project}=await fixture({page,locale,mockSharedAuth,createCanvasApiMock});
+    const {state,panel,project,canvas}=await fixture({page,locale,mockSharedAuth,createCanvasApiMock});
     const de=locale==='de',hostile='<img src=x onerror="window.canvasInjected=true">';
     state.run={id:'a'.repeat(32),projectId:project,status:'blocked',phase:'validating',budgetCredits:300,chargedCredits:127,reservedCredits:0,committedCredits:127,remainingCredits:173,
         summarySupport:{status:'unavailable',mode:'completed'},cause:{code:'canvas_agent_h3_reference_modes_mixed',step:'shot-2',recovery:'manual'},
@@ -285,22 +297,30 @@ exports.activity=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMo
     await page.reload();await page.locator('#canvasAgentToggle').click();await showProject(panel,locale);
     await expect(panel.locator('.canvas-agent__plan')).toContainText('Building the house');
     await expect(panel.locator('.canvas-agent__plan')).toContainText('First frame and reference mode conflict.');
-    await expect(panel.locator('.canvas-agent__cause')).toContainText(de?'inkompatible Referenzmodi':'incompatible reference modes');
-    await expect(panel.locator('.canvas-agent__cause')).toContainText(de?'angehalten':'stopped');
-    await expect(panel.locator('.canvas-agent__activity')).toContainText(de?'keine laufenden Zusammenfassungen':'does not deliver live summaries');
-    const log=panel.getByRole('log');await expect(log.locator('li')).toHaveCount(2);
-    expect(await log.locator('li').evaluateAll(nodes=>nodes.map(node=>node.dataset.eventId))).toEqual(['1','2']);
-    await expect(log.locator('li').first()).toContainText(hostile);
-    await expect(panel.locator('img,script')).toHaveCount(0);expect(await page.evaluate(()=>window.canvasInjected)).toBeUndefined();
+    // Operational events are projected from the account inbox, not replayed
+    // as assistant prose. Duplicate identities and hostile titles remain safe.
+    const notice=(id,code,extra={})=>({id,source:'event',kind:'event',code,severity:'warning',projectId:project,
+        projectTitle:hostile,createdAt:'2026-01-01T00:00:00.000Z',readAt:null,confirmed:true,...extra});
+    canvas.notifications.push(notice('event-1','canvas_agent_h3_reference_modes_mixed'),notice('event-2','proposed'),notice('event-2','proposed'));
+    await expect(panel.locator('.canvas-agent__activity,.canvas-agent__events')).toHaveCount(0);
+    await page.locator('#canvasNotificationsToggle').click();const inbox=page.locator('#canvasNotificationsPanel');
+    const items=inbox.locator('.canvas-notifications__item');await expect(items).toHaveCount(2);
+    await expect(inbox).toContainText(hostile);await expect(inbox.locator('img,script')).toHaveCount(0);
+    await inbox.locator('[data-notification-id="event-1"] summary').click();await expect(inbox).toContainText('canvas_agent_h3_reference_modes_mixed');
+    expect(await page.evaluate(()=>window.canvasInjected)).toBeUndefined();
+    await inbox.getByRole('button',{name:de?'Meldungen schließen':'Close notifications',exact:true}).click();
+    await expect(panel.locator('img,script')).toHaveCount(0);
     const video=panel.locator('.canvas-agent__partial video');await expect(video).toBeVisible();
     await video.evaluate(async node=>{node.muted=true;await node.play();});await expect.poll(()=>video.evaluate(node=>node.currentTime)).toBeGreaterThan(0);await video.evaluate(node=>node.pause());
-    state.events.push({id:3,type:'provider_summary',source:'provider',delivery:'completed',text:'The provider supplied this completed summary.'},{id:4,type:'provider_summary',source:'assistant',delivery:'streamed',text:'Synthetic thoughts must never appear.'});await check.click();
-    await expect(log.locator('li')).toHaveCount(3);await expect(log.locator('li').last()).toContainText(de?'nach der Antwort':'after completion');
-    await expect(log).not.toContainText('Synthetic thoughts');
-    await check.click();await expect(log.locator('li')).toHaveCount(3);
+    state.events.push({id:3,type:'provider_summary',source:'provider',delivery:'completed',text:'The provider supplied this completed summary.'},{id:4,type:'provider_summary',source:'assistant',delivery:'streamed',text:'Synthetic thoughts must never appear.'});
+    canvas.notifications.push(notice('event-3','proposed'));await check.click();
+    await page.locator('#canvasNotificationsToggle').click();await expect(items).toHaveCount(3);
+    await expect(inbox).not.toContainText('Synthetic thoughts');await expect(panel).not.toContainText('Synthetic thoughts');
+    await inbox.getByRole('button',{name:de?'Meldungen schließen':'Close notifications',exact:true}).click();await check.click();
     state.run={...state.run,status:'taken_over'};await check.click();
-    await expect(panel.locator('.canvas-agent__cause')).toContainText('shot-2');
-    await page.reload();await page.locator('#canvasAgentToggle').click();await showProject(panel,locale);await expect(log.locator('li')).toHaveCount(3);
+    await page.reload();await page.locator('#canvasAgentToggle').click();await showProject(panel,locale);
+    await page.locator('#canvasNotificationsToggle').click();await expect(items).toHaveCount(3);
+    await inbox.getByRole('button',{name:de?'Meldungen schließen':'Close notifications',exact:true}).click();
     await expect(panel.locator('.canvas-agent__plan')).toContainText('House and ducks');
     expect(state.posts).toEqual([]);expect(state.budgetPosts).toEqual([]);
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
@@ -329,7 +349,7 @@ exports.budget=async({page,expect,locale,mockSharedAuth,createCanvasApiMock})=>{
     await panel.getByRole('button',{name:de?'Status prüfen':'Check status',exact:true}).click();
     await expect(accept).toBeEnabled();await expect(box).toContainText('450');expect(state.budgetPosts.length).toBe(2);
     state.rejectBudget=true;await accept.click();await expect.poll(()=>state.budgetPosts.length).toBe(3);
-    await expect(panel).toContainText(de?'Preise oder Projekt wurden geändert':'Prices or the project changed');
+    await exports.expectNotification({page,expect,locale},'canvas_agent_project_changed');
     expect(state.budgetPosts[2].key).not.toBe(state.budgetPosts[0].key);
     state.rejectBudget=false;await decline.click();await expect.poll(()=>state.budgetPosts.length).toBe(4);
     expect(state.budgetPosts[3].body.decision).toBe('decline');expect(state.run.budgetCredits).toBe(397);
@@ -337,13 +357,18 @@ exports.budget=async({page,expect,locale,mockSharedAuth,createCanvasApiMock})=>{
 };
 
 exports.outcome=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock})=>{
-    const {state,panel,form,project}=await fixture({page,locale,mockSharedAuth,createCanvasApiMock});
+    const {state,panel,form,project,canvas}=await fixture({page,locale,mockSharedAuth,createCanvasApiMock});
     const de=locale==='de',errors=[];page.on('pageerror',error=>errors.push(error.message));
     state.run={id:'a'.repeat(32),projectId:project,status:'review_required',phase:'planning',completed:0,total:0,
         targetDurationSeconds:45,toleranceSeconds:.5,budgetCredits:3000,allocatedCredits:127,chargedCredits:0,reservedCredits:127,pendingOutcomeCredits:127,
         errorCode:'canvas_agent_provider_timeout',result:null,allowedActions:['cancel','takeover'],
         modelOperation:{operationId:'b'.repeat(32),kind:'plan',outcome:'unknown',recovery:'review_required'}};
     const originalUnknownRun=structuredClone(state.run);
+    const runDiagnostic=async code=>{
+        canvas.notifications.push({id:'outcome-'+canvas.notifications.length,source:'event',kind:'production',code,severity:'error',projectId:project,
+            createdAt:new Date().toISOString(),readAt:null,confirmed:true,diagnosticRef:'canvas-synthetic-outcome',details:{runId:state.run.id}});
+        await exports.expectNotification({page,expect,locale},code);
+    };
     const refresh=panel.getByRole('button',{name:de?'Status prüfen':'Check status',exact:true});
     const summary=panel.locator('.canvas-agent__production > .canvas-agent__summary');
     const value=label=>summary.getByText(label,{exact:true}).locator('xpath=following-sibling::dd[1]');
@@ -352,8 +377,8 @@ exports.outcome=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMoc
     await expect(value(de?'Produktionsschritt':'Production step')).toHaveText(de?'Geschichte und Einstellungen planen':'Planning story and settings');
     await expect(value(de?'Bereits abgerechnet (Credits)':'Already charged (credits)')).toHaveText('0');
     await expect(value(de?'Im Guthaben reserviert (Credits)':'Reserved in wallet (credits)')).toHaveText('127');
-    await expect(panel).toContainText(de?'Die Antwortfrist ist abgelaufen':'The response deadline has passed');
-    await expect(panel).toContainText(de?'Sie wird nicht erneut gesendet':'It will not be sent again');
+    await runDiagnostic('canvas_agent_provider_timeout');
+    expect(state.posts).toEqual([]);
     const details=panel.locator('.canvas-agent__production > details');
     await expect(details).toHaveCount(1);await expect(details).toBeVisible();
     const detailsToggle=details.locator(':scope > summary');
@@ -374,15 +399,15 @@ exports.outcome=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMoc
     await resume.evaluate(node=>node.click());expect(state.controls).toEqual([]);
     state.run={...state.run,modelOperation:{...state.run.modelOperation,outcome:'pending',recovery:'receipt_ready'}};
     await refresh.click();await expect(panel.locator('h3')).toHaveText(de?'Anbieterantwort erhalten':'Provider response received');
-    await expect(panel).toContainText(de?'Anbieterantwort ist gespeichert':'provider response has been saved');
+    await expect(panel.locator('.canvas-agent__production > details')).toContainText('b'.repeat(32));
     await expect(panel).not.toContainText(de?'Die Antwortfrist ist abgelaufen':'The response deadline has passed');
     state.run={...state.run,errorCode:'canvas_agent_receipt_review_required',pendingOutcomeCredits:0,
         currentAction:{code:'settlement_review',phase:'settlement_review',model:'xai/grok-4.7',tool:'billing.review'},
         modelOperation:{...state.run.modelOperation,outcome:'completed',recovery:'settlement_review'}};
     await refresh.click();
     await expect(panel.locator('h3')).toHaveText(de?'Gespeicherte Antwort: Abrechnung prüfen':'Saved response: billing review');
-    await expect(panel).toContainText(de?'Die erfolgreiche Modellantwort ist gespeichert':'The successful model response is saved');
-    await expect(panel).toContainText(de?'neue Medien werden noch nicht erzeugt':'new media is not being generated yet');
+    await runDiagnostic('canvas_agent_receipt_review_required');
+    expect(state.posts).toEqual([]);
     await expect(panel.locator('.canvas-agent__current')).toContainText('billing.review');
     await expect(panel).not.toContainText(de?'Der Anbieter hat einen Fehler bestätigt':'The provider confirmed a failure');
     await expect(resume).toBeHidden();await resume.evaluate(node=>node.click());expect(state.controls).toEqual([]);
@@ -396,9 +421,9 @@ exports.outcome=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMoc
     expect(state.posts).toEqual([]);expect(state.controls).toEqual([]);
     // Errors during production must be visible outside the hidden start form.
     state.failRead=true;await refresh.click();
-    await expect(panel.getByText(de?'Der Status konnte nicht bestätigt werden. Prüfe den Status, bevor du einen neuen Auftrag startest.':'The status could not be confirmed. Check status before starting another production.',{exact:true})).toBeVisible();
+    await exports.expectNotification({page,expect,locale},'canvas_connection_interrupted');
     state.failControl=true;await panel.getByRole('button',{name:de?'Abbrechen':'Cancel',exact:true}).click();
-    await expect(panel.locator('.canvas-agent__production-area > .canvas-agent__notice').filter({hasText:de?'Für die ursprüngliche Anfrage':'The original request'})).toBeVisible();
+    await exports.expectNotification({page,expect,locale},'canvas_agent_review_required');
     expect(state.controls.map(control=>control.body.action)).toEqual(['cancel']);
     // A saved paused run with an unresolved dispatch still cannot resume, even
     // if a malformed older response advertises it as an allowed action.
@@ -420,21 +445,21 @@ exports.outcome=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMoc
     state.run={...state.run,status:'cancelled',modelOperation:{operationId:'b'.repeat(32),kind:'evaluate',outcome:'unknown',recovery:'review_required'},allowedActions:[]};
     await refresh.click();
     await expect(panel.locator('h3')).toHaveText(de?'Abgebrochen':'Cancelled');
-    await expect(panel).toContainText(de?'Es werden keine neuen Schritte gestartet':'No new production steps will start');
+    await expect(resume).toBeHidden();expect(state.posts).toEqual([]);
     const revise=panel.getByRole('button',{name:de?'Weitere Änderung beschreiben':'Describe another change',exact:true,includeHidden:true});
     await expect(revise).toBeHidden();await revise.evaluate(node=>node.click());await showProject(panel,locale);await expect(form).toBeHidden();
     state.run={...state.run,status:'blocked',errorCode:'canvas_agent_provider_rejected',reservedCredits:0,pendingOutcomeCredits:0,modelOperation:{...state.run.modelOperation,outcome:'rejected',recovery:null}};
     await refresh.click();await expect(panel.locator('h3')).toHaveText(de?'Modellanfrage abgelehnt':'Model request rejected');
-    await expect(panel).toContainText(de?'kein automatischer Ersatzauftrag':'No replacement request');
+    await runDiagnostic('canvas_agent_provider_rejected');expect(state.posts).toEqual([]);
     await expect(value(de?'Im Guthaben reserviert (Credits)':'Reserved in wallet (credits)')).toHaveText('0');
     state.run={...state.run,status:'paused',reservedCredits:127,allowedActions:['resume','cancel','takeover'],modelOperation:{...state.run.modelOperation,outcome:'failed',recovery:'billing_review'}};
     await refresh.click();await expect(panel.locator('h3')).toHaveText(de?'Pausiert · Modellanfrage fehlgeschlagen':'Paused · Model request failed');
-    await expect(panel).toContainText(de?'Die endgültigen Kosten sind noch ungeklärt':'Final costs are still unresolved');
+    await expect(panel.locator('.canvas-agent__production > details')).toContainText('b'.repeat(32));
     await expect(value(de?'Im Guthaben reserviert (Credits)':'Reserved in wallet (credits)')).toHaveText('127');
     await expect(resume).toBeHidden();await resume.evaluate(node=>node.click());expect(state.controls).toHaveLength(1);
     state.run={...state.run,status:'review_required',modelOperation:{...state.run.modelOperation,outcome:'pending',recovery:'review_required'}};
     await refresh.click();await expect(panel.locator('h3')).toHaveText(de?'Modellanfrage benötigt Prüfung':'Model request needs review');
-    await expect(panel).toContainText(de?'Die automatische Prüfung ist angehalten':'Automatic review has stopped');
+    await expect(resume).toBeHidden();expect(state.posts).toEqual([]);
     state.run={...state.run,status:'paused',allowedActions:null,modelOperation:{...state.run.modelOperation,outcome:'completed',recovery:null}};
     await refresh.click();await expect(resume).toBeHidden();await resume.evaluate(node=>node.click());expect(state.controls).toHaveLength(1);
     // A complete new brief cannot turn an uncertain historical request into
@@ -461,16 +486,19 @@ exports.outcome=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMoc
 
 
 exports.conversation=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock})=>{
-    const {state,panel,composer,form}=await fixture({page,locale,mockSharedAuth,createCanvasApiMock}),de=locale==='de';
+    const {state,panel,composer,form,canvas}=await fixture({page,locale,mockSharedAuth,createCanvasApiMock}),de=locale==='de';
     const input=composer.locator('textarea'),button=name=>panel.getByRole('button',{name,exact:true});
     await expect(input).toBeEnabled();
     const text='A warm comic film about building a house next to a pool with ducks, ending with arriving visitors.';
     await input.fill(text);await showOptions(panel,locale);state.holdChatResponse=true;await button(de?'Für später speichern':'Save for later').click();
     await expect.poll(()=>Boolean(state.releaseChatResponse)).toBe(true);
-    const saved=panel.getByText(de?'Entwurf im Projekt gespeichert. Es wurde keine Produktion gestartet.':'Draft saved with this project. No production has started.',{exact:true});
-    // A saved claim before acknowledgement is a meaningful broken case; wait
-    // for the real UI acknowledgement before navigating away in this case.
-    await expect(saved).toBeHidden();await state.releaseChatResponse();await expect(saved).toBeVisible();
+    // Never publish a saved notification before the server acknowledges save.
+    expect(canvas.notificationClients.filter(item=>item.code==='canvas_brief_saved')).toHaveLength(0);
+    await state.releaseChatResponse();
+    await expect.poll(()=>canvas.notifications.filter(item=>item.code==='canvas_brief_saved').length).toBe(1);
+    await page.locator('#canvasNotificationsToggle').click();
+    await expect(page.locator('#canvasNotificationsPanel')).toContainText(de?'Projektidee gespeichert.':'Project brief saved.');
+    await page.locator('#canvasNotificationsPanel').getByRole('button',{name:de?'Meldungen schließen':'Close notifications',exact:true}).click();
     expect(state.chatPosts).toEqual([]);expect(state.posts).toEqual([]);expect(state.allowancePosts).toEqual([]);
     await page.reload();await page.locator('#canvasAgentToggle').click();await expect(input).toHaveValue(text);
     await expect(composer.locator('button[type=submit]')).toBeDisabled();await showOptions(panel,locale);await button(de?'Briefing fortsetzen':'Resume briefing').click();await showChat(panel,locale);await expect(input).toBeEnabled();
@@ -569,7 +597,7 @@ exports.viewport=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMo
 };
 
 exports.delivery=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock})=>{
-    const {state,panel,composer}=await fixture({page,locale,mockSharedAuth,createCanvasApiMock}),de=locale==='de';
+    const {state,panel,composer,canvas,project}=await fixture({page,locale,mockSharedAuth,createCanvasApiMock}),de=locale==='de';
     const userText=de?'Ein lustiger ungefähr 45 Sekunden langer Film mit Hintergrundmusik: Eine Schnecke auf einem Blatt, Ameisen schneiden das Blatt ab.':'A funny approximately 45 second video with background music: a snail on a leaf, ants cut the leaf.';
     const diagnostic='cr_0123456789abcdef';
     const delivery={stage:'provider_pending',blocking:true,diagnosticReference:diagnostic,canObserve:true,source:'system'};
@@ -577,13 +605,16 @@ exports.delivery=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMo
     const current=state.conversation;
     await page.reload();await page.locator('#canvasAgentToggle').click();
     const reply=panel.locator('[data-message-id="observed:reply"]');
-    await expect(reply).toHaveAttribute('data-kind','system');await expect(reply).toContainText(de?'Anbieter bearbeitet':'provider is processing');
+    await expect(reply).toHaveAttribute('data-kind','system');await expect(reply).toContainText(de?'Einen Moment':'One moment');
     await expect(reply).not.toContainText(de?'Canvas-Assistent':'Canvas assistant');await expect(composer.locator('button[type=submit]')).toBeDisabled();
     await expect(reply.locator('.canvas-agent__bee')).toBeVisible();
-    await reply.locator('.canvas-agent__diagnostic > summary').click();
-    await expect(reply.locator('code')).toHaveText(diagnostic);
-    await reply.getByRole('button',{name:de?'Referenz kopieren':'Copy reference',exact:true}).click();
-    await expect(reply.getByRole('button')).toHaveText(de?/Referenz (kopiert|markiert)/:/Reference (copied|selected)/);
+    await expect(reply.locator('.canvas-agent__diagnostic')).toBeHidden();
+    const inbox=page.locator('#canvasNotificationsPanel');
+    const notification=(id,diagnosticRef,code)=>({id,source:'conversation',kind:'conversation',code,severity:'warning',projectId:project,createdAt:new Date().toISOString(),readAt:null,confirmed:true,diagnosticRef});
+    canvas.notifications.push(notification('delivery-observed',diagnostic,'canvas_agent_receipt_review_required'));
+    await page.locator('#canvasNotificationsToggle').click();await inbox.locator('[data-notification-id="delivery-observed"] summary').click();
+    await expect(inbox.locator('code')).toContainText(diagnostic);
+    await inbox.getByRole('button',{name:de?'Meldungen schließen':'Close notifications',exact:true}).click();
     await showFinance(panel,locale);const costs=panel.locator('.canvas-agent__briefing-cost');
     await expect(costs).toContainText(de?'Tatsächlich abgerechnet':'Actually charged');
     await expect(costs.locator('dt').filter({hasText:de?'Tatsächlich abgerechnet':'Actually charged'}).locator('xpath=following-sibling::dd[1]')).toHaveText('0');
@@ -591,8 +622,7 @@ exports.delivery=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMo
     await showChat(panel,locale);
     current.messages[1].delivery={...delivery,stage:'dispatch_unknown',recovery:'operator'};current.blockingOperation={...current.messages[1].delivery,turnId:'observed'};current.revision++;
     await panel.getByRole('button',{name:de?'Gespräch neu laden':'Reload conversation',exact:true}).click();
-    await expect(reply).toContainText(de?'Annahme ist nicht bestätigt':'acceptance is unconfirmed');
-    await expect(reply).not.toContainText(de?'automatische Klärung ist beendet':'Automatic reconciliation has stopped');
+    await expect(reply).toHaveCount(0);
     await expect(composer.locator('button[type=submit]')).toBeDisabled();
     // Late completion must be picked up without clicking Reload or making a
     // second paid POST, even though the old turn status was review_required.
@@ -602,7 +632,7 @@ exports.delivery=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMo
     expect(current.messages[0].text).toBe(userText);expect(state.chatPosts).toEqual([]);expect(state.posts).toEqual([]);
     current.messages.unshift({id:'old-local-error',role:'assistant',text:'',status:'review_required',delivery:{stage:'preparation_failed',blocking:false,canObserve:false,source:'system',diagnosticReference:'cr_local_preparation'}});current.revision++;
     await panel.getByRole('button',{name:de?'Gespräch neu laden':'Reload conversation',exact:true}).click();
-    await expect(composer.locator('button[type=submit]')).toBeEnabled();await expect(panel.locator('[data-message-id=old-local-error]')).toContainText(de?'vor der Modellbeauftragung':'before model dispatch');
+    await expect(composer.locator('button[type=submit]')).toBeEnabled();await expect(panel.locator('[data-message-id=old-local-error]')).toHaveCount(0);
     await panel.screenshot({path:info.outputPath(`canvas-chat-delivery-${locale}.png`)});
     // Exhausted reconciliation is an explicit operator state, not an endless
     // poll or permission for a replacement paid request.
@@ -610,7 +640,11 @@ exports.delivery=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMo
     const operator={stage:'dispatch_unknown',blocking:true,canObserve:false,recovery:'operator',source:'system',diagnosticReference:'cr_operator_attention'};
     current.canSend=false;current.blockingOperation={...operator,turnId:'operator'};current.messages.push({id:'operator:reply',role:'assistant',status:'review_required',text:'',delivery:operator});current.revision++;
     await panel.getByRole('button',{name:de?'Gespräch neu laden':'Reload conversation',exact:true}).click();
-    await expect(panel.locator('[data-message-id="operator:reply"]')).toContainText(de?'automatische Klärung ist beendet':'Automatic reconciliation has stopped');
+    await expect(panel.locator('[data-message-id="operator:reply"]')).toHaveCount(0);
+    canvas.notifications.push(notification('delivery-operator','cr_operator_attention','canvas_agent_receipt_review_required'));
+    await page.locator('#canvasNotificationsToggle').click();
+    await inbox.locator('[data-notification-id="delivery-operator"] summary').click();await expect(inbox).toContainText('cr_operator_attention');
+    await inbox.getByRole('button',{name:de?'Meldungen schließen':'Close notifications',exact:true}).click();
     const reads=state.chatReads;await page.clock.fastForward(20000);expect(state.chatReads).toBe(reads);
     await expect(composer.locator('button[type=submit]')).toBeDisabled();expect(state.chatPosts).toEqual([]);expect(state.posts).toEqual([]);
 };
@@ -630,11 +664,11 @@ exports.actions=async({page,expect,locale,mockSharedAuth,createCanvasApiMock})=>
     action.confirmation.tariffRevision=29;state.conversation.revision++;await reload.click();await expect(accept).toBeEnabled();
     state.loseActionResponse=true;await accept.click();const retry=panel.getByRole('button',{name:de?'Nachricht prüfen':'Check message',exact:true});await expect(retry).toBeVisible();
     await expect.poll(()=>state.actionPosts.length).toBe(1);const original=structuredClone(state.actionPosts[0]);await expect(retry).toBeEnabled();await retry.click();await expect(retry).toBeHidden();expect(state.actionPosts).toHaveLength(2);expect(state.actionPosts[1]).toEqual(original);expect(original.body).toEqual({decision:'accept',expectedRevision:0,expectedBriefRevision:0,capCredits:100,tariffRevision:29});
-    await expect(card).toHaveAttribute('data-state','completed');
+    await expect(card).toHaveCount(0);
     state.conversation.actions.push({id:'8'.repeat(32),type:'export',state:'pending',text:'Export accepted.',effect:null,confirmation:null});state.conversation.revision++;
-    await reload.click();const pending=panel.locator('[data-action-id="'+ '8'.repeat(32)+'"]');await expect(pending).toHaveAttribute('data-state','pending');
-    state.conversation.actions[1].state='completed';state.conversation.actions[1].text='Export saved.';state.conversation.revision++;
-    await expect(pending).toHaveAttribute('data-state','completed',{timeout:15000});expect(state.actionPosts).toHaveLength(2);expect(state.posts).toEqual([]);
+    await reload.click();const pending=panel.locator('[data-action-id="'+ '8'.repeat(32)+'"]');await expect(pending).toHaveCount(0);
+    const reads=state.chatReads;state.conversation.actions[1].state='completed';state.conversation.actions[1].text='Export saved.';state.conversation.revision++;
+    await expect.poll(()=>state.chatReads,{timeout:15000}).toBeGreaterThan(reads);await expect(pending).toHaveCount(0);expect(state.actionPosts).toHaveLength(2);expect(state.posts).toEqual([]);
 };
 
 exports.pending_controls=async({page,expect,locale,mockSharedAuth,createCanvasApiMock})=>{

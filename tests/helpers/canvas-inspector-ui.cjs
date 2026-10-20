@@ -53,7 +53,8 @@ exports.generation = async options => {
   }
   await runButton.click();await expect.poll(()=>calls.length).toBe(1);
   await expect(settings).toHaveCount(0);await expect(status).toHaveText(de?'Wird ausgeführt':'Running');pending(false);
-  await expect(status).toHaveText('Controlled failure');await expect(settings).toHaveCount(0);
+  await expect(status).toHaveText(de?'Fehlgeschlagen':'Failed');await expect(settings).toHaveCount(0);
+  await page.locator('#canvasNotificationsToggle').click();await expect(page.locator('#canvasNotificationsPanel code').filter({hasText:'generation_failed'}).first()).toHaveText(/generation_failed/);await page.keyboard.press('Escape');
   await runButton.click();await expect.poll(()=>calls.length).toBe(2);pending(true);
   await expect(settings).toHaveJSProperty('open',false);await expect(runButton).toBeHidden();await expect(mediaElement).toBeVisible();
   if(media==='image') {
@@ -77,12 +78,12 @@ exports.generation = async options => {
   await expect(prompt).toHaveValue('Retained draft');await expect(inspector.getByRole('textbox',{name:de?'Titel':'Title',exact:true})).toHaveValue('Renamed result');
   await runButton.click();await expect.poll(()=>calls.length).toBe(3);
   await summary.click();await expect(settings).toHaveJSProperty('open',false);await expect(status).toBeVisible();await expect(status).toHaveText(de?'Wird ausgeführt':'Running');
-  pending(false);await expect(status).toHaveText('Controlled failure');await expect(settings).toHaveJSProperty('open',false);await expect(mediaElement).toBeVisible();
+  pending(false);await expect(status).toHaveText(de?'Fehlgeschlagen':'Failed');await expect(settings).toHaveJSProperty('open',false);await expect(mediaElement).toBeVisible();
   expect(node.output).toEqual(output);
-  await page.reload();await select(2);await expect(settings).toHaveJSProperty('open',false);await expect(mediaElement).toBeVisible();await expect(status).toHaveText('Controlled failure');
+  await page.reload();await select(2);await expect(settings).toHaveJSProperty('open',false);await expect(mediaElement).toBeVisible();await expect(status).toHaveText(de?'Fehlgeschlagen':'Failed');
   await summary.focus();await page.keyboard.press('Space');await expect(settings).toHaveJSProperty('open',true);await expect(prompt).toHaveValue('Retained draft');
   await runButton.click();await expect.poll(()=>calls.length).toBe(4);pending('network-error');
-  await expect(status).toHaveText('Controlled unavailable');await summary.click();await expect(status).toBeVisible();await expect(mediaElement).toBeVisible();
+  await expect(status).toHaveText(de?'Fehlgeschlagen':'Failed');await summary.click();await expect(status).toBeVisible();await expect(mediaElement).toBeVisible();
   expect(calls).toHaveLength(4);expect(errors).toEqual([]);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   if(de)await page.evaluate(()=>document.documentElement.dataset.theme='light');
   await inspector.screenshot({path:info.outputPath(`generation-${media}-${locale}.png`)});
@@ -117,7 +118,7 @@ exports.merge = async options => {
   await select(2);await select(3);await expect(settings).toHaveJSProperty('open',true);await expect(smooth).toBeChecked();
   await expect(group.getByLabel('Clip 1',{exact:true})).toHaveValue(id(9));
   await summary.click();phase='failed';await inspector.getByRole('button',{name:de?'Status aktualisieren':'Refresh status',exact:true}).click();
-  await expect(inspector.getByRole('status',{name:de?'Exportstatus':'Export status',exact:true})).toContainText(de?'fehlgeschlagen':'failed');
+  await expect(inspector.getByRole('status',{name:de?'Exportstatus':'Export status',exact:true})).toHaveText(de?'Gesamtvideo bereit.':'Full video ready.');
   await expect(settings).toHaveJSProperty('open',false);await create.click();await expect.poll(()=>posts.length).toBe(1);
   expect(posts[0].orderedClips.map(clip=>clip.runId)).toEqual([id(9),id(8)]);expect(posts[0].smoothJoins).toBe(true);
   await result.scrollIntoViewIfNeeded();await expect(result).toBeInViewport();

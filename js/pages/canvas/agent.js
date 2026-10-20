@@ -2,6 +2,7 @@ import { canvasRequest } from './api.js?v=__ASSET_VERSION__';
 import { canvasAgentCopy } from './agent-copy.js?v=__ASSET_VERSION__';
 import { createCanvasAgentActivity } from './agent-live.js?v=__ASSET_VERSION__';
 import { createCanvasAgentConversation } from './agent-conversation.js?v=__ASSET_VERSION__';
+import {canvasNotice,refreshCanvasNotifications,resolveCanvasNotice} from './notifications.js?v=__ASSET_VERSION__';
 
 const TERMINAL = new Set(['completed', 'cancelled', 'taken_over', 'manual_takeover']);
 const WAITING = new Set(['clarification_required', 'paused', 'blocked', 'failed', 'review_required', 'budget_required']);
@@ -32,13 +33,11 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
     const availabilityNote = create('p', 'canvas-agent__notice', copy.checking); availabilityNote.setAttribute('role', 'status');
     const availabilityDetails=create('details','canvas-disclosure'),availabilityCode=create('p','canvas-muted');
     availabilityDetails.append(create('summary','',copy.details),availabilityCode);availabilityDetails.hidden=true;
-    const feedback = create('p', 'canvas-agent__notice'); feedback.setAttribute('role', 'status'); feedback.setAttribute('aria-live', 'polite'); feedback.hidden = true;
     const status = create('section', 'canvas-agent__production'); status.setAttribute('aria-label', copy.status); status.hidden = true;
     const phase = create('h3'); phase.setAttribute('role', 'status');
     const counts = create('p', 'canvas-agent__counts');
     const summary = create('dl', 'canvas-agent__summary');
     const note = create('p', 'canvas-muted');
-    const connection=create('p','canvas-agent__connection',copy.connectionPolling);connection.setAttribute('role','status');
     const media = create('div', 'canvas-agent__media');
     const actions = create('div', 'canvas-agent__actions');
     const inspect = button(copy.view, () => void view());
@@ -53,13 +52,13 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
     const evidence = create('dl', 'canvas-agent__summary'); details.append(evidence);
     const live=create('div','canvas-agent__live');
     const activity=createCanvasAgentActivity({parent:live,copy,privateMediaUrl,decideBudget:(decision,request)=>void decideBudget(decision,request)});
-    status.append(phase, counts, media, actions, note, summary, live, stopHint, details);details.append(connection);
+    status.append(phase, counts, media, actions, note, summary, live, stopHint, details);
     const help = create('details', 'canvas-disclosure'); help.append(create('summary', '', copy.inspect), create('p', 'canvas-muted', copy.editHint));
     const conversationRoot = create('div','canvas-agent__mount');
     root.append(projectHint, conversationRoot);
     const conversation = createCanvasAgentConversation({root:conversationRoot,german,flush,getRun:()=>run,canProduce:()=>!modelHeld(),canControl:action=>!busy&&canControl(action),onControl:control,onEffect:applyConversationEffect,onRun:next=>{acceptRun(next);clearStart();message('');render();schedule();}});
 
-    conversation.appendProduction(feedback,status);
+    conversation.appendProduction(status);
     conversation.appendDetails(availabilityNote,availabilityDetails,help);
     const panelHead=root.closest('.canvas-agent')?.querySelector('.canvas-panel__head');
     function placeHelp(){const trigger=document.getElementById('bitbiHelpTrigger'),home=document.getElementById('bitbiHelpMenu');if(!trigger||!home)return;if(visible&&panelHead)panelHead.append(trigger);else if(trigger.parentNode!==home)home.prepend(trigger);}
@@ -77,7 +76,7 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
         }
     }
 
-    function message(text) { feedback.textContent = text; feedback.hidden = !text; }
+    function message(text,result={}) {const key=`agent-connection:${projectId}`;if(!text)resolveCanvasNotice(key);else canvasNotice(text,{code:text===copy.connection?'canvas_connection_interrupted':'canvas_client_notice',projectId,errorCode:result.code,status:result.status,diagnosticRef:result.diagnosticRef,...(text===copy.connection?{key}:{})}); }
     function validRun(value) { return value && /^[a-f0-9]{32}$/.test(value.id || '') && value.projectId===projectId && typeof value.status==='string'; }
     function summaryItem(container, label, value) { container.append(create('dt', '', label), create('dd', '', value)); }
     function modelPending() {
@@ -150,16 +149,8 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
         const complete = run.status === 'completed' && run.result?.assetId && fileUrl;
         if (run.status === 'completed' && !complete) phase.textContent = copy.failed;
         if (run.status === 'taken_over') phase.textContent = copy.phases.manual_takeover;
-        note.textContent = complete ? copy.completion : waiting || (run.status === 'completed' && !complete) ? copy.failed : terminal ? copy.editHint : copy.background;
-        if (!terminal && !waiting && run.phase === 'waiting_limit') note.textContent = copy.waitingLimit;
-        if(waiting&&run.errorCode)note.textContent=run.errorCode==='canvas_agent_budget_exceeded'?copy.blockedBudget:run.errorCode==='canvas_agent_quality_review_required'?copy.blockedQuality:run.errorCode==='canvas_agent_project_changed'?copy.blockedProject:/provider.*(unknown|review)/.test(run.errorCode)?copy.blockedProvider:note.textContent;
-        if (operation?.recovery === 'receipt_ready') note.textContent = terminal ? copy.stoppedReceiptReady : copy.receiptReady;
-        else if (uncertain) note.textContent = terminal ? copy.stoppedPending : operation?.recovery === 'waiting_callback' ? copy.waitingCallback : copy.blockedProvider;
-        else if (!terminal && operation?.outcome === 'rejected') note.textContent = copy.rejectedRequest;
-        if (operation?.recovery === 'review_required' && operation.outcome !== 'unknown') note.textContent = copy.receiptNeedsReview;
-        if (operation?.recovery === 'billing_review') note.textContent = copy.billingReview;
-        if (operation?.recovery === 'settlement_review') note.textContent = copy.settlementReview;
-        if (uncertain && operation?.recovery !== 'receipt_ready' && run.errorCode === 'canvas_agent_provider_timeout') note.textContent = `${copy.providerTimeout} ${note.textContent}`;
+        note.textContent = terminal ? copy.editHint : waiting ? '' : copy.background;
+        note.hidden=!note.textContent;
         if (complete) {
             let video = media.querySelector('video');
             if (!video) { video = create('video'); video.controls = true; video.preload = 'metadata'; video.setAttribute('aria-label', copy.preview); media.append(video); }
@@ -181,15 +172,14 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
             if(typeof run.result.evaluation.confidence==='string')summaryItem(evidence,copy.confidence,german?({low:'Niedrig',medium:'Mittel',high:'Hoch'}[run.result.evaluation.confidence]||run.result.evaluation.confidence):run.result.evaluation.confidence);
             for(const issue of (Array.isArray(run.result.evaluation.issues)?run.result.evaluation.issues:[]).slice(0,8))if(typeof issue.reason==='string')summaryItem(evidence,`${copy.reviewIssue}: ${getState().nodes?.find(node=>node.id===issue.nodeId)?.title||String(issue.nodeId||'').slice(0,8)}`,issue.reason.slice(0,800));
         }
-        if (run.errorCode) summaryItem(evidence, copy.reason, String(run.errorCode));
     }
     function error(result) {
-        if (['model_pricing_stale', 'canvas_project_revision_conflict', 'project_revision_conflict', 'canvas_agent_project_changed', 'canvas_agent_tariff_changed','canvas_agent_budget_request_stale','canvas_agent_budget_request_conflict','canvas_agent_budget_request_changed','canvas_agent_budget_decision_conflict'].includes(result.code)) { message(copy.stale); }
-        else if (result.code==='canvas_agent_budget_exceeded' || result.code==='canvas_agent_budget_required') { message(copy.budgetRequired); }
-        else if (result.code==='canvas_agent_duration_invalid') message(copy.invalidDuration);
-        else if (result.code==='canvas_agent_review_required') message(copy.blockedProvider);
-        else if (['canvas_agent_model_unavailable','canvas_agent_disabled','canvas_agent_infrastructure_unavailable','model_area_disabled'].includes(result.code)) { availability={available:false,code:result.code};message(copy.unavailable); }
-        else message(copy.connection);
+        if (['model_pricing_stale', 'canvas_project_revision_conflict', 'project_revision_conflict', 'canvas_agent_project_changed', 'canvas_agent_tariff_changed','canvas_agent_budget_request_stale','canvas_agent_budget_request_conflict','canvas_agent_budget_request_changed','canvas_agent_budget_decision_conflict'].includes(result.code)) { message(copy.stale,result); }
+        else if (result.code==='canvas_agent_budget_exceeded' || result.code==='canvas_agent_budget_required') { message(copy.budgetRequired,result); }
+        else if (result.code==='canvas_agent_duration_invalid') message(copy.invalidDuration,result);
+        else if (result.code==='canvas_agent_review_required') message(copy.blockedProvider,result);
+        else if (['canvas_agent_model_unavailable','canvas_agent_disabled','canvas_agent_infrastructure_unavailable','model_area_disabled'].includes(result.code)) { availability={available:false,code:result.code};message(copy.unavailable,result); }
+        else message(copy.connection,result);
     }
     async function fingerprint(body) {
         const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(body)));
@@ -201,6 +191,7 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
     function rememberBudget(){try{if(pendingBudget)sessionStorage.setItem(budgetStorageKey(),JSON.stringify(pendingBudget));else sessionStorage.removeItem(budgetStorageKey());}catch{/* The server owns authorization. */}}
     function closeStream(){stream?.close();stream=null;streamRun=null;}
     function acceptRun(next){
+        if(run?.id!==next.id||run?.status!==next.status||run?.phase!==next.phase||run?.errorCode!==next.errorCode)refreshCanvasNotifications();
         if(run?.id!==next.id){eventCursor=0;activity.reset();closeStream();}
         run=next;
         if(pendingBudget&&pendingBudget.runId!==run.id){pendingBudget=null;rememberBudget();}
@@ -218,10 +209,9 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
             if(current!==epoch||stream!==source)return;
             let value;try{value=JSON.parse(event.data);}catch{return;}
             const seq=value?.seq??value?.id;if(!Number.isSafeInteger(seq)||seq<1)return;
-            activity.appendEvents([value]);eventCursor=Math.max(eventCursor,seq);connection.textContent=copy.connectionLive;
+            activity.appendEvents([value]);eventCursor=Math.max(eventCursor,seq);
         });
-        source.addEventListener('heartbeat',()=>{if(stream===source)connection.textContent=copy.connectionLive;});
-        source.onerror=()=>{if(stream===source){closeStream();connection.textContent=copy.connectionPolling;}};
+        source.onerror=()=>{if(stream===source)closeStream();};
     }
     async function decideBudget(decision,request){
         if(busy||pendingBudget||!run||TERMINAL.has(run.status)||!['accept','decline'].includes(decision)||JSON.stringify(request)!==JSON.stringify(run.budgetRequest))return;
@@ -304,11 +294,9 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
                 if (!pendingStart || run.requestKey === pendingStart.key) clearStart();
             }
             if (!pendingStart?.uncertain) message('');
-            if(!stream)connection.textContent=copy.connectionPolling;
         } else {
             if (availability === null) availability = { available: false };
             if (run || pendingStart?.uncertain) message(copy.connection);
-            connection.textContent=copy.connectionOffline;
         }
         render(); schedule(response.ok&&response.data?.hasMore?100:4000,Boolean(response.ok&&response.data?.hasMore));
     }
