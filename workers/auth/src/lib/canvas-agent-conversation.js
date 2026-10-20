@@ -53,6 +53,8 @@ export async function conversationView(env,projectId,userId) {
     await recoverCanvasAgentActions(env,{projectId,userId});
     const actions=await publicCanvasAgentActions(env,projectId,userId);
     const row=await conversationRow(env,projectId,userId);
+    const incidents=await (await import('./canvas-agent-incidents.js')).canvasIncidentConversationProjection(env,projectId,userId);
+    const incidentTurns=new Map(incidents.records.map(item=>[item.turn_id,item]));
     // Operation receipts are authoritative. Projection repairs never dispatch.
     await env.DB.prepare(`UPDATE canvas_agent_turns SET state=CASE WHEN (SELECT status FROM canvas_agent_runs WHERE id=run_id)='review_required' THEN 'review_required'
         WHEN (SELECT status FROM canvas_agent_runs WHERE id=run_id) IN ('cancelled','taken_over') THEN 'cancelled' ELSE 'failed' END,
@@ -61,9 +63,14 @@ export async function conversationView(env,projectId,userId) {
     const turns=(await env.DB.prepare(`SELECT t.*,r.model_id AS reply_model_id,s.receipt_json AS dialogue_receipt,s.input_json AS dialogue_input,${applicationReceiptSelect}
         FROM canvas_agent_turns t LEFT JOIN canvas_agent_runs r ON r.id=t.run_id
         LEFT JOIN canvas_agent_steps s ON s.run_id=t.run_id AND s.step_key='dialogue'
-        WHERE t.project_id=? AND t.state!='deleted' ORDER BY t.rowid`).bind(projectId).all()).results;
+        WHERE t.project_id=? AND t.state!='deleted'
+        AND (NOT EXISTS(SELECT 1 FROM canvas_agent_incident_explanations x WHERE x.turn_id=t.id)
+          OR t.id IN (SELECT x.turn_id FROM canvas_agent_incident_explanations x JOIN canvas_agent_turns latest ON latest.id=x.turn_id
+            WHERE latest.project_id=t.project_id ORDER BY latest.rowid DESC LIMIT 32))
+        ORDER BY t.rowid`).bind(projectId).all()).results;
     const evidence=await canvasDialogueProjectEvidence(env,projectId),byTurn=new Map(evidence.map(item=>[item.turn_id,item]));
     const blockers=evidence.map(item=>({...canvasDialogueDelivery(item),turnId:item.turn_state==='deleted'?null:item.turn_id})).filter(item=>item.blocking);
+    for(const turn of turns)turn.incident_explanation=incidentTurns.get(turn.id)||null;
     const messages=turns.flatMap(t=>[...(t.user_text?[{id:t.id,role:'user',text:t.user_text,status:'completed',provenance:'user',kind:'message'}]:[]),...(t.assistant_text?[{id:`${t.id}:reply`,role:'assistant',text:canvasConversationReplyText(t),status:'completed'}]
         :[{id:`${t.id}:reply`,role:'assistant',text:'',status:t.state,code:t.error_code||null}])].map(message=>message.role==='assistant'
             ?{...message,...canvasConversationReplySource(t,actions),delivery:canvasDialogueDelivery(byTurn.get(t.id))}:message));
@@ -79,13 +86,13 @@ export async function conversationView(env,projectId,userId) {
     const production=await env.DB.prepare("SELECT * FROM canvas_agent_runs WHERE project_id=? AND user_id=? AND purpose='production' ORDER BY rowid DESC LIMIT 1").bind(projectId,userId).first();
     const models=await (await import('./canvas-agent-assistant-models.js')).canvasAssistantModelInventory(env);
     const selectedModel=row.assistant_model_id||CANVAS_AGENT_MODEL;
-    return {...(production?{run:await publicAgentRun(env,production)}:{}),conversation:{revision:row.revision,briefRevision:row.brief_revision,state:row.state,draft:row.draft,
+    return {...(production?{run:await publicAgentRun(env,production)}:{}),conversation:{revision:row.revision,explanationRevision:incidents.revision,briefRevision:row.brief_revision,state:row.state,draft:row.draft,
         messages,actions,brief:JSON.parse(row.brief_json),pendingTurnId:turns.find(t=>t.state==='pending')?.id||null,
         reasoningModel:{modelId:selectedModel,displayName:models.find(model=>model.modelId===selectedModel)?.displayName||selectedModel,revision:row.assistant_model_revision||0,eligibleModels:models},
         pendingDecision:await (await import('./canvas-agent-conversation-decisions.js')).publicCanvasConversationDecision(env,projectId,userId),
         canSend:row.state==='active'&&blockers.length===0,blockingOperation:blockers[0]||null,
         immediateIntent:await (await import('./canvas-agent-immediate.js')).publicCanvasImmediateIntent(env,projectId),
-        allowance:{capCredits:row.allowance_credits,committedCredits:costs.committed,chargedCredits:costs.charged,
+        allowance:{capCredits:row.allowance_credits,diagnosticsAuthorized:row.diagnostic_allowance===1,committedCredits:costs.committed,chargedCredits:costs.charged,
             reservedCredits:costs.reserved,pendingOutcomeCredits:costs.pending,
             remainingCredits:Math.max(0,row.allowance_credits-costs.committed),tariffRevision:tariff.revision,suggestedAllowanceCredits}},
         availability:await (await import('./canvas-agent-assistant-models.js')).canvasAssistantAvailability(env,selectedModel,{dialogue:true})};
@@ -107,6 +114,11 @@ export function canvasConversationReplyText(turn) {
     return turn.assistant_text;
 }
 export function canvasConversationReplySource(turn,actions=[]) {
+    if(!turn.incident_explanation&&turn.incident_explanation_json){try{turn.incident_explanation=JSON.parse(turn.incident_explanation_json);}catch{/* Malformed derived attribution is never promoted to model output. */}}
+    if(turn.incident_explanation){const incident=turn.incident_explanation;return {
+        provenance:incident.state==='model'?'model':'application',kind:'incident_explanation',incidentId:incident.incident_id,
+        sourceNotificationId:incident.source_notification_id,incidentState:incident.incident_state,
+        ...(incident.state==='model'?{modelId:turn.reply_model_id||CANVAS_AGENT_MODEL}:{})};}
     if(turn.application_receipt===1)return {provenance:'application',kind:'operation_ack'};
     if(turn.run_id&&historicalOperationAcknowledgement(turn)&&canvasConversationReplyText(turn)===turn.assistant_text)
         return {provenance:'application',kind:'operation_ack'};
@@ -138,6 +150,7 @@ async function ensureCompletedConversationBudgetQuestion(env,run){
 // Observation can normalize/settle an existing receipt and project its saved
 // dialogue. It cannot call executeCanvasAgentModel or start any ready request.
 export async function observeCanvasConversationReceipts(env,projectId,userId) {
+    await (await import('./canvas-agent-incident-model.js')).reconcileCanvasIncidentExplanations(env,{projectId,userId});
     const evidence=await canvasDialogueProjectEvidence(env,projectId);
     const {reconcileCanvasAgentModelOperations}=await import('./canvas-agent-model-operations.js');
     const actionable=evidence.filter(item=>{
@@ -152,6 +165,10 @@ export async function observeCanvasConversationReceipts(env,projectId,userId) {
     for(const item of actionable.slice(0,20)){
         if(!['completed','rejected'].includes(item.step_status)||item.billing_status==='reserved'&&!item.reservation_released_at)
             await reconcileCanvasAgentModelOperations(env,{runId:item.run_id});
+        if(await env.DB.prepare('SELECT incident_id FROM canvas_agent_incident_explanations WHERE model_run_id=?').bind(item.run_id).first()){
+            await (await import('./canvas-agent-incident-model.js')).reconcileCanvasIncidentExplanations(env,{projectId,userId});
+            continue;
+        }
         const current=await env.DB.prepare(`SELECT r.*,s.status AS dialogue_status,t.state AS turn_state
             FROM canvas_agent_runs r JOIN canvas_agent_steps s ON s.run_id=r.id AND s.step_key='dialogue'
             JOIN canvas_agent_turns t ON t.run_id=r.id WHERE r.id=? AND r.user_id=?`).bind(item.run_id,userId).first();
@@ -257,7 +274,7 @@ async function localExplanationTurn(env,row,input,key,text) {
     return true;
 }
 export async function createConversationTurn(env,view,row,input,key) {
-    const count=await env.DB.prepare("SELECT COUNT(*) AS n FROM canvas_agent_turns WHERE project_id=? AND state!='deleted'").bind(row.project_id).first();
+    const count=await env.DB.prepare("SELECT COUNT(*) AS n FROM canvas_agent_turns t WHERE project_id=? AND state!='deleted' AND NOT EXISTS(SELECT 1 FROM canvas_agent_incident_explanations x WHERE x.turn_id=t.id)").bind(row.project_id).first();
     if(count.n>=80)agentFail('canvas_agent_conversation_limit');
     if(await localControlTurn(env,view,row,input,key))return;
     const readIntent=canvasConversationReadIntent(input.text);
@@ -288,6 +305,8 @@ export async function createConversationTurn(env,view,row,input,key) {
     const askDuration=!readIntent&&!brief.duration.choice&&!brief.duration.asked;
     if(askDuration)brief.duration.asked=true;
     const recent=(await env.DB.prepare(`SELECT t.id,t.run_id,t.user_text,t.assistant_text,r.model_id AS reply_model_id,
+        (SELECT json_object('incident_id',x.incident_id,'state',x.state,'source_notification_id',i.source_notification_id,'incident_state',i.state)
+          FROM canvas_agent_incident_explanations x JOIN canvas_agent_incidents i ON i.id=x.incident_id WHERE x.turn_id=t.id) AS incident_explanation_json,
         s.receipt_json AS dialogue_receipt,s.input_json AS dialogue_input,${applicationReceiptSelect} FROM canvas_agent_turns t
         LEFT JOIN canvas_agent_runs r ON r.id=t.run_id LEFT JOIN canvas_agent_steps s ON s.run_id=t.run_id AND s.step_key='dialogue'
         WHERE t.project_id=? AND t.state='completed' ORDER BY t.rowid DESC LIMIT 6`).bind(row.project_id).all()).results.reverse();
@@ -322,6 +341,7 @@ export async function createConversationTurn(env,view,row,input,key) {
     return id;
 }
 export async function processCanvasAgentConversation(env,run,user,storageAttempt=0,receiptOnly=false) {
+    if(await (await import('./canvas-agent-incident-model.js')).processCanvasIncidentExplanation(env,run,user,{receiptOnly}))return;
     const turn=await env.DB.prepare('SELECT * FROM canvas_agent_turns WHERE run_id=?').bind(run.id).first();
     const row=await conversationRow(env,run.project_id,run.user_id);
     if(!turn||turn.state==='deleted'||row?.state!=='active')agentFail('canvas_agent_conversation_stopped');

@@ -18,6 +18,12 @@ for (const locale of ['en','de']) test(`Canvas conversation ${locale}: persisted
 for(const locale of ['en','de'])for(const scenario of ['queued','late','reconnect','visibility','pageshow'])test(`Canvas conversation ${locale}: automatic ${scenario} reply`,async({page},info)=>{
     await require('./helpers/canvas-conversation-observer-ui.cjs')({page,expect,locale,info,mockSharedAuth,createCanvasApiMock,scenario});
 });
+for(const locale of ['en','de'])for(const scenario of ['incident','manual_incident'])test(`Canvas conversation ${locale}: proactive ${scenario} explanation`,async({page},info)=>{
+    await require('./helpers/canvas-conversation-observer-ui.cjs')({page,expect,locale,info,mockSharedAuth,createCanvasApiMock,scenario});
+});
+for(const locale of ['en','de'])test(`Canvas conversation ${locale}: diagnostic consent revocation while unavailable`,async({page},info)=>{
+    await require('./helpers/canvas-conversation-observer-ui.cjs')({page,expect,locale,info,mockSharedAuth,createCanvasApiMock,scenario:'diagnostic_revocation'});
+});
 for(const locale of ['en','de'])test(`Canvas conversation ${locale}: natural immediate approval and pending bee`,async({page},info)=>{
     await require('./helpers/canvas-conversation-natural-ui.cjs')({page,expect,locale,info,mockSharedAuth,createCanvasApiMock});
 });

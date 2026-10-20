@@ -20,6 +20,8 @@ import { requestCanvasAgentBudget } from './canvas-agent-budget.js';
 import { canvasDialogueFailure,logCanvasDialogueStage } from './canvas-agent-dialogue-state.js';
 import { imageGenerationCapacity } from './image-generation-capacity.js';
 import { getCanvasModelForRole } from '../../../../js/shared/canvas-model-contract.mjs';
+import { canvasAgentValidationDiagnostic } from '../../../shared/canvas-agent-plan.mjs';
+import { readValidCanvasPlanInterpretation,persistCanvasPlanInterpretation,readCanvasCompletedInvalidPlan } from './canvas-agent-plan-interpretation.js';
 
 async function checkAuthority(env,run) {
     if(run.expires_at<=nowIso())agentFail('canvas_agent_authorization_expired');
@@ -31,6 +33,7 @@ async function checkAuthority(env,run) {
     if(!user)agentFail('canvas_agent_authority_revoked');
     const view=await canvasAgentProject(env,run.user_id,run.project_id);
     if(run.purpose!=='briefing'&&view.project.revision!==run.expected_revision)agentFail('canvas_agent_project_changed');
+    if(run.purpose!=='briefing')await (await import('./canvas-agent-plan-correction-review.js')).assertCanvasPlanReviewCurrent(env,run);
     return {user,view};
 }
 async function generationStep(env,run,step,user,requireReadiness) {
@@ -159,7 +162,42 @@ export async function processCanvasAgent(env,id) {
             await agentTransition(env,run,{status:'planning',phase:'planning'});
             const step=await env.DB.prepare("SELECT * FROM canvas_agent_steps WHERE run_id=? AND kind='plan' ORDER BY rowid DESC LIMIT 1").bind(id).first();
             if(step.status==='accepted'&&!step.receipt_json)agentFail('canvas_agent_planning_review_required');
-            const plan=step.status==='completed'?JSON.parse(step.receipt_json).data?.plan||JSON.parse(step.receipt_json).plan:await executeCanvasAgentPlan(env,run,step,user);
+            let plan=step.status==='rejected'?await readValidCanvasPlanInterpretation(env,run,step):null;
+            if(!plan)try {
+                plan=step.status==='completed'?JSON.parse(step.receipt_json).data?.plan||JSON.parse(step.receipt_json).plan:await executeCanvasAgentPlan(env,run,step,user);
+            } catch(error) {
+                if(error.code!=='canvas_agent_plan_invalid'||error.outcome!=='completed')throw error;
+                // A verified completed response may need a separately identified
+                // correction. Unknown acceptance never enters this path.
+                const invalid=await readCanvasCompletedInvalidPlan(env,run,step);
+                if(!invalid)throw error;
+                let interpretationIssues=[];
+                if(invalid.diagnostic.reason==='terminal_transition')try {
+                    plan=await persistCanvasPlanInterpretation(env,run,step);
+                } catch(interpretationError) {
+                    // Removing an inert final join is insufficient when the
+                    // same saved plan has unsupported settings. Keep its raw
+                    // evidence and use the existing separately budgeted repair.
+                    if(interpretationError.code!=='canvas_agent_plan_interpretation_preflight_blocked')throw interpretationError;
+                    interpretationIssues=interpretationError.issues||[];
+                }
+                if(!plan) {
+                    const inventory=await canvasAgentCapabilities(env);
+                    if(inventory.revision!==run.capability_revision)agentFail('canvas_agent_capabilities_changed');
+                    const issues=[{code:'canvas_agent_plan_invalid',field:invalid.diagnostic.path,
+                        message:`Application validation rejected ${invalid.diagnostic.reason}. Correct this constraint while retaining the confirmed brief and valid existing work.`},...interpretationIssues].slice(0,16);
+                    const correction=await prepareCanvasAgentCorrection(env,run,view,inventory,step,invalid.plan,issues);
+                    if(correction.queued)return {status:'repairing'};
+                    if(correction.reason==='budget'){
+                        const request=await requestCanvasAgentBudget(env,run,{requiredCredits:correction.credits,reasonKey:'plan_correction',
+                            reasonCode:'canvas_agent_plan_correction',model:canvasAssistantModelId(run.model_id),action:'plan.repair'});
+                        await appendCanvasAgentEvent(env,run,`budget:${request.id}`,'decision_summary',{code:'budget',phase:'budget',tool:'budget.request'});
+                        return {status:'budget_required'};
+                    }
+                    throw Object.assign(new Error('canvas_agent_plan_correction_exhausted'),{code:'canvas_agent_plan_correction_exhausted',issues,
+                        validationDiagnostic:invalid.diagnostic,outcome:'completed'});
+                }
+            }
             if(!plan){if(step.status==='completed')agentFail('canvas_agent_completed_plan_missing');return {status:'waiting_model'};}
             await persistCanvasAgentProposal(env,run,step,plan);
             const inventory=await canvasAgentCapabilities(env);
@@ -227,10 +265,12 @@ export async function processCanvasAgent(env,id) {
         const code=failure?.code||(/^[a-z0-9_]{1,90}$/.test(error?.code||'')?error.code:'canvas_agent_execution_review_required');
         const status=failure?.status||(/unknown|review|required|claim_lost|provider_timeout/.test(code)?'review_required':'blocked');
         const cause={...(failure?.cause||{code,step:run.phase,recovery:code==='canvas_agent_provider_review_required'?'receipt':'manual',...(Array.isArray(error.issues)?{issues:error.issues.slice(0,16)}:{})}),
+            ...(canvasAgentValidationDiagnostic(error.validationDiagnostic)?{diagnostic:canvasAgentValidationDiagnostic(error.validationDiagnostic),outcome:error.outcome==='completed'?'completed':null}:{}),
             ...(readiness?{readiness:{...readiness,exhausted:readiness.retryable&&readiness.attempts>=5}}:{})};
         const failed=await env.DB.prepare('UPDATE canvas_agent_runs SET status=?,error_code=?,cause_json=?,updated_at=? WHERE id=? AND lease_token=?')
             .bind(status,code,JSON.stringify(cause),nowIso(),id,run.lease_token).run();
-        if(failed.meta?.changes===1)await appendCanvasAgentEvent(env,run,`error:${run.rounds}:${run.repair_attempts||0}:${code}`,'error',{phase:run.phase,code,tool:'production.reconcile'});
+        if(failed.meta?.changes===1)await appendCanvasAgentEvent(env,run,`error:${run.rounds}:${run.repair_attempts||0}:${code}`,'error',{phase:run.phase,code,tool:'production.reconcile',
+            ...(cause.diagnostic?{diagnostic:cause.diagnostic,outcome:cause.outcome}:{})});
         if(failure){
             logCanvasDialogueStage(cause.stage,{runId:id,operationId:cause.operationId,code,dispatchState:cause.dispatchState,receiptState:cause.receiptState});
             if(cause.dispatchState==='not_dispatched'){

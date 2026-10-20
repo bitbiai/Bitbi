@@ -194,7 +194,12 @@ export async function prepareCanvasAgentGraph(env,run,view,inventory,rawPlan,rep
     const statements=[env.DB.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM canvas_agent_runs r JOIN canvas_projects p ON p.id=r.project_id
         WHERE r.id=? AND r.lease_token=? AND r.status='planning' AND r.lease_until>? AND r.expires_at>?
         AND EXISTS(SELECT 1 FROM users WHERE id=r.user_id AND status='active')
-        AND p.revision=r.expected_revision AND p.deleted_at IS NULL) THEN 1 ELSE json_extract('[]','$[') END`).bind(run.id,run.lease_token,now,now),
+        AND p.revision=r.expected_revision AND p.deleted_at IS NULL
+        AND NOT EXISTS(SELECT 1 FROM canvas_agent_proposals review WHERE review.run_id=r.id
+          AND json_extract(review.interpretation_json,'$.authority.strategy')='bounded-correction'
+          AND NOT EXISTS(SELECT 1 FROM canvas_agent_conversations c WHERE c.project_id=r.project_id AND c.user_id=r.user_id
+            AND c.state!='cancelled' AND c.brief_revision=json_extract(review.interpretation_json,'$.authority.effectiveBriefRevision'))))
+        THEN 1 ELSE json_extract('[]','$[') END`).bind(run.id,run.lease_token,now,now),
         env.DB.prepare("UPDATE canvas_agent_runs SET status='applying' WHERE id=? AND lease_token=?").bind(run.id,run.lease_token)];
     // Store creative continuity in an ordinary note visible in the editor.
     const noteId=(await sha256Hex(`canvas-agent-continuity:${run.id}:${run.rounds}`)).slice(0,32);

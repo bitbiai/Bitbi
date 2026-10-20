@@ -5,7 +5,7 @@ import { canvasConversationCopy } from './agent-conversation-copy.js?v=__ASSET_V
 import { CANVAS_AGENT_LIMITS } from '../../shared/canvas-agent-contract.mjs?v=__ASSET_VERSION__';
 import { detectCanvasDirectControl, canvasImmediateStartRequested,canvasConversationReadIntent } from '../../shared/canvas-agent-control-intent.mjs?v=__ASSET_VERSION__';
 import {canvasConversationDecisionIntent} from '../../shared/canvas-conversation-decision-intent.mjs?v=__ASSET_VERSION__';
-import {canvasNotice,refreshCanvasNotifications} from './notifications.js?v=__ASSET_VERSION__';
+import {canvasNotice,refreshCanvasNotifications,canvasLocalErrorNotices,observeCanvasLocalNotices,retireCanvasLocalExplanations} from './notifications.js?v=__ASSET_VERSION__';
 
 const create = (tag, className = '', text = '') => { const node = document.createElement(tag); node.className = className; node.textContent = text; return node; };
 const button = (text, action, primary = false) => { const node = create('button', `canvas-button${primary ? ' canvas-button--primary' : ''}`, text); node.type = 'button'; node.addEventListener('click', action); return node; };
@@ -23,7 +23,7 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
     let projectId = null, epoch = 0, visible = false, busy = false, snapshot = null, availability = null;
     let pending = null, timer = null, controller = null, closed = false, briefKey = '', draftDirty = false, activeTab = 'chat';
     let observationIdentity = null, observationStarted = 0, observationCount = 0, observationFailures = 0, reading = null, disconnected = false, catchUpRequested = false;
-    let feedbackText = copy.loading;
+    let feedbackText = copy.loading, editingAllowance=false;
     const section = create('section', 'canvas-agent__conversation'); section.setAttribute('aria-label', copy.conversation);
     const modelExclusions=create('details','canvas-disclosure'),modelExclusionList=create('ul');modelExclusions.append(create('summary','',copy.excludedModels),modelExclusionList);
     const modelHeader=create('div','canvas-agent__model-header'),modelSelect=create('select','canvas-input'),modelHint=create('p','canvas-muted',copy.modelHint);
@@ -65,7 +65,10 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
     const allowanceLedger = create('dl', 'canvas-agent__summary canvas-agent__briefing-cost'); allowanceLedger.setAttribute('aria-label', copy.allowanceTitle);
     const allowanceCap = create('input', 'canvas-input'); allowanceCap.type = 'number'; allowanceCap.name = 'briefingBudget'; allowanceCap.min = '1'; allowanceCap.step = '1'; allowanceCap.inputMode = 'numeric';
     const allowanceApprove = button(copy.allowanceApprove, () => void authorizeAllowance(), true);
-    allowance.append(create('h4', '', copy.allowanceTitle), create('p', 'canvas-muted', copy.allowanceHint), allowanceSummary, field(copy.allowanceCap, allowanceCap), allowanceApprove);
+    const diagnostics=create('input');diagnostics.type='checkbox';diagnostics.name='diagnostics';
+    const diagnosticsField=field(copy.diagnosticsAllowance,diagnostics);diagnosticsField.classList.add('canvas-agent__check');
+    const diagnosticsRevoke=button(copy.diagnosticsRevoke,()=>void revokeDiagnostics());
+    allowance.append(create('h4', '', copy.allowanceTitle), create('p', 'canvas-muted', copy.allowanceHint), allowanceSummary, field(copy.allowanceCap, allowanceCap), diagnosticsField, allowanceApprove);
 
     const brief = create('section', 'canvas-agent__brief'); brief.setAttribute('aria-label', copy.briefTitle);
     const briefContent = create('dl', 'canvas-agent__brief-fields'), questions = create('ul', 'canvas-agent__questions');
@@ -104,7 +107,7 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
     decisionCard.append(create('h4','',copy.decisionTitle),decisionText,decisionAmount,decisionApprove,decisionDecline);decisions.append(decisionCard);
     content.append(welcome,transcript,decisions);viewport.append(content);chatPane.append(viewport,newest,footer);
     const productionArea=create('div','canvas-agent__production-area'),manualProduction=create('details','canvas-disclosure canvas-agent__manual-production');manualProduction.append(create('summary','',copy.productionOptions),production);
-    const advanced=create('details','canvas-disclosure canvas-agent__advanced'),finance=create('details','canvas-disclosure canvas-agent__finance');finance.append(create('summary','',copy.briefingFinance),allowance,allowanceLedger);
+    const advanced=create('details','canvas-disclosure canvas-agent__advanced'),finance=create('details','canvas-disclosure canvas-agent__finance'),allowanceSettings=button(copy.allowanceSettings,()=>showAllowance());finance.append(create('summary','',copy.briefingFinance),allowance,allowanceLedger,allowanceSettings,diagnosticsRevoke);
     advanced.append(create('summary','',copy.advanced),finance,options,modelExclusions,privacy);projectPane.append(projectNotice,brief,productionArea,manualProduction,advanced);
     section.append(modelHeader,tabs,chatPane,projectPane); root.append(section);
     const transcriptView=createCanvasTranscript({viewport,list:transcript,welcome,newest,copy,content});
@@ -130,9 +133,10 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
     function accept(data) {
         if (data?.availability) availability = data.availability;
         const next = data?.conversation;
-        if (!valid(next) || (snapshot && next.revision < snapshot.revision)) return false;
+        if (!valid(next) || (snapshot && (next.revision < snapshot.revision||next.revision===snapshot.revision&&(next.explanationRevision||0)<(snapshot.explanationRevision||0)))) return false;
         if (snapshot && next.briefRevision !== snapshot.briefRevision) approval.checked = false;
         if(!snapshot||snapshot.revision!==next.revision)refreshCanvasNotifications();
+        if(!snapshot||snapshot.allowance?.diagnosticsAuthorized!==next.allowance?.diagnosticsAuthorized)diagnostics.checked=next.allowance?.diagnosticsAuthorized===true;
         snapshot = next;
         if(data?.run?.projectId===projectId&&/^[a-f0-9]{32}$/.test(data.run.id||''))onRun(data.run);
         if (!draftDirty && !pending) { input.value = string(snapshot.draft); sizeComposer(); }
@@ -179,10 +183,16 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
         delegate.hidden = !snapshot?.brief?.duration?.asked || Boolean(snapshot?.brief?.duration?.choice); delegate.disabled ||= waiting || paused;
         prepare.disabled ||= waiting || paused; correct.disabled = blocked;
         const a = snapshot?.allowance;
-        allowance.hidden = !snapshot || (count(a?.remainingCredits) && a.remainingCredits > 0 && !snapshot?.allowanceRequired);
+        allowance.hidden = !snapshot || (!editingAllowance&&count(a?.remainingCredits) && a.remainingCredits > 0 && !snapshot?.allowanceRequired);
         budgetPrompt.hidden = allowance.hidden || paused;
         allowanceApprove.disabled = blocked || paused || waiting || availability?.available !== true;
         allowanceCap.disabled = allowanceApprove.disabled;
+        diagnostics.disabled = allowanceApprove.disabled;
+        allowanceSettings.disabled=allowanceApprove.disabled;allowanceSettings.hidden=!(a?.capCredits>0);
+        // Withdrawing consent never needs a ready provider or active dialogue.
+        // An unconfirmed local mutation still keeps its original replay identity.
+        diagnosticsRevoke.hidden=a?.diagnosticsAuthorized!==true;
+        diagnosticsRevoke.disabled=blocked||!count(a?.capCredits)||a.capCredits<1;
         allowanceSummary.replaceChildren();
         if (count(a?.committedCredits)) item(allowanceSummary, copy.allowanceSpent, a.committedCredits);
         if (count(a?.remainingCredits)) item(allowanceSummary, copy.allowanceRemaining, a.remainingCredits);
@@ -205,6 +215,12 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
         cap.disabled = approval.disabled = produce.disabled = blocked || waiting || review || paused || active || !canProduce() || !ready || availability?.available !== true;
         productionNote.textContent = !canProduce() ? copy.unknown : active ? copy.productionBusy : ready ? '' : copy.productionMissing;
         const messages=[...(snapshot?.messages||[])], held=snapshot?.blockingOperation;
+        const explained=new Set(messages.filter(message=>message.kind==='incident_explanation').map(message=>message.sourceNotificationId));
+        retireCanvasLocalExplanations(projectId,explained);
+        for(const item of canvasLocalErrorNotices(projectId))if(!item.sourceNotificationId||!explained.has(item.sourceNotificationId))messages.push({
+            id:`local:incident:${item.requestId}`,role:'system',provenance:'application',kind:'incident_explanation',status:'completed',local:item.local,
+            text:item.code==='canvas_cleanup_pending'?copy.localCleanupIncident:['canvas_connection_interrupted','canvas_export_observation_interrupted'].includes(item.code)?copy.localConnectionIncident:copy.localIncident,
+        });
         if(held&&!messages.some(message=>message.delivery?.diagnosticReference===held.diagnosticReference))messages.push({id:`held:${held.diagnosticReference||held.turnId||'request'}`,role:'system',status:'review_required',delivery:{...held,source:'system'}});
         if (busy && pending?.suffix === '/messages') messages.push({id:'local:sending',role:'system',status:'pending',delivery:{stage:'sending',source:'system'}});
         section.dataset.motion = visible && !closed && document.visibilityState !== 'hidden' ? 'active' : 'paused';
@@ -250,7 +266,7 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
         approveImmediate.hidden=intent.state!=='approval_required';approveImmediate.disabled=busy||Boolean(pending)||!validQuote;
         cancelImmediate.hidden=['started','cancelled'].includes(intent.state);cancelImmediate.disabled=busy||Boolean(pending);
     }
-    function showAllowance(){selectTab('chat');decisions.prepend(allowance);allowance.hidden=false;transcriptView.bottom();allowanceCap.focus({preventScroll:true});}
+    function showAllowance(){editingAllowance=true;if(snapshot?.allowance?.capCredits>0)allowanceCap.value=String(snapshot.allowance.capCredits);selectTab('chat');decisions.prepend(allowance);allowance.hidden=false;transcriptView.bottom();allowanceCap.focus({preventScroll:true});}
     function failure(response) {
         const stage=response.data?.delivery?.stage;
         if(copy.delivery[stage])notify(copy.delivery[stage],response);
@@ -289,9 +305,9 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
                 if (request.suffix === '/messages') { input.value = ''; draftDirty = false; sizeComposer();notify(''); }
                 else if(request.suffix==='/immediate'){input.value='';draftDirty=false;sizeComposer();notify('');selectTab('chat');transcriptView.bottom();}
                 else if(request.suffix.startsWith('/immediate/')){notify('');selectTab('chat');}
-                else if (request.suffix === '/allowance') {selectTab('chat');notify(copy.allowanceAccepted);}
+                else if (request.suffix === '/allowance') {editingAllowance=false;selectTab('chat');notify(copy.allowanceAccepted);}
                 else if (request.body.action === 'save') { draftDirty = false; notify(copy.saved); }
-                else if (request.body.action === 'clear') { input.value = ''; draftDirty = false; confirmation.hidden = true; notify(copy.cleared); }
+                else if (request.body.action === 'clear') { retireCanvasLocalExplanations(projectId);input.value = ''; draftDirty = false; confirmation.hidden = true; notify(copy.cleared); }
                 else if (request.body.action === 'cancel') notify(copy.cancelled);
                 else notify('');
             } else if (response.status === 0 || response.status >= 500) {selectTab('chat');if(!['request_aborted','canvas_session_unconfirmed'].includes(response.code))notify(copy.unsent,response);}
@@ -319,7 +335,11 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
         const capCredits = Number(allowanceCap.value);
         if (!Number.isSafeInteger(capCredits) || capCredits < 1 || capCredits > CANVAS_AGENT_LIMITS.maxBudgetCredits) { notify(copy.allowanceInvalid); allowanceCap.focus(); return; }
         if (!snapshot) return;
-        await sendRequest('/allowance', { capCredits, expectedConversationRevision: snapshot.revision }, snapshot.allowance?.tariffRevision);
+        await sendRequest('/allowance', { capCredits, diagnostics:diagnostics.checked, expectedConversationRevision: snapshot.revision }, snapshot.allowance?.tariffRevision);
+    }
+    async function revokeDiagnostics() {
+        if(diagnosticsRevoke.disabled||snapshot?.allowance?.diagnosticsAuthorized!==true)return;
+        await sendRequest('/allowance',{capCredits:snapshot.allowance.capCredits,diagnostics:false,expectedConversationRevision:snapshot.revision},snapshot.allowance.tariffRevision);
     }
     async function control(action, extra = {}) {
         if (!snapshot) return;
@@ -380,11 +400,14 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
         const intent=snapshot?.immediateIntent;
         const action=snapshot?.actions?.find(value=>['proposed','executing','pending'].includes(value.state));
         const identity=pending?.key||pendingTurn||(intent?.canObserve?intent.id:null)||(held?.canObserve?held.diagnosticReference:null)||observed?.id||action?.id||legacyReview?.id;
-        if(!visible||closed||document.visibilityState==='hidden'||!projectId||(!identity&&!observationFailures))return;
+        if(!visible||closed||document.visibilityState==='hidden'||!projectId)return;
         if(identity!==observationIdentity){observationIdentity=identity;observationStarted=Date.now();observationCount=0;}
         // Bound each HTTP read, not the logical turn. Late callbacks still arrive
         // after five minutes, and outages back off without abandoning the turn.
-        const delay=observationFailures?Math.min(30000,2000*2**Math.min(observationFailures,4)):Math.min(10000,1200+observationCount++*600);
+        // Incident explanations can arrive without a user turn or active job.
+        // The same lifecycle-owned observer follows that persisted conversation;
+        // it never submits an explanation or repeats the failed operation.
+        const delay=observationFailures?Math.min(30000,2000*2**Math.min(observationFailures,4)):identity?Math.min(10000,1200+observationCount++*600):30000;
         timer=setTimeout(()=>void observe(),delay);
     }
     async function observe(force = false) {
@@ -416,6 +439,7 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
     window.addEventListener('offline',()=>{disconnected=true;render();});
     window.addEventListener('pagehide', () => { closed = true; clearTimeout(timer); controller?.abort(); transcriptView.stop();footerObserver.disconnect(); });
     window.addEventListener('pageshow',()=>{closed=false;footerObserver.observe(footer);catchUp();});
+    observeCanvasLocalNotices(()=>{if(projectId&&!closed)render();});
     render();
     return {
         refresh: render,
@@ -426,7 +450,7 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
         projectChanged(id) {
             if (id === projectId) return;
             epoch++; projectId = id; snapshot = null; availability = null; pending = null; busy = false; briefKey = '';immediateKey='';actionView.reset();finance.insertBefore(allowance,allowanceLedger); observationIdentity=null;observationStarted=0;observationCount=0;observationFailures=0;disconnected=false;transcriptView.reset();selectTab('chat'); draftDirty = false;
-            controller?.abort(); clearTimeout(timer); input.value = ''; allowanceCap.value = ''; cap.value = ''; approval.checked = false; confirmation.hidden = true;
+            controller?.abort(); clearTimeout(timer); input.value = ''; allowanceCap.value = ''; editingAllowance=false; diagnostics.checked=false; cap.value = ''; approval.checked = false; confirmation.hidden = true;
             try { const saved = JSON.parse(sessionStorage.getItem(storageKey()) || 'null'); if (saved && (['/messages','/allowance','/control','/start','/immediate','/immediate/approve','/immediate/control'].includes(saved.suffix)||/^\/actions\/[a-f0-9]{32}\/confirm$/.test(saved.suffix)) && saved.body && typeof saved.key === 'string' && typeof saved.fingerprint === 'string') pending = saved; } catch { /* The server remains authoritative. */ }
             notify(pending ? copy.unsent : copy.loading); render(); if (visible) void observe(true);
         },

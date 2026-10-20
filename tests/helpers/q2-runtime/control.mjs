@@ -2,6 +2,9 @@ import {seedCanvasAssistantMigration,verifyCanvasAssistantMigration} from '../ca
 import {canvasProjectLifecycleCase} from '../canvas-project-lifecycle-control.mjs';
 import {canvasNotificationsCase,seedCanvasNotificationsMigration,verifyCanvasNotificationsMigration} from '../canvas-notifications-control.mjs';
 import {canvasExplanationCase} from '../canvas-agent-explanation-control.mjs';
+import {CANVAS_INCIDENT_CASES,canvasIncidentCase} from '../canvas-incident-control.mjs';
+import {canvasPlanInterpretationCase} from '../canvas-agent-plan-interpretation-control.mjs';
+import {canvasPlanCorrectionReviewCase} from '../canvas-agent-plan-correction-review-control.mjs';
 import {canvasAgentPreflightCase} from '../canvas-agent-preflight-control.mjs';
 import {seedCanvasConversationMigration,verifyCanvasConversationMigration,CANVAS_CONVERSATION_CASES,canvasConversationCase} from '../canvas-agent-conversation-control.mjs';
 import {canvasAssistantModelSwitchCase,canvasAssistantProductionCase} from '../canvas-assistant-model-control.mjs';
@@ -71,6 +74,9 @@ export default {
     if(path==='/canvas-notifications-migration-seed')return Response.json(await seedCanvasNotificationsMigration(env));
     if(path==='/canvas-notifications-migration-verify')return Response.json(await verifyCanvasNotificationsMigration(env,body));
     if(path==='/canvas-explanation'&&['evidence','quoted','budget-scope'].includes(body.name))return Response.json(await canvasExplanationCase(env,body.name));
+    if(path==='/canvas-incident'&&CANVAS_INCIDENT_CASES.includes(body.name))return Response.json(await canvasIncidentCase(env,body.name));
+    if(path==='/canvas-agent-plan-interpretation'&&['recover','guards','crash','active','preflight'].includes(body.name))return Response.json(await canvasPlanInterpretationCase(env,body.name));
+    if(path==='/canvas-agent-plan-correction-review'&&['recover','guards','race'].includes(body.name))return Response.json(await canvasPlanCorrectionReviewCase(env,body.name));
     if(path==='/canvas-assistant-migration-seed')return Response.json(await seedCanvasAssistantMigration(env));
     if(path==='/canvas-assistant-migration-verify')return Response.json(await verifyCanvasAssistantMigration(env,body));
     if(path==='/canvas-agent-preflight')return Response.json(await canvasAgentPreflightCase(env,body));

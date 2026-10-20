@@ -41,7 +41,7 @@ test('Canvas dialogue readiness recognizes only the deployed signed dialogue and
     H3_CLOUDFLARE_API_TOKEN: 'synthetic-dialogue-readiness-access', AI_SAVE_REFERENCE_SIGNING_SECRET: 'synthetic-dialogue-readiness-signing',
     AI_LAB: { fetch: f.fetch } };
   expect(await readCanvasAgentProviderReadiness(env, { dialogue: true })).toEqual({ available: true, reason: null, model,
-    accountAccess: 'unverified', dialogueVersion: 2, policyVersion: 'canvas-policy-4' });
+    accountAccess: 'unverified', dialogueVersion: 2, policyVersion: 'canvas-policy-5' });
   const legacy = { ok: true, available: true, reason: null, model, accountAccess: 'unverified', protocolVersion: 1, transport: 'cloudflare-background' };
   const oldEnv = { ...env, AI_LAB: { fetch: () => Response.json(legacy) } };
   expect(await readCanvasAgentProviderReadiness(oldEnv)).toEqual({ available: true, reason: null, model, accountAccess: 'unverified' });

@@ -5,6 +5,7 @@ import { stablePricingJson } from '../../../../js/shared/model-tariff.mjs';
 import { parseH3Task } from '../../../../js/shared/minimax-h3.mjs';
 import { canvasAgentAvailability } from './canvas-agent-capabilities.js';
 import { readCanvasAgentBudget } from './canvas-agent-budget.js';
+import { assertCanvasPlanReviewCurrent } from './canvas-agent-plan-correction-review.js';
 const fail=code=>{throw Object.assign(new Error(code),{code,status:409});};
 const errorCode='canvas_agent_provider_review_required';
 const readinessError='canvas_agent_provider_unavailable';
@@ -21,7 +22,8 @@ async function evidence(env,{runId,userId,projectId}) {
     if(!context||context.deleted_at||context.status!=='active')fail('canvas_agent_authority_revoked');
     if(!recoverableState(run)||run.phase!=='generating')fail('canvas_agent_media_recovery_state_changed');
     if(run.expires_at<=nowIso())fail('canvas_agent_authorization_expired');
-    if(context.revision!==run.expected_revision||run.brief_revision!==null&&context.brief_revision!==run.brief_revision)fail('canvas_agent_project_changed');
+    const reviewed=await assertCanvasPlanReviewCurrent(env,run),effectiveBriefRevision=reviewed?.effectiveBriefRevision??run.brief_revision;
+    if(context.revision!==run.expected_revision||effectiveBriefRevision!==null&&context.brief_revision!==effectiveBriefRevision)fail('canvas_agent_project_changed');
     if(run.lease_until&&run.lease_until>nowIso())fail('canvas_agent_claim_lost');
     const stopped=await env.DB.prepare("SELECT 1 FROM canvas_agent_controls WHERE run_id=? AND action IN ('pause','cancel','takeover') AND created_at>=? LIMIT 1").bind(runId,run.updated_at).first();
     if(stopped)fail('canvas_agent_authority_revoked');
@@ -66,7 +68,7 @@ async function evidence(env,{runId,userId,projectId}) {
       actualCredits:row.charged,correctedProjectCharged:correctedCharged,remainingAllocation:remaining,
       outputSeconds:parsed.outputSeconds,resolution:parsed.resolution,priorError:run.error_code,priorUpdatedAt:run.updated_at,
       expiresAt:run.expires_at};
-    return {run,step,row,proof,digest:await sha256Hex(stablePricingJson(proof))};
+    return {run,step,row,proof,effectiveBriefRevision,digest:await sha256Hex(stablePricingJson(proof))};
 }
 export async function previewCanvasMediaRecovery(env,input) {
     const {proof,digest}=await evidence(env,input);return {...proof,recoveryDigest:digest};
@@ -98,7 +100,7 @@ export async function recoverCanvasAgentMedia(env,scope=null) {
     const results=[];
     for(const identity of rows){
       try{
-        const data=await evidence(env,{runId:identity.id,userId:identity.user_id,projectId:identity.project_id}),{run,step,row,proof,digest}=data;
+        const data=await evidence(env,{runId:identity.id,userId:identity.user_id,projectId:identity.project_id}),{run,step,row,proof,digest,effectiveBriefRevision}=data;
         if((run.status!=='review_required'||JSON.parse(run.cause_json||'{}').recovery!=='receipt')
           &&!await env.DB.prepare("SELECT 1 FROM canvas_agent_controls WHERE run_id=? AND request_key=? AND action='recover_media'").bind(run.id,recoverKey(digest)).first())continue;
         const available=await canvasAgentAvailability(env,{modelId:run.model_id});if(!available.available)fail(available.code);
@@ -113,10 +115,10 @@ export async function recoverCanvasAgentMedia(env,scope=null) {
             JOIN member_generation_jobs j ON j.id=? JOIN canvas_nodes n ON n.id=s.node_id
             WHERE r.id=? AND r.user_id=? AND r.status=? AND r.error_code=? AND r.updated_at=? AND r.budget_credits=?
             AND r.expires_at>? AND (r.lease_until IS NULL OR r.lease_until<=?) AND p.revision=r.expected_revision AND p.deleted_at IS NULL
-            AND u.status='active' AND (r.brief_revision IS NULL OR c.brief_revision=r.brief_revision)
+            AND u.status='active' AND (r.brief_revision IS NULL OR c.brief_revision=?)
             AND s.id=? AND s.status='accepted' AND j.provider_receipts_json=? AND j.status IN ('succeeded','preview_pending')
             AND j.result_r2_key=? AND n.deleted_at IS NULL AND n.creative_revision=? AND n.asset_id=?) THEN 1 ELSE json_extract('[]','$[') END`)
-            .bind(row.job_id,run.id,run.user_id,run.status,run.error_code,run.updated_at,run.budget_credits,now,now,step.id,row.provider_receipts_json,row.result_r2_key,row.node_revision,row.asset_id),
+            .bind(row.job_id,run.id,run.user_id,run.status,run.error_code,run.updated_at,run.budget_credits,now,now,effectiveBriefRevision,step.id,row.provider_receipts_json,row.result_r2_key,row.node_revision,row.asset_id),
           env.DB.prepare("UPDATE canvas_agent_steps SET status='completed',usage_attempt_id=?,receipt_json=?,updated_at=? WHERE id=?")
             .bind(row.job_usage,JSON.stringify({canvasRunId:row.canvas_run_id,assetId:row.asset_id}),now,step.id),
           env.DB.prepare("UPDATE canvas_agent_runs SET status='running',phase='generating',error_code=NULL,cause_json=?,lease_token=NULL,lease_until=NULL,next_attempt_at=?,updated_at=? WHERE id=?")

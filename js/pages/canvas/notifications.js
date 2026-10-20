@@ -7,21 +7,28 @@ const identifier=value=>typeof value==='string'&&/^[A-Za-z0-9:_-]{1,240}$/.test(
 const safeCode=value=>typeof value==='string'&&/^[a-z0-9_]{1,100}$/.test(value);
 const diagnostic=value=>typeof value==='string'&&/^[A-Za-z0-9_.:-]{1,128}$/.test(value);
 let center=null;
+const listeners=new Set();
+export function observeCanvasLocalNotices(listener){listeners.add(listener);return()=>listeners.delete(listener);}
+export function canvasLocalErrorNotices(projectId){return projectId?center?.localErrors(projectId)||[]:[];}
+export function retireCanvasLocalExplanations(projectId,sourceIds=null){center?.retireExplanations(projectId,sourceIds);}
+const localError=item=>(item.errorCode||item.details?.errorCode||item.body?.errorCode)&& !['request_aborted','canvas_session_unconfirmed'].includes(item.errorCode||item.details?.errorCode||item.body?.errorCode)
+    || ['canvas_save_failed','canvas_request_failed','request_failed','network_error','request_timeout','canvas_connection_interrupted','canvas_action_failed','canvas_project_delete_unconfirmed','canvas_export_failed','canvas_export_observation_interrupted','canvas_cleanup_pending'].includes(item.code);
+function changed(){for(const listener of listeners)listener();}
 export function canvasNotice(text,details={}){center?.publish({text,...details});}
 export function refreshCanvasNotifications(){center?.refresh();}
 export function resolveCanvasNotice(key){center?.resolve(key);}
 const copyFor=german=>german?{
     title:'Meldungen',close:'Meldungen schließen',empty:'Noch keine Meldungen.',read:'Angezeigte als gelesen markieren',more:'Ältere Meldungen laden',refresh:'Aktualisieren',
     loading:'Meldungen werden geladen …',offline:'Verbindung unterbrochen. Gespeicherte Meldungen werden automatisch abgeglichen.',local:'Nur auf diesem Gerät · Speicherung noch nicht bestätigt',
-    unread:'Ungelesene Meldungen',readFailed:'Gelesen-Markierung noch nicht bestätigt. Erneut versuchen.',reported:'Vom Browser gemeldet',details:'Details',project:'Projekt',open:'Projekt öffnen',unknown:'Canvas-Meldung',
+    unread:'Ungelesene Meldungen',readFailed:'Gelesen-Markierung noch nicht bestätigt. Erneut versuchen.',reported:'Vom Browser gemeldet',details:'Details',project:'Projekt',open:'Projekt öffnen',unknown:'Canvas-Meldung',validation:'Prüfung',field:'Feld',providerOutcome:'Anbieterergebnis',outcomes:{completed:'Antwort gespeichert',not_submitted:'nicht versandt',unknown:'unbestätigt',rejected:'abgelehnt'},
 }: {title:'Notifications',close:'Close notifications',empty:'No notifications yet.',read:'Mark displayed as read',more:'Load older notifications',refresh:'Refresh',
     loading:'Loading notifications …',offline:'Connection interrupted. Saved notifications will reconnect automatically.',local:'On this device · storage not yet confirmed',
-    unread:'Unread notifications',readFailed:'Read acknowledgement is not confirmed. Please retry.',reported:'Reported by this browser',details:'Details',project:'Project',open:'Open project',unknown:'Canvas notification'};
+    unread:'Unread notifications',readFailed:'Read acknowledgement is not confirmed. Please retry.',reported:'Reported by this browser',details:'Details',project:'Project',open:'Open project',unknown:'Canvas notification',validation:'Validation',field:'Field',providerOutcome:'Provider outcome',outcomes:{completed:'response saved',not_submitted:'not submitted',unknown:'unconfirmed',rejected:'rejected'}};
 
 // Account-owned inbox. Opening/reading never replays the operation described by
 // an item. Local delivery retries retain their immutable request identity.
 export function createCanvasNotifications({button,panel,german,getProject=()=>null,openProject=()=>{}}){
-    const copy=copyFor(german),items=new Map(),pending=new Map(),presented=new Set(),rows=new Map(),dedup=new Map(),deletedProjects=new Set();
+    const copy=copyFor(german),items=new Map(),pending=new Map(),presented=new Set(),rows=new Map(),dedup=new Map(),deletedProjects=new Set(),explainedRequests=new Set();
     let actor=getAuthState().sessionConfirmed&&getAuthState().loggedIn?getAuthState().user?.id||null:null;
     let viewer=null,epoch=0,controller=null,timer=null,reading=false,catchUp=false,acknowledging=false,active=false,suspended=false,failures=0,cursor=null,unread=0;
     const badge=node('span','canvas-notifications__badge','!');badge.hidden=true;badge.setAttribute('aria-hidden','true');button.append(badge);
@@ -53,6 +60,11 @@ export function createCanvasNotifications({button,panel,german,getProject=()=>nu
             if(item.local)row.append(node('p','canvas-notifications__local',copy.local));
             else if(item.confirmed===false)row.append(node('p','canvas-notifications__local',copy.reported));
             const details=[safeCode(item.errorCode||item.details?.errorCode)?item.errorCode||item.details.errorCode:null,safeCode(item.code)?item.code:null,diagnostic(item.diagnosticRef)?item.diagnosticRef:null,Number.isSafeInteger(item.status)&&item.status>0?`HTTP ${item.status}`:null].filter(Boolean);
+            // The server validates the full schema path. The browser renders
+            // only its bounded public diagnostic, never the private policy.
+            const validation=item.details?.validationDiagnostic,outcome=item.details?.providerOutcome;
+            if(validation?.version===1&&['json','schema','semantic','size'].includes(validation.category)&&safeCode(validation.reason)&&typeof validation.path==='string'&&validation.path.length<=180&&/^(?:plan|evaluation)(?:\.[A-Za-z][A-Za-z0-9]*|\[[0-9]{1,2}\])*$/.test(validation.path))details.push(`${copy.validation}: ${validation.category}/${validation.reason}`,`${copy.field}: ${validation.path}`);
+            if(Object.hasOwn(copy.outcomes,outcome||''))details.push(`${copy.providerOutcome}: ${copy.outcomes[outcome]}`);
             if(details.length){const disclosure=node('details');disclosure.append(node('summary','',copy.details),node('code','',details.join(' · ')));row.append(disclosure);}
             if(identifier(item.projectId)&&item.projectDeleted!==true){const open=node('button','canvas-button canvas-button--compact',copy.open);open.type='button';open.addEventListener('click',()=>{hide();void openProject(item.projectId);});row.append(open);}
             }
@@ -63,7 +75,7 @@ export function createCanvasNotifications({button,panel,german,getProject=()=>nu
     }
     function storePending(){if(!viewer)return;try{sessionStorage.setItem(`bitbi:canvas-notifications:${viewer}`,JSON.stringify([...pending.values()].map(value=>({body:value.body,createdAt:value.createdAt,readAt:value.readAt||null,savedId:value.savedId||null,localOnly:value.localOnly===true})).slice(-60)));}catch{}}
     function restorePending(){try{const saved=JSON.parse(sessionStorage.getItem(`bitbi:canvas-notifications:${viewer}`)||'[]');for(const value of Array.isArray(saved)?saved.slice(-60):[]){const source=value?.body;if(!identifier(source?.requestId)||!CANVAS_CLIENT_NOTIFICATION_CODES.includes(source?.code))continue;const body={requestId:source.requestId,code:source.code,...(identifier(source.projectId)?{projectId:source.projectId}:{}),...(diagnostic(source.diagnosticRef)?{diagnosticRef:source.diagnosticRef}:{}),...(/^[a-z][a-z0-9_]{1,100}$/.test(source.errorCode||'')?{errorCode:source.errorCode}:{}),...(Number.isSafeInteger(source.status)&&source.status>=0&&source.status<=599?{status:source.status}:{})};const item={id:`local:${body.requestId}`,source:'client',kind:'client',severity:'warning',code:body.code,projectId:body.projectId||null,createdAt:value.createdAt,readAt:value.readAt,local:true,ownerId:viewer,savedId:identifier(value.savedId)?value.savedId:null,localOnly:value.localOnly===true,body};pending.set(body.requestId,item);items.set(item.id,item);}}catch{}}
-    function reset(){epoch++;controller?.abort();controller=null;reading=false;catchUp=false;acknowledging=false;clearTimeout(timer);viewer=null;cursor=null;unread=0;items.clear();pending.clear();presented.clear();dedup.clear();deletedProjects.clear();hide();paint();}
+    function reset(){epoch++;controller?.abort();controller=null;reading=false;catchUp=false;acknowledging=false;clearTimeout(timer);viewer=null;cursor=null;unread=0;items.clear();pending.clear();presented.clear();dedup.clear();deletedProjects.clear();explainedRequests.clear();hide();paint();changed();}
     function hide(){panel.hidden=true;button.setAttribute('aria-expanded','false');presented.clear();observer.disconnect();}
     function show(){panel.hidden=false;button.setAttribute('aria-expanded','true');paint();close.focus({preventScroll:true});void observe();}
     function schedule(){clearTimeout(timer);if(!active||suspended||document.visibilityState==='hidden')return;timer=setTimeout(()=>void observe(),failures?Math.min(60000,3000*2**Math.min(failures,4)):panel.hidden?30000:10000);}
@@ -85,7 +97,7 @@ export function createCanvasNotifications({button,panel,german,getProject=()=>nu
                 if(!acknowledgement.ok||acknowledgement.data?.viewerId!==viewer||!acknowledgement.data.readIds?.includes(saved.id)){status.textContent=copy.readFailed;return;}
                 saved.readAt=item.readAt;unread=acknowledgement.data.unreadCount;
             }
-            pending.delete(key);items.delete(item.id);items.set(saved.id,{...saved,localKey:item.localKey});storePending();
+            pending.delete(key);items.delete(item.id);items.set(saved.id,{...saved,localKey:item.localKey,localExplanationRequestId:key});storePending();changed();
         }
     }
     async function observe(older=false){
@@ -113,13 +125,14 @@ export function createCanvasNotifications({button,panel,german,getProject=()=>nu
                 if([...pending.values()].some(value=>value.savedId===item.id&&value.readAt))continue;
                 const field={export:'exportId',action:'actionId',run:'runId',conversation:'turnId',decision:'decisionId',immediate:'intentId'}[item.source],operation=field&&item.details?.[field];
                 if(identifier(operation))for(const [id,prior]of items)if(id!==item.id&&prior.source===item.source&&prior.projectId===item.projectId&&prior.details?.[field]===operation){items.delete(id);presented.delete(id);}
-                items.set(item.id,{...item,...(items.get(item.id)?.localKey?{localKey:items.get(item.id).localKey}:{})});
+                const previous=items.get(item.id);
+                items.set(item.id,{...item,...(previous?.localKey?{localKey:previous.localKey}:{}),...(previous?.localExplanationRequestId?{localExplanationRequestId:previous.localExplanationRequestId}:{})});
             }
             cursor=data.nextCursor||null;unread=Number.isSafeInteger(data.unreadCount)?Math.max(0,data.unreadCount):0;failures=0;dedup.delete('notification-connection');status.textContent='';
             await deliver();if(current!==epoch)return;
         }else if([401,403].includes(response.status)){reset();active=false;status.textContent=copy.offline;return;}
         else{failures++;status.textContent=copy.offline;publish({text:copy.offline,code:'canvas_connection_interrupted',errorCode:response.code,status:response.status,diagnosticRef:response.diagnosticRef,projectId:null,key:'notification-connection',localOnly:true});}
-        reading=false;paint();if(catchUp){catchUp=false;void observe();}else schedule();
+        reading=false;paint();changed();if(catchUp){catchUp=false;void observe();}else schedule();
     }
     async function acknowledge(){
         if(acknowledging||panel.hidden)return;const current=epoch,displayed=[...presented].map(id=>items.get(id)).filter(item=>item&&!item.readAt);
@@ -145,7 +158,7 @@ export function createCanvasNotifications({button,panel,german,getProject=()=>nu
         const requestId=crypto.randomUUID(),body={requestId,code:CANVAS_CLIENT_NOTIFICATION_CODES.includes(code)?code:'canvas_client_notice',...(identifier(projectId)?{projectId}:{}),...(diagnostic(diagnosticRef)?{diagnosticRef}:{}),...(/^[a-z][a-z0-9_]{1,100}$/.test(actualError||'')?{errorCode:actualError}:{}),...(Number.isSafeInteger(status)&&status>=0&&status<=599?{status}:{})};
         if(key){dedup.set(key,requestId);if(dedup.size>1000)dedup.delete(dedup.keys().next().value);}
         const ownerId=actor||viewer;const item={id:`local:${requestId}`,ownerId,localOnly,source:'client',kind,code:body.code,severity:'info',projectId:body.projectId||null,projectTitle:projectTitle||(getProject()?.id===projectId?getProject()?.title:null),createdAt:new Date().toISOString(),readAt:null,local:true,localKey:key||null,localText:String(text).slice(0,2000),...(body.errorCode?{errorCode:body.errorCode}:{}),body};
-        items.set(item.id,item);if(ownerId)pending.set(requestId,item);storePending();paint();if(active&&!localOnly)void observe();
+        items.set(item.id,item);if(ownerId)pending.set(requestId,item);storePending();paint();changed();if(active&&!localOnly)void observe();
     }
     button.addEventListener('click',()=>panel.hidden?show():hide());close.addEventListener('click',()=>{hide();button.focus({preventScroll:true});});
     // An acknowledgement can disable its focused button, and WebKit may move
@@ -157,5 +170,10 @@ export function createCanvasNotifications({button,panel,german,getProject=()=>nu
     window.addEventListener('pagehide',()=>{suspended=true;controller?.abort();reading=false;clearTimeout(timer);observer.disconnect();});
     window.addEventListener('pageshow',()=>{suspended=false;paint();void observe();});
     document.addEventListener('bitbi:auth-change',event=>{const auth=event.detail||getAuthState();if(auth.sessionConfirmed){const next=auth.loggedIn?auth.user?.id||null:null;if(!next||actor&&actor!==next||viewer&&viewer!==next){reset();active=Boolean(next);}actor=next;if(active)void observe();}});
-    hide();paint();center={publish,resolve:key=>dedup.delete(key),refresh:()=>void observe(),start(){active=true;status.textContent=copy.loading;void observe();},stop(){active=false;reset();}};return center;
+    hide();paint();center={publish,resolve:key=>dedup.delete(key),refresh:()=>void observe(),
+        retireExplanations(projectId,sourceIds){for(const item of items.values())if(item.projectId===projectId&&(!sourceIds||sourceIds.has(item.savedId||item.id)))explainedRequests.add(item.body?.requestId||item.localExplanationRequestId);},
+        localErrors(projectId){return [...items.values()].filter(item=>item.projectId===projectId&&!deletedProjects.has(projectId)&&!explainedRequests.has(item.body?.requestId||item.localExplanationRequestId)&&(item.local||item.localExplanationRequestId)&&localError(item)).slice(-30).map(item=>({
+            requestId:item.body?.requestId||item.localExplanationRequestId,sourceNotificationId:item.savedId||(!item.local?item.id:null),code:item.code,createdAt:item.createdAt,local:!item.savedId&&item.local===true,
+        }));},
+        start(){active=true;status.textContent=copy.loading;void observe();},stop(){active=false;reset();}};return center;
 }

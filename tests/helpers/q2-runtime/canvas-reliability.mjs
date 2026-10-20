@@ -5,6 +5,9 @@ export const canvasReliabilityInventory=Object.freeze([
   'canvas_reliability_committed_project_lifecycle',
   'canvas_reliability_owned_notification_history',
   ...['evidence','quoted','budget-scope'].map(name=>`canvas_reliability_explanation_${name}`),
+  ...['fallback','manual','model','fable','unknown','resolved','revoked','isolation','deleted'].map(name=>`canvas_reliability_incident_${name}`),
+  ...['recover','guards','crash','active','preflight'].map(name=>`canvas_reliability_plan_interpretation_${name}`),
+  ...['recover','guards','race'].map(name=>`canvas_reliability_plan_correction_review_${name}`),
 ]);
 // This additive suite is also part of Full. It does not relabel or rerun the
 // previous Canvas/media evidence, and uses the same native Worker/D1 bindings.
@@ -47,6 +50,18 @@ export async function runCanvasReliabilityTests(f){
   for(const name of ['evidence','quoted','budget-scope'])await f.test(`canvas_reliability_explanation_${name}`,async()=>{
     const response=await f.control('/canvas-explanation',{name});assert.equal(response.status,200,await response.clone().text());
     assert.deepEqual(await response.json(),{case:name,providerCalls:name==='evidence'?0:1,scopes:2});
+  });
+  for(const name of ['fallback','manual','model','fable','unknown','resolved','revoked','isolation','deleted'])await f.test(`canvas_reliability_incident_${name}`,async()=>{
+    const response=await f.control('/canvas-incident',{name});assert.equal(response.status,200,await response.clone().text());
+    const result=await response.json();assert.equal(result.case,name);assert.equal(result.providerCalls,['model','fable','unknown','resolved'].includes(name)?1:0);f.metrics.push(result);
+  });
+  for(const name of ['recover','guards','crash','active','preflight'])await f.test(`canvas_reliability_plan_interpretation_${name}`,async()=>{
+    const response=await f.control('/canvas-agent-plan-interpretation',{name});assert.equal(response.status,200,await response.clone().text());
+    const result=await response.json();assert.equal(result.case,name);f.metrics.push(result);
+  });
+  for(const name of ['recover','guards','race'])await f.test(`canvas_reliability_plan_correction_review_${name}`,async()=>{
+    const response=await f.control('/canvas-agent-plan-correction-review',{name});assert.equal(response.status,200,await response.clone().text());
+    const result=await response.json();assert.equal(result.case,name);assert.equal(result.newPlanningCalls,name==='recover'?1:0);f.metrics.push(result);
   });
   assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
 }

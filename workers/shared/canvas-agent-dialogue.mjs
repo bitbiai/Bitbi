@@ -57,7 +57,7 @@ export function validateCanvasAgentBrief(value) {
   return structuredClone(value);
 }
 
-export function validateCanvasAgentDialogue(value, { messageId, dialogueVersion, projectRevision } = {}) {
+export function validateCanvasAgentDialogue(value, { messageId, dialogueVersion, projectRevision, explanation = false } = {}) {
   const version = dialogueVersion ?? (Object.hasOwn(value || {}, 'actions') ? 2 : 1);
   if (![1, 2].includes(version) || !exact(value, ['text', 'scope', 'intent', 'updates', 'questions', ...(version === 2 ? ['actions'] : [])]) || !safeText(value.text, 6000, 1)
     || !['canvas', 'mixed', 'off_topic'].includes(value.scope) || !['continue', 'ready', 'save', 'cancel', 'status'].includes(value.intent)
@@ -75,6 +75,8 @@ export function validateCanvasAgentDialogue(value, { messageId, dialogueVersion,
     validateCanvasAgentActions(value.actions, {projectRevision});
     if (value.scope === 'off_topic' && value.actions.length) fail();
   }
+  if (explanation && (version !== 2 || value.scope !== 'canvas' || value.intent !== 'status'
+    || value.updates.length || value.questions.length || value.actions.length)) fail();
   return structuredClone(value);
 }
 
@@ -82,7 +84,8 @@ export function validateCanvasAgentDialogue(value, { messageId, dialogueVersion,
 // or omitted history/schema: these exact strings become provider messages.
 export function canvasAgentDialogueMessages(input) {
   const { locale, conversationRevision, briefRevision, projectRevision, message, brief, recentMessages, capabilities, currentProject } = input;
-  return [{ role: 'system', content: canvasAgentSystem('briefing', input.policy?.version || (input.version === 1 ? 'canvas-policy-1' : undefined)) }, { role: 'user', content: JSON.stringify({
+  const phase = input.policy?.phase === 'explanation' ? 'explanation' : 'briefing';
+  return [{ role: 'system', content: canvasAgentSystem(phase, input.policy?.version || (input.version === 1 ? 'canvas-policy-1' : undefined)) }, { role: 'user', content: JSON.stringify({
     locale, conversationRevision, briefRevision, projectRevision, message, brief, recentMessages, capabilities, currentProject,
   }) }];
 }

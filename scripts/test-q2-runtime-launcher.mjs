@@ -414,6 +414,7 @@ test('default native runtime plan stages every actual suite and control input', 
     'tests/helpers/canvas-image-scheduling-control.mjs', 'tests/helpers/canvas-agent-h3-recovery-control.mjs','tests/helpers/canvas-assistant-migration-control.mjs','tests/helpers/canvas-assistant-model-control.mjs', 'tests/helpers/canvas-conversation-decisions-control.mjs',
     'tests/helpers/canvas-agent-preflight-control.mjs', 'tests/helpers/canvas-agent-autonomy-control.mjs', 'tests/helpers/canvas-agent-conversation-control.mjs', 'tests/helpers/canvas-agent-conversation-recovery-control.mjs', 'tests/helpers/canvas-agent-natural-control.mjs', 'tests/helpers/canvas-agent-action-recovery-control.mjs',
     'tests/helpers/canvas-project-lifecycle-control.mjs','tests/helpers/canvas-notifications-control.mjs','tests/helpers/canvas-agent-explanation-control.mjs',
+    'tests/helpers/canvas-incident-control.mjs','tests/helpers/canvas-agent-plan-interpretation-control.mjs','tests/helpers/canvas-agent-plan-correction-review-control.mjs',
     'tests/website-assistant-runtime.mjs', 'tests/helpers/website-assistant-policy.mjs',
     'js/shared/flux-2-max-identity.mjs', 'tests/helpers/canvas-smooth-control.mjs',
   ]) {
@@ -1183,6 +1184,10 @@ test('Canvas reliability runs additive native callers with the complete staged h
     'canvas_reliability_populated_notifications_migration','canvas_reliability_committed_project_lifecycle',
     'canvas_reliability_owned_notification_history','canvas_reliability_explanation_evidence',
     'canvas_reliability_explanation_quoted','canvas_reliability_explanation_budget-scope',
+    'canvas_reliability_incident_fallback','canvas_reliability_incident_manual','canvas_reliability_incident_model','canvas_reliability_incident_fable',
+    'canvas_reliability_incident_unknown','canvas_reliability_incident_resolved','canvas_reliability_incident_revoked','canvas_reliability_incident_isolation','canvas_reliability_incident_deleted',
+    'canvas_reliability_plan_interpretation_recover','canvas_reliability_plan_interpretation_guards','canvas_reliability_plan_interpretation_crash','canvas_reliability_plan_interpretation_active','canvas_reliability_plan_interpretation_preflight',
+    'canvas_reliability_plan_correction_review_recover','canvas_reliability_plan_correction_review_guards','canvas_reliability_plan_correction_review_race',
   ]);
   assert.equal(parseRuntimeArgs(['--suite','canvas-reliability'],{}).suite,'canvas-reliability');
   assert.throws(()=>parseRuntimeArgs(['--suite','canvas-reliability','--suite','canvas'],{}));
@@ -1190,10 +1195,11 @@ test('Canvas reliability runs additive native callers with the complete staged h
   assert.equal(selectedRuntimeSuites('canvas-reliability')[0][1],runCanvasReliabilityTests);
   assert.equal(runtimeSuites.find(([name])=>name==='canvas-reliability')[1],runCanvasReliabilityTests,'Full also discovers the new native callers');
   assert.match(read('tests/helpers/q2-runtime/linux-bootstrap.py'),/\+ \["canvas-reliability"\]/);
-  const required=['tests/helpers/canvas-project-lifecycle-control.mjs','tests/helpers/canvas-notifications-control.mjs','tests/helpers/canvas-agent-explanation-control.mjs'];
+  const required=['tests/helpers/canvas-project-lifecycle-control.mjs','tests/helpers/canvas-notifications-control.mjs','tests/helpers/canvas-agent-explanation-control.mjs',
+    'tests/helpers/canvas-incident-control.mjs','tests/helpers/canvas-agent-plan-interpretation-control.mjs','tests/helpers/canvas-agent-plan-correction-review-control.mjs'];
   const validate=plan=>{for(const file of required)assert(plan.includes(file),'Missing reliability helper in staged runtime');};
   validate(stageInputPlan());for(const missing of required)assert.throws(()=>validate(stageInputPlan().filter(file=>file!==missing)),/Missing reliability helper/);
-  // Calibrate the real entrypoint: all six callbacks and the populated forward
+  // Calibrate the real entrypoint: all required callbacks and the populated forward
   // migration are discovered without executing providers or nested assertions.
   const names=[],calls=[],snapshot={rows:[{input_json:'{}'}]};
   await runCanvasReliabilityTests({

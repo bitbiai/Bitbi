@@ -1,16 +1,19 @@
 import { nowIso, sha256Hex } from './tokens.js';
 import { CANVAS_CLIENT_NOTIFICATION_CODES } from '../../../../js/shared/canvas-notification-contract.mjs';
 import { validateCanvasSourceEndFit } from './canvas-export-recipes.js';
+import { canvasAgentValidationDiagnostic } from '../../../shared/canvas-agent-plan.mjs';
 
 const fail = (code, status = 400) => { throw Object.assign(new Error(code), { code, status }); };
 const safeId = value => typeof value === 'string' && /^[a-zA-Z0-9:_-]{1,240}$/.test(value);
 const code = value => typeof value === 'string' && /^[a-z][a-z0-9_]{1,100}$/.test(value) ? value : 'canvas_request_failed';
 const selector = `SELECT n.*,p.title AS project_title,p.deleted_at AS project_deleted_at,r.read_at,
  e.recipe_json AS export_recipe_json,e.seam_result_json AS export_seam_json,e.audio_timeline_json AS export_timeline_json,a.metadata_json AS export_metadata_json,
+ i.context_json AS incident_context_json,
  CASE WHEN r.read_at IS NOT NULL THEN r.read_at WHEN n.created_at<b.introduced_at AND n.resolved=1 THEN b.introduced_at ELSE NULL END AS effective_read_at
  FROM canvas_notification_sources n LEFT JOIN canvas_projects p ON p.id=n.project_id AND p.user_id=n.user_id
  LEFT JOIN canvas_video_processing e ON n.source='export' AND e.id=json_extract(n.details_json,'$.exportId') AND e.user_id=n.user_id AND e.project_id=n.project_id AND e.asset_id IS NOT NULL
  LEFT JOIN ai_text_assets a ON a.id=e.id AND e.asset_id=e.id AND a.user_id=n.user_id AND a.canvas_processing_token IS NOT NULL
+ LEFT JOIN canvas_agent_incidents i ON i.project_id=n.project_id AND i.user_id=n.user_id AND i.source_notification_id=n.id
  CROSS JOIN canvas_notification_rollout b LEFT JOIN canvas_notification_reads r ON r.user_id=n.user_id AND r.notification_id=n.id`;
 const unreadSql = `SELECT COUNT(*) AS count FROM canvas_notification_sources n CROSS JOIN canvas_notification_rollout b
  LEFT JOIN canvas_notification_reads r ON r.user_id=n.user_id AND r.notification_id=n.id
@@ -25,6 +28,11 @@ function publicItem(row) {
     }
     for (const key of ['pending','posterPending']) if ([0,1,true,false].includes(details?.[key])) bounded[key] = Boolean(details[key]);
     if (typeof details?.errorCode==='string' && /^[a-z][a-z0-9_]{1,100}$/.test(details.errorCode)) bounded.errorCode=details.errorCode;
+    try{
+        const context=JSON.parse(row.incident_context_json),diagnostic=canvasAgentValidationDiagnostic(context.operation?.validation||context.validation);
+        if(diagnostic)bounded.validationDiagnostic=diagnostic;
+        if(['completed','not_submitted','unknown','rejected'].includes(context.operation?.outcome))bounded.providerOutcome=context.operation.outcome;
+    }catch{/* Unvalidated diagnostic input is never projected. */}
     if(row.source==='export'&&row.code==='canvas_export_ready') {
         try {
             const recipe=JSON.parse(row.export_recipe_json),fit=JSON.parse(row.export_seam_json)?.sourceEndFit,
@@ -85,6 +93,7 @@ export async function recordCanvasClientNotification(env, userId, body) {
         const identity=(body.source==='lifecycle'?'project':body.source)+':'+body.sourceId,prefix=identity+':';
         const rows = (await env.DB.prepare(selector + ` WHERE n.user_id=? AND n.source=? AND (n.id=? OR n.id=? OR substr(n.id,1,length(?))=?) ORDER BY n.created_at DESC,n.id DESC LIMIT 1`)
             .bind(userId,body.source,body.sourceId,identity,prefix,prefix).all()).results;
+        if(rows[0]?.project_id)await (await import('./canvas-agent-incidents.js')).captureCanvasProjectIncidents(env,rows[0].project_id,userId);
         return { viewerId: userId, item: rows[0] ? publicItem(rows[0]) : null };
     }
     if (!CANVAS_CLIENT_NOTIFICATION_CODES.includes(body.code)) fail('canvas_notification_code_invalid');
@@ -112,5 +121,6 @@ export async function recordCanvasClientNotification(env, userId, body) {
     // A racing replay with a changed body must not silently accept the first.
     const saved = await env.DB.prepare('SELECT * FROM canvas_notification_clients WHERE id=? AND user_id=?').bind(id,userId).first();
     if (saved.code !== body.code || saved.error_code !== errorCode || saved.project_id !== projectId || saved.diagnostic_ref !== diagnostic || saved.http_status !== status) fail('idempotency_conflict',409);
+    if(projectId)await (await import('./canvas-agent-incidents.js')).captureCanvasProjectIncidents(env,projectId,userId);
     return { viewerId: userId, item: publicItem(row) };
 }

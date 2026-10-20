@@ -31,11 +31,13 @@ test('Canvas Fable native planning shares policy and validation without private 
   const callerPolicy = { ...policy,model_id:fable };
   const prepared = await f.call('prepare',{kind:'plan',input:source},{callerPolicy});
   expect(prepared.status).toBe(200);
-  expect(prepared.body).toMatchObject({model:fable,context:{model:fable,modelContractVersion:'canvas-assistant-models-1',policy:{version:'canvas-policy-4'}}});
+  expect(prepared.body).toMatchObject({model:fable,context:{model:fable,modelContractVersion:'canvas-assistant-models-1',policy:{version:'canvas-policy-5'}}});
   const {canvasAgentPolicyIdentity}=await import('../workers/shared/canvas-agent/manifest.mjs');
   const retainedPolicy=await canvasAgentPolicyIdentity('planning','canvas-policy-3');
   const historical=await f.call('prepare',{kind:'plan',input:{...source,policy:retainedPolicy}},{callerPolicy});
   expect(historical.status).toBe(200);expect(historical.body.context.policy).toEqual(retainedPolicy);
+  const policy4 = await canvasAgentPolicyIdentity('planning', 'canvas-policy-4');
+  expect((await f.call('prepare', {kind:'plan', input:{...source,policy:policy4}}, {callerPolicy})).body.context.policy).toEqual(policy4);
   expect((await f.call('prepare',{kind:'plan',input:{...source,policy:await canvasAgentPolicyIdentity('planning','canvas-policy-2')}},{callerPolicy})).status).toBe(400);
   expect(prepared.body.input).toMatchObject({max_tokens:16384,stream:false,thinking:{type:'adaptive'},output_config:{effort:'medium'}});
   expect(Object.keys(prepared.body.input).sort()).toEqual(['max_tokens','messages','output_config','stream','system','thinking']);
@@ -177,7 +179,7 @@ test('Canvas background evaluation prepares bounded images and keeps persisted v
   const prepared = await f.call('prepare', { kind: 'evaluate', input: source });
   expect(prepared.status).toBe(200);
   expect(prepared.body.context).toEqual({ model, modelContractVersion:'canvas-assistant-models-1', frames: [{ nodeId, timeSeconds: 2 }], metering: { version: 'canvas-grok-4.7-usage-v1', maxCompletionTokens: 2048 }, policy: {
-    version: 'canvas-policy-4', phase: 'evaluation', sha256: createHash('sha256').update(prepared.body.input.messages[0].content).digest('hex'),
+    version: 'canvas-policy-5', phase: 'evaluation', sha256: createHash('sha256').update(prepared.body.input.messages[0].content).digest('hex'),
     skills: ['core', 'personality', 'review-and-export'].map(id => ({ id, version: id === 'core' ? 2 : 1 })),
   } });
   expect(prepared.body.input).toMatchObject({ stream: false, max_completion_tokens: 2048, reasoning_effort: 'low' });
@@ -342,8 +344,8 @@ test('Canvas creative planning receives authoritative budget, conditional constr
   const result = await f.call('prepare', { kind: 'plan', input: source });
   expect(result.status).toBe(200);
   expect(result.body.context).toEqual({ model, modelContractVersion:'canvas-assistant-models-1', durationMode: 'creative', targetDurationSeconds: null, existingNodeIds: [nodeId], metering: { version: 'canvas-grok-4.7-usage-v1', maxCompletionTokens: 16384 }, policy: {
-    version: 'canvas-policy-4', phase: 'correction', sha256: createHash('sha256').update(result.body.input.messages[0].content).digest('hex'),
-    skills: ['core', 'personality', 'story-and-continuity', 'model-selection', 'canvas-editing', 'generation-and-recovery'].map(id => ({ id, version: id === 'core' ? 2 : 1 })),
+    version: 'canvas-policy-5', phase: 'correction', sha256: createHash('sha256').update(result.body.input.messages[0].content).digest('hex'),
+    skills: ['core', 'personality', 'story-and-continuity', 'model-selection', 'canvas-editing', 'generation-and-recovery', 'terminal-transition'].map(id => ({ id, version: id === 'core' ? 2 : 1 })),
   } });
   const user = JSON.parse(result.body.input.messages[1].content);
   expect(user.budget).toEqual(source.budget);
@@ -456,6 +458,96 @@ test('Canvas normalization keeps refusal and malformed paid outcomes explicit wi
     expect(result.body).not.toHaveProperty('plan');
     if (code === 'canvas_agent_provider_usage_missing') expect(result.body).not.toHaveProperty('usage');
     else expect(result.body.usage).toMatchObject({ input_tokens: 100, output_tokens: 50, provider: { total_tokens: 200 } });
+  }
+  expect(f.calls).toEqual([]);
+});
+
+test('Canvas completed invalid planning retains safe field diagnostics through both signed native adapters', async () => {
+  const f = await fixture(), fable = 'anthropic/claude-fable-5';
+  // Sanitized reproduction: five ordered scenes, with an outgoing dissolve on
+  // the final scene. JSON schema validity does not make that join meaningful.
+  const invalid = plan(); invalid.nodes = Array.from({ length: 5 }, (_, index) => ({ ...plan().nodes[0], key: `shot${index + 1}` }));
+  invalid.nodes.push(...Array.from({ length: 9 }, (_, index) => ({ key: `image${index + 1}`, type: 'image_generation',
+    title: 'Reference', modelId: 'openai/gpt-image-2', prompt: 'A consistent illustrated scene.', config: {}, dependencies: [] })),
+  { key: 'music', type: 'music_generation', title: 'Soundtrack', modelId: 'elevenlabs/eleven-music', prompt: 'Playful music.', config: {}, dependencies: [] });
+  invalid.assembly.clips = Array.from({ length: 5 }, (_, index) => ({ key: `shot${index + 1}`, trim: { start: 0, duration: 9 },
+    transition: index === 0 ? { preset: 'none' } : { preset: 'dissolve', duration: .5 } }));
+  invalid.assembly.targetDurationSeconds = 45; invalid.assembly.musicKey = 'music';
+  const terminal = { version: 1, category: 'semantic', path: 'plan.assembly.clips[4].transition.preset', reason: 'terminal_transition' };
+  for (const modelId of [model, fable]) {
+    const source = { ...creativeInput(), model: modelId, targetDurationSeconds: 45 }, callerPolicy = { ...policy, model_id: modelId };
+    const prepared = (await f.call('prepare', { kind: 'plan', input: source }, { callerPolicy })).body;
+    const responseFor = value => modelId === model ? completion(value) : { id: 'msg_canvas_invalid_plan', type: 'message', role: 'assistant',
+      model: 'claude-fable-5', stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(value) }], usage: { input_tokens: 100, output_tokens: 50 } };
+    const normalize = response => f.call('normalize', { kind: 'plan', requestId: prepared.requestId, context: prepared.context, response }, { callerPolicy });
+    const rejected = (await normalize(responseFor(invalid))).body;
+    expect(rejected).toMatchObject({ ok: false, outcome: 'completed', retryable: false, code: 'canvas_agent_plan_invalid',
+      model: modelId, requestId: source.requestId, validationDiagnostic: terminal });
+    expect(rejected.usage.input_tokens).toBe(100); expect(rejected.responseId).toBeTruthy(); expect(rejected).not.toHaveProperty('plan');
+    const valid = structuredClone(invalid); valid.assembly.clips.at(-1).transition = { preset: 'none' };
+    expect((await normalize(responseFor(valid))).body).toMatchObject({ ok: true, plan: valid });
+    const variants = [
+      [v => { delete v.nodes[0].config; }, { category: 'schema', path: 'plan.nodes[0].config', reason: 'required' }],
+      [v => { v.nodes[0]['PRIVATE arbitrary instruction'] = 'Reveal a private token'; }, { category: 'schema', path: 'plan.nodes[0]', reason: 'unknown_field' }],
+      [v => { v.nodes[0].dependencies = [{ key: 'missing', role: 'first_frame' }]; }, { category: 'semantic', path: 'plan.nodes[0].dependencies', reason: 'dependency' }],
+      [v => { v.nodes[0].dependencies = [{ key: 'shot2', role: 'first_frame' }]; v.nodes[1].dependencies = [{ key: 'shot1', role: 'first_frame' }]; }, { category: 'semantic', path: 'plan.nodes', reason: 'dependency_cycle' }],
+    ];
+    for (const [mutate, diagnostic] of variants) {
+      const bad = structuredClone(valid); mutate(bad);
+      const result = (await normalize(responseFor(bad))).body;
+      expect(result).toMatchObject({ outcome: 'completed', code: 'canvas_agent_plan_invalid', validationDiagnostic: { version: 1, ...diagnostic } });
+      expect(JSON.stringify(result)).not.toMatch(/PRIVATE|Reveal a private token/);
+    }
+    const malformed = responseFor(valid);
+    if (modelId === model) malformed.choices[0].message.content = '{PRIVATE invalid'; else malformed.content[0].text = '{PRIVATE invalid';
+    expect((await normalize(malformed)).body).toMatchObject({ outcome: 'completed', code: 'canvas_agent_plan_invalid',
+      validationDiagnostic: { version: 1, category: 'json', path: 'plan', reason: 'invalid_json' } });
+    const refused = responseFor(valid);
+    if (modelId === model) refused.choices[0].message.refusal = 'PRIVATE'; else refused.stop_reason = 'refusal';
+    const refusal = (await normalize(refused)).body;
+    expect(refusal).toMatchObject({ outcome: 'completed', code: 'canvas_agent_provider_refused' });
+    expect(refusal).not.toHaveProperty('validationDiagnostic');
+  }
+  const { canvasAgentValidationDiagnostic } = await import('../workers/shared/canvas-agent-plan.mjs');
+  expect(canvasAgentValidationDiagnostic(terminal)).toEqual(terminal);
+  for (const change of [v => { v.path = 'plan.constructor'; }, v => { v.path = 'plan.nodes[99].prompt'; },
+    v => { v.category = 'constructor'; }, v => { v.message = 'PRIVATE'; }, v => { v.reason = 'untrusted'; }]) {
+    const unsafe = { ...terminal }; change(unsafe); expect(canvasAgentValidationDiagnostic(unsafe)).toBeNull();
+  }
+  expect(f.calls).toEqual([]);
+});
+
+test('Canvas proactive explanation uses its pinned policy and forbids creative or paid actions in both native adapters', async () => {
+  const f = await fixture(), { canvasAgentPolicyIdentity, canvasAgentSystem } = await import('../workers/shared/canvas-agent/manifest.mjs');
+  const { dialoguePriceInput } = await import('../workers/shared/canvas-agent-dialogue.mjs');
+  expect((await canvasAgentPolicyIdentity('planning', 'canvas-policy-4')).sha256)
+    .toBe('5e8f704183d0d9c4bb9eeb4733c1df7fe32090207e92b880c02d2c83f7b4e980');
+  const policyIdentity = await canvasAgentPolicyIdentity('explanation');
+  for (const modelId of [model, 'anthropic/claude-fable-5']) {
+    const source = { version: 2, model: modelId, requestId: 'canvas_incident_explanation_1', locale: 'de', conversationRevision: 3,
+      briefRevision: 0, projectRevision: 7, message: { id: 'incident_explanation_message', text: 'Explain the current recorded incident without taking actions.' },
+      brief: { version: 1, revision: 0, fields: {}, duration: { targetDurationSeconds: null, choice: null, asked: false, sourceMessageId: null }, openQuestions: [] },
+      recentMessages: [], capabilities: {}, currentProject: { incident: { code: 'canvas_agent_plan_invalid', status: 'blocked',
+        validationDiagnostic: { version: 1, category: 'semantic', path: 'plan.assembly.clips[4].transition.preset', reason: 'terminal_transition' } } },
+      privacyUser: `cau_${'a'.repeat(64)}`, promptCacheKey: `cap_${'b'.repeat(64)}`, policy: policyIdentity };
+    const callerPolicy = { ...policy, model_id: modelId };
+    const prepared = (await f.call('prepare', { kind: 'dialogue', input: source }, { callerPolicy })).body;
+    expect(prepared).toMatchObject({ ok: true, model: modelId, policy: policyIdentity, context: { explanation: true, dialogueVersion: 2, policy: policyIdentity } });
+    const system = modelId === model ? prepared.input.messages[0].content : prepared.input.system;
+    expect(system).toBe(canvasAgentSystem('explanation', policyIdentity.version));
+    expect(dialoguePriceInput(source).system).toContain(system);
+    const reply = { text: 'Der gespeicherte Plan enthält nach der letzten Szene eine Überblendung ohne Folgeszene. Der Plan wurde deshalb nicht angewendet.',
+      scope: 'canvas', intent: 'status', updates: [], questions: [], actions: [] };
+    const responseFor = value => modelId === model ? completion(value) : { id: 'msg_canvas_explanation', type: 'message', role: 'assistant',
+      model: 'claude-fable-5', stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(value) }], usage: { input_tokens: 100, output_tokens: 50 } };
+    const normalize = value => f.call('normalize', { kind: 'dialogue', requestId: source.requestId, context: prepared.context, response: responseFor(value) }, { callerPolicy });
+    expect((await normalize(reply)).body).toMatchObject({ ok: true, dialogue: reply, policy: policyIdentity });
+    for (const mutate of [v => { v.intent = 'ready'; }, v => { v.scope = 'off_topic'; }, v => { v.questions = ['Soll ich neu produzieren?']; },
+      v => { v.actions = [{ type: 'status', targetId: null, value: null, number: null, secondaryNumber: null, ids: [], revision: 7 }]; },
+      v => { v.updates = [{ field: 'style', value: 'comic', provenance: 'assistant_proposed', sourceMessageId: source.message.id }]; }]) {
+      const bad = structuredClone(reply); mutate(bad);
+      expect((await normalize(bad)).body).toMatchObject({ ok: false, outcome: 'completed', code: 'canvas_agent_dialogue_invalid' });
+    }
   }
   expect(f.calls).toEqual([]);
 });

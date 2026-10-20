@@ -67,13 +67,14 @@ export async function publicCanvasAgentModelOperation(env,runId) {
         WHERE s.run_id=? AND s.kind IN ('plan','evaluate') AND s.usage_attempt_id IS NOT NULL ORDER BY s.rowid DESC LIMIT 1`).bind(runId).first();
     if(!op)return null;
     const receipt=op.receipt_json?JSON.parse(op.receipt_json):null,failed=receipt?.outcome==='failed';
-    const settled=op.state==='completed'&&op.status==='completed'&&op.billing_status==='finalized';
+    const invalid=op.state==='completed'&&op.status==='rejected'&&receipt?.outcome==='completed'&&receipt?.ok===false;
+    const settled=op.state==='completed'&&['completed','rejected'].includes(op.status)&&op.billing_status==='finalized';
     const settlementReview=op.state==='completed'&&receipt?.ok===true&&op.status!=='completed'&&op.billing_status==='reserved'
         &&['generation_result_requires_credit_review','canvas_agent_billing_review_required'].includes(op.error_code);
     const outcome=failed?'failed':op.state==='completed'?'completed':op.state==='rejected'?'rejected':op.state==='unknown'?'unknown':op.state?'pending':
         ['dispatched','unknown'].includes(op.provider_outcome)?'unknown':op.provider_outcome==='succeeded'?'completed':op.provider_outcome==='failed'?'rejected':'not_dispatched';
     return {operationId:op.operation_id||op.id,kind:op.kind,modelId:op.model||'xai/grok-4.7',outcome,
-        recovery:settled?null:settlementReview?'settlement_review':failed?'billing_review':op.reconcile_attempts>=5?'review_required':op.state==='received'||(op.state==='completed'&&op.status!=='completed')?'receipt_ready':outcome==='unknown'?'review_required':outcome==='pending'?'waiting_callback':null,
+        recovery:invalid&&settled?'correction_required':settled?null:settlementReview?'settlement_review':failed?'billing_review':op.reconcile_attempts>=5?'review_required':op.state==='received'||(op.state==='completed'&&op.status!=='completed')?'receipt_ready':outcome==='unknown'?'review_required':outcome==='pending'?'waiting_callback':null,
         ...(op.dispatched_at?{dispatchedAt:op.dispatched_at}:{}),...(op.response_at?{responseAt:op.response_at}:{})};
 }
 export function canvasAgentAllowedActions(run,operation) {
@@ -102,6 +103,7 @@ export async function requeueCanvasAgents(env) {
     for(const row of recoverable)await observeCanvasConversationReceipts(env,row.project_id,row.user_id);
     await (await import('./canvas-agent-immediate.js')).recoverCanvasImmediateIntents(env);
     await (await import('./canvas-agent-actions.js')).recoverCanvasAgentActions(env);
+    await (await import('./canvas-agent-incidents.js')).syncCanvasProjectIncidents(env);
     const now=nowIso();
     await env.DB.prepare(`UPDATE canvas_agent_runs SET status='blocked',error_code='canvas_agent_authorization_expired',lease_token=NULL,lease_until=NULL,updated_at=?
         WHERE status IN ('queued','planning','running','exporting') AND expires_at<=?`).bind(now,now).run();

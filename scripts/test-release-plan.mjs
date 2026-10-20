@@ -23,7 +23,7 @@ function createContext() {
 }
 
 {
- const migration='0113_canvas_notifications_and_lifecycle.sql';
+ const migration='0114_canvas_incident_explanations.sql';
  const {assertSupportedBackendMigrations}=await import('./lib/backend-publication.mjs');
  assertSupportedBackendMigrations([migration]);
  const plan=createReleasePlanFromRepo(repoRoot,{files:[`workers/auth/migrations/${migration}`,'workers/shared/canvas-agent/skills/project-explanations.mjs','js/shared/canvas-notification-contract.mjs','canvas/index.html','de/canvas/index.html']});

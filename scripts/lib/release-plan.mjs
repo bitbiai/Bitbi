@@ -75,6 +75,8 @@ const SHARED_WORKER_FILE_MAP = Object.freeze({
   "workers/shared/canvas-agent/skills/creative-briefing.mjs": ["auth", "ai"],
   "workers/shared/canvas-agent/skills/conversation-actions.mjs": ["auth", "ai"],
   "workers/shared/canvas-agent/skills/project-explanations.mjs": ["auth", "ai"],
+  "workers/shared/canvas-agent/skills/incident-explanation.mjs": ["auth", "ai"],
+  "workers/shared/canvas-agent/skills/terminal-transition.mjs": ["auth", "ai"],
   "workers/shared/canvas-agent/skills/story-and-continuity.mjs": ["auth", "ai"],
   "workers/shared/canvas-agent/skills/model-selection.mjs": ["auth", "ai"],
   "workers/shared/canvas-agent/skills/canvas-editing.mjs": ["auth", "ai"],

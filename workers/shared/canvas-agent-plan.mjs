@@ -76,72 +76,105 @@ export const CANVAS_AGENT_PLAN_SCHEMA = obj({
   }, ['clips', 'musicKey', 'targetDurationSeconds']),
 }, ['version', 'title', 'continuity', 'nodes', 'assembly']);
 
-const fail = (field, code = 'canvas_agent_plan_invalid') => {
-  throw Object.assign(new TypeError(`Invalid Canvas production plan: ${field}.`), { code, status: 400 });
+const diagnosticReasons = Object.freeze({
+  json: ['invalid_json'],
+  schema: ['depth_limit', 'type', 'required', 'unknown_field', 'array_length', 'number_range', 'string_format', 'enum'],
+  semantic: ['node_key', 'video_count', 'duration_mode', 'production_duration_limit', 'target_duration', 'duration_tolerance',
+    'node_model', 'dependency', 'duplicate_dependency', 'dependency_cycle', 'repeated_footage', 'assembly_clip',
+    'transition_settings', 'terminal_transition', 'assembly_music', 'music_source', 'updated_node', 'evaluation_issues'],
+  size: ['output_size_limit', 'input_size_limit'],
+});
+
+// Diagnostic text is server-authored. Neither unknown property names nor values,
+// exception messages or provider text may become a public diagnostic path.
+export function canvasAgentValidationDiagnostic(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || Object.keys(value).sort().join(',') !== 'category,path,reason,version' || value.version !== 1
+    || !Object.hasOwn(diagnosticReasons, value.category) || !diagnosticReasons[value.category].includes(value.reason) || typeof value.path !== 'string'
+    || value.path.length > 180 || !/^(?:plan|evaluation)(?:\.[A-Za-z][A-Za-z0-9]*|\[[0-9]{1,2}\])*$/.test(value.path)) return null;
+  const root = value.path.startsWith('evaluation') ? 'evaluation' : 'plan';
+  let schema = root === 'plan' ? CANVAS_AGENT_PLAN_SCHEMA : CANVAS_AGENT_EVALUATION_SCHEMA;
+  for (const segment of value.path.slice(root.length).match(/\.[A-Za-z][A-Za-z0-9]*|\[[0-9]{1,2}\]/g) || []) {
+    schema = schema?.anyOf?.find(entry => entry.type !== 'null') || schema;
+    if (segment[0] === '.') schema = schema?.properties && Object.hasOwn(schema.properties, segment.slice(1)) ? schema.properties[segment.slice(1)] : null;
+    else schema = schema?.type === 'array' && Number(segment.slice(1, -1)) < schema.maxItems ? schema.items : null;
+    if (!schema) return null;
+  }
+  return { version: 1, category: value.category, path: value.path, reason: value.reason };
+}
+const fail = (path, reason, category = 'semantic', code = 'canvas_agent_plan_invalid') => {
+  throw Object.assign(new TypeError(`Invalid Canvas production plan: ${reason}.`), {
+    code, status: 400, validationDiagnostic: { version: 1, category, path, reason },
+  });
 };
 function check(value, schema, path = 'plan', depth = 0) {
-  if (depth > 12) fail(path);
+  if (depth > 12) fail(path, 'depth_limit', 'schema');
   if (schema.anyOf) {
     if (schema.anyOf.some(item => { try { check(value, item, path, depth + 1); return true; } catch { return false; } })) return;
-    fail(path);
+    fail(path, 'type', 'schema');
   }
   const type = schema.type;
   if (type === 'object') {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) fail(path);
-    if (Object.keys(value).some(name => !Object.hasOwn(schema.properties, name)) || schema.required.some(name => !Object.hasOwn(value, name))) fail(path);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) fail(path, 'type', 'schema');
+    if (Object.keys(value).some(name => !Object.hasOwn(schema.properties, name))) fail(path, 'unknown_field', 'schema');
+    const missing = schema.required.find(name => !Object.hasOwn(value, name));
+    if (missing) fail(`${path}.${missing}`, 'required', 'schema');
     for (const [name, entry] of Object.entries(value)) check(entry, schema.properties[name], `${path}.${name}`, depth + 1);
   } else if (type === 'array') {
-    if (!Array.isArray(value) || value.length < schema.minItems || value.length > schema.maxItems) fail(path);
+    if (!Array.isArray(value)) fail(path, 'type', 'schema');
+    if (value.length < schema.minItems || value.length > schema.maxItems) fail(path, 'array_length', 'schema');
     value.forEach((entry, index) => check(entry, schema.items, `${path}[${index}]`, depth + 1));
-  } else if (type === 'null') { if (value !== null) fail(path); }
+  } else if (type === 'null') { if (value !== null) fail(path, 'type', 'schema'); }
   else if (type === 'integer' || type === 'number') {
-    if (typeof value !== 'number' || !Number.isFinite(value) || type === 'integer' && !Number.isSafeInteger(value)
-      || schema.minimum !== undefined && value < schema.minimum || schema.maximum !== undefined && value > schema.maximum) fail(path);
-  } else if (typeof value !== type) fail(path);
+    if (typeof value !== 'number' || !Number.isFinite(value) || type === 'integer' && !Number.isSafeInteger(value)) fail(path, 'type', 'schema');
+    if (schema.minimum !== undefined && value < schema.minimum || schema.maximum !== undefined && value > schema.maximum) fail(path, 'number_range', 'schema');
+  } else if (typeof value !== type) fail(path, 'type', 'schema');
   if (typeof value === 'string' && (value.length < (schema.minLength || 0) || value.length > schema.maxLength
-    || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value) || schema.pattern && !new RegExp(schema.pattern).test(value))) fail(path);
-  if (schema.enum && !schema.enum.includes(value) || schema.const !== undefined && value !== schema.const) fail(path);
+    || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value) || schema.pattern && !new RegExp(schema.pattern).test(value))) fail(path, 'string_format', 'schema');
+  if (schema.enum && !schema.enum.includes(value) || schema.const !== undefined && value !== schema.const) fail(path, 'enum', 'schema');
 }
 
 export function validateCanvasAgentPlan(value, { targetDurationSeconds, toleranceSeconds, durationMode = 'exact', existingNodeIds = [] } = {}) {
-  if (new TextEncoder().encode(JSON.stringify(value)).byteLength > CANVAS_AGENT_PLAN_MAX_BYTES) fail('size');
+  if (new TextEncoder().encode(JSON.stringify(value)).byteLength > CANVAS_AGENT_PLAN_MAX_BYTES) fail('plan', 'output_size_limit', 'size');
   check(value, CANVAS_AGENT_PLAN_SCHEMA);
   const nodes = new Map(value.nodes.map(node => [node.key, node]));
   const existing = new Set(existingNodeIds.map(id => `existing:${id}`));
-  if (nodes.size !== value.nodes.length || value.nodes.some(node => node.key.startsWith('existing:'))) fail('duplicate or reserved node key');
-  if (value.nodes.filter(node => node.type === 'video_generation').length > 48) fail('video count');
-  if (!['exact', 'creative'].includes(durationMode)) fail('duration mode');
+  if (nodes.size !== value.nodes.length || value.nodes.some(node => node.key.startsWith('existing:'))) fail('plan.nodes', 'node_key');
+  if (value.nodes.filter(node => node.type === 'video_generation').length > 48) fail('plan.nodes', 'video_count');
+  if (!['exact', 'creative'].includes(durationMode)) fail('plan.assembly', 'duration_mode');
   if (durationMode === 'creative') {
-    if (value.assembly.targetDurationSeconds > 180) fail('production duration limit');
+    if (value.assembly.targetDurationSeconds > 180) fail('plan.assembly.targetDurationSeconds', 'production_duration_limit');
   } else {
-    if (targetDurationSeconds !== undefined && value.assembly.targetDurationSeconds !== targetDurationSeconds) fail('target duration');
-    if (toleranceSeconds !== undefined && value.assembly.toleranceSeconds !== toleranceSeconds) fail('duration tolerance');
+    if (targetDurationSeconds !== undefined && value.assembly.targetDurationSeconds !== targetDurationSeconds) fail('plan.assembly.targetDurationSeconds', 'target_duration');
+    if (toleranceSeconds !== undefined && value.assembly.toleranceSeconds !== toleranceSeconds) fail('plan.assembly.toleranceSeconds', 'duration_tolerance');
   }
   const has = id => nodes.has(id) || existing.has(id);
-  for (const node of value.nodes) {
-    if ((node.type === 'note') !== (node.modelId === null)) fail('node model');
-    if (node.dependencies.some(dep => !has(dep.key) || dep.key === node.key)) fail('dependency');
-    if (new Set(node.dependencies.map(dep => dep.key)).size !== node.dependencies.length) fail('duplicate dependency');
+  for (const [index, node] of value.nodes.entries()) {
+    const path = `plan.nodes[${index}]`;
+    if ((node.type === 'note') !== (node.modelId === null)) fail(`${path}.modelId`, 'node_model');
+    if (node.dependencies.some(dep => !has(dep.key) || dep.key === node.key)) fail(`${path}.dependencies`, 'dependency');
+    if (new Set(node.dependencies.map(dep => dep.key)).size !== node.dependencies.length) fail(`${path}.dependencies`, 'duplicate_dependency');
   }
   const visited = new Set(), active = new Set();
   const visit = id => {
-    if (active.has(id)) fail('dependency cycle');
+    if (active.has(id)) fail('plan.nodes', 'dependency_cycle');
     if (visited.has(id) || !nodes.has(id)) return;
     active.add(id); nodes.get(id).dependencies.forEach(dep => visit(dep.key)); active.delete(id); visited.add(id);
   };
   nodes.forEach((_, id) => visit(id));
   const clips = value.assembly.clips;
-  if (new Set(clips.map(clip => clip.key)).size !== clips.length) fail('repeated footage');
-  for (const clip of clips) {
-    if (!has(clip.key) || nodes.has(clip.key) && nodes.get(clip.key).type !== 'video_generation') fail('assembly clip');
-    transitionSettings(clip.transition);
+  if (new Set(clips.map(clip => clip.key)).size !== clips.length) fail('plan.assembly.clips', 'repeated_footage');
+  for (const [index, clip] of clips.entries()) {
+    const path = `plan.assembly.clips[${index}]`;
+    if (!has(clip.key) || nodes.has(clip.key) && nodes.get(clip.key).type !== 'video_generation') fail(`${path}.key`, 'assembly_clip');
+    try { transitionSettings(clip.transition); } catch { fail(`${path}.transition`, 'transition_settings'); }
   }
-  if (clips.at(-1).transition.preset !== 'none') fail('terminal transition');
+  if (clips.at(-1).transition.preset !== 'none') fail(`plan.assembly.clips[${clips.length - 1}].transition.preset`, 'terminal_transition');
   if (value.assembly.musicKey !== null && (!has(value.assembly.musicKey)
-    || nodes.has(value.assembly.musicKey) && nodes.get(value.assembly.musicKey).type !== 'music_generation')) fail('assembly music');
-  if (value.assembly.backgroundMusic?.enabled && !value.assembly.musicKey) fail('music source');
+    || nodes.has(value.assembly.musicKey) && nodes.get(value.assembly.musicKey).type !== 'music_generation')) fail('plan.assembly.musicKey', 'assembly_music');
+  if (value.assembly.backgroundMusic?.enabled && !value.assembly.musicKey) fail('plan.assembly.backgroundMusic', 'music_source');
   const updates = value.updates || [];
-  if (new Set(updates.map(update => update.nodeId)).size !== updates.length || updates.some(update => !existing.has(`existing:${update.nodeId}`))) fail('updated node');
+  if (new Set(updates.map(update => update.nodeId)).size !== updates.length || updates.some(update => !existing.has(`existing:${update.nodeId}`))) fail('plan.updates', 'updated_node');
   return structuredClone({ ...value, updates });
 }
 
@@ -149,7 +182,7 @@ export function estimateCanvasAgentPlanCostUsd(input = {}) {
   // UTF-8 bytes bound text tokens, including inventory, project, schema and fixed
   // instructions. This application ceiling stays below the 200k price tier.
   const bytes = new TextEncoder().encode(JSON.stringify(input)).byteLength;
-  if (bytes > CANVAS_AGENT_PLAN_INPUT_MAX_BYTES) fail('input size');
+  if (bytes > CANVAS_AGENT_PLAN_INPUT_MAX_BYTES) fail('plan', 'input_size_limit', 'size');
   const inputTokens = bytes + new TextEncoder().encode(canvasAgentPlanSystem(input) + JSON.stringify(CANVAS_AGENT_PLAN_SCHEMA)).byteLength + 4096;
   return (inputTokens * CANVAS_AGENT_PLAN_PRICING.input + CANVAS_AGENT_PLAN_MAX_OUTPUT_TOKENS * CANVAS_AGENT_PLAN_PRICING.output) / 1e6 * CANVAS_AGENT_PLAN_PRICING.fundingMultiplier;
 }
@@ -164,6 +197,6 @@ export const CANVAS_AGENT_EVALUATION_SCHEMA = obj({ accepted: bool,
 export function validateCanvasAgentEvaluation(value, frames) {
   check(value, CANVAS_AGENT_EVALUATION_SCHEMA, 'evaluation');
   const ids = new Set(frames.map(frame => frame.nodeId));
-  if (value.issues.some(issue => !ids.has(issue.nodeId)) || value.accepted && value.issues.length || !value.accepted && !value.issues.length) fail('evaluation issues', 'canvas_agent_evaluation_invalid');
+  if (value.issues.some(issue => !ids.has(issue.nodeId)) || value.accepted && value.issues.length || !value.accepted && !value.issues.length) fail('evaluation.issues', 'evaluation_issues', 'semantic', 'canvas_agent_evaluation_invalid');
   return structuredClone(value);
 }

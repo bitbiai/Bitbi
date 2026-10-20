@@ -16,7 +16,7 @@ export async function canvasConversationExecutionFacts(env,userId,projectId) {
   if(!project)throw Object.assign(new Error('canvas_project_not_found'),{code:'canvas_project_not_found',status:404});
   const observedAt=nowIso();
   const run=await env.DB.prepare("SELECT * FROM canvas_agent_runs WHERE project_id=? AND user_id=? AND purpose='production' ORDER BY created_at DESC,rowid DESC LIMIT 1").bind(projectId,userId).first();
-  const [conversation,briefing,actions,decisions,exports,events,steps,totals,budget,operation,proposal]=await Promise.all([
+  const [conversation,briefing,actions,decisions,exports,events,steps,totals,budget,operation,proposal,incidents]=await Promise.all([
     env.DB.prepare('SELECT allowance_credits,allowance_tariff,revision,brief_revision,assistant_model_id,assistant_model_revision FROM canvas_agent_conversations WHERE project_id=? AND user_id=?').bind(projectId,userId).first(),
     env.DB.prepare(`SELECT COALESCE(SUM(c.charged),0) AS charged,COALESCE(SUM(c.committed),0) AS committed,
       COALESCE(SUM(c.reserved),0) AS reserved,COALESCE(SUM(c.pending),0) AS pending FROM canvas_agent_step_costs c
@@ -34,6 +34,7 @@ export async function canvasConversationExecutionFacts(env,userId,projectId) {
     run&&run.budget_credits!==null?readCanvasAgentBudget(env,run):null,
     run?publicCanvasAgentModelOperation(env,run.id):null,
     run?env.DB.prepare('SELECT step_id,status,validation_json,updated_at FROM canvas_agent_proposals WHERE run_id=? ORDER BY rowid DESC LIMIT 1').bind(run.id).first():null,
+    env.DB.prepare('SELECT id,revision,state,source_notification_id,context_json FROM canvas_agent_incidents WHERE project_id=? AND user_id=? ORDER BY updated_at DESC LIMIT 8').bind(projectId,userId).all(),
   ]);
   const sourceRows=rows(steps),scope=parse(decisions?.scope_json),cause=parse(run?.cause_json);
   const fresh=await env.DB.prepare(`SELECT p.revision,r.updated_at FROM canvas_projects p LEFT JOIN canvas_agent_runs r ON r.id=?
@@ -57,6 +58,9 @@ export async function canvasConversationExecutionFacts(env,userId,projectId) {
       pendingOutcomeCredits:briefing.pending,remainingCredits:Math.max(0,conversation.allowance_credits-briefing.committed),tariffRevision:conversation.allowance_tariff}:null},
     recentEvents:rows(events).map(event=>{const payload=parse(event.payload_json)||{};return {id:event.id,runId:run.id,at:event.created_at,
       type:code(event.type),code:code(payload.code),tool:code(payload.tool),phase:code(payload.phase)};}),
+    incidents:rows(incidents).map(item=>{const context=parse(item.context_json)||{};return {id:item.id,revision:item.revision,state:item.state,
+      sourceNotificationId:item.source_notification_id,observedAt:context.observedAt,source:context.source,affected:context.affected,
+      operation:context.operation,validation:context.validation,retained:context.retained};}),
     recentActions:rows(actions).map(action=>{const input=parse(action.input_json)||{},result=parse(action.result_json)||{};return {
       id:action.id,turnId:action.turn_id,type:code(input.action?.type),state:action.state,pending:result.pending===true,
       code:code(result.code),updatedAt:action.updated_at,confirmationRequired:action.state==='confirmation_required'};}),

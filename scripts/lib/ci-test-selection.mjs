@@ -67,6 +67,8 @@ const SHARED_WORKER_FILE_MAP = new Map([
   ["workers/shared/canvas-agent/skills/creative-briefing.mjs", ["auth", "ai"]],
   ["workers/shared/canvas-agent/skills/conversation-actions.mjs", ["auth", "ai"]],
   ["workers/shared/canvas-agent/skills/project-explanations.mjs", ["auth", "ai"]],
+  ["workers/shared/canvas-agent/skills/incident-explanation.mjs", ["auth", "ai"]],
+  ["workers/shared/canvas-agent/skills/terminal-transition.mjs", ["auth", "ai"]],
   ["workers/shared/canvas-agent/skills/story-and-continuity.mjs", ["auth", "ai"]],
   ["workers/shared/canvas-agent/skills/model-selection.mjs", ["auth", "ai"]],
   ["workers/shared/canvas-agent/skills/canvas-editing.mjs", ["auth", "ai"]],
@@ -597,6 +599,9 @@ const AUTH_TEST_FILES = new Set([
 const EXACT_WORKER_TEST_FILES = new Set([
   'tests/q2-canvas-reliability.spec.js', 'tests/helpers/canvas-notifications-control.mjs',
   'tests/helpers/canvas-project-lifecycle-control.mjs', 'tests/helpers/canvas-agent-explanation-control.mjs',
+  'tests/helpers/canvas-incident-control.mjs',
+  'tests/helpers/canvas-agent-plan-interpretation-control.mjs',
+  'tests/helpers/canvas-agent-plan-correction-review-control.mjs',
   'tests/rel01/routes/workers.spec.js',
   'tests/helpers/release-transition-legacy-contract.cjs',
   'tests/q2-canvas-agent-readiness.spec.js',

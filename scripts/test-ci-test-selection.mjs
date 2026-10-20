@@ -19,7 +19,8 @@ const repoRoot = path.resolve(__dirname, "..");
 
 {
  const workers=['tests/q2-canvas-reliability.spec.js','tests/helpers/canvas-notifications-control.mjs',
-   'tests/helpers/canvas-project-lifecycle-control.mjs','tests/helpers/canvas-agent-explanation-control.mjs'];
+   'tests/helpers/canvas-project-lifecycle-control.mjs','tests/helpers/canvas-agent-explanation-control.mjs','tests/helpers/canvas-incident-control.mjs',
+   'tests/helpers/canvas-agent-plan-interpretation-control.mjs','tests/helpers/canvas-agent-plan-correction-review-control.mjs'];
  for(const file of workers){const chosen=selectCiTests([file]);assert(chosen.workers&&!chosen.full,`${file}: existing Worker caller`);}
  for(const file of ['tests/helpers/canvas-notifications-ui.cjs','tests/helpers/canvas-inspector-ui.cjs','tests/helpers/canvas-completion-ui.cjs','tests/helpers/canvas-smooth-ui.cjs','tests/helpers/canvas-workspace-transitions-ui.cjs']){
   const ui=selectCiTests([file]);assert(ui.homepage&&!ui.full,`${file} belongs to the existing dual-engine Canvas caller`);

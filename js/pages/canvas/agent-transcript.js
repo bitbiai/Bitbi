@@ -69,14 +69,15 @@ export function createCanvasTranscript({ viewport, list, welcome, newest, copy, 
             const text = completed ? string(message.text) : ordinaryPending ? offline ? copy.connectionRetry : delayed ? copy.waitLonger : copy.waitMoment : detail;
             const modelName=kind==='assistant'&&message.modelId?(canvasAssistantModel(message.modelId)?.displayName||string(message.modelId)):'';
             const proposal=message.proposedActions?.source==='action_receipts'&&['unconfirmed','attention_required'].includes(message.proposedActions.state)?message.proposedActions.state:null;
-            const key = JSON.stringify([kind,message.status,text,thinking,modelName,proposal]);
-            if (entry.key !== null && kind === 'assistant' && entry.text.textContent !== text && entry.row.getBoundingClientRect().top >= viewport.getBoundingClientRect().bottom) appended = true;
+            const explanation=message.kind==='incident_explanation',label=system&&completed&&explanation?(message.local?copy.incidentLocal:copy.incidentSystem):system?completed?copy.system:copy.requestStatus:kind==='user'?copy.you:modelName||copy.assistant;
+            const key = JSON.stringify([kind,message.status,text,thinking,modelName,proposal,label]);
+            if (entry.key !== null && (kind === 'assistant'||explanation) && entry.text.textContent !== text && entry.row.getBoundingClientRect().top >= viewport.getBoundingClientRect().bottom) appended = true;
             if (key !== entry.key) {
                 entry.key = key; entry.row.className = `canvas-agent__message canvas-agent__message--${kind}${thinking ? ' canvas-agent__thinking' : ''}`;
                 entry.row.dataset.messageId = message.id; entry.row.dataset.status = string(message.status); entry.row.dataset.kind = kind;
                 entry.row.setAttribute('aria-busy', String(thinking)); entry.bee.hidden = !thinking;
                 entry.label.className = system && !ordinaryPending ? 'canvas-agent__system-label' : modelName?'canvas-agent__model-label':'canvas-sr-only';
-                entry.label.textContent = system ? completed?copy.system:copy.requestStatus : kind === 'user' ? copy.you : modelName||copy.assistant;
+                entry.label.textContent = label;
                 if (entry.text.textContent !== text) entry.text.textContent = text;
                 entry.proposal.hidden=!proposal;entry.proposalText.textContent=proposal==='unconfirmed'?copy.proposalUnconfirmed:proposal==='attention_required'?copy.proposalAttention:'';
             }

@@ -25,6 +25,8 @@ export async function canvasAgentSession(request,env) {
         if(conversation.allowance_credits<costs.committed)fail();
     }
     if(authority.leaseToken!==row.lease_token||!row.lease_until||row.lease_until<=new Date().toISOString())fail();
+    if(row.purpose!=='briefing')await (await import('./canvas-agent-plan-correction-review.js')).assertCanvasPlanReviewCurrent(env,
+        {id:authority.runId,user_id:authority.userId,project_id:authority.projectId});
     if(pathname.startsWith('/api/account/canvas/')&&!pathname.startsWith(`/api/account/canvas/projects/${authority.projectId}/`))fail();
     return {sessionId:null,user:{id:row.id,status:'active',role:row.role}};
 }

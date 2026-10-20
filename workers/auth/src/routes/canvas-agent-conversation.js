@@ -27,7 +27,8 @@ async function actionReplay(env,row,key,input) {
 }
 const actionStatement=(env,row,key,input)=>env.DB.prepare('INSERT INTO canvas_agent_conversation_actions(project_id,request_key,input_json,created_at) VALUES(?,?,?,?)').bind(row.project_id,key,input,nowIso());
 export async function approveCanvasBriefingAllowance(ctx,row,body,key,{guard=[],after=[]}={}) {
-    check(body,['capCredits','expectedConversationRevision']);
+    check(body,['capCredits','expectedConversationRevision','diagnostics']);
+    if(body.diagnostics!==undefined&&typeof body.diagnostics!=='boolean')agentFail('canvas_agent_conversation_input_invalid',400);
     const input=actionInput('allowance',body);
     if(await actionReplay(ctx.env,row,key,input))return;
     revision(body,row);
@@ -35,8 +36,8 @@ export async function approveCanvasBriefingAllowance(ctx,row,body,key,{guard=[],
     const tariff=await getModelTariff(ctx.env);
     if(String(tariff.revision)!==ctx.request.headers.get(TARIFF_HEADER))agentFail('model_pricing_stale');
     await ctx.env.DB.batch([conversationGuard(ctx.env,row),...guard,actionStatement(ctx.env,row,key,input),
-        ctx.env.DB.prepare('UPDATE canvas_agent_conversations SET allowance_credits=?,allowance_tariff=?,revision=revision+1,updated_at=? WHERE project_id=?')
-            .bind(body.capCredits,tariff.revision,nowIso(),row.project_id),...after]);
+        ctx.env.DB.prepare('UPDATE canvas_agent_conversations SET allowance_credits=?,allowance_tariff=?,diagnostic_allowance=?,revision=revision+1,updated_at=? WHERE project_id=?')
+            .bind(body.capCredits,tariff.revision,body.diagnostics===undefined?row.diagnostic_allowance||0:body.diagnostics?1:0,nowIso(),row.project_id),...after]);
 }
 export async function controlCanvasConversation(ctx,row,body,key,locale) {
     check(body,['action','expectedConversationRevision','draft','locale']);
@@ -49,7 +50,7 @@ export async function controlCanvasConversation(ctx,row,body,key,locale) {
     const pending=await canvasConversationBlocker(ctx.env,row.project_id);
     if(pending&&['skip_questions','delegate_duration'].includes(body.action))agentFail('canvas_agent_conversation_pending');
     if(['skip_questions','delegate_duration'].includes(body.action)){
-        const count=await ctx.env.DB.prepare("SELECT COUNT(*) AS n FROM canvas_agent_turns WHERE project_id=? AND state!='deleted'").bind(row.project_id).first();
+        const count=await ctx.env.DB.prepare("SELECT COUNT(*) AS n FROM canvas_agent_turns t WHERE project_id=? AND state!='deleted' AND NOT EXISTS(SELECT 1 FROM canvas_agent_incident_explanations x WHERE x.turn_id=t.id)").bind(row.project_id).first();
         if(count.n>=80)agentFail('canvas_agent_conversation_limit');
     }
     const brief=body.action==='clear'?emptyBrief():JSON.parse(row.brief_json),now=nowIso(),id=randomTokenHex(16);

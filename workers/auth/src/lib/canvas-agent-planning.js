@@ -3,7 +3,7 @@ import { dialoguePriceInput } from '../../../shared/canvas-agent-dialogue.mjs';
 import { CANVAS_AGENT_POLICY_VERSION, canvasAgentSystem, canvasAgentPolicyIdentity } from '../../../shared/canvas-agent/manifest.mjs';
 import { AI_USAGE_OPERATIONS, prepareAiUsagePolicy } from './ai-usage-policy.js';
 import { CANVAS_AGENT_MODEL } from '../../../../js/shared/canvas-agent-contract.mjs';
-import { CANVAS_AGENT_PLAN_MAX_OUTPUT_TOKENS, CANVAS_AGENT_PLAN_INPUT_MAX_BYTES, canvasAgentPlanSystem, CANVAS_AGENT_PLAN_SCHEMA,
+import { CANVAS_AGENT_PLAN_MAX_OUTPUT_TOKENS, CANVAS_AGENT_PLAN_INPUT_MAX_BYTES, canvasAgentPlanSystem, CANVAS_AGENT_PLAN_SCHEMA, canvasAgentValidationDiagnostic,
     CANVAS_AGENT_EVALUATION_MAX_OUTPUT_TOKENS, CANVAS_AGENT_EVALUATION_SYSTEM, CANVAS_AGENT_EVALUATION_SCHEMA } from '../../../shared/canvas-agent-plan.mjs';
 import { buildServiceAuthHeaders } from '../../../../js/shared/service-auth.mjs';
 import { AI_CALLER_POLICY_VERSION } from '../../../shared/ai-caller-policy.mjs';
@@ -104,6 +104,11 @@ export async function budgetCanvasAgentPlan(env,run,payload) {
 }
 export const quoteCanvasAgentEvaluation=(env,modelId=CANVAS_AGENT_MODEL)=>quoteModelTariff(env,{modelId,input:evaluationPriceInput(modelId)});
 const fail=code=>{throw Object.assign(new Error(code),{code,status:409});};
+function invalidReceipt(receipt) {
+    const diagnostic=canvasAgentValidationDiagnostic(receipt.validationDiagnostic);
+    throw Object.assign(new Error(receipt.code||'canvas_agent_model_output_invalid'),{code:receipt.code||'canvas_agent_model_output_invalid',status:409,
+        outcome:receipt.outcome,...(diagnostic?{validationDiagnostic:diagnostic}:{})});
+}
 
 export async function settleStoredReceipt(env,run,step,result,operation=null,{settlementReviewId=null,settlementReviewLeaseToken=null}={}) {
     const modelId=canvasAssistantModelId(operation?.model||run.model_id);
@@ -174,7 +179,7 @@ export async function settleStoredReceipt(env,run,step,result,operation=null,{se
     if(result.reasoningSummary?.source==='provider'&&result.reasoningSummary.delivery==='completed')
         await appendCanvasAgentEvent(env,run,`provider-summary:${step.id}`,'provider_summary',{
             phase:step.kind,model:modelId,text:result.reasoningSummary.text,source:'provider',delivery:'completed'});
-    if(!result.ok)fail(result.code||'canvas_agent_model_output_invalid');
+    if(!result.ok)invalidReceipt(result);
     return result;
 }
 
@@ -202,7 +207,7 @@ export async function executeCanvasAgentModel(env,run,step,user,suppliedPayload)
         if(operation.state==='completed'){
             const settled=await env.DB.prepare('SELECT status FROM canvas_agent_steps WHERE id=?').bind(step.id).first();
             if(!['completed','rejected'].includes(settled?.status))return null;
-            const receipt=JSON.parse(operation.receipt_json);if(!receipt.ok)fail(receipt.code);return receipt;
+            const receipt=JSON.parse(operation.receipt_json);if(!receipt.ok)invalidReceipt(receipt);return receipt;
         }
         if(operation.state==='rejected')fail(operation.error_code||'canvas_agent_provider_rejected');
         if(operation.state==='unknown')fail(operation.error_code||'canvas_agent_provider_outcome_unknown');
@@ -210,8 +215,8 @@ export async function executeCanvasAgentModel(env,run,step,user,suppliedPayload)
     };
     if(operation)return observe();
     if(step.status!=='ready')fail('canvas_agent_planning_review_required');
-    if(step.kind==='plan'&&run.purpose!=='briefing')await (await import('./canvas-agent-repair.js')).assertCanvasAgentPlanningAllowed(env,run);
-    const phase=kind==='dialogue'?'briefing':step.kind==='evaluate'?'evaluation':payload.repair?'correction':'planning';
+    if(step.kind==='plan'&&run.purpose!=='briefing')await (await import('./canvas-agent-repair.js')).assertCanvasAgentPlanningAllowed(env,run,[],{stepId:step.id});
+    const phase=kind==='dialogue'?(payload.policy?.phase==='explanation'?'explanation':'briefing'):step.kind==='evaluate'?'evaluation':payload.repair?'correction':'planning';
     const version=payload.policy?.version||(kind==='dialogue'&&payload.version===1?'canvas-policy-1':CANVAS_AGENT_POLICY_VERSION);
     let effectivePolicy;try { effectivePolicy=await canvasAgentPolicyIdentity(phase,version); } catch { fail('canvas_agent_policy_review_required'); }
     if(!payload.policy||JSON.stringify(payload.policy)!==JSON.stringify(effectivePolicy))fail('canvas_agent_policy_review_required');

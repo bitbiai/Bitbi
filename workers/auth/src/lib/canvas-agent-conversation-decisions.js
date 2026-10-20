@@ -147,7 +147,7 @@ export async function confirmCanvasConversationDecision(ctx,session,projectId,in
 export async function handleCanvasConversationDecisionMessage(ctx,session,view,row,input,key){
  if(detectCanvasDirectControl(input.text)||canvasConversationReadIntent(input.text))return false;
  const env=ctx.env,brief=parse(row.brief_json),pending=await current(env,row.project_id),intent=canvasConversationDecisionIntent(input.text,{locale:input.locale,budgetAsked:pending?.kind==='production_budget'&&parse(pending.scope_json).questionConversationRevision===row.revision});
- const count=await env.DB.prepare("SELECT COUNT(*) AS n FROM canvas_agent_turns WHERE project_id=? AND state!='deleted'").bind(row.project_id).first();
+ const count=await env.DB.prepare("SELECT COUNT(*) AS n FROM canvas_agent_turns t WHERE project_id=? AND state!='deleted' AND NOT EXISTS(SELECT 1 FROM canvas_agent_incident_explanations x WHERE x.turn_id=t.id)").bind(row.project_id).first();
  if(count.n>=80)agentFail('canvas_agent_conversation_limit');
  if(intent?.kind==='invalid_cap')agentFail('canvas_agent_budget_required',400);
  if(intent?.kind==='accept'||intent?.kind==='decline'){

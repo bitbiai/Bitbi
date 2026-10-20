@@ -2,6 +2,26 @@ const {test,expect}=require('@playwright/test');
 const {SqliteD1Database,applyAuthMigrations}=require('./helpers/sqlite-d1.js');
 const {createAuthTestEnv}=require('./helpers/auth-worker-harness.js');
 
+for(const name of ['recover','guards','race'])test(`Canvas reviewed invalid plan correction ${name}`,async()=>{
+    const DB=new SqliteD1Database();applyAuthMigrations(DB);
+    try{
+        const {canvasPlanCorrectionReviewCase}=await import('./helpers/canvas-agent-plan-correction-review-control.mjs');
+        const result=await canvasPlanCorrectionReviewCase({...createAuthTestEnv(),DB},name);
+        expect(result.case).toBe(name);expect(result.newPlanningCalls).toBe(name==='recover'?1:0);
+        expect((await DB.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);
+    }finally{DB.close();}
+});
+
+for(const name of ['recover','guards','crash','active','preflight'])test(`Canvas stored invalid plan interpretation ${name}`,async()=>{
+    const DB=new SqliteD1Database();applyAuthMigrations(DB);
+    try{
+        const {canvasPlanInterpretationCase}=await import('./helpers/canvas-agent-plan-interpretation-control.mjs');
+        const result=await canvasPlanInterpretationCase({...createAuthTestEnv(),DB},name);
+        expect(result.case).toBe(name);expect(result.newPlanningCalls).toBe(name==='preflight'?1:0);
+        expect((await DB.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);
+    }finally{DB.close();}
+});
+
 for(const name of ['exact','unrelated','concurrent','debit-crash','graph-crash','cancelled','expired','taken-over','edited','invalid-plan','usage-invalid','raw-usage-contract','over-reservation','identity','inert-music-normalization','inert-music-boundary','continuation','continuation-crash','continuation-authority','continuation-evidence','continuation-revalidation'])test(`Canvas stored planning settlement ${name}`,async()=>{
     const DB=new SqliteD1Database();applyAuthMigrations(DB);
     try{

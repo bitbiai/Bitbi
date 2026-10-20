@@ -2318,6 +2318,39 @@ separate. Keep exact candidate reports in the existing local release checkpoint.
 
 ### Completed Canvas plan admission and autonomy — 2026-10-16
 
+A separate 2026-10-20 incident on Auth `5124a1c8` / AI `6881a7f8`
+retained a completed, settled plan rejected for an outgoing dissolve on its final
+clip (`plan.assembly.clips[4].transition.preset`, `terminal_transition`). A schema
+response is not proof of model-specific or graph validity. After removing only
+that ineffective terminal join in a derived copy, ordinary preflight independently
+rejected image `outputFormat` and video-only settings on a music node. Preserve
+that distinction; never remove meaningful unsupported settings to obtain a pass.
+The later operational start instruction changed only `latestInstruction`, but
+advanced the brief revision. Its failed action did not start another production.
+Original responses, policy identities, usage and brief pins remain immutable.
+
+Use safe typed validation reasons through normalization and settlement. A known
+completed invalid response is not unknown provider acceptance. New productions
+use the existing bounded correction path for semantic/preflight failures;
+operator continuation requires a separately hashed review, original allowance,
+current graph/brief/ownership and stop/expiry guards. An operational-only brief
+review must retain both original and effective evidence rather than overwrite
+pinned run fields. New reasoning gets its own bounded step and usage identity.
+Smallest controls live in the existing provider/settlement-review Worker specs,
+`canvas-reliability` native suite, and the shared interpretation helper. Private
+receipts and user identifiers remain outside Git.
+
+Project-error explanations project the existing notification sources, not a new
+execution ledger. Persist a localized, application-attributed fallback immediately;
+use paid model analysis only with explicit diagnostic consent inside the existing
+conversation/project limits. Duplicate aliases cannot starve another incident;
+unknown model outcomes keep the dialogue fence; clearing an error is not evidence
+of recovery. Reserve the recovery update for an applied plan or completed receipt.
+Actual callers are `q2-canvas-reliability.spec.js`, its native suite, and EN/DE
+Chromium/WebKit Canvas observer cases, including a manual error without a user
+question or refresh. Neither notification reads nor explanations authorize repair.
+
+
 Source `13f87022`, production run `5de00c4abb84ea72b42168eed00c7438`, retained a
 successful Grok response but no applied graph. The normal H3 adapter rejects its
 mixed frame/reference roles and fixed aspect ratio with frame mode. Those are
@@ -2555,6 +2588,16 @@ import the authenticated receipt before the activation branch, preserve its
 original SHA/version/job identities, and perform read-only current-state checks.
 Continue the same protected frontend path without reactivation, media acceptance
 replay or repeated tests. A completed backend receipt is the recovery checkpoint.
+
+The 2026-10-20 continuation of `5124a1c8` distinguishes a release-observer failure
+from accepted synthetic work finishing afterwards. Bind any retained late result
+to its exact original identity, final receipt and observed completion time; never
+fabricate an earlier completion or rerender it to satisfy an observer window.
+Source validation and push deferral must use the same closed ancestry predicate.
+Exercise the actual push CLI and source-restoration caller with recorded job
+history before publication; a helper-only tree check missed that boundary. The
+changed guards live in `test-completed-media-continuation.mjs`; current D1 reads
+and an altered-terminal-time countercontrol calibrate its exact job proof.
 
 Post-upload recovery: `38853747854/1` activated the accepted frontend, but its
 immediate public hash matched the previous `005c0dd4` page exactly. Subsequent

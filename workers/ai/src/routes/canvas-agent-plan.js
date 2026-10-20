@@ -20,6 +20,7 @@ function failure(error, afterDispatch = false, preparationOnly = false) {
     retryable: false,
     ...(expected && error.usage ? { usage: error.usage } : {}),
     ...(expected && error.usageDiagnostic ? { usageDiagnostic: error.usageDiagnostic } : {}),
+    ...(expected && error.validationDiagnostic ? { validationDiagnostic: error.validationDiagnostic } : {}),
     ...(expected && error.responseId ? { responseId: error.responseId } : {}),
     ...(expected && error.requestId ? { requestId: error.requestId, model: error.model || GROK_4_7_MODEL_ID } : {}),
   }, { status: expected || isRequestBodyError(error) ? error.status : 502 });

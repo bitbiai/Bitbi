@@ -37,6 +37,7 @@ async function finish(env,row,state,result) {
   const written=await env.DB.prepare('UPDATE canvas_agent_action_receipts SET state=?,result_json=?,updated_at=? WHERE id=? AND user_id=? AND state=? AND result_json IS ?')
     .bind(state,JSON.stringify(result),nowIso(),row.id,row.user_id,row.state,row.result_json).run();
   if(written.meta?.changes!==1)return env.DB.prepare('SELECT * FROM canvas_agent_action_receipts WHERE id=?').bind(row.id).first();
+  if(['failed','review_required'].includes(state))await (await import('./canvas-agent-incidents.js')).captureCanvasProjectIncidents(env,row.project_id,row.user_id);
   return {...row,state,result_json:JSON.stringify(result)};
 }
 async function owned(env,userId,projectId){

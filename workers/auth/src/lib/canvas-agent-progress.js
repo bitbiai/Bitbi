@@ -19,14 +19,18 @@ const messages={
     exporting:['Assembling and checking the saved video.','Das gespeicherte Video wird zusammengesetzt und geprüft.'],
     completed:['The playable final video is saved. The Canvas project remains editable.','Das abspielbare fertige Video ist gespeichert. Das Canvas-Projekt bleibt bearbeitbar.'],
 };
-export async function appendCanvasAgentEvent(env,run,key,type,fields={}) {
+export function canvasAgentEventStatement(env,run,key,type,fields={}) {
     if(!types.has(type)||typeof key!=='string'||key.length>180)throw new TypeError('Invalid Canvas event');
     const locale=JSON.parse(run.input_json||'{}').locale==='de'?1:0;
     const payload={...fields,...(messages[fields.code]?{text:messages[fields.code][locale]}:{})};
     const json=JSON.stringify(payload);
     if(new TextEncoder().encode(json).length>12000)throw new TypeError('Canvas event too large');
-    await env.DB.prepare(`INSERT INTO canvas_agent_events(run_id,event_key,type,payload_json,created_at)
-        VALUES(?,?,?,?,?) ON CONFLICT(run_id,event_key) DO NOTHING`).bind(run.id,key,type,json,nowIso()).run();
+    return env.DB.prepare(`INSERT INTO canvas_agent_events(run_id,event_key,type,payload_json,created_at)
+        VALUES(?,?,?,?,?) ON CONFLICT(run_id,event_key) DO NOTHING`).bind(run.id,key,type,json,nowIso());
+}
+export async function appendCanvasAgentEvent(env,run,key,type,fields={}) {
+    await canvasAgentEventStatement(env,run,key,type,fields).run();
+    if(type==='error')await (await import('./canvas-agent-incidents.js')).captureCanvasProjectIncidents(env,run.project_id,run.user_id);
 }
 export async function readCanvasAgentEvents(env,runId,after=0) {
     if(!Number.isSafeInteger(after)||after<0)throw Object.assign(new Error('canvas_agent_event_cursor_invalid'),{code:'canvas_agent_event_cursor_invalid',status:400});

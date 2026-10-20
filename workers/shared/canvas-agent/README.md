@@ -24,8 +24,8 @@ immutable original context, including after a release or model disablement.
 Hashes identify accepted content; protected source publication remains the
 authority to change it.
 
-The current `canvas-policy-4` core names the Canvas role independently of its
-provider. Versions 1, 2 and 3 retain their original text, skill selection and hashes
+The current `canvas-policy-5` core names the Canvas role independently of its
+provider. Versions 1, 2, 3 and 4 retain their original text, skill selection and hashes
 for accepted operations. Both admitted assistants receive the same canonical
 project context and phase skills; neither receives private Admin conversations,
 tools or opaque provider thinking/signatures. The project selector is stored in
@@ -42,6 +42,26 @@ detects concurrent source changes, separates historical errors from current
 state and distinguishes the briefing allowance from production authorization.
 The observer contains only SELECTs and never dispatches or repairs work. Both
 native adapters and their quotes receive this same canonical context.
+
+Version 5 adds an outgoing-join constraint to planning/correction and a strictly
+informational incident explanation phase. Explanations use dialogue v2 but must
+return `status` with empty updates, questions and actions. They cannot authorize
+spending, edit the brief or launch recovery. Existing notification sources feed
+project-scoped incident projections and durable conversation messages; read
+markers remain independent. A separate explanation revision does not change the
+creative project or conversation decision revision. Repeated source events
+coalesce by operation/cause, and a material recovery produces at most one update.
+Project deletion retains the existing redaction and execution fences.
+
+Historical conversation allowances do not authorize automatic inference. A user
+can explicitly allow diagnostic replies within the same existing conversation
+cap. Without that consent, available headroom or provider readiness, Canvas
+immediately persists a localized application-authored explanation. An authorized
+model reply uses the selected assistant and its own stable explanatory operation
+identity, retains the failed operation as provenance, updates that message, and
+never receives permission to retry the failed production.
+Unknown explanatory outcomes remain fenced; their failures do not recursively
+create further explanation calls.
 
 Model replies retain their original text; application receipts never replace
 them. Message `provenance`/`kind` distinguish model answers, application

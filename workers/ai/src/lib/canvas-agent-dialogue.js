@@ -39,11 +39,12 @@ export function buildCanvasAgentDialoguePayload(input) {
 }
 export function canvasAgentDialogueContext(input) {
   return { dialogue: true, dialogueVersion: input.version, conversationRevision: input.conversationRevision, briefRevision: input.briefRevision,
-    projectRevision: input.projectRevision, messageId: input.message.id };
+    projectRevision: input.projectRevision, messageId: input.message.id, ...(input.policy?.phase === 'explanation' ? {explanation:true} : {}) };
 }
 export function validateCanvasAgentDialogueContext(context) {
-  if (!object(context) || Object.keys(context).some(key => !['dialogue', 'dialogueVersion', 'conversationRevision', 'briefRevision', 'projectRevision', 'messageId'].includes(key))
+  if (!object(context) || Object.keys(context).some(key => !['dialogue', 'dialogueVersion', 'conversationRevision', 'briefRevision', 'projectRevision', 'messageId', 'explanation'].includes(key))
     || context.dialogue !== true || context.dialogueVersion !== undefined && ![1, 2].includes(context.dialogueVersion) || ![context.conversationRevision, context.briefRevision, context.projectRevision].every(revision)
+    || context.explanation !== undefined && (context.explanation !== true || context.dialogueVersion !== 2)
     || !safeId(context.messageId)) invalid('canvas_agent_normalization_context_invalid');
   return { ...structuredClone(context), dialogueVersion: context.dialogueVersion ?? 1 };
 }

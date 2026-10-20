@@ -6,6 +6,7 @@ import {
   CANVAS_AGENT_EVALUATION_INPUT_MAX_BYTES, CANVAS_AGENT_EVALUATION_FRAME_TOTAL_BYTES, validateCanvasAgentEvaluation,
   CANVAS_AGENT_REASONING_SUMMARY_DELIVERY, canvasAgentReasoningSummary,
   canvasAgentPlanSystem,
+  canvasAgentValidationDiagnostic,
 } from '../../../shared/canvas-agent-plan.mjs';
 import { CANVAS_AGENT_DIALOGUE_VERSION, CANVAS_AGENT_DIALOGUE_MAX_OUTPUT_TOKENS, validateCanvasAgentDialogue } from '../../../shared/canvas-agent-dialogue.mjs';
 import { CANVAS_AGENT_POLICY_VERSION, canvasAgentSystem, canvasAgentPolicyIdentity, validateCanvasAgentPolicyIdentity } from '../../../shared/canvas-agent/manifest.mjs';
@@ -17,10 +18,12 @@ import { CANVAS_ASSISTANT_MODEL_VERSION, CANVAS_FABLE_MODEL, CANVAS_FABLE_ADMISS
 import { canvasFablePayload, canvasFableResponse } from '../../../shared/canvas-assistant-fable.mjs';
 
 export class CanvasAgentProviderError extends Error {
-  constructor(code, { status = 502, outcome = 'unknown', usage = null, responseId = null } = {}) {
+  constructor(code, { status = 502, outcome = 'unknown', usage = null, responseId = null, validationDiagnostic = null } = {}) {
     super(code);
     this.name = 'CanvasAgentProviderError';
     Object.assign(this, { code, status, outcome, usage, responseId, retryable: false });
+    const checkedDiagnostic = canvasAgentValidationDiagnostic(validationDiagnostic);
+    if (checkedDiagnostic) this.validationDiagnostic = checkedDiagnostic;
   }
 }
 const invalid = code => { throw new CanvasAgentProviderError(code, { status: 400, outcome: 'not_submitted' }); };
@@ -98,19 +101,30 @@ export function buildCanvasAgentPlanPayload(input) {
   return input.model === CANVAS_FABLE_MODEL ? canvasFablePayload(payload.messages, CANVAS_AGENT_PLAN_SCHEMA, CANVAS_AGENT_PLAN_MAX_OUTPUT_TOKENS) : payload;
 }
 
+function parseCanvasStructuredResponse(text, validate, invalidCode, reject) {
+  let parsed;
+  try { parsed = JSON.parse(text); }
+  catch {
+    reject(invalidCode, ['canvas_agent_plan_invalid', 'canvas_agent_evaluation_invalid'].includes(invalidCode)
+      ? { version: 1, category: 'json', path: invalidCode === 'canvas_agent_plan_invalid' ? 'plan' : 'evaluation', reason: 'invalid_json' } : null);
+  }
+  try { return validate(parsed); }
+  catch (error) { reject(invalidCode, canvasAgentValidationDiagnostic(error?.validationDiagnostic)); }
+}
+
 function normalizeCanvasStructuredResponse(raw, validate, invalidCode, modelId = GROK_4_7_MODEL_ID) {
   if (modelId === CANVAS_FABLE_MODEL) {
     const result = canvasFableResponse(raw);
-    const reject = code => { throw new CanvasAgentProviderError(code, { outcome: 'completed', usage: result.usage, responseId: result.responseId }); };
+    const reject = (code, validationDiagnostic = null) => { throw new CanvasAgentProviderError(code, { outcome: 'completed', usage: result.usage, responseId: result.responseId, validationDiagnostic }); };
     if (result.error) reject(result.error);
     if (new TextEncoder().encode(result.text).byteLength > CANVAS_AGENT_PLAN_MAX_BYTES) reject('canvas_agent_provider_response_invalid');
-    let value; try { value = validate(JSON.parse(result.text)); } catch { reject(invalidCode); }
+    const value = parseCanvasStructuredResponse(result.text, validate, invalidCode, reject);
     return { value, usage: result.usage, responseId: result.responseId, model: modelId, outcome: 'completed' };
   }
   const response = object(raw?.result) ? raw.result : raw;
   const usage = normalizeCanvasGrokUsage(response?.usage);
   const responseId = typeof response?.id === 'string' && /^[A-Za-z0-9_.:-]{1,180}$/.test(response.id) ? response.id : null;
-  const rejected = code => { throw new CanvasAgentProviderError(code, { outcome: 'completed', usage, responseId }); };
+  const rejected = (code, validationDiagnostic = null) => { throw new CanvasAgentProviderError(code, { outcome: 'completed', usage, responseId, validationDiagnostic }); };
   if (!object(response) || !['grok-4.7', GROK_4_7_MODEL_ID].includes(response.model)
     || !responseId || response.error || response.object !== 'chat.completion'
     || !Array.isArray(response.choices) || response.choices.length !== 1) rejected('canvas_agent_provider_response_invalid');
@@ -120,10 +134,7 @@ function normalizeCanvasStructuredResponse(raw, validate, invalidCode, modelId =
   if (choice?.finish_reason !== 'stop' || message?.role !== 'assistant' || message.tool_calls?.length
     || typeof message.content !== 'string' || new TextEncoder().encode(message.content).byteLength > CANVAS_AGENT_PLAN_MAX_BYTES) rejected('canvas_agent_provider_response_invalid');
   if (!usage) rejected('canvas_agent_provider_usage_missing');
-  let value;
-  try {
-    value = validate(JSON.parse(message.content));
-  } catch { rejected(invalidCode); }
+  const value = parseCanvasStructuredResponse(message.content, validate, invalidCode, rejected);
   // Only the documented readable Grok 4.7 summary is projected, as a completed
   // snapshot. Hidden/encrypted fields and arbitrary provider payloads stay out.
   const reasoningSummary = canvasAgentReasoningSummary(response);
@@ -144,7 +155,7 @@ async function checkedPolicy(input, phase) {
   // Preserve accepted v2/policy-2 requests without pairing a newer schema with
   // the historical policy that explicitly grants no action proposals.
   if (phase === 'briefing' && (input.version === 1 ? version !== 'canvas-policy-1' : version === 'canvas-policy-1')) invalid('canvas_agent_policy_changed');
-  if (input.model === CANVAS_FABLE_MODEL && !['canvas-policy-3',CANVAS_AGENT_POLICY_VERSION].includes(version)) invalid('canvas_agent_policy_changed');
+  if (input.model === CANVAS_FABLE_MODEL && !['canvas-policy-3', 'canvas-policy-4', CANVAS_AGENT_POLICY_VERSION].includes(version)) invalid('canvas_agent_policy_changed');
   let policy;
   try { policy = await canvasAgentPolicyIdentity(phase, version); } catch { invalid('canvas_agent_policy_changed'); }
   if (input.policy !== undefined && JSON.stringify(input.policy) !== JSON.stringify(policy)) invalid('canvas_agent_policy_changed');
@@ -276,7 +287,8 @@ export async function prepareCanvasAgentModel(env, envelope) {
   catch (error) { if (error instanceof CanvasAgentProviderError) throw error; invalid(error?.code || 'canvas_agent_input_invalid'); }
   const ready = canvasAgentProviderReadiness(env, input.model);
   if (!ready.available) throw new CanvasAgentProviderError(ready.reason, { status: 503, outcome: 'not_submitted' });
-  const phase = kind === 'dialogue' ? 'briefing' : kind === 'evaluate' ? 'evaluation' : input.repair ? 'correction' : 'planning';
+  const phase = kind === 'dialogue' ? input.policy?.phase === 'explanation' ? 'explanation' : 'briefing'
+    : kind === 'evaluate' ? 'evaluation' : input.repair ? 'correction' : 'planning';
   const policy = await checkedPolicy(input, phase);
   const validationContext = kind === 'plan'
     ? { targetDurationSeconds: input.targetDurationSeconds ?? null, ...(input.toleranceSeconds !== undefined ? { toleranceSeconds: input.toleranceSeconds } : {}),
