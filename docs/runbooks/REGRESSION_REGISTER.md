@@ -2108,6 +2108,9 @@ failure, cleanup faults, no-double-charge replay, tenant isolation, read races a
 quoted-command/budget-scope controls. Existing editable-film/audio/export callers
 remain required. Exact execution/publication evidence belongs in the canonical
 local-release checkpoint; private incident records stay outside Git.
+Historical release-selection and continuation fixtures must read their accepted
+Git source explicitly. A later Canvas candidate is a changed-input countercontrol,
+not evidence that the earlier closed export profile still applies to HEAD.
 
 The automatic-delivery follow-up was reproduced on published source `ee5eb71f`
 (run `39117449171/1`): the real message endpoint acknowledged a queued turn with

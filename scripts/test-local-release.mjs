@@ -3452,12 +3452,20 @@ async function testReadinessWorkerContinuation() {
 await testReadinessWorkerContinuation();
 
 async function testExportDeliveryContinuation(){
- const {EXPORT_DELIVERY_POLICY,EXPORT_DELIVERY_FILES,EXPORT_DELIVERY_PRIOR_FILES,EXPORT_DELIVERY_UNPUBLISHED_FILES,EXPORT_DELIVERY_PREFLIGHT:p,EXPORT_DELIVERY_SELECTION_PREFLIGHT:retryProfile,EXPORT_DELIVERY_DISCOVERY_PREFLIGHT:discoveryProfile,EXPORT_DELIVERY_HOSTING_PREFLIGHT:hostingProfile,EXPORT_DELIVERY_SDK_PREFLIGHT:sdkProfile,EXPORT_DELIVERY_BROWSER_PREFLIGHT:browserProfile,verifyExportDeliveryNative,assertExportDeliverySelectionTree,validateExportDeliverySelectionPrefix,exportDeliverySelectionPrefix,assertExportDeliveryTree,exportDeliveryPrefix,validateExportDeliveryPrefix,validateExportDeliveryRows,exportDeliveryCommand}=await import('./lib/canvas-export-release.mjs');
- const head='f'.repeat(40),currentSelection=selectCiTests(EXPORT_DELIVERY_UNPUBLISHED_FILES);
+ const {EXPORT_DELIVERY_POLICY,EXPORT_DELIVERY_FILES,EXPORT_DELIVERY_PRIOR_FILES,EXPORT_DELIVERY_UNPUBLISHED_FILES,EXPORT_DELIVERY_PREFLIGHT:p,EXPORT_DELIVERY_SELECTION_PREFLIGHT:retryProfile,EXPORT_DELIVERY_DISCOVERY_PREFLIGHT:discoveryProfile,EXPORT_DELIVERY_HOSTING_PREFLIGHT:hostingProfile,EXPORT_DELIVERY_SDK_PREFLIGHT:sdkProfile,EXPORT_DELIVERY_BROWSER_PREFLIGHT:browserProfile,exportDeliverySources,verifyExportDeliveryNative,assertExportDeliverySelectionTree,validateExportDeliverySelectionPrefix,exportDeliverySelectionPrefix,assertExportDeliveryTree,exportDeliveryPrefix,validateExportDeliveryPrefix,validateExportDeliveryRows,exportDeliveryCommand}=await import('./lib/canvas-export-release.mjs');
+ const accepted='844e6d1cd407ff79228037f80df7a32b2dcede2d',head='f'.repeat(40);
+ const gitRead=args=>execFileSync('git',args,{stdio:['ignore','pipe','pipe']});
+ // Read the actual accepted tree and Git range for this historical closed
+ // continuation. Today's unrelated Canvas inputs must never inherit it.
+ const acceptedSources=exportDeliverySources(accepted);assert(acceptedSources);
+ const reviewedSelection=selectCiTests(EXPORT_DELIVERY_UNPUBLISHED_FILES,{exportSources:acceptedSources});
+ assert.equal(reviewedSelection.policy,EXPORT_DELIVERY_POLICY);
+ assert.deepEqual(gitSelection(p.base,accepted),reviewedSelection);
+ assertExportDeliverySelectionTree(accepted,gitRead,browserProfile);
  // Preserve the historical selector/source contract for the previously accepted
  // continuations; the new BFCache profile is verified separately below.
- const selection={...currentSelection,files:currentSelection.files.filter(file=>!browserProfile.addedFiles.includes(file))};
- const commands=selectedCommands(currentSelection,{GITHUB_SHA:head,CANDIDATE_BASE:p.base});
+ const selection={...reviewedSelection,files:reviewedSelection.files.filter(file=>!browserProfile.addedFiles.includes(file))};
+ const commands=selectedCommands(reviewedSelection,{GITHUB_SHA:head,CANDIDATE_BASE:p.base});
  const read=args=>args[0]==='show'?execFileSync('git',['show',`${browserProfile.source}:${args[1].slice(head.length+1)}`],{stdio:['ignore','pipe','pipe']}):Buffer.from(args[0]==='rev-list'?`${head} ${p.source}\n`:(args[2]===p.base?selection.files:EXPORT_DELIVERY_FILES.filter(file=>!browserProfile.addedFiles.includes(file))).join('\n'));
  assertExportDeliveryTree(head,read);
  assert.throws(()=>assertExportDeliveryTree(head,args=>Buffer.from(args[0]==='rev-list'?`${head} ${'e'.repeat(40)}`:EXPORT_DELIVERY_FILES.join('\n'))),/exact published successor/);
@@ -3565,7 +3573,7 @@ async function testExportDeliveryContinuation(){
  assert.deepEqual(sdkProfile.retain.filter(i=>!hostingProfile.retain.includes(i)),[38,40,41,42]);
  assert.throws(()=>verifyExportDeliveryNative(()=>Buffer.from('changed actual native report')),/Changed retained native/);
  assert.throws(()=>verifyExportDeliveryNative(()=>{throw Error('Missing actual native report');}),/Missing actual native/);
- const browserContext={...sdkContext,selection:currentSelection};
+ const browserContext={...sdkContext,selection:reviewedSelection};
  const browserFailed={...structuredClone(sdkFailed),sha:browserProfile.source,selection,
   preflightContinuation:{source:sdkProfile.source,checkpoint:sdkProfile.checkpoint},
   commands:Array.from({length:46},(_,i)=>i<45?structuredClone(old.commands[i]):{command:commands[i],exitCode:1,logHash:browserProfile.failedLog})};
@@ -3573,9 +3581,28 @@ async function testExportDeliveryContinuation(){
  const browserFiles=['js/pages/canvas/main.js','tests/helpers/canvas-export-lifecycle-ui.cjs','scripts/lib/canvas-export-browser.mjs','scripts/pages-candidate.mjs','scripts/lib/canvas-export-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/lib/local-release-transport.mjs','scripts/local-release.mjs','scripts/test-local-release.mjs','scripts/test-ci-test-selection.mjs','docs/runbooks/REGRESSION_REGISTER.md'];
  const browserRead=args=>args[0]==='rev-list'&&(args.at(-1)===head||args.at(-1)===browserProfile.source)?Buffer.from(`${args.at(-1)} ${args.at(-1)===head?browserProfile.source:sdkProfile.source}\n`)
   :args[0]==='diff'&&args[2]===browserProfile.source?Buffer.from(browserFiles.join('\n'))
-  :args[0]==='diff'&&args[2]===p.base?Buffer.from(currentSelection.files.join('\n'))
-  :args[0]==='show'&&args[1].startsWith(head+':')?fs.readFileSync(args[1].slice(head.length+1)):sdkRead(args);
+  :args[0]==='diff'&&args[2]===p.base?Buffer.from(reviewedSelection.files.join('\n'))
+  :args[0]==='show'&&args[1].startsWith(head+':')?gitRead(['show',`${accepted}:${args[1].slice(head.length+1)}`]):sdkRead(args);
  assertExportDeliverySelectionTree(head,browserRead,browserProfile);
+ const currentSources=exportDeliverySources();assert(currentSources);
+ const changedInputs=Object.keys(acceptedSources).filter(file=>currentSources[file]!==acceptedSources[file]);
+ for(const file of changedInputs){
+  assert.throws(()=>assertExportDeliverySelectionTree(head,args=>args[0]==='show'&&args[1]===`${head}:${file}`?fs.readFileSync(file):browserRead(args),browserProfile),/Changed reviewed export source/,'A changed current input cannot inherit historical native/image/browser evidence: '+file);
+  const changedSelection=selectCiTests(EXPORT_DELIVERY_UNPUBLISHED_FILES,{exportSources:{...acceptedSources,[file]:currentSources[file]}});
+  assert.notEqual(changedSelection.policy,EXPORT_DELIVERY_POLICY);
+  assert.throws(()=>validateExportDeliverySelectionPrefix(browserFailed,{...browserContext,selection:changedSelection},browserProfile));
+ }
+ const actualHead=gitRead(['rev-parse','HEAD']).toString().trim(),actualSelection=gitSelection(p.base,actualHead);
+ if(changedInputs.length){
+  const currentSelection=selectCiTests(EXPORT_DELIVERY_UNPUBLISHED_FILES);
+  assert.notEqual(currentSelection.policy,EXPORT_DELIVERY_POLICY);
+  assert.throws(()=>validateExportDeliveryPrefix(old,{...context,selection:currentSelection}));
+ }
+ const committedSources=exportDeliverySources(actualHead);assert(committedSources);
+ if(Object.keys(acceptedSources).some(file=>committedSources[file]!==acceptedSources[file])){
+  assert.notEqual(actualSelection.policy,EXPORT_DELIVERY_POLICY);
+  assert.throws(()=>assertExportDeliverySelectionTree(actualHead,gitRead,browserProfile));
+ }
  for(const file of ['workers/media/src/index.js','services/homepage-ffmpeg-processor/processor.mjs','tests/helpers/canvas-assembly-editing-ui.cjs'])
   assert.throws(()=>assertExportDeliverySelectionTree(head,args=>args[0]==='diff'&&args[2]===browserProfile.source?Buffer.from([...browserFiles,file].join('\n')):browserRead(args),browserProfile),/outside failed selection/,'Unchanged image/native/editability acceptance cannot cover a changed input');
  for(const change of [r=>r.commands[45].exitCode=0,r=>r.commands[43].exitCode=1,r=>r.commands[42].command.run+='\nfalse',r=>r.environment.image='changed',r=>r.nativeBrowsers.key='changed',r=>r.selection.files.push('js/pages/canvas/main.js')]){
@@ -3590,9 +3617,9 @@ async function testExportDeliveryContinuation(){
  // The closed release caller requires the archived proofs, without rerunning
  // their product suites. Ordinary standalone tooling tests have no archive.
  if(process.argv.includes('--export-delivery-only')){
-  const actualHead=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+  assert.deepEqual(currentSources,acceptedSources,'The closed continuation cannot run against changed product inputs');
   const checkpoint=fs.readFileSync('.local-release/reuse/preflight-checkpoint.json'),actual=JSON.parse(checkpoint);
-  const actualContext={...actual,sha:actualHead,selection:currentSelection,commands:selectedCommands(currentSelection,{GITHUB_SHA:actualHead,CANDIDATE_BASE:p.base})};
+  const actualContext={...actual,sha:actualHead,selection:actualSelection,commands:selectedCommands(actualSelection,{GITHUB_SHA:actualHead,CANDIDATE_BASE:p.base})};
   exportDeliverySelectionPrefix(checkpoint,actualContext,args=>execFileSync('git',args,{stdio:['ignore','pipe','pipe']}),browserProfile);
   verifyExportDeliveryNative(file=>fs.readFileSync(path.join('.local-release/runtime',file)));
   const imageGuards=spawnSync(process.execPath,['scripts/test-media-activation-reuse.mjs','--export-delivery-sdk-only'],{encoding:'utf8',maxBuffer:4*1024*1024});
