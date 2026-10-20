@@ -1626,3 +1626,4 @@ print(json.dumps([dict(r) for r in c.execute(sys.argv[1],json.loads(sys.argv[3])
 }
 
 await import('./test-media-activation-reuse.mjs');
+await import('./test-completed-media-continuation.mjs');

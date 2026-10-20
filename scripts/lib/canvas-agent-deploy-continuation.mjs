@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
+import {COMPLETED_MEDIA_SOURCE,assertCompletedMediaDelta,resolveCompletedMediaSource} from './completed-media-continuation.mjs';
 
 export const CANVAS_AGENT_DEPLOY_SOURCE = Object.freeze({
   policy:'canvas-agent-deploy-only-v1',
@@ -352,6 +353,7 @@ export function canvasAgentDeployPushDeferred(env=process.env,options={}) {
   if(env.GITHUB_EVENT_NAME!=='push'||env.GITHUB_REF!=='refs/heads/main')return false;
   const readGit=options.readGit||git;
   const parent=readGit(['rev-parse',`${env.GITHUB_SHA}^`]);
+  if(parent===COMPLETED_MEDIA_SOURCE.sha){assertCompletedMediaDelta(env.GITHUB_SHA,{read:readGit});return true;}
   if([CANVAS_AGENT_RECOVERY_SOURCE.sha,CANVAS_AGENT_RECOVERY_CHECK_SOURCE.sha,CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha,CANVAS_AGENT_FRONTEND_SOURCE.sha,CANVAS_AGENT_RECONCILIATION_SOURCE.sha].includes(parent)){assertCanvasAgentRecoveryDelta(env.GITHUB_SHA,{readGit});return true;}
   if(parent!==CANVAS_AGENT_DEPLOY_SOURCE.sha)return false;
   assertCanvasAgentDeployDelta(env.GITHUB_SHA,{readGit});
@@ -365,6 +367,14 @@ if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.ur
       if(process.env.GITHUB_OUTPUT)fs.appendFileSync(process.env.GITHUB_OUTPUT,`deferred=${deferred}\n`);
       console.log(deferred?'Accepted artifacts remain unchanged; use the explicit protected candidate continuation.':'Ordinary exact-source validation.');
     } else {
+      const completedMedia=resolveCompletedMediaSource();
+      if(completedMedia) {
+        const lines=`REPAIR_SOURCE_SHA=${completedMedia.sha}\nREPAIR_SOURCE_RUN=${completedMedia.run}\nREPAIR_SOURCE_ATTEMPT=${completedMedia.attempt}\n`;
+        if(process.env.GITHUB_ENV)fs.appendFileSync(process.env.GITHUB_ENV,lines);
+        if(process.env.GITHUB_OUTPUT)fs.appendFileSync(process.env.GITHUB_OUTPUT,`completed_media=true\nrepair_source_sha=${completedMedia.sha}\nrepair_source_run=${completedMedia.run}\nrepair_source_attempt=${completedMedia.attempt}\n`);
+        console.log('Retain exact completed candidate; verify original stored smoke results without another render.');
+        process.exit(0);
+      }
       const source=resolveCanvasAgentDeploySource(),recovery=resolveCanvasAgentRecoverySource();
       const parent=git(['rev-parse',`${process.env.GITHUB_SHA}^`]),frontendOnly=Boolean(recovery&&[CANVAS_AGENT_FRONTEND_SOURCE.sha,CANVAS_AGENT_RECONCILIATION_SOURCE.sha].includes(parent));
       const deployOnly=Boolean(recovery&&(frontendOnly||parent===CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha));

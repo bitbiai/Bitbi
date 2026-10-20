@@ -19,6 +19,7 @@ import {api,collection,REPOSITORY} from '../pages-candidate.mjs';
 import {repairDelta,repairKind,verifyRepairSource,isModelAreaSchemaRepair,MODEL_AREA_SCHEMA_REPAIR} from './media-repair-source.mjs';
 import {resolveCanvasAgentDeploySource,resolveCanvasAgentRecoverySource,verifyCanvasAgentRecoverySource,resolveCanvasAgentFrontendSource,verifyCanvasAgentFrontendSource} from './canvas-agent-deploy-continuation.mjs';
 import {verifyCanvasRecoveryComponent,readCanvasRecoveryJobs,verifyCanvasRecoveryLifecycle,canvasRecoveryOutputIdentity,readCanvasRecoveryActor} from './canvas-agent-backend-recovery.mjs';
+import {resolveCompletedMediaSource,completedMediaEvidence,readCompletedMediaJobs} from './completed-media-continuation.mjs';
 const worker='bitbi-auth';
 const backendEnv=()=>({...process.env,CLOUDFLARE_API_TOKEN:process.env.CF_BACKEND_DEPLOY_TOKEN||process.env.CLOUDFLARE_API_TOKEN});
 const pause=milliseconds=>new Promise(resolve=>setTimeout(resolve,milliseconds));
@@ -349,6 +350,8 @@ async function publishCanvasRecovery(c) {
 // A tooling repair preserves the independently recorded backend identity. The
 // authenticated Actions archive, not a mutable local receipt, authorizes reuse.
 export function backendReceiptContext(c,env=process.env) {
+  const completedMediaSource=resolveCompletedMediaSource(env);
+  if(completedMediaSource)return {...c,publicationSha:c.sha,sha:completedMediaSource.sha,completedMediaSource};
   const frontendSource=resolveCanvasAgentFrontendSource(env);
   if(frontendSource) {
     assert.equal(c.sha,env.GITHUB_SHA,'Wrong frontend continuation checkout');
@@ -413,6 +416,45 @@ with zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read())) as z:
 function storeBackendReceipt(receipt) {
   fs.mkdirSync('test-results',{recursive:true});fs.writeFileSync('test-results/backend-release.json',JSON.stringify(receipt,null,2)+'\n');
   if(process.env.GITHUB_ENV)fs.appendFileSync(process.env.GITHUB_ENV,`BACKEND_RELEASE_RECEIPT=${path.resolve('test-results/backend-release.json')}\n`);
+}
+async function completedMediaComponents(c) {
+  const evidence=await completedMediaEvidence({read:api,download:fetch,token:process.env.GH_TOKEN});
+  const auth=await active();verifyCanvasRecoveryComponent(auth,evidence,'auth');
+  const deployment=(await readBackend('workers/scripts/bitbi-private-media/deployments')).deployments[0];
+  assert(deployment?.versions?.length===1&&deployment.versions[0].percentage===100,'Ambiguous retained media traffic');
+  const version=await readBackend(`workers/scripts/bitbi-private-media/versions/${deployment.versions[0].version_id}`);
+  const activation=verifyCanvasRecoveryComponent({deployment,version},evidence,'media');
+  const imageDigest=version.annotations['workers/message'].slice(`bitbi-media:${c.sha}:`.length);
+  return {evidence,auth,reuse:{sha:c.sha,run:c.completedMediaSource.run,attempt:c.completedMediaSource.attempt,imageDigest,
+    artifact:c.completedMediaSource.media,activation:{workerVersion:activation.version,deployment:activation.deployment,run:c.completedMediaSource.run,attempt:c.completedMediaSource.attempt,job:c.completedMediaSource.job,authorization:c.completedMediaSource.authorization}}};
+}
+async function completeStoredMediaPublication(c) {
+  await verifyRepairSource(process.env,{complete:true});await current(c.publicationSha);
+  assert(process.env.MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET,'Missing existing processor credential');
+  assert(!c.plan.workerDeploys.some(step=>step.worker==='ai'),'This continuation cannot replace AI activation evidence');
+  const {evidence,auth,reuse}=await completedMediaComponents(c);
+  const migration=JSON.parse(fs.readFileSync('config/release-compat.json')).release.schemaCheckpoints.auth.latest;
+  assert((await query(c.db,'SELECT name FROM d1_migrations WHERE name=?',[migration])).length===1,'Retained schema is not active');
+  await verifyCanvasExportSchema(sql=>query(c.db,sql));await verifyAuthTriggers(c.config);await ensurePrivateVideoLogging({verifyOnly:true});
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-completed-media-'));
+  try {
+    run(['versions','upload','--dry-run','--keep-vars','--outdir',directory]);
+    const authBundleDigest=createHash('sha256').update(fs.readFileSync(path.join(directory,'index.js'))).digest('hex');
+    await verifyAuthBundle(authBundleDigest);prerequisites(c.plan,auth.version,c.config);
+    const media=await publishMedia(c,undefined,{reuse,verifyActive:expected=>mediaActive(expected,backendEnv(),{read:readBackend,requireSourceBinding:true})});
+    const jobs=await readCompletedMediaJobs(evidence,(sql,params)=>query(c.db,sql,params));
+    const secret=createHash('sha256').update(`bitbi-private-media-v1:${process.env.MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET}`).digest('hex');
+    const smoke=await mediaSmoke(c,secret,media,{completedProof:jobs,
+      observeState:(application,state)=>waitMediaState(application,state,{read:readBackend})});
+    assert.deepEqual(await readCompletedMediaJobs(evidence,(sql,params)=>query(c.db,sql,params)),jobs,'Original smoke changed during result validation');
+    const featureFlags=canvasAgentActivationFlags(c.config,auth.version,'auth');
+    const receipt={sha:c.sha,base:c.base,run:c.runId,attempt:c.attempt,publicationSha:c.publicationSha,worker,migration,
+      version:auth.version.id,deployment:auth.deployment.id,featureFlags,media,smoke,authBundleDigest,
+      completedMedia:{source:c.completedMediaSource,jobs},mediaSourceSha:c.sha,processorRef:c.sha,
+      sourceTree:execFileSync('git',['rev-parse',`${c.sha}:workers/auth`],{encoding:'utf8'}).trim()};
+    await current(c.publicationSha);storeBackendReceipt(receipt);await verifyBackendReceipt('test-results/backend-release.json');
+    console.log(JSON.stringify({completedExistingMedia:true,source:c.sha,publicationSha:c.publicationSha}));
+  }finally{fs.rmSync(directory,{recursive:true,force:true});}
 }
 export function imageAcceptanceRepair(c) {
   return Boolean(!c.frontendSource&&c.publicationSha&&repairDelta(c.acceptedSourceSha||c.sha,c.publicationSha,c.base).includes('scripts/lib/image-delivery-acceptance.mjs'));
@@ -479,6 +521,16 @@ export async function reconcileImageDeliveryBackend(c) {
 export async function verifyBackendReceipt(file=process.env.BACKEND_RELEASE_RECEIPT) {
   const publication=context();await current(publication.sha);let c=backendReceiptContext(publication);
   const receipt=JSON.parse(fs.readFileSync(file));
+  if(c.completedMediaSource) {
+    await verifyRepairSource(process.env,{complete:true});
+    const retained=await completedMediaComponents(c);
+    assert.deepEqual(receipt.completedMedia?.source,c.completedMediaSource);
+    assert.equal(receipt.publicationSha,c.publicationSha);
+    assert.deepEqual(receipt.completedMedia.jobs,await readCompletedMediaJobs(retained.evidence,(sql,params)=>query(c.db,sql,params)));
+    assert.equal(receipt.media.imageDigest,retained.reuse.imageDigest);assert.deepEqual(receipt.media.artifact,retained.reuse.artifact);
+    assert.deepEqual(receipt.media.reusedActivation,retained.reuse.activation);
+    assert.equal(receipt.sourceTree,execFileSync('git',['rev-parse',`${c.sha}:workers/auth`],{encoding:'utf8'}).trim());
+  }
   if(c.frontendSource)assert.deepEqual(receipt,await readToolingBackendReceipt(c),'Local backend receipt differs from authenticated source');
   if(c.recoverySource) {
     const directory=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-recovery-readback-'));
@@ -506,7 +558,7 @@ export async function verifyBackendReceipt(file=process.env.BACKEND_RELEASE_RECE
     assert.equal(receipt.sourceTree,execFileSync('git',['rev-parse',`${c.sha}:workers/auth`],{encoding:'utf8'}).trim());
     verifyImageAcceptanceReceipt(receipt,c,publication,await findImageDeliveryActivation(c,await imageActivationStates()));
     c={...c,runId:publication.runId,attempt:publication.attempt};
-  }else if(c.publicationSha&&!c.frontendSource)assert.deepEqual(receipt,await readToolingBackendReceipt(c),'Local backend receipt differs from authenticated source');
+  }else if(c.publicationSha&&!c.frontendSource&&!c.completedMediaSource)assert.deepEqual(receipt,await readToolingBackendReceipt(c),'Local backend receipt differs from authenticated source');
   const state=await active();
   const migration=JSON.parse(fs.readFileSync('config/release-compat.json')).release.schemaCheckpoints.auth.latest;
   assert((await query(c.db,'SELECT name FROM d1_migrations WHERE name=?',[migration])).length===1,'Required schema not active');
@@ -520,12 +572,12 @@ export async function verifyBackendReceipt(file=process.env.BACKEND_RELEASE_RECE
   await verifyAuthBundle(receipt.authBundleDigest);
   if(c.plan.workerDeploys.some(s=>s.worker==='ai')) {assert(receipt.ai,'Missing AI prerequisite receipt');const aiConfig=JSON.parse(execFileSync('git',['show',`${c.sha}:workers/ai/wrangler.jsonc`],{encoding:'utf8'}));await verifyAiActivation(receipt.ai,c.recoverySource?.sha||c.sha,readBackend,aiConfig);await verifyAuthBundle(receipt.ai.bundleDigest,undefined,'bitbi-ai');}
   if(requiresPrivateMediaImage(c.plan.changedFiles)) {
-    const reuse=c.recoverySource?{sha:c.recoverySource.sha,run:c.acceptedSource.run,attempt:c.acceptedSource.attempt}:receipt.media?.reusedActivation?await resolveActiveMediaSource(c,{readCloudflare:readBackend}):null;
+    const reuse=c.completedMediaSource?c.completedMediaSource:c.recoverySource?{sha:c.recoverySource.sha,run:c.acceptedSource.run,attempt:c.acceptedSource.attempt}:receipt.media?.reusedActivation?await resolveActiveMediaSource(c,{readCloudflare:readBackend}):null;
     if(c.recoverySource)assert.equal(receipt.mediaSourceSha,c.recoverySource.sha);
-    else if(receipt.media?.reusedActivation)verifyReusedMediaReceipt(receipt,c,reuse);
+    else if(receipt.media?.reusedActivation&&!c.completedMediaSource)verifyReusedMediaReceipt(receipt,c,reuse);
     else assert.equal(receipt.mediaSourceSha,c.sha,'Unproven cross-source media receipt');
-    verifyMediaEvidence(receipt,{sha:reuse?.sha||c.sha,...(reuse?{run:reuse.run,attempt:reuse.attempt}:mediaEvidenceRun()),...(c.recoverySource?{imageSha:c.acceptedSource.sha,recoveryProof:receipt.recovery.jobs}:{imageSha:receiptImageSource(receipt.media,reuse?.sha||c.sha)}),lifecycle:true,previewBase:Boolean(c.recoverySource)||c.plan.changedFiles.includes('workers/auth/migrations/0097_canvas_preview_base.sql'),publicPreviews:Boolean(c.recoverySource)||c.plan.changedFiles.includes('workers/auth/migrations/0091_separate_thumbnail_processing.sql'),videoReferences:true,exportMusic:Boolean(c.recoverySource)||c.plan.changedFiles.some(f=>['workers/auth/migrations/0096_canvas_export_versions.sql','workers/auth/migrations/0097_canvas_preview_base.sql'].includes(f))});
-    await mediaActive(receipt.media,backendEnv(),{requireSourceBinding:Boolean(c.acceptedSource)});
+    verifyMediaEvidence(receipt,{sha:reuse?.sha||c.sha,...(reuse?{run:reuse.run,attempt:reuse.attempt}:mediaEvidenceRun()),...(c.completedMediaSource?{completedProof:receipt.completedMedia.jobs}:{}),...(c.recoverySource?{imageSha:c.acceptedSource.sha,recoveryProof:receipt.recovery.jobs}:{imageSha:receiptImageSource(receipt.media,reuse?.sha||c.sha)}),lifecycle:true,previewBase:Boolean(c.recoverySource||c.completedMediaSource)||c.plan.changedFiles.includes('workers/auth/migrations/0097_canvas_preview_base.sql'),publicPreviews:Boolean(c.recoverySource||c.completedMediaSource)||c.plan.changedFiles.includes('workers/auth/migrations/0091_separate_thumbnail_processing.sql'),videoReferences:true,exportMusic:Boolean(c.recoverySource||c.completedMediaSource)||c.plan.changedFiles.some(f=>['workers/auth/migrations/0096_canvas_export_versions.sql','workers/auth/migrations/0097_canvas_preview_base.sql'].includes(f))});
+    await mediaActive(receipt.media,backendEnv(),{read:readBackend,requireSourceBinding:Boolean(c.acceptedSource||c.completedMediaSource)});
     if(c.plan.changedFiles.includes('workers/auth/migrations/0091_separate_thumbnail_processing.sql')) {
       const activation=receipt.smoke.find(s=>s.backend==='cloudflare')?.thumbnailActivation;
       assert.equal(activation?.sha,reuse?.sha||c.sha,'Missing thumbnail rollout evidence');
@@ -567,6 +619,7 @@ export async function publishBackend() {
   fs.mkdirSync('test-results',{recursive:true});fs.rmSync('test-results/backend-diagnostics.jsonl',{force:true});
   const c=context();await verifyUploadSource();await current(c.sha);
   const original=backendReceiptContext(c);
+  if(original.completedMediaSource)return completeStoredMediaPublication(original);
   if(original.publicationSha) {
     const receipt=imageAcceptanceRepair(original)?await reconcileImageDeliveryBackend(original):await readToolingBackendReceipt(original);storeBackendReceipt(receipt);
     await verifyBackendReceipt('test-results/backend-release.json');console.log(JSON.stringify({reusedBackend:receipt}));return;
@@ -616,7 +669,7 @@ export async function publishBackend() {
       prepareMedia:mediaRequired?async()=>{media=await publishMedia(c,mediaSecretFile,{reuse:mediaReuse});}:undefined,
       deploy:()=>activateAuthVersion({sha:c.sha,mediaSourceSha,secretFile,featureFlags,assertCurrent:()=>current(c.sha)}),
       readActive:async()=>{const result=await active();await verifyAuthBundle(c.authBundleDigest);return result;},
-      verifyMedia:mediaRequired?async()=>{smoke=await mediaSmoke(c,secret,media);}:undefined,
+      verifyMedia:mediaRequired?async()=>{smoke=await mediaSmoke(c,secret,media,{observeState:(application,state)=>waitMediaState(application,state,{read:readBackend})});}:undefined,
     });
   }finally{fs.rmSync(temporary,{recursive:true,force:true});}
   prerequisites(c.plan,state.version,c.config);

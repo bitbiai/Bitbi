@@ -2,6 +2,7 @@
 // package. The package keeps its ORIGINAL SHA/run/proofs; only the closed repair
 // delta receives new acceptance. This is not a general cross-SHA test cache.
 import assert from 'node:assert/strict';
+import {COMPLETED_MEDIA_SOURCE,COMPLETED_MEDIA_FILES,completedMediaFiles,assertCompletedMediaDelta,assertCompletedMediaAcceptance,completedMediaDeferredPush} from './completed-media-continuation.mjs';
 import {execFileSync} from 'node:child_process';
 import {api,collection,sourceAttempt,validateSource,gitSelection,isRequiredValidationRun,requiredJobs,REPOSITORY} from '../pages-candidate.mjs';
 import {CANVAS_AUDIO_BROWSER_REPAIR,CANVAS_AUDIO_BROWSER_REPAIR_FILES,CANVAS_MERGE_BROWSER_REPAIR,CANVAS_MERGE_BROWSER_REPAIR_FILES,SEEDANCE_BROWSER_REPAIR,SEEDANCE_BROWSER_REPAIR_FILES,BROWSER_REPAIR,OMNI_BROWSER_REPAIR,OMNI_BROWSER_REPAIR_FILES,BROWSER_REPAIR_ACCEPTANCE,BROWSER_REPAIR_FILES,assertBrowserRepairTrees,assertBrowserPublicationTree,assertCompletedBrowserRepair} from './browser-fixture-repair.mjs';
@@ -43,6 +44,7 @@ export function isModelAreaSchemaRepair(files) {
 }
 const git=args=>execFileSync('git',args,{encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
 export function repairKind(files) {
+  if(completedMediaFiles(files))return 'tooling';
   if(isModelAreaSchemaRepair(files))return 'tooling';
   if(files.includes('tests/helpers/canvas-audio-ui.cjs')) {
     assert([...CANVAS_AUDIO_BROWSER_REPAIR_FILES].filter(f=>!f.startsWith('docs/')).every(f=>files.includes(f)),'Incomplete reviewed Canvas audio browser fixture repair');
@@ -92,14 +94,16 @@ export function assertUnchangedReleaseInputs(source,head) {
     assert(identity&&file,'Invalid Git tree entry');return {identity,file};
   });
   const before=entries(source),after=entries(head);
-  const protectedTree=rows=>rows.filter(row=>!TOOLING_REPAIR_FILES.has(row.file));
+  const allowed=source===COMPLETED_MEDIA_SOURCE.sha?new Set(COMPLETED_MEDIA_FILES):TOOLING_REPAIR_FILES;
+  const protectedTree=rows=>rows.filter(row=>!allowed.has(row.file));
   assert.deepEqual(protectedTree(after),protectedTree(before),'Tested website/backend/build inputs changed');
-  for(const row of after.filter(row=>TOOLING_REPAIR_FILES.has(row.file)))assert(/^100(?:644|755) blob [a-f0-9]{40}$/.test(row.identity),'Repair tooling must remain regular Git files');
+  for(const row of after.filter(row=>allowed.has(row.file)))assert(/^100(?:644|755) blob [a-f0-9]{40}$/.test(row.identity),'Repair tooling must remain regular Git files');
 }
 export function repairDelta(source,head,base) {
   for(const sha of [source,head,base])assert(/^[a-f0-9]{40}$/.test(sha||''),'Exact repair identities required');
   git(['merge-base','--is-ancestor',base,source]);git(['merge-base','--is-ancestor',source,head]);
   const files=git(['diff','--name-only','--no-renames',source,head]).split('\n').filter(Boolean);assertRepairFiles(files);
+  if(completedMediaFiles(files)){assert.equal(source,COMPLETED_MEDIA_SOURCE.sha);assertCompletedMediaDelta(head);}
   if(isModelAreaSchemaRepair(files))assert.equal(source,MODEL_AREA_SCHEMA_REPAIR.sha,'Unreviewed schema-admission source');
   if(repairKind(files)==='tooling')assertUnchangedReleaseInputs(source,head);
   if(['browser-fixture','browser-publication'].includes(repairKind(files)))assertBrowserRepairTrees(source,head);
@@ -114,6 +118,7 @@ export function repairSelection(full,files) {
     reasons:{...Object.fromEntries(Object.keys(full.reasons).map(k=>[k,[]])),workers:media?['Fresh processor Linux image, native D1/R2 smoke and SDK lifecycle']:[],auth:browser?['Execute the incident-specific repaired definitions and controls; complete any unexecuted command tail']:[],static:[browser?'Preserve authenticated unchanged source cases; require fresh repaired/control/tail browser execution':'Authenticated unchanged frontend source; no new browser execution claimed'],dependencies:[],workerDependencies:[]}};
 }
 export function assertRepairAcceptance(jobs,sha,files=['services/homepage-ffmpeg-processor/video-reference.mjs']) {
+  if(completedMediaFiles(files)){assertCompletedMediaDelta(sha);assertCompletedMediaAcceptance(jobs,sha);return;}
   const kind=repairKind(files),media=kind==='media',browser=kind==='browser-fixture';
   const requirements=requiredJobs({workers:media,mediaLifecycle:media,browserRepair:browser,files});
   if(files.includes('tests/helpers/canvas-audio-ui.cjs'))requirements['browser-validation'].push('Install Canvas browser media tools');
@@ -156,6 +161,7 @@ export async function verifyRepairSource(env=process.env,{complete=false}={}) {
   for(const r of currentRuns.filter(r=>String(r.id)!==String(env.GITHUB_RUN_ID)&&isRequiredValidationRun(r,repairSelection(e.selection,files)))) {
     assert.equal(r.status,'completed','Another repair validation is running');
     const rs=await collection(`actions/runs/${r.id}/attempts/${r.run_attempt}/jobs`,'jobs');
+    if(completedMediaFiles(files)&&r.event==='push'&&completedMediaDeferredPush(rs,head))continue;
     assertRepairAcceptance(rs,head,files);
   }
   if(complete)assertRepairAcceptance(await collection(`actions/runs/${env.GITHUB_RUN_ID}/attempts/${env.GITHUB_RUN_ATTEMPT}/jobs`,'jobs'),head,files);

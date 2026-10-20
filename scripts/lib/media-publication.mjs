@@ -12,6 +12,7 @@ import {verifyMediaImage} from '../private-media-image.mjs';
 import {CANVAS_AUDIO_BROWSER_REPAIR,assertBrowserRepairTrees} from './browser-fixture-repair.mjs';
 import {resolveCanvasAgentDeploySource,assertCanvasAgentDeployArtifact} from './canvas-agent-deploy-continuation.mjs';
 import {verifyCanvasRecoveryLifecycle,canvasRecoveryAcceptance,canvasRecoveryActor} from './canvas-agent-backend-recovery.mjs';
+import {COMPLETED_MEDIA_SOURCE,verifyCompletedMediaJobs,verifyCompletedMediaLifecycle,completedMediaLifecycle} from './completed-media-continuation.mjs';
 const run=(cmd,args,options={})=>{try{return execFileSync(cmd,args,{encoding:'utf8',stdio:['ignore','pipe','pipe'],timeout:600000,maxBuffer:8*1024*1024,...options});}catch{throw Error(`Private media ${path.basename(cmd)} operation failed; no frontend continuation`);}};
 const cli=path.resolve('workers/auth/node_modules/wrangler/bin/wrangler.js');
 const wrangler=args=>run(process.execPath,[cli,...args],{env:{...process.env,WRANGLER_SEND_METRICS:'false'}});
@@ -33,7 +34,8 @@ export function assertMediaAuthConfig(before,after) {
   assert.deepEqual(next,previous,'Unreviewed Auth configuration change');
   assert.deepEqual(after.services.filter(s=>s.binding==='PRIVATE_MEDIA_PROCESSOR'),[{binding:'PRIVATE_MEDIA_PROCESSOR',service:'bitbi-private-media'}]);
 }
-export function verifyMediaEvidence(receipt,{sha,run,attempt,imageSha=sha,lifecycle=false,publicPreviews=false,videoReferences=false,exportMusic=false,previewBase=false,recoveryProof=null}) {
+export function verifyMediaEvidence(receipt,{sha,run,attempt,imageSha=sha,lifecycle=false,publicPreviews=false,videoReferences=false,exportMusic=false,previewBase=false,recoveryProof=null,completedProof=null}) {
+  assert(!(recoveryProof&&completedProof),'Ambiguous retained media evidence');
   assert(receipt.media,'Missing media activation evidence');
   assert.equal(receipt.media.sha,sha);assert.equal(receipt.media.sourceRun,run);assert.equal(receipt.media.sourceAttempt,attempt);
   if(imageSha!==sha||receipt.media.imageSourceSha!==undefined)assert.equal(receipt.media.imageSourceSha,imageSha,'Wrong tested media image source');
@@ -50,7 +52,8 @@ export function verifyMediaEvidence(receipt,{sha,run,attempt,imageSha=sha,lifecy
   if(lifecycle) {
     const cycle=receipt.smoke.find(s=>s.backend==='cloudflare')?.lifecycle;
     assert(cycle,'Missing production idle/wake evidence');
-    if(recoveryProof)verifyCanvasRecoveryLifecycle(cycle,recoveryProof);
+    if(completedProof){verifyCompletedMediaLifecycle(cycle,completedProof);assert.deepEqual(cycle.actor,canvasRecoveryActor(receipt.media,COMPLETED_MEDIA_SOURCE),'Retained lifecycle actor differs from active media');}
+    else if(recoveryProof)verifyCanvasRecoveryLifecycle(cycle,recoveryProof);
     else {
     const events=['stoppedBefore','running','completed','stoppedAfter'].map(key=>Date.parse(cycle[key]?.observedAt));
     assert(events.every(Number.isFinite)&&events.every((n,i)=>!i||n>=events[i-1]),'Invalid lifecycle chronology');
@@ -62,6 +65,10 @@ export function verifyMediaEvidence(receipt,{sha,run,attempt,imageSha=sha,lifecy
   for(const smoke of receipt.smoke) {
     assert.equal(smoke.sha,sha);assert(smoke.completedMs>=0);assert.equal(smoke.outputs.length,3);
     if(recoveryProof)assert.deepEqual(smoke.validation,smoke.backend==='cloudflare'?{mode:'retained-digest-readback',priorExecution:canvasRecoveryAcceptance(recoveryProof)}:{mode:'current-decode'},'Wrong prior/current media validation attribution');
+    if(completedProof) {
+      assert.deepEqual(smoke.validation,{mode:'current-decode',priorExecution:canvasRecoveryAcceptance(completedProof)});
+      assert(smoke.resumedExistingJobs===true&&smoke.sourceJob===completedProof.sourceJob&&!smoke.fixtureSha&&!smoke.referenceRecoveryRequested);
+    }
     for(const out of smoke.outputs)assert(/^[a-f0-9]{64}$/.test(out.videoDigest)&&/^[a-f0-9]{64}$/.test(out.posterDigest),'Missing durable output');
     if(publicPreviews){assert.equal(smoke.publicPreviews?.length,2,'Missing public preview/poster acceptance');for(const out of smoke.publicPreviews)assert(/^[a-f0-9]{64}$/.test(out.videoDigest)&&/^[a-f0-9]{64}$/.test(out.posterDigest),'Missing public preview bytes');}
     if(videoReferences) {
@@ -312,10 +319,13 @@ const recordSmokeDiagnostic=diagnostic=>{
   fs.appendFileSync('test-results/backend-diagnostics.jsonl',JSON.stringify(diagnostic)+'\n');
   console.error(JSON.stringify({privateMediaSmokeDiagnostic:diagnostic}));
 };
-export async function mediaSmoke(c,secret,media,{record=recordSmokeDiagnostic,now=Date.now,pause=ms=>new Promise(resolve=>setTimeout(resolve,ms)),request:fetchRequest=fetch,resumeProof=null,observeState=waitMediaState,mediaCommand=run}={}) {
+export async function mediaSmoke(c,secret,media,{record=recordSmokeDiagnostic,now=Date.now,pause=ms=>new Promise(resolve=>setTimeout(resolve,ms)),request:fetchRequest=fetch,resumeProof=null,completedProof=null,observeState=waitMediaState,mediaCommand=run}={}) {
   const smokeSha=media.sha||c.sha;
+  assert(!(resumeProof&&completedProof),'Ambiguous media continuation');
+  if(completedProof){verifyCompletedMediaJobs(completedProof);assert.equal(smokeSha,COMPLETED_MEDIA_SOURCE.sha);assert.deepEqual(c.completedMediaSource,COMPLETED_MEDIA_SOURCE);}
+  const existing=resumeProof||completedProof;
   if(resumeProof)assert(c.recoverySource?.sha===smokeSha&&resumeProof.sourceSha===smokeSha,'Unproven existing smoke jobs');
-  const fixtureSha=resumeProof?undefined:mediaFixtureSha();
+  const fixtureSha=existing?undefined:mediaFixtureSha();
   assert(/^[a-f0-9]{40}$/.test(smokeSha||''),'Missing exact smoke media source');
   const fixture=fs.readFileSync('tests/fixtures/media/canvas-end-frame.mp4').toString('base64'),referenceFixture=fs.readFileSync('tests/fixtures/media/h3-overrun.mp4').toString('base64'),results=[];
   const fail=(body,status,code,terminal=false,lastCode)=>{
@@ -326,7 +336,7 @@ export async function mediaSmoke(c,secret,media,{record=recordSmokeDiagnostic,no
     throw Object.assign(new Error(`Private smoke ${terminal?'terminal failure':`HTTP ${diagnostic.status??'unavailable'}`}: ${diagnostic.code} (${diagnostic.action}/${diagnostic.backend})`),{diagnostic});
   };
   const request=async(body,timeoutMs=30000)=>{
-    if(resumeProof)assert.equal(body.action,'result','Recovery cannot start, retry or reconfigure media');
+    if(existing)assert.equal(body.action,'result','Recovery cannot start, retry or reconfigure media');
     let r,b;
     try {r=await fetchRequest('https://bitbi.ai/api/internal/homepage/hero-videos/private-media/smoke',{method:'POST',headers:{Authorization:`Bearer ${secret}`,'Content-Type':'application/json'},body:JSON.stringify({...body,sha:smokeSha,...(fixtureSha?{fixtureSha}:{})}),redirect:'error',signal:AbortSignal.timeout(timeoutMs)});}
     catch {fail(body,null,'media_smoke_transport_failed');}
@@ -337,13 +347,13 @@ export async function mediaSmoke(c,secret,media,{record=recordSmokeDiagnostic,no
     if(b.data.failed)fail(body,r.status,b.data.code,true);
     return b.data;
   };
-  const lifecycle=resumeProof?{policy:'prior-protected-execution-v1',priorExecution:resumeProof,actor:canvasRecoveryActor(media,c.recoverySource),stoppedNow:await observeState(media.application,'stopped')}:{stoppedBefore:await observeState(media.application,'stopped')};
+  const lifecycle=completedProof?completedMediaLifecycle(media,completedProof,await observeState(media.application,'stopped')):resumeProof?{policy:'prior-protected-execution-v1',priorExecution:resumeProof,actor:canvasRecoveryActor(media,c.recoverySource),stoppedNow:await observeState(media.application,'stopped')}:{stoppedBefore:await observeState(media.application,'stopped')};
   // Source propagation is observed without seeding or dispatching work. Both
   // exact start bodies must pass before the first mutation. A legacy handler
   // rejects this unknown action with 409/media_service_unavailable; that and
   // explicit source mismatch may be observed until the fixed deadline, never
   // accepted. No start/result/repair is replayed.
-  if(!resumeProof) {
+  if(!existing) {
   const preflightDeadline=now()+120000;
   for(const backend of ['github','cloudflare']) {
     const body={action:'preflight',backend,fixture,referenceFixture};
@@ -373,6 +383,7 @@ export async function mediaSmoke(c,secret,media,{record=recordSmokeDiagnostic,no
   while(pending.size&&now()-started<12*60_000) {
     for(const backend of pending) {
       const result=await request({action:'result',backend});
+      if(completedProof)assert.equal(result.ready,true,'Original completed outputs are no longer ready');
       if(resumeProof&&backend==='cloudflare')assert.equal(result.ready,true,'Retained Cloudflare outputs are no longer ready');
       if(!result.ready)continue;
       assert.equal(result.outputs.length,3);assert.equal(result.publicPreviews?.length,2);const dir=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-media-smoke-'));
@@ -422,17 +433,17 @@ export async function mediaSmoke(c,secret,media,{record=recordSmokeDiagnostic,no
         if(resumeProof)assert(reference.metadata?.frames===360&&reference.metadata.duration>=14.9&&reference.metadata.duration<=15&&reference.metadata.audioDuration>14.9,'Invalid retained video reference metadata');
       }finally{fs.rmSync(dir,{recursive:true,force:true});}
       if(backend==='cloudflare') {
-        if(resumeProof)lifecycle.stoppedNow=await observeState(media.application,'stopped');
+        if(existing)lifecycle.stoppedNow=await observeState(media.application,'stopped');
         else {lifecycle.completed={observedAt:new Date(now()).toISOString()};lifecycle.stoppedAfter=await observeState(media.application,'stopped');}
       }
       const digests=items=>items.map(o=>({videoDigest:o.videoDigest,posterDigest:o.posterDigest}));
-      results.push({backend,sha:smokeSha,...(resumeProof?{resumedExistingJobs:true,sourceJob:resumeProof.sourceJob,validation:retained?{mode:'retained-digest-readback',priorExecution:canvasRecoveryAcceptance(resumeProof)}:{mode:'current-decode'}}:{}),...(exportMusic?{exportMusic}:{}),...(fixtureSha?{fixtureSha,reusedOutputs:true,referenceRecoveryRequested:backend==='cloudflare'}:{}),completedMs:now()-started,outputs:digests(result.outputs),publicPreviews:digests(result.publicPreviews),videoReference:{videoDigest:result.videoReference.videoDigest,originalDigest:result.videoReference.originalDigest,metadata:result.videoReference.metadata}});pending.delete(backend);
+      results.push({backend,sha:smokeSha,...(existing?{resumedExistingJobs:true,sourceJob:existing.sourceJob,validation:completedProof?{mode:'current-decode',priorExecution:canvasRecoveryAcceptance(completedProof)}:retained?{mode:'retained-digest-readback',priorExecution:canvasRecoveryAcceptance(resumeProof)}:{mode:'current-decode'}}:{}),...(exportMusic?{exportMusic}:{}),...(fixtureSha?{fixtureSha,reusedOutputs:true,referenceRecoveryRequested:backend==='cloudflare'}:{}),completedMs:now()-started,outputs:digests(result.outputs),publicPreviews:digests(result.publicPreviews),videoReference:{videoDigest:result.videoReference.videoDigest,originalDigest:result.videoReference.originalDigest,metadata:result.videoReference.metadata}});pending.delete(backend);
     }
     if(pending.size)await pause(5000);
   }
   assert.equal(pending.size,0,'Private media smoke did not complete within release acceptance window');
   const cloudflare=results.find(r=>r.backend==='cloudflare');cloudflare.lifecycle=lifecycle;
-  if(!resumeProof&&c.plan.changedFiles.includes('workers/auth/migrations/0091_separate_thumbnail_processing.sql')) {
+  if(!existing&&c.plan.changedFiles.includes('workers/auth/migrations/0091_separate_thumbnail_processing.sql')) {
     const activation=await request({action:'activate-thumbnails',backend:'cloudflare'});
     assert.equal(activation.sha,smokeSha);assert.equal(activation.thumbnailBackend,'cloudflare');assert.equal(activation.verified,true);
     cloudflare.thumbnailActivation=activation;

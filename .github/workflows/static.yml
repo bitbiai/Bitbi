@@ -190,6 +190,9 @@ jobs:
       backend_continuation: ${{ steps.release_preflight.outputs.backend_continuation }}
       hosting_provider: ${{ steps.hosting.outputs.provider }}
       candidate_base: ${{ steps.baseline.outputs.base }}
+      repair_source_sha: ${{ steps.deployment_continuation.outputs.repair_source_sha }}
+      repair_source_run: ${{ steps.deployment_continuation.outputs.repair_source_run }}
+      repair_source_attempt: ${{ steps.deployment_continuation.outputs.repair_source_attempt }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -229,6 +232,12 @@ jobs:
         run: |
           node scripts/test-canvas-agent-deploy-continuation.mjs
           node scripts/test-canvas-agent-deploy-backend.mjs
+      - name: Install completed media continuation tooling
+        if: steps.deployment_continuation.outputs.completed_media == 'true'
+        run: npm ci --ignore-scripts
+      - name: Verify completed media continuation guards
+        if: steps.deployment_continuation.outputs.completed_media == 'true'
+        run: node scripts/test-completed-media-continuation.mjs
       - name: Prepare Canvas backend recovery checks
         if: steps.deployment_continuation.outputs.recovery == 'true' && steps.deployment_continuation.outputs.recovery_deploy_only != 'true'
         run: |
@@ -282,9 +291,9 @@ jobs:
     env:
       HOSTING_PROVIDER: ${{ needs.reuse-candidate.outputs.hosting_provider || needs.release-compatibility.outputs.hosting_provider }}
       CANDIDATE_BASE: ${{ needs.reuse-candidate.outputs.candidate_base || needs.release-compatibility.outputs.candidate_base }}
-      REPAIR_SOURCE_SHA: ${{ needs.release-compatibility.outputs.repair_source_sha }}
-      REPAIR_SOURCE_RUN: ${{ needs.release-compatibility.outputs.repair_source_run }}
-      REPAIR_SOURCE_ATTEMPT: ${{ needs.release-compatibility.outputs.repair_source_attempt }}
+      REPAIR_SOURCE_SHA: ${{ needs.reuse-candidate.outputs.repair_source_sha || needs.release-compatibility.outputs.repair_source_sha }}
+      REPAIR_SOURCE_RUN: ${{ needs.reuse-candidate.outputs.repair_source_run || needs.release-compatibility.outputs.repair_source_run }}
+      REPAIR_SOURCE_ATTEMPT: ${{ needs.reuse-candidate.outputs.repair_source_attempt || needs.release-compatibility.outputs.repair_source_attempt }}
       CANDIDATE_RUN: ${{ needs.release-compatibility.outputs.repair_source_run || github.event.inputs.candidate_run_id || github.run_id }}
       CANDIDATE_ATTEMPT: ${{ needs.release-compatibility.outputs.repair_source_attempt || (github.event.inputs.candidate_run_id && github.event.inputs.candidate_run_attempt) || github.run_attempt }}
       CANVAS_AGENT_DEPLOY_SOURCE_SHA: ${{ needs.reuse-candidate.outputs.canvas_deploy_source_sha }}
@@ -310,7 +319,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Download selected completed candidate
-        if: success() && needs.reuse-candidate.result == 'success'
+        if: success() && needs.reuse-candidate.result == 'success' && env.REPAIR_SOURCE_SHA == ''
         uses: actions/download-artifact@v8
         with:
           artifact-ids: ${{ needs.reuse-candidate.outputs.artifact_ids }}

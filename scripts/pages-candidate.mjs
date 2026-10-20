@@ -9,6 +9,7 @@ import { hostingPolicy, prepareFrontend, verifyFrontend, cloudflarePublishedBase
 import { LOCAL_REQUIRED_JOBS, localPolicyAt } from './lib/local-release-evidence.mjs';
 import { AUTONOMY_BROWSER_POLICY, verifyAutonomyBrowserReport, MODEL_BROWSER_POLICY, verifyModelBrowserReport, LOCAL_BROWSER_POLICY, verifyMigrationBrowserReport, SMOOTH_BROWSER_POLICY, verifySmoothBrowserReport } from './lib/local-release-browser.mjs';
 import {CANVAS_AGENT_DEPLOY_SOURCE,resolveCanvasAgentDeploySource,resolveCanvasAgentRecoverySource,verifyCanvasAgentRecoverySource,assertCanvasAgentPublicationDelta,assertCanvasAgentDeployArtifact} from './lib/canvas-agent-deploy-continuation.mjs';
+import {COMPLETED_MEDIA_SOURCE,assertCompletedMediaArtifact} from './lib/completed-media-continuation.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { selectCiTests, requiresPrivateMediaImage, memberSpecSources, canvasCompletionRouteSources } from './lib/ci-test-selection.mjs';
@@ -252,6 +253,7 @@ export function validateSource({run,jobs,artifacts,laterRuns,mainSha}, expected,
     assert(/^sha256:[a-f0-9]{64}$/.test(a.digest),'Missing immutable artifact digest'); return a;
   });
   if(canvasAgentDeploy){assert.equal(selected.length,1);assertCanvasAgentDeployArtifact(selected[0],'candidate');}
+  if(mediaRepair&&expected.sha===COMPLETED_MEDIA_SOURCE.sha){assert.equal(selected.length,1);assertCompletedMediaArtifact(selected[0],'candidate');}
   return selected;
 }
 export function verifyProofs(manifest,proofs) {
@@ -478,7 +480,7 @@ async function main(command) {
     const [run,jobs,artifacts,laterRuns,ref]=await Promise.all([sourceAttempt(e.run,e.attempt,e.selection),collection(`actions/runs/${e.run}/attempts/${e.attempt}/jobs`,'jobs'),collection(`actions/runs/${e.run}/artifacts`,'artifacts'),collection(`actions/runs?head_sha=${e.sha}`,'workflow_runs'),api('git/ref/heads/main')]);
     const relevant=laterRuns.filter(r=>isRequiredValidationRun(r,e.selection));
     for(const later of relevant.filter(r=>String(r.id)!==String(e.currentRun)&&Date.parse(r.created_at)>Date.parse(run.created_at)&&r.conclusion!=='success'))later.jobs=await collection(`actions/runs/${later.id}/attempts/${later.run_attempt}/jobs`,'jobs');
-    const selected=validateSource({run,jobs,artifacts,laterRuns:relevant,mainSha:ref.object.sha},e,{canvasAgentDeploy:Boolean(resolveCanvasAgentDeploySource())});
+    const selected=validateSource({run,jobs,artifacts,laterRuns:relevant,mainSha:ref.object.sha},e,{canvasAgentDeploy:Boolean(resolveCanvasAgentDeploySource()),mediaRepair:Boolean(process.env.REPAIR_SOURCE_SHA)});
     if(process.env.CANDIDATE_ARTIFACT_IDS)assert.equal(selected.map(a=>a.id).join(','),process.env.CANDIDATE_ARTIFACT_IDS,'Candidate artifacts changed after selection');
     fs.writeFileSync('candidate-source.json',JSON.stringify({expected:e,artifacts:selected.map(({id,name,digest})=>({id,name,digest}))}));
     if(process.env.GITHUB_OUTPUT)fs.appendFileSync(process.env.GITHUB_OUTPUT,`artifact_ids=${selected.map(a=>a.id).join(',')}\n`);
