@@ -1,12 +1,16 @@
 import { nowIso, sha256Hex } from './tokens.js';
 import { CANVAS_CLIENT_NOTIFICATION_CODES } from '../../../../js/shared/canvas-notification-contract.mjs';
+import { validateCanvasSourceEndFit } from './canvas-export-recipes.js';
 
 const fail = (code, status = 400) => { throw Object.assign(new Error(code), { code, status }); };
 const safeId = value => typeof value === 'string' && /^[a-zA-Z0-9:_-]{1,240}$/.test(value);
 const code = value => typeof value === 'string' && /^[a-z][a-z0-9_]{1,100}$/.test(value) ? value : 'canvas_request_failed';
 const selector = `SELECT n.*,p.title AS project_title,p.deleted_at AS project_deleted_at,r.read_at,
+ e.recipe_json AS export_recipe_json,e.seam_result_json AS export_seam_json,e.audio_timeline_json AS export_timeline_json,a.metadata_json AS export_metadata_json,
  CASE WHEN r.read_at IS NOT NULL THEN r.read_at WHEN n.created_at<b.introduced_at AND n.resolved=1 THEN b.introduced_at ELSE NULL END AS effective_read_at
  FROM canvas_notification_sources n LEFT JOIN canvas_projects p ON p.id=n.project_id AND p.user_id=n.user_id
+ LEFT JOIN canvas_video_processing e ON n.source='export' AND e.id=json_extract(n.details_json,'$.exportId') AND e.user_id=n.user_id AND e.project_id=n.project_id AND e.asset_id IS NOT NULL
+ LEFT JOIN ai_text_assets a ON a.id=e.id AND e.asset_id=e.id AND a.user_id=n.user_id AND a.canvas_processing_token IS NOT NULL
  CROSS JOIN canvas_notification_rollout b LEFT JOIN canvas_notification_reads r ON r.user_id=n.user_id AND r.notification_id=n.id`;
 const unreadSql = `SELECT COUNT(*) AS count FROM canvas_notification_sources n CROSS JOIN canvas_notification_rollout b
  LEFT JOIN canvas_notification_reads r ON r.user_id=n.user_id AND r.notification_id=n.id
@@ -21,6 +25,18 @@ function publicItem(row) {
     }
     for (const key of ['pending','posterPending']) if ([0,1,true,false].includes(details?.[key])) bounded[key] = Boolean(details[key]);
     if (typeof details?.errorCode==='string' && /^[a-z][a-z0-9_]{1,100}$/.test(details.errorCode)) bounded.errorCode=details.errorCode;
+    if(row.source==='export'&&row.code==='canvas_export_ready') {
+        try {
+            const recipe=JSON.parse(row.export_recipe_json),fit=JSON.parse(row.export_seam_json)?.sourceEndFit,
+                timeline=JSON.parse(row.export_timeline_json),metadata=JSON.parse(row.export_metadata_json);
+            if(!recipe.preview&&metadata.canvas_export===details.exportId&&validateCanvasSourceEndFit(recipe,fit,timeline)
+                &&Number.isFinite(metadata.duration)&&metadata.duration>0&&metadata.duration<=600
+                &&Math.abs(timeline.at(-1).start+timeline.at(-1).duration-metadata.duration)<=Math.max(.25,timeline.length*.06)) {
+                bounded.sourceEndFit={policy:fit.policy,clips:fit.clips.length,transitions:fit.transitions.length,
+                    durationSeconds:metadata.duration,targetSeconds:recipe.assembly.target.seconds};
+            }
+        }catch{ /* Absent or invalid historical diagnostics never imply an adjustment. */ }
+    }
     return { id: row.id, source: row.source, kind: row.kind, code: code(row.code), severity: row.severity,
         projectId: row.project_id || null, projectTitle: String(row.project_title || '').slice(0,120), projectDeleted: Boolean(row.project_deleted_at),
         createdAt: row.created_at, readAt: row.effective_read_at || null, resolved: Boolean(row.resolved),

@@ -281,6 +281,38 @@ assert.equal(selection(['playwright.config.js'], {forceFull: true}).full, true);
  assert(requiresPrivateMediaImage(['services/homepage-ffmpeg-processor/canvas-assembly-contract.mjs']));
 }
 
+{
+ const leaf='services/homepage-ffmpeg-processor/canvas-creative-trim.test.mjs';
+ const assertMediaCaller=select=>{
+  const chosen=select([leaf]);
+  assert(chosen.workers&&chosen.auth&&chosen.runtime&&!chosen.full&&!chosen.homepage&&!chosen.carousel&&!chosen.assets&&!chosen.dependencies,
+   'The exact creative-trim fixture retains ordinary Worker/Auth acceptance without unrelated Full');
+  assert.equal(chosen.policy,'impact-v1');
+ };
+ assertMediaCaller(selectCiTests);assert(requiresPrivateMediaImage([leaf]));
+ const mixed=selectCiTests([leaf,'js/shared/canvas-assembly.mjs','workers/auth/src/routes/canvas-video-processing.js']);
+ assert(mixed.homepage&&mixed.workers&&mixed.auth&&!mixed.full,'Frontend and completion changes retain all affected ordinary callers');
+ for(const unknown of [leaf+'.unknown','services/homepage-ffmpeg-processor/canvas-creative-trim-unknown.test.mjs'])
+  assert(selectCiTests([leaf,unknown]).full,'Unknown processor inputs must not inherit an exact fixture mapping');
+ assert(selectCiTests([leaf],{forceFull:true}).full);
+ const caller=fs.readFileSync(path.join(repoRoot,'services/homepage-ffmpeg-processor/canvas-full-video.test.mjs'),'utf8');
+ assert(caller.includes("import {testCanvasCreativeTrim} from './canvas-creative-trim.test.mjs';"));
+ assert.match(caller,/export async function testCanvasConcatenationCore\(\) \{\s*await testCanvasCreativeTrim\(\);/);
+ const {mediaTestMounts}=await import('./private-media-image.mjs');
+ assert(mediaTestMounts().some(value=>value.includes(`source=${path.join(repoRoot,leaf)},`)),
+  'The actual AMD64 image caller must mount the imported regression');
+ // Remove only this registration in an isolated module. The same assertion
+ // must reject the original missing-mapping behavior; no test execution occurs.
+ const selectorUrl=new URL('./lib/ci-test-selection.mjs',import.meta.url);
+ const source=fs.readFileSync(selectorUrl,'utf8'),token=`,'${leaf}'`;
+ assert.equal(source.split(token).length,2,'Exactly one reviewed leaf registration');
+ const missing=source.replace(token,'').replace(/from (['"])(\.[^'"]+)\1/g,
+  (_match,_quote,specifier)=>`from ${JSON.stringify(new URL(specifier,selectorUrl).href)}`);
+ const broken=await import(`data:text/javascript;base64,${Buffer.from(missing).toString('base64')}`);
+ assert(broken.selectCiTests([leaf]).full);
+ assert.throws(()=>assertMediaCaller(broken.selectCiTests),/exact creative-trim fixture/);
+}
+
 // Exercise the actual GitHub output writer: no retired flag survives either
 // a narrow functional selection or the full retained acceptance matrix.
 const outputDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'bitbi-ci-selection-output-'));

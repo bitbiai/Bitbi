@@ -48,14 +48,85 @@ export function canvasAssembly(value) {
 
 export function canvasAssemblyTiming(assembly, measuredDurations, fps) {
     const settings = canvasAssembly(assembly);
-    if (measuredDurations.length !== settings.clips.length) fail('canvas_assembly_sources_changed');
+    if (!Array.isArray(measuredDurations) || measuredDurations.length !== settings.clips.length) fail('canvas_assembly_sources_changed');
+    if (!Number.isFinite(fps) || fps <= 0 || fps > 60) fail('canvas_media_timing_invalid');
+    const fitted = [];
     const durations = settings.clips.map((clip, index) => {
         const source = measuredDurations[index], start = Math.round(clip.trim.start * fps) / fps;
+        if (settings.target?.mode === 'creative') {
+            if (!Number.isFinite(source) || source <= 0 || source > 600) fail('canvas_media_timing_invalid');
+            const interval = resolveCanvasTrimFrames({ ...clip.trim, sourceFrames: Math.round(source * fps),
+                frameRateNumerator: fps, frameRateDenominator: 1, creative: true });
+            if (interval.fit) fitted.push(index);
+            return interval.durationSeconds;
+        }
         const duration = clip.trim.duration === undefined ? source - start : Math.round(clip.trim.duration * fps) / fps;
         if (!Number.isFinite(source) || source <= 0 || duration < 1 / fps || start + duration > source + 0.0001) fail('canvas_trim_outside_source');
         return duration;
     });
-    return transitionTimeline(durations, settings.clips.slice(0, -1).map(clip => clip.transition), fps);
+    const requested = settings.clips.slice(0, -1).map(clip => clip.transition);
+    const transitions = fitted.length ? fitCanvasCreativeTransitions(durations, requested, fps, fitted).transitions : requested;
+    return transitionTimeline(durations, transitions, fps);
+}
+
+// Intervals are end-exclusive picture frames, never container/audio seconds.
+// Callers with decoded media supply its measured frame count and rational rate.
+export function resolveCanvasTrimFrames({ start, duration, frameRateNumerator, frameRateDenominator, sourceFrames, creative = false }) {
+    const trim = canvasTrim({ start, ...(duration === undefined ? {} : { duration }) });
+    const fps = frameRateNumerator / frameRateDenominator;
+    if (!Number.isFinite(frameRateNumerator) || !Number.isFinite(frameRateDenominator)
+        || frameRateNumerator <= 0 || frameRateDenominator <= 0 || !Number.isFinite(fps) || fps <= 0 || fps > 60
+        || !Number.isSafeInteger(sourceFrames) || sourceFrames < 1 || sourceFrames / fps > 600) fail('canvas_media_timing_invalid');
+    const startFrame = Math.round(trim.start * fps);
+    const requestedEndFrame = trim.duration === undefined ? sourceFrames : startFrame + Math.round(trim.duration * fps);
+    const endFrame = creative === true ? Math.min(requestedEndFrame, sourceFrames) : requestedEndFrame;
+    if (startFrame < 0 || endFrame > sourceFrames || endFrame <= startFrame) fail('canvas_trim_outside_source');
+    return { startFrame, requestedEndFrame, endFrame, durationSeconds: (endFrame - startFrame) * frameRateDenominator / frameRateNumerator,
+        fit: endFrame < requestedEndFrame ? { sourceFrames, startFrame, requestedEndFrame, endFrame, frameRateNumerator, frameRateDenominator } : null };
+}
+
+// Only joins touching a shortened clip may change. Retain the transition kind
+// when its supported duration fits; otherwise use a hard cut. No footage is added.
+export function fitCanvasCreativeTransitions(durations, transitions, fps, adjustedClipIndices) {
+    if (!Array.isArray(durations) || !durations.length || !Array.isArray(transitions) || transitions.length !== durations.length - 1
+        || !Number.isFinite(fps) || fps <= 0 || fps > 60 || !Array.isArray(adjustedClipIndices)
+        || adjustedClipIndices.some(index => !Number.isInteger(index) || index < 0 || index >= durations.length)) fail('canvas_transition_invalid');
+    const frames = durations.map(duration => {
+        if (!Number.isFinite(duration) || duration <= 0) fail('canvas_media_timing_invalid');
+        const count = Math.round(duration * fps);
+        if (count < 1) fail('canvas_media_timing_invalid');
+        return count;
+    });
+    const settings = transitions.map(transitionSettings);
+    const requested = settings.map(t => t.preset === 'none' ? 0 : Math.max(1, Math.round(t.duration * fps)));
+    const effective = [...requested], adjusted = new Set(adjustedClipIndices);
+    const eligible = effective.map((_, i) => adjusted.has(i) || adjusted.has(i + 1));
+    const minimum = Math.max(1, Math.round(.1 * fps));
+    const reduce = (index, maximum) => {
+        if (index < 0 || index >= effective.length || effective[index] <= maximum) return;
+        if (!eligible[index]) fail('canvas_transition_too_long');
+        effective[index] = maximum >= minimum ? maximum : 0;
+    };
+    effective.forEach((_, i) => reduce(i, Math.floor(Math.min(frames[i], frames[i + 1]) / 2)));
+    for (let i = 0; i < frames.length; i++) {
+        let excess = (effective[i - 1] || 0) + (effective[i] || 0) - (frames[i] - 1);
+        for (const edge of [i, i - 1]) {
+            if (excess <= 0) break;
+            if (!eligible[edge]) continue;
+            const before = effective[edge];
+            reduce(edge, Math.max(0, before - excess));
+            excess -= before - effective[edge];
+        }
+        if (excess > 0) fail('canvas_transition_too_long');
+    }
+    const fitted = settings.map((t, i) => effective[i] === requested[i] ? t : effective[i] === 0 ? { preset: 'none' }
+        : { ...t, duration: Math.max(.1, Math.round(effective[i] / fps * 1000) / 1000) });
+    transitionTimeline(durations, fitted, fps);
+    const adjustments = fitted.flatMap((t, index) => effective[index] === requested[index] ? [] : [{
+        index, requestedFrames: requested[index], effectiveFrames: effective[index],
+        requestedPreset: settings[index].preset, effectivePreset: t.preset,
+    }]);
+    return { transitions: fitted, adjustments, frameRate: fps };
 }
 
 export function verifyCanvasDuration(measuredSeconds, target) {

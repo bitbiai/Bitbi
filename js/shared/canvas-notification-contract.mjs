@@ -99,6 +99,17 @@ const actionLabels = {
 };
 export function canvasNotificationText(item, german = false) {
     if(item?.code==='canvas_project_delete_unconfirmed')return messages.canvas_project_delete_unconfirmed[german?1:0];
+    const fit=item?.details?.sourceEndFit;
+    if(item?.source==='export'&&item?.code==='canvas_export_ready'&&item?.confirmed===true
+        &&fit?.policy==='fit-source-end-v1'&&Number.isSafeInteger(fit.clips)&&fit.clips>0&&fit.clips<=120
+        &&Number.isSafeInteger(fit.transitions)&&fit.transitions>=0&&fit.transitions<120
+        &&Number.isFinite(fit.durationSeconds)&&fit.durationSeconds>0&&fit.durationSeconds<=600
+        &&Number.isFinite(fit.targetSeconds)&&fit.targetSeconds>=1&&fit.targetSeconds<=600) {
+        const format=value=>new Intl.NumberFormat(german?'de':'en',{maximumFractionDigits:2}).format(value);
+        return german
+            ? `Das fertige Video ist gespeichert. Clipenden wurden auf vorhandene Bilder begrenzt (${fit.clips} Clips, ${fit.transitions} angepasste Übergänge). Gemessene Länge: ${format(fit.durationSeconds)} s; kreatives Ziel: ${format(fit.targetSeconds)} s. Originalquellen und gespeicherte Montage bleiben unverändert.`
+            : `The final video is saved. Clip ends were limited to existing frames (${fit.clips} clips, ${fit.transitions} adjusted transitions). Measured duration: ${format(fit.durationSeconds)} s; creative target: ${format(fit.targetSeconds)} s. Original sources and the saved assembly are unchanged.`;
+    }
     const code = item?.details?.errorCode || item?.code;
     const referenceError = h3ReferenceError(code,german);
     if (referenceError) return referenceError;

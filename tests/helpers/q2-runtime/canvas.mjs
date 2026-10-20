@@ -80,7 +80,7 @@ export async function runCanvasRetentionTests(f,{prepared=false}={}) {
       musicBase64:fs.readFileSync(new URL('../../fixtures/media/member-music.mp3',import.meta.url)).toString('base64'),
     });
     assert.equal(response.status,200,await response.clone().text());
-    assert.deepEqual(await response.json(),{completedVersions:[7,8],savedExports:2,private:true,providerCalls:0});
+    assert.deepEqual(await response.json(),{completedVersions:[7,8],savedExports:3,sourceEndFit:true,private:true,providerCalls:0});
     assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
   });
 }

@@ -506,6 +506,18 @@ target; the legacy Exact mode still enforces its tolerance. No padding or repeat
 footage conceals a shortfall. Actual source quality determines normalization.
 Sampled frames cannot establish complete motion, sound or unsampled-shot quality.
 
+For explicitly creative recipe-v8 exports, a requested trim end beyond the
+measured source is fitted to its end-exclusive last picture boundary. Starts and
+valid trims are retained; missing duration selects the actual remainder. Exact
+and legacy recipes remain strict. Missing footage, invalid timing and empty
+intervals still fail. Only transitions adjoining a shortened clip may be reduced
+to fit the existing overlap limits, or become hard cuts below the supported
+minimum. No frames are added. The immutable result's `sourceEndFit` report
+(`fit-source-end-v1`) records requested/effective frames and joins; Auth validates
+these against the accepted recipe for both clean-base and final uploads.
+The ordinary ready notification includes the adjustment and measured duration.
+The original assembly and failed attempts remain available for manual editing.
+
 ## Parallel images and late H3 recovery
 
 The existing durable scheduler admits independent ready image nodes together;

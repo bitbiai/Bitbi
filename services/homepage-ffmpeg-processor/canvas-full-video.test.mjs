@@ -6,6 +6,7 @@ import {spawnSync} from 'node:child_process';
 import {testAudioFit} from './canvas-audio-fit.test.mjs';
 import {testSmoothJoins} from './canvas-seams.test.mjs';
 import {testCanvasAssemblyProcessing} from './canvas-assembly.test.mjs';
+import {testCanvasCreativeTrim} from './canvas-creative-trim.test.mjs';
 import {concatenateClips,mediaCommand,inspectClip,processingTimeout,processCanvasExports,mixBackgroundMusic,loopMusicPcm} from './canvas-full-video.mjs';
 
 export async function testMediaCommandDiagnostics() {
@@ -46,6 +47,7 @@ export async function testCanvasConcatenation() {
 // The image runner executes these complete groups in separate bounded processes.
 // The ordinary public caller above always executes both; there is no skip option.
 export async function testCanvasConcatenationCore() {
+  await testCanvasCreativeTrim();
   await testCanvasAssemblyProcessing();
   await testMediaCommandDiagnostics();
   await testCanvasProcessorStorageRecovery();

@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import {smoothVideoSeams,SEAM_POLICY} from './canvas-seams.mjs';
 import {AUDIO_FIT_POLICY,pictureTiming,audioFitReport,fittedSourceFilter,cutSafeSettings} from './canvas-audio-fit.mjs';
 import {classifyMediaFailure,safeCanvasDiagnostic,canvasProcessingFailure} from './canvas-diagnostics.mjs';
-import { canvasAssembly, verifyCanvasDuration } from './canvas-assembly-contract.mjs';
+import { canvasAssembly, verifyCanvasDuration, resolveCanvasTrimFrames, fitCanvasCreativeTransitions } from './canvas-assembly-contract.mjs';
 import { processCanvasInspections } from './canvas-media-inspection.mjs';
 
 const failure=code=>Object.assign(new Error(code),{code});
@@ -42,9 +42,9 @@ export async function inspectClip(file,{ffprobe='ffprobe',run=mediaCommand}={}) 
   return {video:v,audio:a,duration,videoDuration:Number(v.duration)||duration,fingerprint};
 }
 
-// Version 7 edits source windows explicitly. No tpad, frozen frames, repeats or
-// black filler. Original files remain untouched; every window is measured again.
-export async function trimCanvasSources(files,assembly,dir,{ffmpeg='ffmpeg',ffprobe='ffprobe',run=mediaCommand,limits={outputBytes:80000000}}={}) {
+// Exact windows remain strict. Explicit creative callers may fit only the end
+// to existing pictures. No filler; original files and requested trims survive.
+export async function trimCanvasSources(files,assembly,dir,{ffmpeg='ffmpeg',ffprobe='ffprobe',run=mediaCommand,limits={outputBytes:80000000},creativeEndFit=false,onSourceEndFit}={}) {
   const settings=canvasAssembly(assembly);
   if(settings.clips.length!==files.length)throw failure('canvas_assembly_sources_changed');
   const outputs=[];let totalBytes=0;
@@ -53,11 +53,14 @@ export async function trimCanvasSources(files,assembly,dir,{ffmpeg='ffmpeg',ffpr
     if(trim.start===0&&trim.duration===undefined){outputs.push(file);continue;}
     const [n,d]=String(source.video.avg_frame_rate).split('/').map(Number),fps=n/d;
     const [rn,rd]=String(source.video.r_frame_rate).split('/').map(Number);
-    if(!Number.isFinite(fps)||fps<=0||fps>60||Math.abs(fps-rn/rd)>.001)throw failure('canvas_frame_rate_unsupported');
-    const frameCount=Number(source.video.nb_frames),startFrame=Math.round(trim.start*fps);
+    const nominalFps=rn/rd;
+    if(![n,d,rn,rd].every(value=>Number.isFinite(value)&&value>0)
+      ||!Number.isFinite(fps)||fps<=0||fps>60||!Number.isFinite(nominalFps)||nominalFps<=0||nominalFps>60
+      ||Math.abs(fps-nominalFps)>.001)throw failure('canvas_frame_rate_unsupported');
+    const frameCount=Number(source.video.nb_frames);
     if(!Number.isSafeInteger(frameCount)||frameCount<1)throw failure('canvas_media_timing_invalid');
-    const endFrame=trim.duration===undefined?frameCount:startFrame+Math.round(trim.duration*fps);
-    if(startFrame<0||endFrame>frameCount||endFrame<=startFrame)throw failure('canvas_trim_outside_source');
+    const {startFrame,endFrame,fit}=resolveCanvasTrimFrames({...trim,frameRateNumerator:n,frameRateDenominator:d,sourceFrames:frameCount,
+      creative:creativeEndFit===true&&settings.target?.mode==='creative'});
     const duration=(endFrame-startFrame)/fps,start=startFrame/fps,end=endFrame/fps,output=path.join(dir,`trimmed-${index}.mp4`);
     const args=['-y','-v','error','-nostdin','-xerror','-protocol_whitelist','file,pipe','-i',file,'-map','0:v:0'];
     if(source.audio)args.push('-map','0:a:0','-af',`atrim=start=${start}:end=${end},asetpts=PTS-STARTPTS`,'-c:a','aac','-b:a','192k');
@@ -67,6 +70,7 @@ export async function trimCanvasSources(files,assembly,dir,{ffmpeg='ffmpeg',ffpr
     const measured=await inspectClip(output,{ffprobe,run});
     if(Number(measured.video.nb_frames)!==endFrame-startFrame||Math.abs(measured.videoDuration-duration)>1/fps+.0001
       ||measured.video.width!==source.video.width||measured.video.height!==source.video.height)throw failure('canvas_picture_timeline_mismatch');
+    if(fit)onSourceEndFit?.({index,...fit});
     outputs.push(output);
   }
   return outputs;
@@ -94,7 +98,7 @@ function displayGeometry(video) {
   return {width:swapped?video.height:video.width,height:swapped?video.width:video.height,sar:`${n/g}/${d/g}`,transformed};
 }
 
-export async function concatenateClips(files,dir,{ffmpeg='ffmpeg',ffprobe='ffprobe',run=mediaCommand,spatialPolicy='center-crop-v1',videoClock=false,fitAudio=false,smooth=false,previewSeam=null,transitions=null,allowSingle=false,limits={durationSeconds:600,outputBytes:80000000}}={}) {
+export async function concatenateClips(files,dir,{ffmpeg='ffmpeg',ffprobe='ffprobe',run=mediaCommand,spatialPolicy='center-crop-v1',videoClock=false,fitAudio=false,smooth=false,previewSeam=null,transitions=null,allowSingle=false,adjustedClipIndices=[],limits={durationSeconds:600,outputBytes:80000000}}={}) {
   if(files.length<(allowSingle?1:2) || files.some(f=>path.dirname(f)!==dir)) throw failure('canvas_sources_invalid');
   if(!['center-crop-v1','legacy-pad-v1'].includes(spatialPolicy))throw failure('canvas_spatial_policy_unsupported');
   const clips=[];for(const file of files) clips.push(await inspectClip(file,{ffprobe,run}));
@@ -122,6 +126,8 @@ export async function concatenateClips(files,dir,{ffmpeg='ffmpeg',ffprobe='ffpro
     }
     c.duration=Math.ceil(c.videoDuration*fps-0.0001)/fps;
   }
+  const transitionFit=transitions&&adjustedClipIndices.length?fitCanvasCreativeTransitions(clips.map(c=>c.duration),transitions,fps,adjustedClipIndices):null;
+  if(transitionFit)transitions=transitionFit.transitions;
   const transitionClock=transitions?transitionTimeline(clips.map(c=>c.duration),transitions,fps):null;
   const totalDuration=clips.reduce((s,c)=>s+c.duration,0);
   let selected=files.map((file,i)=>({file,index:i,offset:0,duration:clips[i].duration})),previewOffset=0;
@@ -206,6 +212,7 @@ export async function concatenateClips(files,dir,{ffmpeg='ffmpeg',ffprobe='ffpro
     timeline.push({start,duration,...(fitAudio?{originalAudioFit:audioFitReport(clips[selected[i].index].picture,clips[selected[i].index].duration)}:{})});start+=duration;
   }
   return {output,duration:videoClock?duration:result.duration,width:result.video.width,height:result.video.height,mode:compatible?'copy':'normalized',timeline,fps,
+    ...(transitionFit?{effectiveTransitions:transitionFit.transitions,transitionAdjustments:transitionFit.adjustments,fittedSourceDurations:clips.map(c=>c.duration)}:{}),
     sourceWindows:selected.map(s=>({index:s.index,offset:s.offset,duration:clips[s.index].duration})),previewOffset,totalDuration,transitionDuration:transitionClock?.duration,clock:videoClock?'video':'legacy'};
 }
 
@@ -334,9 +341,16 @@ export async function processCanvasExports({requestJson,authHeaders,baseUrl,limi
       if(job.recipeVersion>=6&&(job.transitionPolicy!==TRANSITION_POLICY||!Array.isArray(job.transitions)||job.transitions.length!==files.length-1))throw failure('canvas_transition_invalid');
       const options={ffmpeg,ffprobe,limits:job.limits,run:boundedRun};
       enter('normalize');
-      const prepared=[7,8].includes(job.recipeVersion)?await trimCanvasSources(files,job.assembly,dir,options):files;
+      const sourceEndFits=[];
+      const prepared=[7,8].includes(job.recipeVersion)?await trimCanvasSources(files,job.assembly,dir,{...options,
+        creativeEndFit:job.recipeVersion===8&&job.assembly?.target?.mode==='creative',onSourceEndFit:fit=>sourceEndFits.push(fit)}):files;
       let result=await concatenateClips(prepared,dir,{...options,allowSingle:[7,8].includes(job.recipeVersion),spatialPolicy:job.spatialPolicy||'legacy-pad-v1',videoClock:job.recipeVersion>=4,fitAudio:job.recipeVersion>=5,
-        transitions:job.recipeVersion>=6?job.transitions:null,smooth:job.smoothJoins?.enabled===true,previewSeam:job.preview?.seamIndex??null});
+        transitions:job.recipeVersion>=6?job.transitions:null,adjustedClipIndices:sourceEndFits.map(fit=>fit.index),smooth:job.smoothJoins?.enabled===true,previewSeam:job.preview?.seamIndex??null});
+      const effectiveTransitions=result.effectiveTransitions||job.transitions;
+      const sourceEndFit=sourceEndFits.length?{policy:'fit-source-end-v1',clips:sourceEndFits,transitions:result.transitionAdjustments||[],frameRate:result.fps,durations:result.fittedSourceDurations}:null;
+      const seamReport=input=>({...(
+        input.seams?{policy:SEAM_POLICY,improved:input.seams.improved,seams:input.seams.seams}:{policy:SEAM_POLICY,improved:0,seams:[]}),
+        ...(sourceEndFit?{sourceEndFit}:{})});
       const withAudio=async input=>{
         let output=job.recipeVersion>=6?input:await applyOriginalAudio(input,job.originalAudio,dir,options);
         if(job.backgroundMusic?.enabled) {
@@ -351,13 +365,14 @@ export async function processCanvasExports({requestJson,authHeaders,baseUrl,limi
         const clean=new FormData();clean.set('video',new Blob([await readFile(input.output)],{type:'video/mp4'}),'clean-base.mp4');
         for(const key of ['duration','width','height'])clean.set(key,String(input[key]));
         if(job.recipeVersion>=3)clean.set('audioTimeline',JSON.stringify(input.timeline));
+        if(sourceEndFit)clean.set('seamResult',JSON.stringify(seamReport(input)));
         await json(`${base}/${job.id}/complete?part=preview-base`,{method:'POST',headers,body:clean,signal:AbortSignal.timeout(processingTimeout(deadline))});
         enter(previousStage);
       };
       enter('source_audio');if(job.recipeVersion>=6)result=await applyOriginalAudio(result,job.originalAudio,dir,options);
       if(job.preview&&job.recipeVersion<6)await uploadBase(await withAudio(result));
-      enter('smooth');if(job.smoothJoins?.enabled)result=await smoothVideoSeams(result,dir,{...options,skipSeams:new Set((job.preview?[job.transitions?.[job.preview.seamIndex]]:job.transitions||[]).flatMap((t,i)=>t&&t.preset!=='none'?[i]:[])),...(job.preview?{originalSeamIndex:job.preview.seamIndex}:{})});
-      enter('transitions');if(job.recipeVersion>=6)result=await applyVideoTransitions(result,job.preview?[job.transitions[job.preview.seamIndex]]:job.transitions,dir,{...options,inspect:inspectClip});
+      enter('smooth');if(job.smoothJoins?.enabled)result=await smoothVideoSeams(result,dir,{...options,skipSeams:new Set((job.preview?[effectiveTransitions?.[job.preview.seamIndex]]:effectiveTransitions||[]).flatMap((t,i)=>t&&t.preset!=='none'?[i]:[])),...(job.preview?{originalSeamIndex:job.preview.seamIndex}:{})});
+      enter('transitions');if(job.recipeVersion>=6)result=await applyVideoTransitions(result,job.preview?[effectiveTransitions[job.preview.seamIndex]]:effectiveTransitions,dir,{...options,inspect:inspectClip});
       if([7,8].includes(job.recipeVersion))result.timeline=result.timeline.map(clip=>({...clip,overlap:clip.overlap||0}));
       // Reuse this job's already-created clean base. Never another render/job.
       // Separate bounded upload keeps the existing completion body limit intact.
@@ -368,7 +383,7 @@ export async function processCanvasExports({requestJson,authHeaders,baseUrl,limi
       const form=new FormData();form.set('video',new Blob([await readFile(result.output)],{type:'video/mp4'}),'full-video.mp4');
       for(const key of ['duration','width','height'])form.set(key,String(result[key]));
       if(job.recipeVersion>=3)form.set('audioTimeline',JSON.stringify(result.timeline));
-      if(job.recipeVersion>=4)form.set('seamResult',JSON.stringify(result.seams?{policy:SEAM_POLICY,improved:result.seams.improved,seams:result.seams.seams}:{policy:SEAM_POLICY,improved:0,seams:[]}));
+      if(job.recipeVersion>=4)form.set('seamResult',JSON.stringify(seamReport(result)));
       await json(`${base}/${job.id}/complete`,{method:'POST',headers,body:form,signal:AbortSignal.timeout(processingTimeout(deadline))});
       stages[stage]=(stages[stage]||0)+Date.now()-stageStart;
       console.log(JSON.stringify({phase:'canvas_full_video',job:job.id,attempt:job.attempt,status:'stored',mode:result.mode,elapsedMs:Date.now()-started,stages}));

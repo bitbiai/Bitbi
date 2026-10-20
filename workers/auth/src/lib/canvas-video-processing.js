@@ -56,6 +56,13 @@ export async function enqueueCanvasProcessing(env,{userId,projectId,runId,kind,s
   const insert=env.DB.prepare(`INSERT OR IGNORE INTO canvas_video_processing
     (id,user_id,project_id,run_id,node_id,kind,sources_json,asset_id,next_attempt_at,created_at,updated_at,processing_backend,thumbnail_backend,recipe_json) SELECT ?,?,?,?,?,?,?,?,?,?,?,${recipe?"'cloudflare'":kind==='concat'?MEDIA_BACKEND_SQL:THUMBNAIL_BACKEND_SQL},${THUMBNAIL_BACKEND_SQL},? ${admission?'WHERE '+CANVAS_MERGE_ADMISSION_SQL:''}
     ${admission?.projectRevision!==undefined?'AND EXISTS(SELECT 1 FROM canvas_projects WHERE id=? AND user_id=? AND revision=? AND assembly_json=? AND deleted_at IS NULL)':''}
+    ${admission?.expectedFailedExportId?`AND EXISTS(SELECT 1 FROM canvas_video_processing old JOIN canvas_export_heads h ON h.${subject.column}=old.${subject.column}
+      JOIN users u ON u.id=old.user_id AND u.status='active'
+      WHERE old.id=? AND old.user_id=? AND old.project_id=? AND old.${subject.column}=? AND old.status='failed' AND old.asset_id IS NULL
+      AND old.error_code='canvas_trim_outside_source' AND old.recipe_json=? AND (old.locked_until IS NULL OR old.locked_until<=?) AND h.latest_id=old.id
+      AND NOT EXISTS(SELECT 1 FROM ai_text_assets a WHERE a.id=old.id))
+      AND NOT EXISTS(SELECT 1 FROM canvas_video_processing active WHERE active.user_id=? AND active.project_id=? AND active.kind='concat'
+        AND active.asset_id IS NULL AND active.status IN ('queued','processing') AND active.id<>?)`:''}
     ${authority?`AND EXISTS(SELECT 1 FROM canvas_agent_runs r JOIN canvas_projects p ON p.id=r.project_id JOIN users u ON u.id=r.user_id
       WHERE r.id=? AND r.user_id=? AND r.project_id=? AND r.status='exporting' AND r.lease_token=? AND r.lease_until>?
       AND r.expires_at>? AND p.revision=r.expected_revision AND p.deleted_at IS NULL AND u.status='active')`:''}
@@ -63,6 +70,7 @@ export async function enqueueCanvasProcessing(env,{userId,projectId,runId,kind,s
     .bind(id,userId,projectId,subject.runId,subject.nodeId,kind,JSON.stringify(sources),assetId,now,now,now,recipe?JSON.stringify(recipe):null,
       ...(admission?[nodeState,userId,projectId,edgeState,userId,projectId,nodeState,userId,projectId,edgeState,edgeState,userId,projectId]:[]),
       ...(admission?.projectRevision!==undefined?[projectId,userId,admission.projectRevision,admission.assemblyJson]:[]),
+      ...(admission?.expectedFailedExportId?[admission.expectedFailedExportId,userId,projectId,subject.id,admission.expectedFailedRecipeJson,now,userId,projectId,admission.expectedFailedExportId]:[]),
       ...(authority?[authority.runId,userId,projectId,authority.leaseToken,now,now]:[]),...(requestAlias?[requestAlias,id]:[]));
   if(requestAlias)await env.DB.batch([insert,env.DB.prepare('INSERT OR IGNORE INTO canvas_preview_requests(request_id,job_id) SELECT ?,id FROM canvas_video_processing WHERE id=? AND user_id=?').bind(requestAlias,id,userId)]);
   else await insert.run();

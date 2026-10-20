@@ -897,11 +897,25 @@ cases cover both branches without another export POST. Another recipe
 requested approximately twelve-second windows from measured 121-frame/24-fps
 sources. Seedance quotation/execution used its nested five-second setting while
 agent feasibility trusted an unused top-level duration. Derive feasibility from
-the native request; retain strict measured trim rejection and immutable failed
-recipes. A shorter successor requires an explicit creative decision. Private
+the native request; retain strict measured trim rejection for exact/legacy
+recipes and preserve immutable failed attempts. Private
 source/job evidence stays outside Git. The existing EN/DE export lifecycle and
 editable-film browser cases, native graph preflight and actual processor image
 are the affected acceptance callers; source inspection alone is not publication.
+
+October 20 creative source-end correction: a later explicitly creative recipe-v8
+attempt still reached unconditional `endFrame > frameCount` rejection before
+mixing music. Fresh owner-bound source versions and decoded picture timestamps
+confirmed the overrun; container/audio duration was longer than picture duration.
+Fit only the requested end, retain the start and valid trims, and verify the
+effective frame count after rendering. Reduce only newly infeasible adjacent
+overlaps under existing limits, recording `fit-source-end-v1` in the result;
+never rewrite the original recipe or add filler. Shared timing controls and the
+tiny `testCanvasCreativeTrim()` caller exercise private HTTP claim/source/upload,
+decoded frame order and a separately measured music tone with strict-mode,
+empty-range and clean-base countercontrols. Completion validates the report
+before either upload is accepted. Publication and targeted successor evidence
+must remain distinct from local fixture success.
 
 The production actor remained running after all jobs/leases finished: SDK 0.3.7
 keeps `containerFetch` in-flight until the response body drains. `deliver` now

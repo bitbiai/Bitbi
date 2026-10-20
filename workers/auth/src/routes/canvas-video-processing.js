@@ -8,7 +8,7 @@ import { saveGeneratedVideoAsset } from '../lib/ai-text-assets.js';
 import { json } from '../lib/response.js';
 import { readJsonBodyOrResponse, readFormDataLimited, BODY_LIMITS } from '../lib/request.js';
 import { nowIso } from '../lib/tokens.js';
-import { canvasExportRecipe, exportHead, ownedExportSource, saveCanvasExport } from '../lib/canvas-export-recipes.js';
+import { canvasExportRecipe, exportHead, ownedExportSource, saveCanvasExport, validateCanvasSourceEndFit } from '../lib/canvas-export-recipes.js';
 import { reclaimCanvasMedia } from '../lib/canvas-media-storage.js';
 import { readCanvasPreviewBase, storeCanvasPreviewBase } from '../lib/canvas-preview-base.js';
 import {smoothJoinSettings,seamPreviewSettings,validSeamResult} from '../../../../js/shared/canvas-smooth-joins.mjs';
@@ -20,8 +20,11 @@ import { handleCanvasInspectionProcessor } from './canvas-media-inspections.js';
 const base='/api/internal/homepage/hero-videos/canvas-exports/jobs';
 const reply=(data,status=200)=>json({ok:true,data},{status,headers:{'Cache-Control':'no-store'}});
 
-export async function canvasExport(ctx,userId,projectId,runId) {
+export async function canvasExport(ctx,userId,projectId,runId,{sourceEndRecoveryFrom=null}={}) {
   const subject=canvasExportSubject(runId);
+  // Internal reviewed recovery only; no browser request field enables this.
+  if(sourceEndRecoveryFrom!==null&&(!/^[a-f0-9]{32}$/.test(sourceEndRecoveryFrom)||ctx.method!=='POST'))throw canvasProcessingError('canvas_export_recovery_invalid');
+  const recoveryLink=sourceEndRecoveryFrom?{policy:'fit-source-end-v1',exportId:sourceEndRecoveryFrom}:null;
   const project=await ctx.env.DB.prepare('SELECT id,assembly_json,revision FROM canvas_projects WHERE id=? AND user_id=? AND deleted_at IS NULL').bind(projectId,userId).first();
   if(!project) throw canvasProcessingError('project_not_found','Project not found.',404);
   const previewId=new URL(ctx.request.url).searchParams.get('previewBase');
@@ -56,6 +59,7 @@ export async function canvasExport(ctx,userId,projectId,runId) {
   const parsed=await readJsonBodyOrResponse(ctx.request,{maxBytes:BODY_LIMITS.smallJson});
   if(parsed.response) return parsed.response;
   if(!parsed.body || Array.isArray(parsed.body)) throw canvasProcessingError('unsupported_option');
+  if(recoveryLink&&!Object.hasOwn(parsed.body,'backgroundMusic'))throw canvasProcessingError('canvas_export_recovery_invalid');
   if(Object.hasOwn(parsed.body,'saveExportId')) {
     if(Object.keys(parsed.body).length!==1)throw canvasProcessingError('unsupported_option');
     return reply(await saveCanvasExport(ctx.env,userId,projectId,runId,parsed.body.saveExportId));
@@ -77,7 +81,8 @@ export async function canvasExport(ctx,userId,projectId,runId) {
       const ordered=recipe?.videos.map(canvasClipIdentity);
       if(![1,2,3,4,5,6,7,8].includes(recipe?.version)||usesAssembly!==Boolean(recipe.assembly)||usesAssembly&&recipe.projectRevision!==parsed.body.assemblyRevision||JSON.stringify(recipe.backgroundMusic)!==JSON.stringify(exportMusicSettings(parsed.body.backgroundMusic))
         ||(recipe.smoothJoins?.enabled??false)!==smooth.enabled||JSON.stringify(recipe.preview||null)!==JSON.stringify(seamPreviewSettings(parsed.body.preview,recipe.videos.length))
-        ||recipe.mergeMode!==parsed.body.mergeMode||!usesAssembly&&explicit!==(recipe.sequence==='explicit')||explicit&&JSON.stringify(parsed.body.orderedClips)!==JSON.stringify(ordered))
+        ||recipe.mergeMode!==parsed.body.mergeMode||!usesAssembly&&explicit!==(recipe.sequence==='explicit')||explicit&&JSON.stringify(parsed.body.orderedClips)!==JSON.stringify(ordered)
+        ||JSON.stringify(recipe.sourceEndRecovery||null)!==JSON.stringify(recoveryLink))
         throw canvasProcessingError('canvas_export_idempotency_conflict');
       // A lost response, including one spanning deployment, observes the same
       // immutable job. Never turn a replay into a second render.
@@ -103,6 +108,18 @@ export async function canvasExport(ctx,userId,projectId,runId) {
     const recipe=await canvasExportRecipe(ctx.env,userId,projectId,runId,videos,parsed.body.backgroundMusic,explicit||usesAssembly,smooth.enabled,parsed.body.preview,assembly?assembly.clips.slice(0,-1).map(clip=>clip.transition):transitions,assembly);
     if(assembly)recipe.projectRevision=project.revision;
     if(parsed.body.mergeMode)recipe.mergeMode=parsed.body.mergeMode;
+    if(recoveryLink) {
+      const failed=await ctx.env.DB.prepare(`SELECT * FROM canvas_video_processing WHERE id=? AND user_id=? AND project_id=? AND ${subject.column}=? AND kind='concat'`)
+        .bind(sourceEndRecoveryFrom,userId,projectId,subject.id).first();
+      if(!failed||failed.status!=='failed'||failed.asset_id||failed.error_code!=='canvas_trim_outside_source'
+        ||failed.locked_until&&failed.locked_until>nowIso()||recipe.version!==8||recipe.preview||recipe.assembly?.target?.mode!=='creative'
+        ||failed.recipe_json!==JSON.stringify(recipe)||head.latest?.id!==failed.id
+        ||await ctx.env.DB.prepare('SELECT id FROM ai_text_assets WHERE id=?').bind(failed.id).first()
+        ||await ctx.env.DB.prepare(`SELECT id FROM canvas_video_processing WHERE user_id=? AND project_id=? AND kind='concat'
+          AND asset_id IS NULL AND status IN ('queued','processing') AND id<>? LIMIT 1`).bind(userId,projectId,failed.id).first())throw canvasProcessingError('canvas_export_recovery_changed');
+      admission.expectedFailedExportId=failed.id;admission.expectedFailedRecipeJson=failed.recipe_json;
+      recipe.sourceEndRecovery=recoveryLink;
+    }
     let key=requestKey;
     if(recipe.preview) {
       // Recipe includes versions/order/audio/music/mode/policy. Never reuse a
@@ -224,30 +241,42 @@ export async function handleCanvasExportProcessor(ctx) {
       const bytes=new Uint8Array(await file.arrayBuffer());
       if(String.fromCharCode(...bytes.slice(4,8))!=='ftyp') throw canvasProcessingError('canvas_export_file_invalid');
       const recipe=JSON.parse(job.recipe_json||'null');
-      if([7,8].includes(recipe?.version)&&!recipe.preview&&new URL(ctx.request.url).searchParams.get('part')!=='preview-base')verifyCanvasDuration(duration,recipe.assembly?.target);
+      const previewBase=new URL(ctx.request.url).searchParams.get('part')==='preview-base';
+      if([7,8].includes(recipe?.version)&&!recipe.preview&&!previewBase)verifyCanvasDuration(duration,recipe.assembly?.target);
+      let report,timeline;
+      if(recipe?.version>=4&&(!previewBase||form.has('seamResult'))) {
+        try{report=JSON.parse(form.get('seamResult'));}catch{throw canvasProcessingError('canvas_seam_result_invalid');}
+        if(!validSeamResult(report,{enabled:recipe.smoothJoins.enabled,preview:recipe.preview,count:recipe.videos.length}))throw canvasProcessingError('canvas_seam_result_invalid');
+      }
       if(recipe?.version>=3) {
-        let timeline;try{timeline=JSON.parse(form.get('audioTimeline'));}catch{throw canvasProcessingError('canvas_audio_timeline_invalid');}
+        try{timeline=JSON.parse(form.get('audioTimeline'));}catch{throw canvasProcessingError('canvas_audio_timeline_invalid');}
         const count=recipe.preview?2:recipe.videos.length;
         let end=0;
         if(!Array.isArray(timeline)||timeline.length!==count)throw canvasProcessingError('canvas_audio_timeline_invalid');
+        const fitted=validateCanvasSourceEndFit(recipe,report?.sourceEndFit,timeline);
+        const transitions=fitted?.transitions||recipe.transitions;
         for(const [i,clip] of timeline.entries()) {
           if(!clip||Object.keys(clip).sort().join(',')!==(recipe.version>=6?'duration,originalAudioFit,overlap,start':recipe.version>=5?'duration,originalAudioFit,start':'duration,start')
             ||recipe.version>=5&&!validAudioFit(clip.originalAudioFit)||!Number.isFinite(clip.start)||!Number.isFinite(clip.duration)
             ||clip.duration<=0||Math.abs(clip.start-end)>.001)throw canvasProcessingError('canvas_audio_timeline_invalid');
-          if(recipe.version>=6){const transition=i===count-1?null:recipe.transitions[recipe.preview?recipe.preview.seamIndex+i:i];const expected=transition?.preset!=='none'&&transition?.duration||0;if(!Number.isFinite(clip.overlap)||clip.overlap<0||Math.abs(clip.overlap-expected)>.05||clip.overlap>clip.duration/2+.001)throw canvasProcessingError('canvas_audio_timeline_invalid');}
+          if(recipe.version>=6) {
+            const transition=i===count-1?null:transitions[recipe.preview?recipe.preview.seamIndex+i:i];
+            const requested=transition?.preset!=='none'&&transition?.duration||0;
+            const expected=fitted&&requested?Math.max(1,Math.round(requested*fitted.frameRate))/fitted.frameRate:requested;
+            if(!Number.isFinite(clip.overlap)||clip.overlap<0||Math.abs(clip.overlap-expected)>(fitted ? .0001 : .05)
+              ||clip.overlap>clip.duration/2+.001)throw canvasProcessingError('canvas_audio_timeline_invalid');
+          }
           end=clip.start+clip.duration-(clip.overlap||0);
         }
         if(Math.abs(end-duration)>Math.max(.25,count*.06))throw canvasProcessingError('canvas_audio_timeline_invalid');
         await ctx.env.DB.prepare("UPDATE canvas_video_processing SET audio_timeline_json=? WHERE id=? AND processing_token=? AND status='processing' AND locked_until>?")
           .bind(JSON.stringify(timeline),job.id,token,nowIso()).run();
       }
-      if(new URL(ctx.request.url).searchParams.get('part')==='preview-base') {
+      if(previewBase) {
         await storeCanvasPreviewBase(ctx.env,job,bytes);
         return reply({base_stored:true});
       }
       if(recipe?.version>=4) {
-        let report;try{report=JSON.parse(form.get('seamResult'));}catch{throw canvasProcessingError('canvas_seam_result_invalid');}
-        if(!validSeamResult(report,{enabled:recipe.smoothJoins.enabled,preview:recipe.preview,count:recipe.videos.length}))throw canvasProcessingError('canvas_seam_result_invalid');
         await ctx.env.DB.prepare("UPDATE canvas_video_processing SET seam_result_json=? WHERE id=? AND processing_token=? AND status='processing' AND locked_until>?")
           .bind(JSON.stringify(report),job.id,token,nowIso()).run();
       }

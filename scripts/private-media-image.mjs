@@ -70,7 +70,7 @@ export function executeMediaTestGroups({policy,image,sourceFiles,mounts,director
   }
   return {testExecution:'fixed-groups-v1',testGroups:groups,testLogDigest:hash(fs.readFileSync(logFile))};
 }
-export function mediaTestMounts(tests=['canvas-transitions.test.mjs','canvas-full-video.test.mjs','canvas-assembly.test.mjs','canvas-audio-fit.test.mjs','canvas-seams.test.mjs','private-media-runner.test.mjs','video-reference.test.mjs']) {
+export function mediaTestMounts(tests=['canvas-transitions.test.mjs','canvas-full-video.test.mjs','canvas-assembly.test.mjs','canvas-creative-trim.test.mjs','canvas-audio-fit.test.mjs','canvas-seams.test.mjs','private-media-runner.test.mjs','video-reference.test.mjs']) {
   const directory=path.resolve('services/homepage-ffmpeg-processor');
   for(const file of tests) {
     assert(/^[a-z0-9-]+\.test\.mjs$/.test(file),'Invalid processor test mount');

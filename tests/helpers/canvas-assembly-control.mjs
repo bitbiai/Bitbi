@@ -2,6 +2,9 @@ import { deleteAllUserAiAssets } from '../../workers/auth/src/routes/ai/lifecycl
 import { canvasAudioFixture } from './canvas-audio-control.mjs';
 import { prepareCanvasMediaInspection, readCanvasMediaInspection, attachCanvasInspectionFrame } from '../../workers/auth/src/lib/canvas-media-inspections.js';
 import { sha256Hex } from '../../workers/auth/src/lib/tokens.js';
+import { canvasNotificationText } from '../../js/shared/canvas-notification-contract.mjs';
+import { validateCanvasSourceEndFit } from '../../workers/auth/src/lib/canvas-export-recipes.js';
+import { canvasExport } from '../../workers/auth/src/routes/canvas-video-processing.js';
 const check=(value,message)=>{if(!value)throw new Error(message);};
 const bytes=value=>Uint8Array.from(atob(value),c=>c.charCodeAt(0));
 const headers={Authorization:'Bearer synthetic-audio-processor'};
@@ -84,9 +87,131 @@ export async function canvasAssemblyRetentionCase(env,media) {
     }
     const states=(await f.db.prepare('SELECT id,state FROM canvas_export_versions WHERE id IN (?,?)').bind(...completed).all()).results;
     check(states.length===2&&states.every(row=>row.state==='saved'),'A newer creative delivery cannot retire the previous saved exact export');
+    await canvasSourceEndFitCompletion(f,media);
     check(f.calls.length===0,'Delivery retention never starts inference');
     check((await f.db.prepare('PRAGMA foreign_key_check').all()).results.length===0,'Retention preserves all ownership and project relations');
-    return {completedVersions:[7,8],savedExports:2,private:true,providerCalls:0};
+    return {completedVersions:[7,8],savedExports:3,sourceEndFit:true,private:true,providerCalls:0};
+}
+
+async function canvasSourceEndFitCompletion(f,media) {
+    const current=await f.readProject(),assembly={version:1,anchorNodeId:f.last.id,clips:[
+        {nodeId:f.first.id,trim:{start:0,duration:2},transition:{preset:'fade',duration:.5}},
+        {nodeId:f.last.id,trim:{start:.2,duration:3.8},transition:{preset:'none'}},
+    ],target:{seconds:6,mode:'creative'},backgroundMusic:{enabled:true,gain:.25,musicAssetId:f.musicId},smoothJoins:false};
+    const saved=await f.data(await f.request(f.projectPath+'/assembly','PATCH',{revision:current.project.revision,assembly}));
+    const body={assemblyRevision:saved.revision,backgroundMusic:assembly.backgroundMusic};
+    const accept=async(key,extra={})=>(await f.data(await f.request(f.endpoint,'POST',{...body,...extra},{'Idempotency-Key':key}))).export;
+    const failed=await accept('creative-source-end-fit-original');
+    await f.db.prepare("UPDATE canvas_video_processing SET status='failed',error_code='canvas_trim_outside_source',attempt_count=1 WHERE id=?").bind(failed.id).run();
+    const failureSnapshot=await f.db.prepare('SELECT * FROM canvas_video_processing WHERE id=?').bind(failed.id).first();
+    const recoveryKey='source-end-fit-v1-'+failed.id;
+    const recover=(key=recoveryKey,from=failed.id,env=f.env)=>canvasExport({env,method:'POST',
+        request:new Request('https://bitbi.ai'+f.endpoint,{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':key},body:JSON.stringify(body)})},
+        f.owner,f.project,{nodeId:f.last.id},{sourceEndRecoveryFrom:from});
+    const mustReject=async(call,code)=>{
+        let error;try{await call();}catch(value){error=value;}
+        check(error?.code===code,'The reviewed recovery rejects changed or unauthorised state with its actual service error');
+    };
+    check((await f.request(f.endpoint,'POST',{...body,sourceEndRecoveryFrom:failed.id},{'Idempotency-Key':'creative-public-recovery-forgery'})).status===409,'A public body cannot enable the internal reviewed recovery');
+    await f.db.prepare("UPDATE users SET status='disabled' WHERE id=?").bind(f.owner).run();
+    try{await mustReject(()=>recover(),'canvas_selection_changed');}
+    finally{await f.db.prepare("UPDATE users SET status='active' WHERE id=?").bind(f.owner).run();}
+    check((await f.db.prepare('SELECT COUNT(*) n FROM canvas_video_processing WHERE project_id=? AND json_extract(recipe_json,\'$.sourceEndRecovery.exportId\')=?').bind(f.project,failed.id).first()).n===0,'A disabled owner cannot create a successor through the internal service');
+    const job=(await f.data(await recover())).export;
+    check(job.id!==failed.id&&job.recipe.sourceEndRecovery?.exportId===failed.id&&job.recipe.sourceEndRecovery.policy==='fit-source-end-v1','Recovery creates one explicitly linked immutable successor');
+    check((await f.data(await recover())).export.id===job.id,'A repeated accepted recovery observes its original successor');
+    await mustReject(()=>recover(recoveryKey,'f'.repeat(32)),'canvas_export_idempotency_conflict');
+    await mustReject(()=>recover(recoveryKey+'-new'),'canvas_export_recovery_changed');
+    check(JSON.stringify(await f.db.prepare('SELECT * FROM canvas_video_processing WHERE id=?').bind(failed.id).first())===JSON.stringify(failureSnapshot),'Recovery preserves the failed recipe, attempts and all original evidence');
+    const original=await f.db.prepare('SELECT * FROM canvas_video_processing WHERE id=?').bind(job.id).first();
+    const claim=async id=>{
+        await f.db.prepare('UPDATE canvas_video_processing SET next_attempt_at=? WHERE id=?').bind('1800-01-01',id).run();
+        const rows=(await f.data(await f.request(base+'/claim','POST',{protocol:1,recipeProtocol:9,limit:1},headers))).jobs;
+        check(rows.length===1&&rows[0].id===id,'The real completion caller claims only this accepted export');
+        return {...headers,'X-BITBI-Canvas-Claim':rows[0].claim};
+    };
+    const auth=await claim(job.id),audio={policy:'fit-picture-v1',trimStart:0,trimEnd:0};
+    // Synthetic trusted-processor measurements: the first source has ten frames.
+    // The accepted two-second request therefore ends at .4 s; its .5 s fade
+    // becomes .2 s. The selected second clip remains exactly 3.8 s.
+    const fit={policy:'fit-source-end-v1',frameRate:25,durations:[.4,3.8],clips:[
+        {index:0,sourceFrames:10,startFrame:0,requestedEndFrame:50,endFrame:10,frameRateNumerator:25,frameRateDenominator:1},
+    ],transitions:[{index:0,requestedFrames:13,effectiveFrames:5,requestedPreset:'fade',effectivePreset:'fade'}]};
+    const timeline=[{start:0,duration:.4,overlap:.2,originalAudioFit:audio},{start:.2,duration:3.8,overlap:0,originalAudioFit:audio}];
+    const report={policy:'motion-anchors-v1',improved:0,seams:[],sourceEndFit:fit};
+    const form=(value=report,clock=timeline,duration=4)=>{
+        const data=new FormData();data.set('video',new Blob([bytes(media.videoBase64)],{type:'video/mp4'}),'creative.mp4');
+        data.set('duration',String(duration));data.set('width','320');data.set('height','320');
+        data.set('audioTimeline',JSON.stringify(clock));data.set('seamResult',JSON.stringify(value));return data;
+    };
+    const rejected=async(value,code='canvas_source_end_fit_invalid',clock=timeline,status=400)=>{
+        const response=await f.request(`${base}/${job.id}/complete`,'POST',form(value,clock),auth);
+        check(response.status===status&&(await response.json()).code===code,'Invalid fit cannot bypass the actual private completion boundary');
+        const row=await f.db.prepare('SELECT asset_id,audio_timeline_json,seam_result_json FROM canvas_video_processing WHERE id=?').bind(job.id).first();
+        check(!row.asset_id&&!row.audio_timeline_json&&!row.seam_result_json,'Rejected measurements write no completion or derived timeline');
+    };
+    for(const bad of [
+        {...fit,private:'untrusted'}, {...fit,policy:'invented'}, {...fit,durations:[.4,3.81]},
+        {...fit,clips:[{...fit.clips[0],startFrame:1}]}, {...fit,clips:[{...fit.clips[0],requestedEndFrame:49}]},
+        {...fit,clips:[fit.clips[0],fit.clips[0]]}, {...fit,transitions:[]},
+        {...fit,transitions:[{...fit.transitions[0],effectivePreset:'slideleft'}]},
+    ])await rejected({...report,sourceEndFit:bad});
+    await rejected({policy:report.policy,improved:0,seams:[]},'canvas_audio_timeline_invalid',timeline,409);
+    await rejected(report,'canvas_source_end_fit_invalid',[{...timeline[0],duration:.44},timeline[1]]);
+    await rejected(report,'canvas_audio_timeline_invalid',[{...timeline[0],overlap:.19},{...timeline[1],start:.21}],409);
+    for(const recipe of [{...job.recipe,version:7},{...job.recipe,assembly:{...job.recipe.assembly,target:{seconds:6,toleranceSeconds:.5}}}]) {
+        let refused=false;try{validateCanvasSourceEndFit(recipe,fit,timeline);}catch(error){refused=error.code==='canvas_source_end_fit_invalid';}
+        check(refused,'The creative report cannot change historical or exact export semantics');
+    }
+    const previewTimeline=[timeline[0],{...timeline[1],duration:1.52}],previewRecipe={...job.recipe,preview:{seamIndex:0}};
+    check(validateCanvasSourceEndFit(previewRecipe,fit,previewTimeline)?.transitions[0].duration===.2,'Comparison validation uses the full measured durations and exact existing cropped window');
+    let badPreview=false;try{validateCanvasSourceEndFit(previewRecipe,fit,timeline);}catch(error){badPreview=error.code==='canvas_source_end_fit_invalid';}
+    check(badPreview,'An uncropped full timeline cannot masquerade as a seam comparison');
+    const clean=await f.data(await f.request(`${base}/${job.id}/complete?part=preview-base`,'POST',form(),auth));
+    check(clean.base_stored===true,'The same validated effective overlap is accepted for the clean preview base');
+    const previewOnly=await f.db.prepare('SELECT asset_id,seam_result_json,preview_base_key FROM canvas_video_processing WHERE id=?').bind(job.id).first();
+    check(!previewOnly.asset_id&&!previewOnly.seam_result_json&&previewOnly.preview_base_key,'Clean base is not a saved final film or final adjustment receipt');
+    const beforeNotice=(await f.data(await f.request('/api/account/canvas/notifications'))).items.find(item=>item.details.exportId===job.id);
+    check(beforeNotice?.code!=='canvas_export_ready'&&!beforeNotice?.details.sourceEndFit,'Preview storage does not announce a completed adjusted export');
+    const result=await f.data(await f.request(`${base}/${job.id}/complete`,'POST',form(),auth));
+    check(result.asset_id===job.id,'Verified creative result is saved under its original owned job identity');
+    const finished=await f.db.prepare('SELECT recipe_json,seam_result_json FROM canvas_video_processing WHERE id=?').bind(job.id).first();
+    check(finished.recipe_json===original.recipe_json&&JSON.stringify(JSON.parse(finished.seam_result_json))===JSON.stringify(report),'Original recipe remains intact beside its immutable measured correction report');
+    check(JSON.stringify((await f.readProject()).project.assembly)===JSON.stringify(assembly),'Completion never silently edits the manually editable assembly');
+    const notification=(await f.data(await f.request('/api/account/canvas/notifications'))).items.find(item=>item.id===`export:${job.id}:ready`);
+    check(notification?.confirmed&&notification.details.sourceEndFit?.clips===1&&notification.details.sourceEndFit.transitions===1
+        &&notification.details.sourceEndFit.durationSeconds===4&&notification.details.sourceEndFit.targetSeconds===6,'Canonical final notification contains bounded actual adjustment facts');
+    check(canvasNotificationText(notification,true).includes('Gemessene Länge: 4 s')&&canvasNotificationText(notification,false).includes('Measured duration: 4 s'),'Both languages distinguish actual duration from the creative target');
+    check(!canvasNotificationText({...notification,source:'client',confirmed:false},true).includes('Gemessene Länge'),'An unconfirmed client notice cannot claim a verified adjustment');
+    await f.data(await f.request('/api/account/canvas/notifications/read','POST',{ids:[notification.id]}));
+    const replay=(await f.data(await recover())).export;
+    const after=(await f.data(await f.request('/api/account/canvas/notifications'))).items.filter(item=>item.details.exportId===job.id);
+    check(replay.id===job.id&&after.length===1&&after[0].readAt,'Replay preserves one saved export and its acknowledgement instead of announcing another render');
+    const foreign=await f.request('/api/account/canvas/notifications','GET',null,{Cookie:'__Host-bitbi_session=invalid'});
+    check(foreign.status===401,'Private adjustment details retain the existing authenticated boundary');
+    const raced=await accept('creative-source-end-race-original');
+    await f.db.prepare("UPDATE canvas_video_processing SET status='failed',error_code='canvas_trim_outside_source',attempt_count=1 WHERE id=?").bind(raced.id).run();
+    const raceBefore=await f.db.prepare('SELECT * FROM canvas_video_processing WHERE id=?').bind(raced.id).first();
+    let newer=null;
+    const wrap=(statement,sql)=>new Proxy(statement,{get(target,key){
+        if(key==='bind')return(...args)=>wrap(target.bind(...args),sql);
+        if(key==='run')return async()=>{
+            if(sql.includes("old.error_code='canvas_trim_outside_source'")&&!newer)newer=await accept('creative-source-end-newer-manual');
+            return target.run();
+        };
+        const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value;
+    }});
+    const guardedDB=new Proxy(f.db,{get(target,key){
+        if(key==='prepare')return sql=>wrap(target.prepare(sql),sql);
+        const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value;
+    }});
+    await mustReject(()=>recover('source-end-fit-v1-'+raced.id,raced.id,{...f.env,DB:guardedDB}),'canvas_selection_changed');
+    check(newer&&(await f.db.prepare('SELECT latest_id FROM canvas_export_heads WHERE node_id=?').bind(f.last.id).first()).latest_id===newer.id,'A real newer manual export wins the atomic head fence before recovery inserts');
+    check(JSON.stringify(await f.db.prepare('SELECT * FROM canvas_video_processing WHERE id=?').bind(raced.id).first())===JSON.stringify(raceBefore),'A losing recovery cannot rewrite its original failure');
+    check((await f.db.prepare('SELECT COUNT(*) n FROM canvas_video_processing WHERE project_id=? AND json_extract(recipe_json,\'$.sourceEndRecovery.exportId\')=?').bind(f.project,raced.id).first()).n===0,'The raced recovery inserts no hidden competing successor');
+    // Finish the synthetic competing request through its normal claimed failure
+    // boundary so later shared-native fixtures have no active work from this case.
+    await f.data(await f.request(`${base}/${newer.id}/fail`,'POST',{code:'canvas_trim_outside_source'},await claim(newer.id)));
 }
 
 export async function canvasAssemblyCase(env,media) {

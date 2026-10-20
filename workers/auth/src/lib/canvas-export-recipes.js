@@ -4,9 +4,55 @@ import { sha256Hex, nowIso } from './tokens.js';
 import { ownedCanvasVideo } from './canvas-video-input.js';
 import {smoothJoinSettings,seamPreviewSettings} from '../../../../js/shared/canvas-smooth-joins.mjs';
 import {CANVAS_AUDIO_FIT_POLICY} from '../../../../js/shared/canvas-audio-fit.mjs';
-import { canvasAssembly } from '../../../../js/shared/canvas-assembly.mjs';
+import { canvasAssembly, resolveCanvasTrimFrames, fitCanvasCreativeTransitions } from '../../../../js/shared/canvas-assembly.mjs';
 
 const fail = code => { throw Object.assign(new Error(code), {code,status:409}); };
+// A processor result may explain a creative source-end correction; it never
+// changes the accepted recipe. Recompute the only permitted frame/overlap edits.
+export function validateCanvasSourceEndFit(recipe, report, timeline) {
+  if(report===undefined)return null;
+  const invalid=()=>{throw Object.assign(new Error('canvas_source_end_fit_invalid'),{code:'canvas_source_end_fit_invalid',status:400});};
+  const keys=(value,expected)=>value&&typeof value==='object'&&!Array.isArray(value)&&Object.keys(value).sort().join(',')===expected.split(',').sort().join(',');
+  if(recipe?.version!==8||recipe.assembly?.target?.mode!=='creative'
+    ||!keys(report,'policy,clips,transitions,frameRate,durations')||report.policy!=='fit-source-end-v1'
+    ||!Number.isFinite(report.frameRate)||report.frameRate<=0||report.frameRate>60
+    ||!Array.isArray(report.clips)||!report.clips.length||report.clips.length>120
+    ||!Array.isArray(report.transitions)||!Array.isArray(report.durations)||report.durations.length!==recipe.videos?.length
+    ||report.durations.length>120||!Array.isArray(timeline)||timeline.length!==(recipe.preview?2:report.durations.length))invalid();
+  try {
+    const assembly=canvasAssembly(recipe.assembly),durations=report.durations,indices=[];
+    if(assembly.clips.length!==durations.length||recipe.transitions?.length!==durations.length-1
+      ||durations.some(duration=>!Number.isFinite(duration)||duration<=0||duration>600
+        ||Math.abs(duration*report.frameRate-Math.round(duration*report.frameRate))>.0001))invalid();
+    for(const clip of report.clips) {
+      if(!keys(clip,'index,sourceFrames,startFrame,requestedEndFrame,endFrame,frameRateNumerator,frameRateDenominator')
+        ||!Number.isSafeInteger(clip.index)||clip.index<0||clip.index>=durations.length||indices.includes(clip.index)
+        ||['sourceFrames','startFrame','requestedEndFrame','endFrame','frameRateNumerator','frameRateDenominator'].some(key=>!Number.isSafeInteger(clip[key]))
+        ||clip.frameRateNumerator<=0||clip.frameRateDenominator<=0)invalid();
+      const interval=resolveCanvasTrimFrames({...assembly.clips[clip.index].trim,sourceFrames:clip.sourceFrames,
+        frameRateNumerator:clip.frameRateNumerator,frameRateDenominator:clip.frameRateDenominator,creative:true});
+      if(!interval.fit||Object.keys(interval.fit).some(key=>interval.fit[key]!==clip[key]))invalid();
+      const normalized=Math.ceil(interval.durationSeconds*report.frameRate-.0001)/report.frameRate;
+      if(!Number.isFinite(durations[clip.index])||Math.abs(durations[clip.index]-normalized)>.0001)invalid();
+      indices.push(clip.index);
+    }
+    const fitted=fitCanvasCreativeTransitions(durations,recipe.transitions,report.frameRate,indices);
+    if(report.transitions.length!==fitted.adjustments.length)invalid();
+    for(const [index,transition]of report.transitions.entries()) {
+      if(!keys(transition,'index,requestedFrames,effectiveFrames,requestedPreset,effectivePreset')
+        ||Object.keys(fitted.adjustments[index]).some(key=>transition[key]!==fitted.adjustments[index][key]))invalid();
+    }
+    let selected=durations;
+    if(recipe.preview) {
+      const seam=recipe.preview.seamIndex;
+      if(!Number.isSafeInteger(seam)||seam<0||seam>=durations.length-1)invalid();
+      const window=Math.ceil(Math.max(1.5,2*(fitted.transitions[seam].duration||0)+1/report.frameRate)*report.frameRate)/report.frameRate;
+      selected=durations.slice(seam,seam+2).map(duration=>Math.min(window,duration));
+    }
+    if(timeline.some((clip,index)=>!Number.isFinite(clip?.duration)||Math.abs(clip.duration-selected[index])>.0001))invalid();
+    return fitted;
+  }catch{invalid();}
+}
 export async function validateExportEdge(env,userId,projectId,sourceId,targetId,config) {
   if(config.purpose!==undefined && !['','export_background_music'].includes(config.purpose))fail('canvas_connection_purpose');
   if(config.transition!==undefined){
