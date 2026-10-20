@@ -8,8 +8,8 @@ export async function canvasActionRecoveryCase(base,name){
  const revision=async()=>(await f.db.prepare('SELECT revision FROM canvas_projects WHERE id=?').bind(f.project).first()).revision;
  const action=async(type,extra={})=>({type,targetId:null,value:null,number:null,secondaryNumber:null,ids:[],revision:await revision(),...extra});
  const expectResponse=async(response,status)=>{const data=await response.json();check(response.status===status,`Expected ${status}, received ${response.status}/${data.code}`);return data.data;};
- const perform=async(actions)=>{
-  await c.data((await c.send('A 45 second film of bees in a factory. Apply the requested current-project change.')).response);
+ const perform=async(actions,text='A 45 second film of bees in a factory. Apply the requested current-project change.')=>{
+  await c.data((await c.send(text)).response);
   await c.deliver();await c.complete({text:'I requested the change.',actions});await c.deliver();return (await c.read()).actions;
  };
  try{
@@ -29,7 +29,9 @@ export async function canvasActionRecoveryCase(base,name){
    check((await f.db.prepare('SELECT status FROM canvas_agent_runs WHERE id=?').bind(started.run.id).first()).status==='paused','A late resume proposal cannot undo the stop');
    check(JSON.parse((await f.db.prepare('SELECT content_json FROM canvas_nodes WHERE id=?').bind(node.id).first()).content_json).text==='manual decision','Late dependent graph mutation stays unapplied');
   }else if(name==='confirmation-replay'){
-   const rows=await perform([await action('allowance_propose',{number:2500})]),proposal=rows.at(-1),{kind,nodeId,...decision}=proposal.confirmation;
+   const rows=await perform([await action('allowance_propose',{number:2500})],'For the 45 second bee film, please propose a conversation allowance of 2500 credits.'),proposal=rows.at(-1);
+   check(proposal.state==='confirmation_required'&&proposal.confirmation?.kind==='allowance','The explicit conversation-allowance request reaches a real pending monetary confirmation');
+   const {kind,nodeId,...decision}=proposal.confirmation;
    void kind;void nodeId;
    const body={decision:'accept',...decision};
    await expectResponse(await c.post(`/actions/${proposal.id}/confirm`,body),200);

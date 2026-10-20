@@ -184,9 +184,19 @@ async function budgetStopCase(base) {
 }
 
 async function lostLeaseCase(base) {
-    const f=await budgetFixture(base,'lost-lease'),run=await f.createRun('active',500);
-    await f.allocate(run,'plan',127);
-    await f.db.prepare('UPDATE canvas_agent_runs SET lease_token=NULL,lease_until=NULL WHERE id=?').bind(run.id).run();
+    const f=await budgetFixture(base,'lost-lease');
+    // This race is at new-dispatch readiness, after the persisted plan input
+    // and policy have passed admission. A ledger-only hand-written step has no
+    // payload and correctly fails before it can exercise lease revocation.
+    const started=await f.request(f.route,'POST',{brief:'A 45 second film about bees building a factory.',targetDurationSeconds:45,
+        expectedRevision:0,budgetCredits:5000,locale:'en'},{'Idempotency-Key':'autonomy-lost-lease-start'});
+    const initial=await started.json();check(started.status===202&&initial.ok,'The ordinary start route admits the original complete planning request');
+    const run=await f.db.prepare('SELECT * FROM canvas_agent_runs WHERE id=?').bind(initial.data.run.id).first();
+    const step=await f.db.prepare("SELECT * FROM canvas_agent_steps WHERE run_id=? AND kind='plan'").bind(run.id).first();
+    check(step.status==='ready'&&JSON.parse(step.input_json).payload.policy&&run.status==='queued','The race starts from a real pinned policy and ready planning step');
+    const beforeEvents=(await f.db.prepare('SELECT type,payload_json FROM canvas_agent_events WHERE run_id=? ORDER BY id').bind(run.id).all()).results;
+    const queuedBefore=f.messages.length;
+    check(queuedBefore===1&&beforeEvents.length===1&&JSON.parse(beforeEvents[0].payload_json).code==='started','One initial wake and start receipt precede the controlled queue race');
     const original=f.env.AI_LAB.fetch;let takeovers=0,acknowledged=0;
     f.env.AI_LAB.fetch=async request=>{
         if(new URL(request.url).pathname==='/internal/ai/canvas-agent/readiness'&&takeovers===0) {
@@ -204,8 +214,9 @@ async function lostLeaseCase(base) {
     const view=await (await f.request(f.route)).json();
     check(takeovers===1&&acknowledged===1,'The controlled race genuinely revokes one claimed queue delivery');
     check(view.data.run.status==='taken_over'&&view.data.run.currentAction.code==='taken_over','The stale claimant cannot replace the current manual-takeover action');
-    check(events.length===1&&events[0].type==='action'&&JSON.parse(events[0].payload_json).code==='taken_over','A lost lease cannot append a false terminal error after takeover');
-    check(f.unexpected.length===0&&f.messages.length===0&&await debitsOf(f)===0,'The lost lease cannot dispatch, requeue or charge');
+    equal(events.slice(0,beforeEvents.length),beforeEvents,'The initial accepted start receipt remains unchanged');
+    check(events.length===beforeEvents.length+1&&events.at(-1).type==='action'&&JSON.parse(events.at(-1).payload_json).code==='taken_over','A lost lease cannot append a false terminal error after takeover');
+    check(f.unexpected.length===0&&f.messages.length===queuedBefore&&await debitsOf(f)===0,'The lost lease cannot dispatch, requeue or charge');
     return {case:'lost-lease',takeovers:1,staleErrors:0};
 }
 

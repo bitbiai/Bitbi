@@ -4,6 +4,8 @@ import { sha256Hex } from '../../workers/auth/src/lib/tokens.js';
 import { grantMemberCredits } from '../../workers/auth/src/lib/billing.js';
 import { processCanvasAgentConversation } from '../../workers/auth/src/lib/canvas-agent-conversation.js';
 import { canvasAgentEnvironment, canvasAgentSession } from '../../workers/auth/src/lib/canvas-agent-authority.js';
+import { getModelTariff } from '../../workers/auth/src/lib/model-tariffs.js';
+import { TARIFF_HEADER } from '../../js/shared/model-tariff.mjs';
 
 const check=(value,message)=>{if(!value)throw new Error(message);};
 const blankBrief={version:1,revision:0,fields:{},duration:{targetDurationSeconds:null,choice:null,asked:false,sourceMessageId:null},openQuestions:[]};
@@ -45,9 +47,9 @@ export async function canvasProjectLifecycleCase(base) {
     await db.prepare("INSERT INTO users(id,email,password_hash,created_at,role,status,email_verified_at) VALUES(?,?,?,?,'user','active',?)").bind(user,`${user}@example.invalid`,'synthetic',now,now).run();
     await db.prepare('INSERT INTO sessions(id,user_id,token_hash,created_at,expires_at,last_seen_at) VALUES(?,?,?,?,?,?)').bind(user,user,await sha256Hex(`${user}:${env.SESSION_HASH_SECRET}`),now,expires,now).run();
   }
-  const request=(path,method='GET',{user=owner,key='lifecycle-replay-key',body={}}={})=>worker.fetch(new Request(`https://bitbi.ai${path}`,{
+  const request=(path,method='GET',{user=owner,key='lifecycle-replay-key',body={},headers={}}={})=>worker.fetch(new Request(`https://bitbi.ai${path}`,{
     method,headers:{Origin:'https://bitbi.ai',Cookie:`__Host-bitbi_session=${user}`,'X-Bitbi-Correlation-Id':'lifecycle-cleanup-fixture',
-      ...(['POST','PATCH'].includes(method)?{'Content-Type':'application/json','Idempotency-Key':key}:{})},...(['POST','PATCH'].includes(method)?{body:JSON.stringify(body)}:{}),
+      ...(['POST','PATCH'].includes(method)?{'Content-Type':'application/json','Idempotency-Key':key}:{}),...headers},...(['POST','PATCH'].includes(method)?{body:JSON.stringify(body)}:{}),
   }),env,{waitUntil(promise){pending.push(promise);}});
   const payload=async(response,status=200)=>{const body=await response.json();check(response.status===status,`Lifecycle expected ${status}, got ${response.status}/${body.code}`);return body;};
   const createProject=async label=>{const project=await id(label);await db.prepare("INSERT INTO canvas_projects(id,user_id,title,created_at,updated_at) VALUES(?,?,'Synthetic lifecycle project',?,?)").bind(project,owner,now,now).run();return project;};
@@ -192,14 +194,20 @@ export async function canvasProjectLifecycleCase(base) {
   await db.prepare('UPDATE canvas_nodes SET model_id=?,config_json=? WHERE id=?').bind(model,JSON.stringify({prompt:'Write a short scene.',maxTokens:100}),textNode).run();
   await grantMemberCredits({env,userId:owner,amount:100,createdByUserId:owner,idempotencyKey:'lifecycle-credit-grant'});
   const runPath=`/api/account/canvas/projects/${active}/nodes/${textNode}/run`;
-  const generated=(await payload(await request(runPath,'POST'))).data;
+  // A normal generation acknowledges the current tariff, just like Canvas.
+  // The broken header must still reject before any provider call or debit.
+  const tariff=(await getModelTariff(env)).revision,headers={[TARIFF_HEADER]:String(tariff)};
+  const stale=await payload(await request(runPath,'POST',{key:'lifecycle-stale-tariff',headers:{[TARIFF_HEADER]:String(tariff-1)}}),409);
+  check(stale.code==='model_pricing_stale'&&providerCalls.length===0,'A stale tariff cannot reach the provider');
+  check((await db.prepare('SELECT COUNT(*) n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first()).n===0,'Rejected stale-price work cannot debit credits');
+  const generated=(await payload(await request(runPath,'POST',{headers}))).data;
   check(generated.cleanupPending===true&&generated.run.status==='completed'&&generated.run.output.text==='A persisted synthetic scene.','A saved generation remains successful when unrelated cleanup fails');
   const saved=await db.prepare('SELECT status,output_json,usage_attempt_id FROM canvas_runs WHERE id=?').bind(generated.run.id).first();
   check(saved.status==='completed'&&JSON.parse(saved.output_json).text===generated.run.output.text&&Boolean(saved.usage_attempt_id),'Completed output and usage identity are durable');
   check(providerCalls.length===1,'Only the intended synthetic generation was dispatched');
   const charges=(await db.prepare('SELECT COUNT(*) n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first()).n;
   check(charges===1,'One committed generation debit');
-  const replay=(await payload(await request(runPath,'POST'))).data;
+  const replay=(await payload(await request(runPath,'POST',{headers}))).data;
   check(replay.idempotent_replay===true&&replay.run.id===generated.run.id&&providerCalls.length===1,'Retrying the response never generates another result');
   check((await db.prepare('SELECT COUNT(*) n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first()).n===charges,'Generation replay cannot debit again');
   await Promise.all(pending);

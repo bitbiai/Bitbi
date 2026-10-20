@@ -1781,6 +1781,10 @@ class MockD1 {
     }
     if(query==='SELECT COALESCE(SUM(preview_base_bytes),0) AS bytes FROM canvas_video_processing WHERE user_id=?')return {bytes:this.state.canvasVideoProcessing.filter(row=>row.user_id===bindings[0]).reduce((sum,row)=>sum+Number(row.preview_base_bytes||0),0)};
     if(query==='SELECT backend,error_code,updated_at FROM private_media_dispatch')return {results:this.state.privateMediaDispatch};
+    if(query==='SELECT token,runner_id,lease_until,error_code FROM private_media_dispatch WHERE backend=?') {
+      const row=this.state.privateMediaDispatch.find(item=>item.backend===bindings[0]);
+      return row?deepClone({token:row.token??null,runner_id:row.runner_id??null,lease_until:row.lease_until??null,error_code:row.error_code??null}):null;
+    }
     if(query.startsWith('SELECT (SELECT COUNT(*) FROM member_generation_jobs')){
       const [backend,now]=bindings;
       const due=(r,max)=>r.attempt_count<max&&r.next_attempt_at<=now&&(!r.locked_until||r.locked_until<=now);
@@ -1798,10 +1802,16 @@ class MockD1 {
     }
     if(query.startsWith('SELECT p.id FROM memvid_stream_previews p JOIN ai_text_assets'))return this.state.memvidStreamPreviews.find(p=>p.processing_backend===bindings[0]&&p.status==='ready'&&this.state.aiTextAssets.some(a=>a.id===p.asset_id&&a.user_id===p.user_id&&a.visibility==='public'&&a.r2_key===p.source_r2_key))||null;
     if(query.startsWith('UPDATE private_media_dispatch SET token=?')){
-      const [token,until,now,backend]=bindings;const row=this.state.privateMediaDispatch.find(r=>r.backend===backend&&(!r.lease_until||r.lease_until<=now));
+      const [token,until,now,backend,leaseBoundary]=bindings;const row=this.state.privateMediaDispatch.find(r=>r.backend===backend&&(!r.lease_until||r.lease_until<=leaseBoundary)
+        &&(!query.includes("COALESCE(error_code,'')<>'media_delivery_exhausted'")||r.error_code!=='media_delivery_exhausted'));
       if(row)Object.assign(row,{token,runner_id:null,lease_until:until,error_code:null,updated_at:now});return {meta:{changes:row?1:0}};
     }
-    if(query.startsWith('UPDATE private_media_dispatch SET error_code=?')){const [error,now,backend,token]=bindings;const row=this.state.privateMediaDispatch.find(r=>r.backend===backend&&r.token===token);if(row)Object.assign(row,{error_code:error,updated_at:now});return {meta:{changes:row?1:0}};}
+    if(query.startsWith('UPDATE private_media_dispatch SET error_code=?')){
+      const [error,now,backend,token]=bindings;const row=this.state.privateMediaDispatch.find(r=>r.backend===backend&&r.token===token
+        &&(!query.includes('runner_id IS NULL')||r.runner_id==null)
+        &&(!query.includes("COALESCE(error_code,'')<>'media_delivery_exhausted'")||r.error_code!=='media_delivery_exhausted'));
+      if(row)Object.assign(row,{error_code:error,updated_at:now});return {meta:{changes:row?1:0}};
+    }
     if(query.startsWith("UPDATE homepage_hero_video_derivatives SET status='processing',processing_token=?")){
       const [token,until,started,now,id,backend]=bindings;const row=this.state.homepageHeroVideoDerivatives.find(r=>r.id===id&&r.processing_backend===backend&&r.attempt_count<8&&(r.status==='queued'||r.status==='processing'&&r.locked_until<=now));
       if(row)Object.assign(row,{status:'processing',processing_token:token,locked_until:until,processing_started_at:row.processing_started_at||started,updated_at:now,attempt_count:row.attempt_count+1});return {meta:{changes:row?1:0}};
