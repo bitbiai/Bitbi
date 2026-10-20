@@ -12,6 +12,15 @@ export const COMPLETED_MEDIA_SOURCE=Object.freeze({
   candidate:Object.freeze({id:12290100847,digest:'sha256:88fc2d4a8ab602af5ae526173217d2b6cd1e6a588c355209734ec0739ae53b81'}),
   media:Object.freeze({id:12289713086,digest:'sha256:a873781a2ffb27ed155c2433c693935c0e71f8f45e1f22ade41106682067e708'}),
 });
+export const COMPLETED_MEDIA_FIRST_CONTINUATION='b7b5ede1ff5a5af19b0f9ddeb98b27ae73f0ff59';
+// The original GitHub runner finished its accepted poster publication after the
+// independent release observer failed. Retain that exact terminal row; the
+// protected activation window remains unchanged for every other record.
+export const COMPLETED_MEDIA_LATE_FINISH=Object.freeze({
+  backend:'github',id:'cbf25be74d8712aa4bfc163baa09fb1a',
+  createdAt:'2026-10-20T18:53:28.238Z',completedAt:'2026-10-20T18:55:14.793Z',
+  rowDigest:'5611dac1bb6836044aca2f6b1e9e088e1309744e21892741a8d0f7861c94f1a3',
+});
 export const COMPLETED_MEDIA_FILES=Object.freeze([
   '.github/workflows/static.yml','scripts/lib/completed-media-continuation.mjs',
   'scripts/lib/canvas-agent-deploy-continuation.mjs','scripts/lib/media-repair-source.mjs',
@@ -29,7 +38,10 @@ export function completedMediaFiles(files) {
 export function assertCompletedMediaDelta(head,{read=git}={}) {
   const source=COMPLETED_MEDIA_SOURCE;
   assert(/^[a-f0-9]{40}$/.test(head||'')&&head!==source.sha,'Missing exact continuation head');
-  assert.equal(read(['rev-parse',`${head}^`]),source.sha,'Continuation must directly follow its accepted source');
+  const parent=read(['rev-parse',`${head}^`]);
+  if(parent===COMPLETED_MEDIA_FIRST_CONTINUATION)
+    assert.equal(read(['rev-parse',`${parent}^`]),source.sha,'Changed first continuation ancestry');
+  else assert.equal(parent,source.sha,'Continuation must follow its accepted source or the pinned first continuation');
   const rows=sha=>read(['ls-tree','-rz',sha]).split('\0').filter(Boolean);
   const keep=rows=>rows.filter(row=>!COMPLETED_MEDIA_FILES.includes(row.split('\t')[1]));
   assert.deepEqual(keep(rows(head)),keep(rows(source.sha)),'Completed-media continuation changed accepted product inputs');
@@ -93,7 +105,14 @@ export function verifyCompletedMediaJobs(proof) {
   assert(Number.isFinite(Date.parse(proof.window.startedAt))&&Date.parse(proof.window.completedAt)>Date.parse(proof.window.startedAt));
   for(const backend of ['github','cloudflare']) {
     const rows=proof.records.groups[backend]?.rows;assert.equal(rows?.length,3);
-    for(const row of rows)assert(row.status==='ready'&&row.attempt_count===1&&row.processing_token===true&&!row.locked_until&&Date.parse(row.updated_at)<=Date.parse(proof.window.completedAt),'Only original completed single-attempt smoke jobs may be retained');
+    for(const row of rows) {
+      assert(row.status==='ready'&&row.attempt_count===1&&row.processing_token===true&&!row.locked_until,'Only original completed smoke jobs with final-stage attempt 1 may be retained');
+      if(Date.parse(row.updated_at)<=Date.parse(proof.window.completedAt))continue;
+      const late=COMPLETED_MEDIA_LATE_FINISH;
+      assert.equal(backend,late.backend);assert.equal(row.id,late.id);
+      assert.equal(row.created_at,late.createdAt);assert.equal(row.updated_at,late.completedAt);
+      assert.equal(hash(JSON.stringify(Object.fromEntries(Object.entries(row).sort(([a],[b])=>a.localeCompare(b))))),late.rowDigest,'Changed late completed smoke receipt');
+    }
   }
 }
 export function verifyCompletedMediaLifecycle(cycle,proof) {
@@ -101,7 +120,8 @@ export function verifyCompletedMediaLifecycle(cycle,proof) {
   assert.equal(cycle.policy,'prior-completed-processing-v1');assert.deepEqual(cycle.priorExecution,proof);
   assert.equal(cycle.actor.sourceSha,proof.sourceSha);assert.equal(cycle.actor.name,'private-media-singleton');
   assert.equal(cycle.stoppedNow.instance,cycle.actor.instance);assert(['stopped','inactive'].includes(cycle.stoppedNow.state));
-  assert(Date.parse(cycle.stoppedNow.observedAt)>=Date.parse(proof.window.completedAt));
+  const completedAt=Math.max(Date.parse(proof.window.completedAt),...Object.values(proof.records.groups).flatMap(group=>group.rows.map(row=>Date.parse(row.updated_at))));
+  assert(Date.parse(cycle.stoppedNow.observedAt)>=completedAt);
   assert(!cycle.running&&!cycle.stoppedBefore&&!cycle.stoppedAfter,'Unrecorded historical lifecycle observations must not be fabricated');
 }
 export function completedMediaLifecycle(media,proof,stoppedNow) {

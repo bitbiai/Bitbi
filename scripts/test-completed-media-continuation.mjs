@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {createHash} from 'node:crypto';
 import vm from 'node:vm';
-import {COMPLETED_MEDIA_SOURCE as source,COMPLETED_MEDIA_FILES,assertCompletedMediaDelta,resolveCompletedMediaSource,
+import {COMPLETED_MEDIA_SOURCE as source,COMPLETED_MEDIA_FILES,COMPLETED_MEDIA_FIRST_CONTINUATION,COMPLETED_MEDIA_LATE_FINISH,assertCompletedMediaDelta,resolveCompletedMediaSource,
   assertCompletedMediaAcceptance,assertCompletedMediaArtifact,completedMediaDeferredPush,readCompletedMediaJobs,verifyCompletedMediaJobs,
   completedMediaLifecycle,verifyCompletedMediaLifecycle} from './lib/completed-media-continuation.mjs';
 import {canvasRecoveryId,verifyCanvasRecoveryLifecycle} from './lib/canvas-agent-backend-recovery.mjs';
@@ -32,6 +32,10 @@ const before=tree(['js/pages/canvas.js',...COMPLETED_MEDIA_FILES.filter(file=>!f
 const after=tree(['js/pages/canvas.js',...COMPLETED_MEDIA_FILES]);
 const read=args=>args[0]==='rev-parse'?source.sha:args[0]==='diff'?COMPLETED_MEDIA_FILES.join('\n'):args[2]===head?after:before;
 assertCompletedMediaDelta(head,{read});
+const successor=args=>args[0]==='rev-parse'&&args[1]===`${head}^`?COMPLETED_MEDIA_FIRST_CONTINUATION:read(args);
+assertCompletedMediaDelta(head,{read:successor});
+assert.throws(()=>assertCompletedMediaDelta(head,{read:args=>args[0]==='rev-parse'&&args[1]===`${COMPLETED_MEDIA_FIRST_CONTINUATION}^`?head:successor(args)}));
+assert.throws(()=>assertCompletedMediaDelta(head,{read:args=>args[0]==='rev-parse'&&args[1]===`${head}^`?'e'.repeat(40):read(args)}));
 const env={GITHUB_ACTIONS:'true',GITHUB_REPOSITORY:'bitbiai/Bitbi',GITHUB_REF:'refs/heads/main',GITHUB_EVENT_NAME:'workflow_dispatch',
   GITHUB_SHA:head,CANDIDATE_BASE:source.base,CANDIDATE_RUN:source.run,CANDIDATE_ATTEMPT:source.attempt};
 assert.equal(resolveCompletedMediaSource(env,{read}),source);
@@ -73,6 +77,23 @@ const queryFor=data=>async(sql,params)=>{
 };
 const proof=await readCompletedMediaJobs(evidence,queryFor(data));verifyCompletedMediaJobs(proof);
 assert(!JSON.stringify(proof).includes('private-key')&&!JSON.stringify(proof).includes('sensitive-token'));
+// Real sanitized synthetic row: the independent poster callback committed 7.8s
+// after the release step ended. That is completion of accepted work, not a new
+// render. Keep the exact row and the historical failure window distinct.
+const lateProof=structuredClone(proof),late=COMPLETED_MEDIA_LATE_FINISH;
+Object.assign(lateProof.records.groups.github.rows.find(row=>row.id===late.id),{
+  created_at:late.createdAt,updated_at:late.completedAt,
+  r2_key_sha256:'7db4e7c73c953ddbb1bd936249df049a82fc809cf515e6b73224fa03fee6d33f',
+  poster_r2_key_sha256:'fa021a28546b266d50cd55c26d3cc971ea837fd4b2d6e2ffe8e6c33d1b764938',
+});
+const bindRecords=proof=>{proof.recordsDigest=hash(JSON.stringify(proof.records));return proof;};
+verifyCompletedMediaJobs(bindRecords(lateProof));
+for(const patch of [{updated_at:'2026-10-20T18:55:14.794Z'},{created_at:'2026-10-20T18:55:08Z'},{asset_id:head},{poster_r2_key_sha256:'a'.repeat(64)},{attempt_count:2},{status:'queued'}]) {
+  const changed=structuredClone(lateProof);Object.assign(changed.records.groups.github.rows.find(row=>row.id===late.id),patch);
+  assert.throws(()=>verifyCompletedMediaJobs(bindRecords(changed)));
+}
+const anotherLate=structuredClone(lateProof);anotherLate.records.groups.github.rows.find(row=>row.id!==late.id).updated_at=late.completedAt;
+assert.throws(()=>verifyCompletedMediaJobs(bindRecords(anotherLate)));
 for(const mutate of [row=>row.groups.github.rows[0].status='queued',row=>row.groups.github.rows[0].attempt_count=2,row=>row.groups.github.rows[0].updated_at='2026-10-21T00:00:00Z',row=>row.groups.cloudflare.rows[0].locked_until=at,row=>row.groups.cloudflare.rows[0].user_id='someone-else',row=>row.reference.status='failed']){
   const wrong=structuredClone(data);mutate(wrong);await assert.rejects(()=>readCompletedMediaJobs(evidence,queryFor(wrong)));
 }
@@ -80,6 +101,8 @@ const media={sha:source.sha,application:'original-application',namespace:'origin
   imageDigest:`registry.cloudflare.com/${'a'.repeat(32)}/bitbi-private-media@sha256:${'b'.repeat(64)}`,artifact:source.media,sourceRun:source.run,sourceAttempt:source.attempt};
 const stopped={state:'stopped',instance:media.assignedInstance,observedAt:'2026-10-20T23:00:00Z'};
 const cycle=completedMediaLifecycle(media,proof,stopped);verifyCompletedMediaLifecycle(cycle,proof);
+completedMediaLifecycle(media,lateProof,stopped);
+assert.throws(()=>completedMediaLifecycle(media,lateProof,{...stopped,observedAt:'2026-10-20T18:55:10Z'}),'Current lifecycle observation cannot predate accepted work finishing');
 assert.throws(()=>verifyCanvasRecoveryLifecycle(cycle,proof),'Original fa95 profile is not relaxed');
 for(const patch of [{running:{state:'running'}},{stoppedBefore:stopped},{stoppedNow:{...stopped,state:'running'}},{stoppedNow:{...stopped,instance:'b'.repeat(64)}}])assert.throws(()=>verifyCompletedMediaLifecycle({...cycle,...patch},proof));
 const fixture=fs.readFileSync('tests/fixtures/media/canvas-end-frame.mp4'),ref=fs.readFileSync('tests/fixtures/media/h3-overrun.mp4'),poster=Buffer.from('synthetic-poster');
