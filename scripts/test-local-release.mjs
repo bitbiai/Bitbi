@@ -21,6 +21,11 @@ import { LOCAL_IMPORT_REPAIR, assertImportRepairWorkflow, localRepairCommand, ve
 import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,assertPermissionContinuationTree,permissionContinuationPrefix,CANVAS_STAGE_CASES,canvasStageContinuation} from './lib/local-release-evidence.mjs';
 import {testLocalMediaProcess} from './test-local-media-process.mjs';
 
+if(process.argv.includes('--reliability-worker-only')) {
+  assert.deepEqual(process.argv.slice(2),['--reliability-worker-only']);
+  await testReliabilityWorkerContinuation();process.exit(0);
+}
+
 if(process.argv.includes('--export-delivery-only')) {
   assert.deepEqual(process.argv.slice(2),['--export-delivery-only']);
   await testExportDeliveryContinuation();process.exit(0);
@@ -3647,3 +3652,61 @@ async function testExportDeliveryContinuation(){
  console.log('Export delivery continuation: published-prefix identity, unchanged commands/runtime, exact real caller routing, forged receipt, failure and command-boundary resume controls enforced; product evidence stays fresh.');
 }
 await testExportDeliveryContinuation();
+
+async function testReliabilityWorkerContinuation() {
+  const {RELIABILITY_WORKER_PREFLIGHT:p,reliabilityWorkerFailures,assertReliabilityWorkerTree,reliabilityWorkerPrefix,
+    reliabilityWorkerContinuation,reliabilityWorkerGuard,verifyReliabilityWorkerRepair,verifyReliabilityWorkerSelection,
+    verifyReliabilityWorkerContinuation}=await import('./lib/local-release-evidence.mjs');
+  assert.equal(reliabilityWorkerGuard('npm run test:local-release'),'npm run test:local-release -- --reliability-worker-only');
+  for(const bad of ['echo passed','npm run test:workers'])assert.throws(()=>reliabilityWorkerGuard(bad));
+  const passed=Array.from({length:1645},(_,i)=>({id:`synthetic-pass-${i}`,file:'retained.spec.js',title:`Retained ${i}`,results:[{status:'passed',retry:0}]}));
+  const failed=reliabilityWorkerFailures.map((title,i)=>({id:`synthetic-failure-${i}`,file:'repaired.spec.js',title,results:[{status:'failed',retry:0},{status:'failed',retry:1}]}));
+  const previous=[...passed,...failed],fresh=failed.map(row=>({...row,results:[{status:'passed',retry:0}]}));
+  const union=(progress=fresh,discovery=previous)=>verifyWorkerUnion({previous,discovery,progress,corrected:[]});
+  assert.deepEqual(union(),{originalPassed:1645,progressPassed:8,correctedPassed:0,total:1653});
+  for(const bad of [fresh.slice(1),[...fresh,fresh[0]],[...fresh,passed[0]],fresh.map((row,i)=>i?row:{...row,results:[{status:'passed',retry:1}]}),fresh.map((row,i)=>i?row:{...row,results:[{status:'skipped',retry:0}]}),fresh.map((row,i)=>i?row:{...row,title:'Different assertion'})])assert.throws(()=>union(bad));
+  assert.throws(()=>union(fresh,previous.slice(1)));assert.throws(()=>union(fresh,[...previous,previous[0]]));
+  for(const index of [0,2,3,12,16,17,34,35,36,37,41,42,43,44,45,46,47,48,49,50,51])assert(!p.retain.includes(index));
+  // Historical generic runs exercise the pure verifier; only this exact closed
+  // canonical continuation requires its private authentic source evidence.
+  if(!process.argv.includes('--reliability-worker-only'))return;
+  const directory='.local-release',read=args=>execFileSync('git',args),head=read(['rev-parse','HEAD']).toString().trim();
+  const originalBytes=fs.readFileSync(path.join(directory,'reuse/preflight-checkpoint.json')),old=JSON.parse(originalBytes);
+  const selection=gitSelection(old.base,head),commands=selectedCommands(selection,{GITHUB_SHA:head,CANDIDATE_BASE:old.base});
+  assert.equal(selection.policy,'impact-v1');assert.equal(selection.full,false);assert.equal(selection.homepage,true);assert.equal(selection.workers,true);assert.equal(selection.auth,true);
+  const context={...old,sha:head,commands,selection};
+  assert.deepEqual(reliabilityWorkerPrefix(originalBytes,context),old);assertReliabilityWorkerTree(head);
+  for(const change of [value=>value.base='0'.repeat(40),value=>value.environment.image='sha256:'+'0'.repeat(64),value=>value.commands[1].run+='\necho changed',value=>value.selection.workers=false]){const bad=structuredClone(context);change(bad);assert.throws(()=>reliabilityWorkerPrefix(originalBytes,bad));}
+  assert.throws(()=>reliabilityWorkerPrefix(Buffer.from(JSON.stringify({...old,status:'passed'})),context));
+  const foreignDiff=args=>args[0]==='diff'&&args[2]===p.fixtureSource?Buffer.from(read(args).toString()+'workers/auth/src/routes/canvas.js\n'):read(args);
+  assert.throws(()=>assertReliabilityWorkerTree(head,foreignDiff));
+  assert.throws(()=>assertReliabilityWorkerTree(head,args=>args[0]==='rev-list'&&args.at(-1)===head?Buffer.from(`${head} ${p.source}\n`):read(args)));
+  for(const file of Object.keys(p.specs))assert.throws(()=>assertReliabilityWorkerTree(head,args=>args[0]==='show'&&args[1]===`${head}:${file}`?Buffer.from('unreviewed fixture'):read(args)));
+  const pending=verifyReliabilityWorkerRepair(directory,head,{allowPending:true});assert.equal(pending.previous.length,1653);assert.equal(pending.previous.filter(row=>row.results[0].status==='passed').length,1645);
+  const wrapper=reliabilityWorkerContinuation(commands[41].run);
+  assert(wrapper.includes('--retries=0')&&wrapper.includes('verify-reliability-worker-selection')&&wrapper.includes('npm run test:homepage-ffmpeg-processor')&&wrapper.includes('npm run test:q2-runtime'));
+  assert(!wrapper.includes('npm run test:website-assistant')&&!wrapper.includes('  npm run test:workers\n'));
+  assert.throws(()=>reliabilityWorkerContinuation('npm run test:workers'));
+  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'reliability-worker-proof-'));
+  try{
+    fs.cpSync(path.join(directory,'reuse'),path.join(temp,'reuse'),{recursive:true});fs.mkdirSync(path.join(temp,'test-results'));
+    const discovery=JSON.parse(fs.readFileSync(path.join(temp,'reuse/original-worker-discovery.json'))),failedIds=new Set(pending.previous.filter(row=>row.results[0].status==='failed').map(row=>row.id));
+    const selected=structuredClone(discovery),filter=suite=>{suite.specs=(suite.specs||[]).filter(spec=>failedIds.has(spec.id));for(const child of suite.suites||[])filter(child);};selected.suites.forEach(filter);
+    const result=structuredClone(selected);result.config.workers=1;result.config.projects.forEach(project=>project.retries=0);result.stats={expected:8,unexpected:0,flaky:0,skipped:0};
+    const mark=suite=>{for(const spec of suite.specs||[])for(const test of spec.tests){test.expectedStatus='passed';test.status='expected';test.results=[{status:'passed',retry:0}];}for(const child of suite.suites||[])mark(child);};result.suites.forEach(mark);
+    const write=(name,value)=>fs.writeFileSync(path.join(temp,'test-results',name),JSON.stringify(value,null,2));
+    write('reliability-worker-discovery.json',discovery);write('reliability-worker-selected.json',selected);write('reliability-worker-fresh.json',result);
+    assert.equal(verifyReliabilityWorkerSelection(temp,head).length,8);
+    assert.deepEqual(verifyReliabilityWorkerRepair(temp,head).result,{originalPassed:1645,progressPassed:8,correctedPassed:0,total:1653});
+    write('reliability-worker-selected.json',discovery);assert.throws(()=>verifyReliabilityWorkerSelection(temp,head));write('reliability-worker-selected.json',selected);
+    for(const mutate of [r=>r.config.projects[0].retries=1,r=>r.stats.expected=7,r=>r.errors=[{message:'incomplete'}],r=>{const visit=suite=>{if(suite.specs?.length)suite.specs.pop();else for(const child of suite.suites||[])visit(child);};r.suites.forEach(visit);},r=>{const visit=suite=>{for(const spec of suite.specs||[])spec.tests[0].results.push({status:'passed',retry:1});for(const child of suite.suites||[])visit(child);};r.suites.forEach(visit);}]){const wrong=structuredClone(result);mutate(wrong);write('reliability-worker-fresh.json',wrong);assert.throws(()=>verifyReliabilityWorkerRepair(temp,head));}
+    write('reliability-worker-fresh.json',result);
+    const evidence={...context,preflightContinuation:{source:p.source,checkpoint:p.checkpoint},commands:commands.map((command,i)=>p.retain.includes(i)?{...old.commands[i],reusedFrom:p.source}:{command,exitCode:0,...(i===17?{continuation:reliabilityWorkerGuard(command.run)}:i===41?{continuation:reliabilityWorkerContinuation(command.run)}:{})})};
+    verifyReliabilityWorkerContinuation(temp,evidence,commands);
+    for(const mutate of [e=>e.commands[1].logHash='0'.repeat(64),e=>e.commands[41].reusedFrom=p.source,e=>e.commands[17].continuation='npm run test:local-release',e=>e.commands.pop()]){const wrong=structuredClone(evidence);mutate(wrong);assert.throws(()=>verifyReliabilityWorkerContinuation(temp,wrong,commands));}
+    const failedLog=path.join(temp,'reuse/preflight-failed.log'),original=fs.readFileSync(failedLog);fs.appendFileSync(failedLog,'\nchanged');assert.throws(()=>verifyReliabilityWorkerRepair(temp,head));fs.writeFileSync(failedLog,original);
+    fs.unlinkSync(path.join(temp,'reuse/original-worker-last-run.json'));assert.throws(()=>verifyReliabilityWorkerRepair(temp,head));
+  }finally{fs.rmSync(temp,{recursive:true,force:true});}
+  console.log('Canvas reliability Worker continuation: authentic 1653 discovery, 1645 retained passes, eight mandatory fresh cases; changed sources, missing/forged/retried/extra reports and reused affected commands reject.');
+}
+await testReliabilityWorkerContinuation();
