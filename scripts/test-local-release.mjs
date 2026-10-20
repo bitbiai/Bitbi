@@ -3780,7 +3780,7 @@ await testReliabilityNativeContinuation();
 
 async function testReliabilityBrowserContinuation() {
   const {RELIABILITY_BROWSER_PREFLIGHT:p,modelBrowserRetained,MODEL_BROWSER_POLICY,verifyModelBrowserReport,reliabilityBrowserAffectedTitles}=await import('./lib/local-release-browser.mjs');
-  const {canvasPreflightProfile,assertReliabilityBrowserTree,reliabilityBrowserPrefix,verifyReliabilityBrowserOrigin,verifyReliabilityControlNativeUnion,verifyReliabilityControlProvenance,reliabilityBrowserGuard,reliabilityBrowserContinuation,reliabilityControlContinuation,verifyReliabilityNativeWorkers}=await import('./lib/local-release-evidence.mjs');
+  const {canvasPreflightProfile,assertReliabilityBrowserTree,reliabilityBrowserPrefix,verifyReliabilityBrowserProgress,verifyReliabilityBrowserOrigin,verifyReliabilityControlNativeUnion,verifyReliabilityControlProvenance,reliabilityBrowserGuard,reliabilityBrowserContinuation,reliabilityControlContinuation,verifyReliabilityNativeWorkers}=await import('./lib/local-release-evidence.mjs');
   const {canvasNotificationControlInventory}=await import('../tests/helpers/q2-runtime/canvas-policy-tail.mjs');
   assert.equal(canvasPreflightProfile(p.source),p);assert.equal(reliabilityBrowserAffectedTitles.length,26);
   assert.equal(new Set(reliabilityBrowserAffectedTitles).size,26);assert.equal(reliabilityBrowserGuard('npm run test:local-release'),'npm run test:local-release -- --reliability-browser-only');
@@ -3789,7 +3789,12 @@ async function testReliabilityBrowserContinuation() {
   const head=execFileSync('git',['rev-parse','HEAD']).toString().trim(),read=args=>execFileSync('git',args,{maxBuffer:64*1024*1024});
   assertReliabilityBrowserTree(head,read);
   for(const file of ['js/pages/canvas/main.js','workers/auth/src/routes/canvas.js','services/homepage-ffmpeg-processor/processor.mjs','tests/helpers/q2-runtime/canvas.mjs']){
-    assert.throws(()=>assertReliabilityBrowserTree(head,args=>args[0]==='diff'&&args[2]===head?Buffer.concat([read(args),Buffer.from(file+'\n')]):read(args)),/Unreviewed continuation/);
+    let injected=false;
+    assert.throws(()=>assertReliabilityBrowserTree(head,args=>{
+      if(args[0]==='diff'&&args[3]===head){injected=true;return Buffer.concat([read(args),Buffer.from(file+'\n')]);}
+      return read(args);
+    }),/Unreviewed continuation/);
+    assert(injected,'The real candidate diff must receive the forbidden source mutation');
   }
   for(const file of Object.keys({...p.specs,...p.toolSpecs,...p.selectionSpecs}))assert.throws(()=>assertReliabilityBrowserTree(head,args=>args[0]==='show'&&args[1]===`${head}:${file}`?Buffer.from('changed'):read(args)),/Changed reviewed/);
   assert.throws(()=>assertReliabilityBrowserTree(head,args=>args[0]==='rev-list'&&args.at(-1)===head?Buffer.from(`${head} ${p.source}`):read(args)));
@@ -3800,6 +3805,14 @@ async function testReliabilityBrowserContinuation() {
   assert(selection.files.includes('tests/helpers/canvas-music-preview.cjs'));
   assert(selectCiTests([...selection.files,'tests/helpers/canvas-music-preview-unknown.cjs']).full,'Unknown helper remains a real Full selection');
   const context={...old,sha:head,commands,selection};assert.deepEqual(reliabilityBrowserPrefix(originalBytes,context),old);
+  const progress=verifyReliabilityBrowserProgress(directory,head,commands);assert.deepEqual(progress.retained,[7,16]);
+  assert(progress.retained.every(i=>progress.original.commands[i].exitCode===0));assert(!progress.retained.includes(17));
+  const progressRoot=path.join(directory,'reuse/reliability-browser-progress');
+  for(const file of ['checkpoint.json','logs/7.log','logs/16.log','logs/17.log']){
+    const target=path.join(progressRoot,file),bytes=fs.readFileSync(target);
+    try{fs.writeFileSync(target,Buffer.concat([bytes,Buffer.from('\nforged progress')]));assert.throws(()=>verifyReliabilityBrowserProgress(directory,head,commands));}finally{fs.writeFileSync(target,bytes);}
+  }
+  const changedCommands=structuredClone(commands);changedCommands[16].run+='\necho skipped';assert.throws(()=>verifyReliabilityBrowserProgress(directory,head,changedCommands));
   for(const change of [c=>c.base='f'.repeat(40),c=>c.commands.pop(),c=>c.environment.key='foreign',c=>c.nativeBrowsers.key='foreign',c=>c.selection.full=true,c=>c.selection.files.push('workers/media/src/index.js')]){
     const changed=structuredClone(context);change(changed);assert.throws(()=>reliabilityBrowserPrefix(originalBytes,changed));
   }

@@ -331,6 +331,10 @@ export function assertReadinessTree(head,read=args=>execFileSync('git',args,{max
 export const RELIABILITY_BROWSER_PREFLIGHT=Object.freeze({
   source:'dbf724caf071547f5ed36b76f2bf84e2f3419a08',productSource:'93c1c96943678ae4947e9fbb28f1fc85ef522cac',
   toolingSource:'cb350cbba0fc1e46c24d889f393a00733bc3da35',
+  progress:Object.freeze({source:'392ae860fdf9c7d8884f9fd08fd860c0e225a630',
+    run:'392ae860fdf9c7d8884f9fd08fd860c0e225a630-64c21a56-7118-42f9-937e-3a07bba347ef',
+    tree:'2f64b48c0cbcdc3c10c8c98e2773fd2d18c9e51e',checkpoint:'77ca83e937b7af07c332f74a0c685a6fd6859b37b3807ae5b813b10f45230d12',
+    failed:'2423c4265fd3c0aac771b4aec9c9fbf11e9ddb61118cf1cbfa0c6f14b301145a',retain:Object.freeze([7,16])}),
   selectionSpecs:Object.freeze({
   "scripts/lib/ci-test-selection.mjs": "063905bb4e56e79b6691907aa1fb50d107b918d25947b804fe6460a4ef6efcb9",
   "scripts/test-ci-test-selection.mjs": "33f04cf03dab00af3fcfca566560761dd22fbb5e51993d6fcfaa37c1fa1d2c28"

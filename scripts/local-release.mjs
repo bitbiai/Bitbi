@@ -1,4 +1,4 @@
-import {RELIABILITY_BROWSER_PREFLIGHT,reliabilityBrowserGuard,reliabilityBrowserContinuation,reliabilityControlContinuation,verifyReliabilityControlRepair,verifyReliabilityControlSelection,verifyReliabilityBrowserOrigin} from './lib/local-release-evidence.mjs';
+import {RELIABILITY_BROWSER_PREFLIGHT,verifyReliabilityBrowserProgress,reliabilityBrowserGuard,reliabilityBrowserContinuation,reliabilityControlContinuation,verifyReliabilityControlRepair,verifyReliabilityControlSelection,verifyReliabilityBrowserOrigin} from './lib/local-release-evidence.mjs';
 import {RELIABILITY_NATIVE_PREFLIGHT,reliabilityNativeGuard,reliabilityNativeContinuation,verifyReliabilityNativeRepair,verifyReliabilityNativeSelection} from './lib/local-release-evidence.mjs';
 import {RELIABILITY_WORKER_PREFLIGHT,reliabilityWorkerGuard,reliabilityWorkerContinuation,verifyReliabilityWorkerRepair,verifyReliabilityWorkerSelection} from './lib/local-release-evidence.mjs';
 import {READINESS_REFRESH,READINESS_PROGRESS_RETAIN,verifyReadinessProgress,READINESS_WORKER_RETAIN,verifyReadinessWorkerProgress,readinessPrefix,readinessCommand,verifyReadinessWorkers,verifyReadinessNativeReceipt,restoreReadinessProofs} from './lib/local-release-evidence.mjs';
@@ -188,9 +188,9 @@ async function runLocalRelease({ base, resume }) {
   const commands = selectedCommands(selection, { GITHUB_SHA: sha, CANDIDATE_BASE: base });
   const nativeBrowsers=commands.some(command=>commandRuntimes(command).some(part=>part.runtime==='native-browser-v1'))?ensureNativeBrowsers():null;
   const nativeEvidence=nativeBrowsers?Object.fromEntries(Object.entries(nativeBrowsers).filter(([key])=>!['packages','browserRoot'].includes(key))):null;
-  const progressProfile=resume&&[CANVAS_POLICY_NATIVE_PROGRESS,AUTONOMY_BROWSER_WORKER_PROGRESS,AUTONOMY_BROWSER_DOC_PROGRESS,AUTONOMY_BROWSER_PROGRESS].find(p=>json(path.join(resume,'checkpoint.json')).sha===p.source&&sha!==p.source);
+  const progressProfile=resume&&[RELIABILITY_BROWSER_PREFLIGHT.progress,CANVAS_POLICY_NATIVE_PROGRESS,AUTONOMY_BROWSER_WORKER_PROGRESS,AUTONOMY_BROWSER_DOC_PROGRESS,AUTONOMY_BROWSER_PROGRESS].find(p=>json(path.join(resume,'checkpoint.json')).sha===p.source&&sha!==p.source);
   const progressDirectory=progressProfile?path.resolve(resume):null;
-  const originalDirectory=progressDirectory?path.join(path.dirname(progressDirectory),progressProfile===CANVAS_POLICY_NATIVE_PROGRESS?CANVAS_POLICY_NATIVE_PROGRESS.baseRun:AUTONOMY_BROWSER_PREFLIGHT.run):resume&&json(path.join(resume,'checkpoint.json')).sha!==sha?path.resolve(resume):null;
+  const originalDirectory=progressDirectory?path.join(path.dirname(progressDirectory),progressProfile===RELIABILITY_BROWSER_PREFLIGHT.progress?RELIABILITY_BROWSER_PREFLIGHT.run:progressProfile===CANVAS_POLICY_NATIVE_PROGRESS?CANVAS_POLICY_NATIVE_PROGRESS.baseRun:AUTONOMY_BROWSER_PREFLIGHT.run):resume&&json(path.join(resume,'checkpoint.json')).sha!==sha?path.resolve(resume):null;
   const readinessWorkerProgress=originalDirectory&&json(path.join(originalDirectory,'checkpoint.json')).sha===READINESS_CONTINUATION.worker.source;
   const readinessProgress=readinessWorkerProgress||originalDirectory&&json(path.join(originalDirectory,'checkpoint.json')).sha===READINESS_CONTINUATION.progress.source;
   const readinessContinuation=readinessProgress||originalDirectory&&json(path.join(originalDirectory,'checkpoint.json')).sha===READINESS_CONTINUATION.source;
@@ -299,6 +299,11 @@ async function runLocalRelease({ base, resume }) {
       fs.copyFileSync(path.join(originalBundle,'test-results',p.standardFile),path.join(bundle,'reuse/model-browser-standard.json'));
       for(const file of Object.keys(p.homepageReports))fs.copyFileSync(path.join(originalBundle,'test-results',file),path.join(bundle,'test-results',file));
       verifyReliabilityBrowserOrigin(bundle,sha);
+      if(progressProfile===p.progress){
+        const target=path.join(bundle,'reuse/reliability-browser-progress');fs.mkdirSync(path.join(target,'logs'),{recursive:true});
+        fs.copyFileSync(path.join(progressDirectory,'checkpoint.json'),path.join(target,'checkpoint.json'));
+        for(let i=0;i<=17;i++)fs.copyFileSync(path.join(progressDirectory,`bundle/logs/${i}.log`),path.join(target,`logs/${i}.log`));
+      }
     }
     if(preflightContinuation===RELIABILITY_NATIVE_PREFLIGHT){
       const p=preflightContinuation,origin=path.join(bundle,'reuse/reliability-native-origin');
@@ -595,7 +600,7 @@ async function runLocalRelease({ base, resume }) {
     state={...state,startedAt:prior.startedAt,preflightContinuation:{source:prior.sha,checkpoint:preflightContinuation.checkpoint},commands:prior.commands.map((row,i)=>preflightContinuation.retain.includes(i)?{...row,reusedFrom:row.reusedFrom||prior.sha}:null)};
     for(const row of state.commands.filter(Boolean))fs.copyFileSync(path.join(originalDirectory,'bundle',row.log),path.join(bundle,row.log));
     if(progressDirectory){
-      const progress=progressProfile===CANVAS_POLICY_NATIVE_PROGRESS?verifyCanvasPolicyNativeProgress(bundle,sha):progressProfile===AUTONOMY_BROWSER_WORKER_PROGRESS?verifyAutonomyBrowserWorkerProgress(bundle,sha):progressProfile===AUTONOMY_BROWSER_DOC_PROGRESS?verifyAutonomyBrowserDocProgress(bundle,sha):verifyAutonomyBrowserProgress(bundle,sha);
+      const progress=progressProfile===RELIABILITY_BROWSER_PREFLIGHT.progress?verifyReliabilityBrowserProgress(bundle,sha,commands):progressProfile===CANVAS_POLICY_NATIVE_PROGRESS?verifyCanvasPolicyNativeProgress(bundle,sha):progressProfile===AUTONOMY_BROWSER_WORKER_PROGRESS?verifyAutonomyBrowserWorkerProgress(bundle,sha):progressProfile===AUTONOMY_BROWSER_DOC_PROGRESS?verifyAutonomyBrowserDocProgress(bundle,sha):verifyAutonomyBrowserProgress(bundle,sha);
       state.preflightProgress={source:progressProfile.source,checkpoint:progressProfile.checkpoint};
       for(const i of progress.retained){state.commands[i]={...progress.original.commands[i],reusedFrom:progress.original.commands[i].reusedFrom||progress.original.sha};fs.copyFileSync(path.join(progressDirectory,'bundle',state.commands[i].log),path.join(bundle,state.commands[i].log));}
     }
