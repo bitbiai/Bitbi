@@ -356,6 +356,10 @@ export const RELIABILITY_BROWSER_PREFLIGHT=Object.freeze({
   "tests/canvas.spec.js": "3d2ec6d499726f9fc0aed726ce5cd9924426f8a5262c80f33f09118790c604ef",
   "docs/runbooks/REGRESSION_REGISTER.md": "74118f933185fcf9eef251bf7292d781fbf7ce40395fbb9a235f825b2293e923"
 })}),
+  proposalProgress:Object.freeze({source:'5199d10aca39e7bd88398abbc5bc8988ab09d646',fixtureSource:'585766a3a0e3275f34a0c1c1c93ad575bc66c6a2',
+    run:'5199d10aca39e7bd88398abbc5bc8988ab09d646-215f546e-2726-4bf6-96eb-2931384e392f',tree:'413f24a3f5e154f2249ec328da0b3be94ae55ea1',checkpoint:'c7216e1ba46c6ee146b367ffea94bc26d8343aa5dcfcc8a55ed2428b4539a178',failed:'075bf8adf552c1d18f0c5f941e5d16efc04f0b6c5541a3e4a5cbacac78d2006c',
+    report:'0c7f9cc2fb45805bffc57b91c02789b99b2533e2acac7f0620f6410d17b56fd2',rows:'5573df3f3745e91c0eea294ee807fb084230f99045054c5c703a56777bff79a8',discovery:'e006ff0ea415bb1da1fae630923d12cc5de7ed3ece3e4fd70a8794fe1b418c10',selected:'8100c9b804ca6269fc09ecbaf754e073e7d59191a1da7fce4316bd429e1925cb',
+    fixture:'tests/helpers/canvas-agent-autonomy-ui.cjs',fixtureHash:'8235a77f62cf6d69272d59744c171a7205fa929a0963a22b5855ea53da4e30de',retain:Object.freeze([7,16,27,29,40,41])}),
   selectionSpecs:Object.freeze({
   "scripts/lib/ci-test-selection.mjs": "063905bb4e56e79b6691907aa1fb50d107b918d25947b804fe6460a4ef6efcb9",
   "scripts/test-ci-test-selection.mjs": "33f04cf03dab00af3fcfca566560761dd22fbb5e51993d6fcfaa37c1fa1d2c28"
@@ -410,6 +414,11 @@ export function modelBrowserRetained(previous,profile,progress){
     assert.deepEqual(sorted(progress.rows).map(identity),sorted(previous.filter(row=>!retained.has(row.key))).map(identity),'Progress must be the original52 affected cases');
     assert(progress.rows.filter(row=>!passedBrowserCase(row)).every(row=>reliabilityBrowserRetryTitles.includes(row.title)),'An additional failure needs explicit correction');
     for(const row of progress.rows)if(passedBrowserCase(row)&&!reliabilityBrowserRetryTitles.includes(row.title))retained.set(row.key,row);
+    if(progress.accepted){const a=progress.accepted,q=p.proposalProgress;assert.equal(a.sha,q.source);assert.equal(sha256(JSON.stringify(a.rows)),q.rows);
+      assert.deepEqual(sorted(a.rows).map(identity),sorted(previous.filter(row=>!retained.has(row.key))).map(identity),'Proposal progress must be the original16 affected cases');
+      assert(a.rows.filter(row=>!passedBrowserCase(row)).every(row=>/^Canvas autonomy (en|de): persisted proposal$/.test(row.title)),'Additional browser failure requires correction');
+      for(const row of a.rows)if(passedBrowserCase(row))retained.set(row.key,row);
+    }
   }return retained;
 }
 export function verifyModelBrowserReport(report,sha) {
