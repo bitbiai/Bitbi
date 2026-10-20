@@ -1,6 +1,6 @@
 import {canvasAgentBudgetFixture} from './canvas-agent-autonomy-control.mjs';
 import {consumeMemberCredits} from '../../workers/auth/src/lib/billing.js';
-import {markMemberAiUsageAttemptProviderRunning,markMemberAiUsageAttemptFinalizing,markMemberAiUsageAttemptSucceeded} from '../../workers/auth/src/lib/member-ai-usage-attempts.js';
+import {beginMemberAiUsageAttempt,markMemberAiUsageAttemptProviderRunning,markMemberAiUsageAttemptFinalizing,markMemberAiUsageAttemptSucceeded} from '../../workers/auth/src/lib/member-ai-usage-attempts.js';
 import {sha256Hex} from '../../workers/auth/src/lib/tokens.js';
 import worker from '../../workers/auth/src/index.js';
 import {canvasAgentConversationFixture,attachCanvasConversation} from './canvas-agent-conversation-control.mjs';
@@ -11,7 +11,21 @@ const check=(value,message)=>{if(!value)throw new Error(message);};
 export async function seedCanvasNaturalChatMigration(base){
   check(!(await base.DB.prepare("SELECT name FROM sqlite_schema WHERE name IN ('canvas_agent_start_intents','canvas_agent_action_receipts')").all()).results.length,'The actual pre-0110 database must have neither new authority table');
   const f=await canvasAgentBudgetFixture(base,'natural-migration'),run=await f.createRun('existing-production',3000),step=await f.allocate(run,'plan',127);
-  const reserved=await f.reserve(run,step),token=await markMemberAiUsageAttemptProviderRunning(reserved.scoped,reserved.attempt.id);
+  // Seed an already accepted 0109 operation through its real usage/credit
+  // services and triggers. Today's API authority requires the later 0114
+  // interpretation column and cannot describe this historical schema.
+  check(!(await f.db.prepare('PRAGMA table_info(canvas_agent_proposals)').all()).results.some(column=>column.name==='interpretation_json'),'The historical seed precedes interpretation authority');
+  const metadata={canvas_agent:{run_id:run.id,step_id:step.id,project_id:f.project}};
+  const args={env:f.env,userId:f.owner,featureKey:'ai.text.generate',operationKey:'member.text.generate',route:f.route,
+    idempotencyKey:`autonomy-${step.id}`,requestFingerprint:await sha256Hex(step.id),creditCost:step.allocation_credits,metadata};
+  const usageCount=async()=>(await f.db.prepare('SELECT COUNT(*) AS n FROM member_ai_usage_attempts_v2 WHERE user_id=?').bind(f.owner).first()).n;
+  const beforeUsage=await usageCount();let denied=false;
+  try{await beginMemberAiUsageAttempt({...args,idempotencyKey:`${args.idempotencyKey}-invalid`,metadata:{canvas_agent:{...metadata.canvas_agent,step_id:'missing-owned-step'}}});}
+  catch(error){denied=[error,error?.cause,error?.cause?.cause].some(item=>String(item?.message||'').includes('canvas_agent_authority_revoked'));}
+  check(denied&&await usageCount()===beforeUsage,'The actual old-schema ownership trigger rejects invalid binding without leaving a reservation');
+  const begun=await beginMemberAiUsageAttempt(args),reserved={scoped:f.env,args,metadata,attempt:begun.attempt};
+  await f.db.prepare('UPDATE canvas_agent_steps SET usage_attempt_id=? WHERE id=?').bind(reserved.attempt.id,step.id).run();
+  const token=await markMemberAiUsageAttemptProviderRunning(reserved.scoped,reserved.attempt.id);
   await markMemberAiUsageAttemptFinalizing(reserved.scoped,reserved.attempt.id,{dispatchToken:token});
   const charged=await consumeMemberCredits({env:reserved.scoped,userId:f.owner,featureKey:'ai.text.generate',credits:78,
     idempotencyKey:reserved.args.idempotencyKey,requestFingerprint:reserved.args.requestFingerprint,aiDispatchToken:token,source:'canvas_agent_plan'});
@@ -48,6 +62,11 @@ export async function verifyCanvasNaturalChatMigration(env,seed){
     ||['assistant_model_id','assistant_model_revision'].some(key=>Object.hasOwn(snapshot.conversation,key))){
     Object.assign(expected.run,{model_id:'xai/grok-4.7',model_revision:0});
     Object.assign(expected.conversation,{assistant_model_id:'xai/grok-4.7',assistant_model_revision:0});
+  }
+  if(Object.hasOwn(snapshot.conversation,'diagnostic_allowance')){
+    Object.assign(expected.conversation,{diagnostic_allowance:0});
+    for(const table of ['canvas_agent_incidents','canvas_agent_incident_explanations'])
+      check((await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first()).n===0,'Forward migration cannot invent an incident or explanatory conversation');
   }
   check(JSON.stringify(snapshot)===JSON.stringify(expected),'Forward migration preserves exact paid identities, original ledger, transcript, brief and graph bytes');
   const debit=(await env.DB.prepare('SELECT COALESCE(SUM(-amount),0) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(seed.owner).first()).n;

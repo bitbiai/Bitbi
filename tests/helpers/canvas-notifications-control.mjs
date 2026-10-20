@@ -182,8 +182,19 @@ export async function canvasNotificationsCase(env){
   const notice=(requestId,extra={})=>({requestId,code:'network_error',projectId:f.project,status:0,...extra});
   const first=await bodyOf(await post(notice('notice-transport-one')),201);
   check(first.item.source==='client'&&!first.item.confirmed&&first.item.severity==='warning','Client transport assertion never becomes confirmed operation history');
+  const savedConversation=await db.prepare('SELECT * FROM canvas_agent_conversations WHERE project_id=?').bind(f.project).first();
+  check(savedConversation?.user_id===f.owner&&savedConversation.revision===0&&savedConversation.brief_revision===0
+    &&savedConversation.diagnostic_allowance===0,'The real manual-error path persists an owned conversation without creative edits or diagnostic spending consent');
+  const clientExplanations=async()=>(await db.prepare(`SELECT t.id,t.assistant_text,t.run_id,x.state FROM canvas_agent_incidents i
+    JOIN canvas_agent_incident_explanations x ON x.incident_id=i.id JOIN canvas_agent_turns t ON t.id=x.turn_id
+    WHERE i.project_id=? AND i.user_id=? AND i.source_notification_id=?`).bind(f.project,f.owner,first.item.id).all()).results;
+  const explained=await clientExplanations();
+  check(explained.length===1&&explained[0].state==='fallback'&&explained[0].run_id===null
+    &&explained[0].assistant_text.includes('Canvas system information')&&explained[0].assistant_text.includes('Notifications'),
+    'A manual transport failure immediately persists a transparent localized system explanation without a paid turn');
   const replay=await bodyOf(await post(notice('notice-transport-one')),201);
   check(replay.item.id===first.item.id,'Same accepted transport identity deduplicates across tabs');
+  check(JSON.stringify(await clientExplanations())===JSON.stringify(explained),'Replayed manual error keeps the exact original explanation, with no duplicate message');
   const tabs=await Promise.all([post(notice('notice-concurrent-tabs')),post(notice('notice-concurrent-tabs'))]);
   const tabItems=await Promise.all(tabs.map(response=>bodyOf(response,201)));
   check(tabItems[0].item.id===tabItems[1].item.id,'Concurrent tabs retain one durable notice identity');
@@ -244,7 +255,8 @@ export async function canvasNotificationsCase(env){
   const withoutTool=[await event(production,'unknown-one',{code:'canvas_request_failed'}),await event(production,'unknown-two',{code:'canvas_request_failed'})];
   const hidden=await event(briefing,'private-briefing',{code:'private_briefing'});
   const turn=await id('action-turn'),action=await id('action'),readOnly=await id('readonly-action');
-  await db.prepare("INSERT INTO canvas_agent_conversations(project_id,user_id,brief_json,created_at,updated_at) VALUES(?,?,'{}',?,?)").bind(f.project,f.owner,now,now).run();
+  check(JSON.stringify(await db.prepare('SELECT * FROM canvas_agent_conversations WHERE project_id=?').bind(f.project).first())===JSON.stringify(savedConversation),
+    'Notification delivery reuses the same conversation without rewriting its brief, revisions, allowance or model');
   await db.prepare("INSERT INTO canvas_agent_turns(id,project_id,request_key,input_json,conversation_revision,brief_revision,user_text,state,created_at,updated_at) VALUES(?,?,'notification-turn','{}',0,0,'Synthetic action','completed',?,?)").bind(turn,f.project,now,now).run();
   for(const [key,ordinal,type]of[[action,0,'export'],[readOnly,1,'status']])await db.prepare(`INSERT INTO canvas_agent_action_receipts(id,project_id,user_id,turn_id,ordinal,input_json,state,result_json,created_at,updated_at)
     VALUES(?,?,?,?,?,?,'completed','{"pending":true}',?,?)`).bind(key,f.project,f.owner,turn,ordinal,JSON.stringify({action:{type}}),now,now).run();

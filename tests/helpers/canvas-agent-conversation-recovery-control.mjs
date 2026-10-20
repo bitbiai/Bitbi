@@ -58,6 +58,21 @@ export async function canvasConversationRecoveryCase(base,name) {
       check(matches.length===1&&matches[0].role==='assistant','The original provider reply remains present exactly once');
       return matches[0];
     };
+    const failureExplanation=async(current,expectedCode)=>{
+      const failed=await f.db.prepare('SELECT state,error_code FROM canvas_agent_turns WHERE id=?').bind(originalTurn.id).first();
+      check(failed.state==='failed'&&failed.error_code===expectedCode,'The original failed turn retains its specific durable error');
+      const sourceId=`turn:${originalTurn.id}:failed:${expectedCode}`;
+      const matches=current.messages.filter(message=>message.kind==='incident_explanation'&&message.sourceNotificationId===sourceId);
+      check((await get('SELECT locale FROM canvas_projects WHERE id=?')).locale==='en',
+        'The inherited project language is English; a German user message does not silently rewrite it');
+      check(matches.length===1&&matches[0].provenance==='application'&&!matches[0].modelId
+        &&matches[0].text.includes('model reply')&&matches[0].text.includes('Canvas system information')&&matches[0].text.includes('Notifications'),
+        'A separate, uniquely sourced system explanation describes the failed reply without pretending to be provider output');
+      check(!matches[0].text.includes('private prose')&&!matches[0].text.includes('private provider prose'),
+        'Proactive explanation cannot expose private transport exception or provider text');
+      const reloaded=await view(),again=reloaded.messages.filter(message=>message.sourceNotificationId===sourceId);
+      check(again.length===1&&again[0].id===matches[0].id,'Observation preserves the same incident explanation identity');
+    };
     check(originalTurn.user_text===CANVAS_SNAIL_BRIEF,'Admission preserves the exact saved user wording');
     check((await view()).brief.duration.targetDurationSeconds===45,'The supplied 45-second answer resolves duration');
     if(name==='queued-observation'){
@@ -79,10 +94,11 @@ export async function canvasConversationRecoveryCase(base,name) {
     if(name==='prepare'||name==='stale-policy') {
       const current=await view();
       check(c.calls.length===0&&!await operation()&&await debitCount()===0,'Known preparation failure cannot have provider work or a charge');
-      check(current.messages.at(-1).delivery.stage==='preparation_failed'&&current.canSend===true&&!current.blockingOperation,'Known local failure cannot lock the project as uncertain inference');
+      check(originalReply(current).delivery.stage==='preparation_failed'&&current.canSend===true&&!current.blockingOperation,'Known local failure cannot lock the project as uncertain inference');
       check(current.allowance.committedCredits===0&&current.allowance.reservedCredits===0,'Released or absent reservation is not displayed as spending');
       const held=await attempt();if(held)check(held.provider_outcome==='not_dispatched'&&held.billing_status==='released','Prepare failure releases only proven undispatched work');
-      check(current.messages.at(-1).text===''&&!JSON.stringify(current.messages.at(-1).delivery).includes('private prose'),'System failure never invents an assistant reply or exposes exception text');
+      check(originalReply(current).text===''&&!JSON.stringify(originalReply(current).delivery).includes('private prose'),'System failure never invents an assistant reply or exposes exception text');
+      await failureExplanation(current,name==='stale-policy'?'canvas_agent_policy_review_required':'canvas_agent_prepare_failed');
       check((await turn()).user_text===CANVAS_SNAIL_BRIEF,'Failure preserves the original wording');
       await c.control('save',{draft:'Später fortsetzen.'});check((await view()).draft==='Später fortsetzen.','Saving remains available');
       await code(await c.post('/messages',sent.input,sent.key),200);await wake();
@@ -94,8 +110,9 @@ export async function canvasConversationRecoveryCase(base,name) {
     check(context.message.id===originalTurn.id&&context.message.text===CANVAS_SNAIL_BRIEF&&context.brief.duration.targetDurationSeconds===45,'Signed preparation binds source wording and known duration');
     if(name==='rejected'||name==='rejected-tail') {
       const current=await view(),usage=await attempt();
-      check(current.messages.at(-1).delivery.stage==='rejected'&&current.canSend===true&&!current.blockingOperation,'Proven rejection is distinct from uncertain dispatch');
+      check(originalReply(current).delivery.stage==='rejected'&&current.canSend===true&&!current.blockingOperation,'Proven rejection is distinct from uncertain dispatch');
       check(usage.billing_status==='released'&&usage.provider_outcome==='failed'&&await debitCount()===0,'Documented no-inference rejection releases once without a debit');
+      await failureExplanation(current,'canvas_agent_provider_rejected');
       if(name==='rejected-tail') {
         await code((await c.send('Eine andere kreative Idee als ausdrücklich neue Nachricht.')).response,202);
         check(c.calls.length===1&&await debitCount()===0,'Next-message admission after definite rejection does not resubmit or charge the rejected turn');

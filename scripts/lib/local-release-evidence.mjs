@@ -1891,8 +1891,9 @@ export function canvasExampleBrowserContinuation(command){
   assert.equal(command.split(passed).length,2);assert(command.includes("--grep 'Canvas transition examples'"));
   return command.replace(passed,''); // Pinned decoded-asset pass remains in the archived original log.
 }
-export const canvasPreflightProfile=source=>[INCIDENT_PREFLIGHT,RELIABILITY_BROWSER_PREFLIGHT,RELIABILITY_NATIVE_PREFLIGHT,RELIABILITY_WORKER_PREFLIGHT,EXPORT_DELIVERY_BROWSER_PREFLIGHT,EXPORT_DELIVERY_SDK_PREFLIGHT,EXPORT_DELIVERY_HOSTING_PREFLIGHT,EXPORT_DELIVERY_DISCOVERY_PREFLIGHT,EXPORT_DELIVERY_SELECTION_PREFLIGHT,EXPORT_DELIVERY_PREFLIGHT,ASSISTANT_BROWSER_PREFLIGHT,ASSISTANT_NATIVE_RATE,ASSISTANT_NATIVE_TAIL,ASSISTANT_NATIVE_PROGRESS,ASSISTANT_NATIVE_PREFLIGHT,ASSISTANT_WORKER_PREFLIGHT,ASSISTANT_PREFLIGHT,SETTLEMENT_BROWSER_PREFLIGHT,SETTLEMENT_NATIVE_PROGRESS,SETTLEMENT_NATIVE_PREFLIGHT,SETTLEMENT_HOSTING_PREFLIGHT,SETTLEMENT_PREFLIGHT,CANVAS_POLICY_NATIVE_PREFLIGHT,CANVAS_POLICY_WORKER_PREFLIGHT,AUTONOMY_BROWSER_PREFLIGHT,AUTONOMY_NATIVE_PREFLIGHT,CANVAS_PREFLIGHT,EXPORT_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,EXAMPLE_PREFLIGHT,EXAMPLE_BROWSER_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].find(p=>p.source===source)||null;
+export const canvasPreflightProfile=source=>[INCIDENT_WORKER_PREFLIGHT,INCIDENT_PREFLIGHT,RELIABILITY_BROWSER_PREFLIGHT,RELIABILITY_NATIVE_PREFLIGHT,RELIABILITY_WORKER_PREFLIGHT,EXPORT_DELIVERY_BROWSER_PREFLIGHT,EXPORT_DELIVERY_SDK_PREFLIGHT,EXPORT_DELIVERY_HOSTING_PREFLIGHT,EXPORT_DELIVERY_DISCOVERY_PREFLIGHT,EXPORT_DELIVERY_SELECTION_PREFLIGHT,EXPORT_DELIVERY_PREFLIGHT,ASSISTANT_BROWSER_PREFLIGHT,ASSISTANT_NATIVE_RATE,ASSISTANT_NATIVE_TAIL,ASSISTANT_NATIVE_PROGRESS,ASSISTANT_NATIVE_PREFLIGHT,ASSISTANT_WORKER_PREFLIGHT,ASSISTANT_PREFLIGHT,SETTLEMENT_BROWSER_PREFLIGHT,SETTLEMENT_NATIVE_PROGRESS,SETTLEMENT_NATIVE_PREFLIGHT,SETTLEMENT_HOSTING_PREFLIGHT,SETTLEMENT_PREFLIGHT,CANVAS_POLICY_NATIVE_PREFLIGHT,CANVAS_POLICY_WORKER_PREFLIGHT,AUTONOMY_BROWSER_PREFLIGHT,AUTONOMY_NATIVE_PREFLIGHT,CANVAS_PREFLIGHT,EXPORT_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,EXAMPLE_PREFLIGHT,EXAMPLE_BROWSER_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].find(p=>p.source===source)||null;
 export function assertCanvasPreflightTree(head,read=gitBytes,profile=CANVAS_PREFLIGHT){
+  if(profile===INCIDENT_WORKER_PREFLIGHT)return assertIncidentWorkerTree(head,read);
   if(profile===INCIDENT_PREFLIGHT){
     assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,profile.source],'Incident preflight requires the direct reviewed successor');
     const files=read(['diff','--name-only',profile.source,head]).toString().trim().split('\n').filter(Boolean);
@@ -2227,6 +2228,7 @@ export function verifyWorkspaceGuardUnion(before,after){
 }
 export function canvasPreflightPrefix(bytes,{sha,base,planHash,environment,nativeBrowsers,commands,selection},read=gitBytes){
   const original=JSON.parse(bytes),profile=canvasPreflightProfile(original.sha)||CANVAS_PREFLIGHT;
+  if(profile===INCIDENT_WORKER_PREFLIGHT)return incidentWorkerPrefix(bytes,{sha,base,planHash,environment,nativeBrowsers,commands,selection},read);
   if(profile===RELIABILITY_BROWSER_PREFLIGHT)return reliabilityBrowserPrefix(bytes,{sha,base,planHash,environment,nativeBrowsers,commands,selection},read);
   if(profile===RELIABILITY_NATIVE_PREFLIGHT)return reliabilityNativePrefix(bytes,{sha,base,planHash,environment,nativeBrowsers,commands,selection},read);
   if(profile===RELIABILITY_WORKER_PREFLIGHT)return reliabilityWorkerPrefix(bytes,{sha,base,planHash,environment,nativeBrowsers,commands,selection},read);
@@ -2340,6 +2342,7 @@ export function verifyExportGuardUnion(before,after){
   assert.equal(new Set(after.map(r=>r.title)).size,after.length);assert(after.every(r=>before.some(old=>old.title===r.title)));
 }
 export function verifyCanvasPreflight(directory,evidence,commands){
+  if(evidence.preflightContinuation?.source===INCIDENT_WORKER_PREFLIGHT.source)return verifyIncidentWorkerContinuation(directory,evidence,commands);
   if(evidence.preflightContinuation?.source===RELIABILITY_BROWSER_PREFLIGHT.source)return verifyReliabilityBrowserContinuation(directory,evidence,commands);
   if(evidence.preflightContinuation?.source===RELIABILITY_NATIVE_PREFLIGHT.source)return verifyReliabilityNativeContinuation(directory,evidence,commands);
   if(evidence.preflightContinuation?.source===RELIABILITY_WORKER_PREFLIGHT.source)return verifyReliabilityWorkerContinuation(directory,evidence,commands);
@@ -3503,4 +3506,138 @@ export function verifyReliabilityBrowserContinuation(directory,evidence,commands
   else if(p.retain.includes(i))assert.deepEqual(row,{...old.commands[i],reusedFrom:old.commands[i].reusedFrom||p.source});
   else{assert(!row.reusedFrom);if([49,50].includes(i)){assert.equal(row.browserContinuation,MODEL_BROWSER_POLICY);assert.equal(row.continuation,reliabilityBrowserContinuation(commands[i].run,i===50?'auth':'homepage'));}
     else{assert(!row.browserContinuation);if(i===17)assert.equal(row.continuation,proposalProgress?reliabilityProposalProgressGuard(commands[i].run):browserProgress?reliabilityBrowserProgressGuard(commands[i].run):workerProgress?reliabilityControlProgressGuard(commands[i].run):reliabilityBrowserGuard(commands[i].run));else if(i===41)assert.equal(row.continuation,reliabilityControlContinuation(commands[i].run,{progress:workerProgress}));else assert(!row.continuation);}}
+}
+
+// Closed test-fixture repair after 1665 Worker passes. Product bytes, all test
+// entrypoints/discovery and the completed 61-case Node prefix stay unchanged.
+// Four historical recovery fixtures address only the seven original failures;
+// media/native/browser acceptance has not executed and remains fully required.
+export const INCIDENT_WORKER_PREFLIGHT=Object.freeze({
+  source:'fbd3ecae2575184a58cff0b4a8132159c758308c',
+  checkpoint:'f7cb5ff90b4b8ef8743fb5c8997a1cd75fec7cc9bed18d3e66d30503e24f782b',
+  failedLog:'42da5628ec46280ad8be9ef74ae4d380c99074650287c20edefb276410ac8a94',
+  completedGuardLog:'187755e40b02145b32cabcdcc6d15bf3efe8d73114e42a7d37b7b05242c0df62',
+  lastRun:'505f9ce123cbcb4992d9589ce8f740f53b2b2f9d1a2c5bdc9494d335bc69b332',
+  discovery:'e8fff5382820a61b07e7a632835b5a93ed862081acd2336f77895ddc685f6507',
+  specs:Object.freeze({
+    'tests/helpers/canvas-agent-explanation-control.mjs':'8bcd1ff59e47ac0c261a5781ce00c2cdf583cfa0407ce2ae0a6d9fff200ec55a',
+    'tests/helpers/canvas-agent-conversation-recovery-control.mjs':'86bb884fe84029030f01655538242a7492268d0063f46aac511b8445b778a617',
+    'tests/helpers/canvas-notifications-control.mjs':'60692c61edc4e71b36da91220a9a3add8b8ca7557302b51b4c5d83569a1e6e51',
+    'tests/helpers/canvas-agent-natural-control.mjs':'6fd192613c7116438730d892d81771ff7f4565cd6237c35ab6b31a924563d319',
+  }),
+  retain:Object.freeze([1,4,5,6,7,8,9,10,11,13,14,15,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,38,39,40]),
+});
+export const incidentWorkerFailures=Object.freeze([
+  'Canvas informed explanation budget-scope preserves source facts and financial scope',
+  'Canvas conversation recovery prepare through signed transport and persisted receipts',
+  'Canvas conversation recovery rejected through signed transport and persisted receipts',
+  'Canvas conversation recovery rejected-tail through signed transport and persisted receipts',
+  'Canvas conversation recovery stale-policy through signed transport and persisted receipts',
+  'Canvas natural-chat migration preserves paid identities and saved conversations without inventing action consent',
+  'Canvas reliability notifications preserve ownership, explicit acknowledgements and real operation states',
+]);
+export function assertIncidentWorkerTree(head,read=gitBytes){
+  const p=INCIDENT_WORKER_PREFLIGHT;assertCanvasPreflightTree(p.source,read,INCIDENT_PREFLIGHT);
+  assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,p.source],'Incident Worker continuation requires the direct reviewed successor');
+  const files=read(['diff','--name-only',p.source,head]).toString().trim().split('\n').filter(Boolean);
+  const allowed=[...Object.keys(p.specs),...reliabilityTools];
+  assert(files.every(file=>allowed.includes(file)),'Incident Worker continuation changed product, schema, discovery or environment');
+  for(const[file,hash]of Object.entries(p.specs)){assert(files.includes(file),'Missing reviewed fixture correction');assert.equal(sha256(read(['show',`${head}:${file}`])),hash,`Unreviewed fixture: ${file}`);}
+  for(const file of files)assert(/^100644 blob [0-9a-f]{40}\t/.test(read(['ls-tree',head,'--',file]).toString()),'Continuation input must remain an ordinary file');
+  const file='scripts/test-local-release.mjs',before=read(['show',`${p.source}:${file}`]).toString(),after=read(['show',`${head}:${file}`]).toString();
+  const entry="if(process.argv.includes('--incident-worker-only')) {\n  assert.deepEqual(process.argv.slice(2),['--incident-worker-only']);\n  await testIncidentWorkerContinuation();process.exit(0);\n}\n\n",tail='\nasync function testIncidentWorkerContinuation() {';
+  assert.equal(after.split(entry).length,2);assert.equal(after.split(tail).length,2);
+  assert.equal(after.split(tail)[0].replace(entry,''),before,'Already passed verifier assertions changed');
+  assert(after.endsWith('\nawait testIncidentWorkerContinuation();\n'));
+}
+export function incidentWorkerPrefix(bytes,current,read=gitBytes){
+  const p=INCIDENT_WORKER_PREFLIGHT,original=JSON.parse(bytes);assertIncidentWorkerTree(current.sha,read);
+  assert.equal(sha256(bytes),p.checkpoint,'Changed original failed checkpoint');
+  assert.equal(original.sha,p.source);assert.equal(original.status,'failed');assert.equal(original.commands.length,42);
+  assert.deepEqual(original.preflightContinuation,{source:INCIDENT_PREFLIGHT.source,checkpoint:INCIDENT_PREFLIGHT.checkpoint});
+  assert(!original.preflightProgress&&!original.permissionContinuation&&!original.repair);
+  assert(original.commands.slice(0,41).every(row=>row.exitCode===0&&!row.continuation));
+  for(const[i,row]of original.commands.entries())assert.equal(row.reusedFrom,INCIDENT_PREFLIGHT.retain.includes(i)?INCIDENT_PREFLIGHT.source:undefined,'Unreviewed nested reuse');
+  assert.equal(original.commands[41].exitCode,1);assert.equal(original.commands[41].logHash,p.failedLog);assert.equal(original.commands[17].logHash,p.completedGuardLog);
+  for(const key of ['base','planHash'])assert.equal(original[key],current[key]);
+  const environment=({reused,preparationMs,...rest})=>rest;assert.deepEqual(environment(original.environment),environment(current.environment),'Changed pinned execution environment');
+  assert.equal(original.nativeBrowsers?.key,current.nativeBrowsers?.key);
+  const flags=({files,reasons,...rest})=>rest;assert.deepEqual(flags(original.selection),flags(current.selection));
+  assert.deepEqual(current.commands,selectedCommands(original.selection,{GITHUB_SHA:current.sha,CANDIDATE_BASE:current.base}),'Changed command closure');
+  for(const index of p.retain)assert.deepEqual(original.commands[index].command,current.commands[index]);
+  return original;
+}
+export function verifyIncidentWorkerOrigin(directory,original){
+  const origin=path.join(directory,'reuse/incident-preflight-origin');
+  verifyCanvasPreflight(origin,original,selectedCommands(original.selection,{GITHUB_SHA:original.sha,CANDIDATE_BASE:original.base}));
+  const log=fs.readFileSync(path.join(origin,'logs/17.log'));
+  assert.equal(sha256(log),INCIDENT_WORKER_PREFLIGHT.completedGuardLog,'Changed passed verifier groups');
+  for(const text of ['Local command mapping, no hosted duplicate suites','Incident preflight: actual isolated Git trees','Incident preflight: actual checkpoint, failed log and 10 retained logs verified'])assert(log.toString().includes(text),'Incomplete passed verifier evidence');
+}
+export function verifyIncidentWorkerRepair(directory,head,{allowPending=false,read=gitBytes}={}){
+  const p=INCIDENT_WORKER_PREFLIGHT;assertIncidentWorkerTree(head,read);
+  const pinned=(file,hash)=>{const raw=fs.readFileSync(path.join(directory,'reuse',file));assert.equal(sha256(raw),hash,`Changed retained Worker evidence: ${file}`);return raw;};
+  const original=JSON.parse(pinned('preflight-checkpoint.json',p.checkpoint));
+  assert.equal(original.sha,p.source);assert.equal(original.status,'failed');
+  verifyIncidentWorkerOrigin(directory,original);
+  const log=pinned('preflight-failed.log',p.failedLog).toString(),last=JSON.parse(pinned('original-worker-last-run.json',p.lastRun));
+  const before=workerDiscovery(parseDiscovery(pinned('original-worker-discovery.json',p.discovery).toString()));
+  assert.equal(before.length,1672);assert.match(log,/Running 1672 tests using 1 worker/);assert.match(log,/\n\s+7 failed\n/);assert.match(log,/\n\s+1665 passed /);
+  const prefix=log.split('Running 1672 tests using 1 worker')[0];
+  assert.match(prefix,/# tests 61\n# suites 0\n# pass 61\n# fail 0\n# cancelled 0\n# skipped 0/);
+  assert.match(prefix,/Q4 normal Worker discovery:/);assert.match(prefix,/"mediaTools":\{"ffmpeg":"6\.1\.1-3ubuntu5","ffprobe":"6\.1\.1-3ubuntu5"\}/);
+  assert(!log.includes('> test:homepage-ffmpeg-processor\n')&&!log.includes('> test:q2-runtime\n'),'Unstarted media/native tail cannot inherit acceptance');
+  const previous=workerListResults(log,before),failed=previous.filter(row=>!passedOnce(row));
+  assert.deepEqual(failed.map(row=>row.title).sort(),[...incidentWorkerFailures].sort());
+  assert(failed.every(row=>row.results.length===2&&row.results.every((result,index)=>result.status==='failed'&&result.retry===index)),'Original failed attempts must remain failed');
+  assert.equal(last.status,'failed');assert.deepEqual(failed.map(row=>row.id).sort(),[...last.failedTests].sort());
+  const file=path.join(directory,'test-results/incident-worker-discovery.json');let discovery=null;
+  if(fs.existsSync(file)){
+    const report=parseDiscovery(fs.readFileSync(file,'utf8'));assert.deepEqual(report.errors,[]);discovery=workerDiscovery(report);
+    const identities=rows=>rows.map(({id,file,title})=>({id,file,title})).sort((a,b)=>a.id.localeCompare(b.id));
+    assert.deepEqual(identities(discovery),identities(before),'Full Worker discovery changed');
+  }
+  if(allowPending)return {original,previous,discovery};
+  assert(discovery,'Missing actual candidate full discovery');
+  const fresh=JSON.parse(fs.readFileSync(path.join(directory,'test-results/incident-worker-fresh.json')));
+  assert.deepEqual(fresh.errors,[]);assert.equal(fresh.config.workers,1);assert(fresh.config.projects.every(project=>project.retries===0));
+  assert.deepEqual({expected:fresh.stats.expected,unexpected:fresh.stats.unexpected,flaky:fresh.stats.flaky,skipped:fresh.stats.skipped},{expected:7,unexpected:0,flaky:0,skipped:0});
+  const result=verifyWorkerUnion({previous,discovery,progress:executedWorkers(fresh),corrected:[]});
+  assert.deepEqual(result,{originalPassed:1665,progressPassed:7,correctedPassed:0,total:1672});return {original,previous,discovery,result};
+}
+export function incidentWorkerContinuation(command){
+  assert.equal(JSON.parse(fs.readFileSync('package.json')).scripts['test:workers'],'node scripts/check-media-tools.mjs && npm run test:website-assistant && node scripts/check-q4-selection.mjs && playwright test -c playwright.workers.config.js && npm run test:homepage-ffmpeg-processor && npm run test:q2-runtime');
+  assert.equal(command.split('  npm run test:workers').length,2);assert(command.endsWith('else\n  npm run test:workers\nfi\n'));
+  const grep=incidentWorkerFailures.map(value=>value.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|');
+  const fresh=[
+    'mkdir -p .local-release/test-results',
+    'PLAYWRIGHT_JSON_OUTPUT_NAME= npx playwright test -c playwright.workers.config.js --list --reporter=json > .local-release/test-results/incident-worker-discovery.json',
+    'node scripts/local-release.mjs verify-incident-worker-pending .local-release',
+    `PLAYWRIGHT_JSON_OUTPUT_NAME= npx playwright test -c playwright.workers.config.js --grep '(?:${grep})$' --list --reporter=json > .local-release/test-results/incident-worker-selected.json`,
+    'node scripts/local-release.mjs verify-incident-worker-selection .local-release',
+    `PLAYWRIGHT_JSON_OUTPUT_NAME=.local-release/test-results/incident-worker-fresh.json npx playwright test -c playwright.workers.config.js --grep '(?:${grep})$' --output=test-results/incident-worker-artifacts --workers=1 --retries=0 --reporter=list,json`,
+    'node scripts/local-release.mjs verify-incident-worker-repair .local-release',
+    'npm run test:homepage-ffmpeg-processor','npm run test:q2-runtime',
+  ].map(line=>'  '+line).join('\n');return command.replace('  npm run test:workers',()=>fresh);
+}
+export function verifyIncidentWorkerSelection(directory,head,options={}){
+  const {previous}=verifyIncidentWorkerRepair(directory,head,{...options,allowPending:true});
+  const report=parseDiscovery(fs.readFileSync(path.join(directory,'test-results/incident-worker-selected.json'),'utf8'));assert.deepEqual(report.errors,[]);
+  const rows=workerDiscovery(report),identity=rows=>rows.map(({id,file,title})=>({id,file,title})).sort((a,b)=>a.id.localeCompare(b.id));
+  assert.deepEqual(identity(rows),identity(previous.filter(row=>!passedOnce(row))),'Only the seven original failures may execute');return rows;
+}
+export function incidentWorkerGuard(command){assert.equal(command,'npm run test:local-release');return command+' -- --incident-worker-only';}
+export function verifyIncidentWorkerContinuation(directory,evidence,commands){
+  const p=INCIDENT_WORKER_PREFLIGHT;assert.deepEqual(evidence.preflightContinuation,{source:p.source,checkpoint:p.checkpoint});
+  const original=incidentWorkerPrefix(fs.readFileSync(path.join(directory,'reuse/preflight-checkpoint.json')),{...evidence,commands});
+  verifyIncidentWorkerRepair(directory,evidence.sha);verifyIncidentWorkerSelection(directory,evidence.sha);
+  assert.equal(evidence.commands.length,commands.length,'Incomplete continued command closure');
+  for(const[i,row]of evidence.commands.entries()){
+    if(p.retain.includes(i)){assert.deepEqual(row,{...original.commands[i],reusedFrom:original.commands[i].reusedFrom||p.source},'Retained command identity/hash changed');assert.equal(sha256(fs.readFileSync(path.join(directory,row.log))),row.logHash);}
+    else{assert(!row.reusedFrom&&!row.browserContinuation,'Affected/unexecuted command cannot inherit acceptance');
+      if(i===17){assert.equal(row.continuation,incidentWorkerGuard(commands[i].run));const log=fs.readFileSync(path.join(directory,row.log),'utf8');assert(log.includes('Incident Worker continuation: 1665 retained passes and seven required fresh cases; nested provenance, exact discovery, changed-source and tamper controls verified.'));assert(!log.includes('Local command mapping, no hosted duplicate suites')&&!log.includes('Incident preflight: actual isolated Git trees'),'Passed guard groups repeated');}
+      else if(i===41)assert.equal(row.continuation,incidentWorkerContinuation(commands[i].run));
+      else assert(!row.continuation,'Unreviewed command continuation');
+    }
+  }
 }

@@ -21,6 +21,11 @@ import { LOCAL_IMPORT_REPAIR, assertImportRepairWorkflow, localRepairCommand, ve
 import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,assertPermissionContinuationTree,permissionContinuationPrefix,CANVAS_STAGE_CASES,canvasStageContinuation} from './lib/local-release-evidence.mjs';
 import {testLocalMediaProcess} from './test-local-media-process.mjs';
 
+if(process.argv.includes('--incident-worker-only')) {
+  assert.deepEqual(process.argv.slice(2),['--incident-worker-only']);
+  await testIncidentWorkerContinuation();process.exit(0);
+}
+
 if(process.argv.includes('--reliability-proposal-progress-only')) {
   assert.deepEqual(process.argv.slice(2),['--reliability-proposal-progress-only']);
   await testReliabilityProposalProgress();process.exit(0);
@@ -4087,3 +4092,81 @@ async function testIncidentPreflight(originDirectory=null) {
 }
 await testIncidentPreflight();
 // END INCIDENT PREFLIGHT COUNTERCHECKS
+
+async function testIncidentWorkerContinuation() {
+  const {INCIDENT_WORKER_PREFLIGHT:p,incidentWorkerFailures,assertIncidentWorkerTree,incidentWorkerPrefix,
+    incidentWorkerContinuation,incidentWorkerGuard,verifyIncidentWorkerRepair,verifyIncidentWorkerSelection,
+    verifyIncidentWorkerContinuation}=await import('./lib/local-release-evidence.mjs');
+  assert.equal(incidentWorkerGuard('npm run test:local-release'),'npm run test:local-release -- --incident-worker-only');
+  for(const bad of ['echo passed','npm run test:workers'])assert.throws(()=>incidentWorkerGuard(bad));
+  const passed=Array.from({length:1665},(_,i)=>({id:`synthetic-pass-${i}`,file:'retained.spec.js',title:`Retained ${i}`,results:[{status:'passed',retry:0}]}));
+  const failed=incidentWorkerFailures.map((title,i)=>({id:`synthetic-failure-${i}`,file:'repaired.spec.js',title,results:[{status:'failed',retry:0},{status:'failed',retry:1}]}));
+  const previous=[...passed,...failed],fresh=failed.map(row=>({...row,results:[{status:'passed',retry:0}]}));
+  const union=(progress=fresh,discovery=previous)=>verifyWorkerUnion({previous,discovery,progress,corrected:[]});
+  assert.deepEqual(union(),{originalPassed:1665,progressPassed:7,correctedPassed:0,total:1672});
+  for(const bad of [fresh.slice(1),[...fresh,fresh[0]],[...fresh,passed[0]],fresh.map((row,i)=>i?row:{...row,results:[{status:'passed',retry:1}]}),fresh.map((row,i)=>i?row:{...row,results:[{status:'skipped',retry:0}]}),fresh.map((row,i)=>i?row:{...row,title:'Different assertion'})])assert.throws(()=>union(bad));
+  assert.throws(()=>union(fresh,previous.slice(1)));assert.throws(()=>union(fresh,[...previous,previous[0]]));
+  for(const index of [0,2,3,12,16,17,34,35,36,37,41,42,43,44,45,46,47,48,49,50,51])assert(!p.retain.includes(index));
+  // Historical generic runs exercise the pure verifier; only this exact closed
+  // canonical continuation requires its private authentic source evidence.
+  if(!process.argv.includes('--incident-worker-only'))return;
+  const directory='.local-release',read=args=>execFileSync('git',args),head=read(['rev-parse','HEAD']).toString().trim();
+  const originalBytes=fs.readFileSync(path.join(directory,'reuse/preflight-checkpoint.json')),old=JSON.parse(originalBytes);
+  const selection=gitSelection(old.base,head),commands=selectedCommands(selection,{GITHUB_SHA:head,CANDIDATE_BASE:old.base});
+  assert.equal(selection.policy,'impact-v1');assert.equal(selection.full,false);assert.equal(selection.homepage,true);assert.equal(selection.workers,true);assert.equal(selection.auth,true);
+  const context={...old,sha:head,commands,selection};
+  assert.deepEqual(incidentWorkerPrefix(originalBytes,context),old);assertIncidentWorkerTree(head);
+  for(const change of [value=>value.base='0'.repeat(40),value=>value.environment.image='sha256:'+'0'.repeat(64),value=>value.commands[1].run+='\necho changed',value=>value.selection.workers=false]){const bad=structuredClone(context);change(bad);assert.throws(()=>incidentWorkerPrefix(originalBytes,bad));}
+  assert.throws(()=>incidentWorkerPrefix(Buffer.from(JSON.stringify({...old,status:'passed'})),context));
+  const foreignDiff=args=>args[0]==='diff'&&args[2]===p.source?Buffer.from(read(args).toString()+'workers/auth/src/routes/canvas.js\n'):read(args);
+  assert.throws(()=>assertIncidentWorkerTree(head,foreignDiff));
+  assert.throws(()=>assertIncidentWorkerTree(head,args=>args[0]==='rev-list'&&args.at(-1)===head?Buffer.from(`${head} ${'0'.repeat(40)}\n`):read(args)));
+  for(const file of Object.keys(p.specs))assert.throws(()=>assertIncidentWorkerTree(head,args=>args[0]==='show'&&args[1]===`${head}:${file}`?Buffer.from('unreviewed fixture'):read(args)));
+  const pending=verifyIncidentWorkerRepair(directory,head,{allowPending:true});assert.equal(pending.previous.length,1672);assert.equal(pending.previous.filter(row=>row.results[0].status==='passed').length,1665);
+  // Execute the actual runner's receipt writer, not a hand-built evidence row.
+  // Removing either new record.continuation assignment must fail here before
+  // downstream media/browser execution can leave an unimportable candidate.
+  const vm=await import('node:vm'),runner=fs.readFileSync('scripts/local-release.mjs','utf8');
+  const writer=runner.slice(runner.indexOf('      record.runtimes=commandRuntimes(command)'),runner.indexOf('      state.commands[index] = record;'));
+  assert(writer.length>0);
+  const globals={...await import('./lib/local-release-evidence.mjs'),...await import('./lib/local-release-browser.mjs'),...await import('./lib/canvas-export-release.mjs'),...await import('./lib/canvas-export-browser.mjs'),commandRuntimes};
+  for(const index of [17,40,41]){
+    const execute=source=>{const record={};vm.runInNewContext(source,{...globals,state:{preflightContinuation:{source:p.source}},index,command:commands[index],record});return record;};
+    const expected=index===17?incidentWorkerGuard(commands[index].run):index===41?incidentWorkerContinuation(commands[index].run):undefined;
+    assert.equal(execute(writer).continuation,expected);
+    if(expected){const broken=writer.split('\n').filter(line=>!line.includes(`INCIDENT_WORKER_PREFLIGHT.source&&index===${index})record.continuation`)).join('\n');assert.notEqual(broken,writer);assert.notEqual(execute(broken).continuation,expected,'Omitted actual receipt metadata must be detected');}
+  }
+  const wrapper=incidentWorkerContinuation(commands[41].run);
+  assert(wrapper.includes('--retries=0')&&wrapper.includes('verify-incident-worker-selection')&&wrapper.includes('npm run test:homepage-ffmpeg-processor')&&wrapper.includes('npm run test:q2-runtime'));
+  assert(!wrapper.includes('npm run test:website-assistant')&&!wrapper.includes('  npm run test:workers\n'));
+  assert.throws(()=>incidentWorkerContinuation('npm run test:workers'));
+  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'incident-worker-proof-'));
+  try{
+    fs.cpSync(path.join(directory,'reuse'),path.join(temp,'reuse'),{recursive:true});fs.mkdirSync(path.join(temp,'test-results'));
+    const discovery=JSON.parse(fs.readFileSync(path.join(temp,'reuse/original-worker-discovery.json'))),failedIds=new Set(pending.previous.filter(row=>row.results[0].status==='failed').map(row=>row.id));
+    const selected=structuredClone(discovery),filter=suite=>{suite.specs=(suite.specs||[]).filter(spec=>failedIds.has(spec.id));for(const child of suite.suites||[])filter(child);};selected.suites.forEach(filter);
+    const result=structuredClone(selected);result.config.workers=1;result.config.projects.forEach(project=>project.retries=0);result.stats={expected:7,unexpected:0,flaky:0,skipped:0};
+    const mark=suite=>{for(const spec of suite.specs||[])for(const test of spec.tests){test.expectedStatus='passed';test.status='expected';test.results=[{status:'passed',retry:0}];}for(const child of suite.suites||[])mark(child);};result.suites.forEach(mark);
+    const write=(name,value)=>fs.writeFileSync(path.join(temp,'test-results',name),JSON.stringify(value,null,2));
+    write('incident-worker-discovery.json',discovery);write('incident-worker-selected.json',selected);write('incident-worker-fresh.json',result);
+    const cli=action=>spawnSync(process.execPath,['scripts/local-release.mjs',action,temp],{encoding:'utf8'});
+    for(const action of ['verify-incident-worker-pending','verify-incident-worker-selection','verify-incident-worker-repair']){const run=cli(action);assert.equal(run.status,0,run.stderr);assert.doesNotThrow(()=>JSON.parse(run.stdout));}
+    assert.equal(verifyIncidentWorkerSelection(temp,head).length,7);
+    assert.deepEqual(verifyIncidentWorkerRepair(temp,head).result,{originalPassed:1665,progressPassed:7,correctedPassed:0,total:1672});
+    write('incident-worker-selected.json',discovery);assert.throws(()=>verifyIncidentWorkerSelection(temp,head));assert.notEqual(cli('verify-incident-worker-selection').status,0,'The actual CLI rejects a broad selected set before execution');write('incident-worker-selected.json',selected);
+    for(const mutate of [r=>r.config.projects[0].retries=1,r=>r.stats.expected=6,r=>r.errors=[{message:'incomplete'}],r=>{const visit=suite=>{if(suite.specs?.length)suite.specs.pop();else for(const child of suite.suites||[])visit(child);};r.suites.forEach(visit);},r=>{const visit=suite=>{for(const spec of suite.specs||[])spec.tests[0].results.push({status:'passed',retry:1});for(const child of suite.suites||[])visit(child);};r.suites.forEach(visit);}]){const wrong=structuredClone(result);mutate(wrong);write('incident-worker-fresh.json',wrong);assert.throws(()=>verifyIncidentWorkerRepair(temp,head));}
+    write('incident-worker-fresh.json',result);
+    const evidence={...context,preflightContinuation:{source:p.source,checkpoint:p.checkpoint},commands:commands.map((command,i)=>p.retain.includes(i)?{...old.commands[i],reusedFrom:old.commands[i].reusedFrom||p.source}:{command,exitCode:0,...(i===17?{continuation:incidentWorkerGuard(command.run)}:i===41?{continuation:incidentWorkerContinuation(command.run)}:{})})};
+    fs.mkdirSync(path.join(temp,'logs'));for(const i of p.retain)fs.copyFileSync(path.join(directory,old.commands[i].log),path.join(temp,old.commands[i].log));
+    evidence.commands[17].log='logs/17.log';fs.writeFileSync(path.join(temp,'logs/17.log'),'Incident Worker continuation: 1665 retained passes and seven required fresh cases; nested provenance, exact discovery, changed-source and tamper controls verified.');
+    verifyIncidentWorkerContinuation(temp,evidence,commands);
+    for(const mutate of [e=>e.commands[1].logHash='0'.repeat(64),e=>e.commands[41].reusedFrom=p.source,e=>e.commands[17].continuation='npm run test:local-release',e=>e.commands.pop()]){const wrong=structuredClone(evidence);mutate(wrong);assert.throws(()=>verifyIncidentWorkerContinuation(temp,wrong,commands));}
+    const failedLog=path.join(temp,'reuse/preflight-failed.log'),original=fs.readFileSync(failedLog);fs.appendFileSync(failedLog,'\nchanged');assert.throws(()=>verifyIncidentWorkerRepair(temp,head));fs.writeFileSync(failedLog,original);
+    const nested=path.join(temp,'reuse/incident-preflight-origin/reuse/preflight-checkpoint.json'),nestedBytes=fs.readFileSync(nested);fs.appendFileSync(nested,' ');assert.throws(()=>verifyIncidentWorkerRepair(temp,head));fs.writeFileSync(nested,nestedBytes);
+    const nestedLog=path.join(temp,'reuse/incident-preflight-origin/logs/1.log'),nestedLogBytes=fs.readFileSync(nestedLog);fs.appendFileSync(nestedLog,'forged');assert.throws(()=>verifyIncidentWorkerRepair(temp,head));fs.writeFileSync(nestedLog,nestedLogBytes);
+    const guard=path.join(temp,'logs/17.log');fs.appendFileSync(guard,'Local command mapping, no hosted duplicate suites');assert.throws(()=>verifyIncidentWorkerContinuation(temp,evidence,commands));
+    fs.unlinkSync(path.join(temp,'reuse/original-worker-last-run.json'));assert.throws(()=>verifyIncidentWorkerRepair(temp,head));
+  }finally{fs.rmSync(temp,{recursive:true,force:true});}
+  console.log('Incident Worker continuation: 1665 retained passes and seven required fresh cases; nested provenance, exact discovery, changed-source and tamper controls verified.');
+}
+await testIncidentWorkerContinuation();

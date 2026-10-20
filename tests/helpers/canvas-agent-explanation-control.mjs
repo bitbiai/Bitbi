@@ -72,13 +72,30 @@ export async function canvasExplanationCase(env,name) {
       await c.complete({text,actions:[action('allowance_propose',revision,{number:20000})]});await c.deliver();
       const view=await c.read(),receipt=view.actions.at(-1);
       check(receipt.state==='failed'&&receipt.code==='canvas_agent_budget_scope_required','A model cannot reinterpret a production ceiling as a briefing allowance');
-      check(view.messages.some(message=>message.provenance==='model'&&message.text.startsWith(text)),
+      const turnId=receipt.turnId,modelReply=current=>{
+        const matches=current.messages.filter(message=>message.id===`${turnId}:reply`);
+        check(matches.length===1&&matches[0].provenance==='model','The accepted model turn remains uniquely attributable');
+        return matches[0];
+      };
+      check(modelReply(view).text.startsWith(text),
         'An action receipt cannot erase the actual model answer');
-      check(view.messages.at(-1).proposedActions?.state==='attention_required'&&view.messages.at(-1).proposedActions.ids.includes(receipt.id),
+      check(modelReply(view).proposedActions?.state==='attention_required'&&modelReply(view).proposedActions.ids.includes(receipt.id),
         'A model reply remains attributed speech; a failed proposed write is separately identified by its real action receipt');
-      const turnId=view.messages.at(-1).id.replace(/:reply$/u,''),historical='Dein Auftrag ist gespeichert. Die Ergebnisse erscheinen hier.';
+      const sourceId=`action:${receipt.id}:failed:0:canvas_agent_budget_scope_required`;
+      const explanations=view.messages.filter(message=>message.kind==='incident_explanation'&&message.sourceNotificationId===sourceId);
+      check((await f.db.prepare('SELECT locale FROM canvas_projects WHERE id=?').bind(f.project).first()).locale==='en',
+        'The inherited project is English even when this user turn was submitted in German');
+      check(explanations.length===1&&explanations[0].provenance==='application'&&!explanations[0].modelId
+        &&explanations[0].text.includes('Canvas system information')&&explanations[0].text.includes('Notifications'),
+        'The failed budget proposal has its own transparent system explanation, not a replacement model answer');
+      const historical='Dein Auftrag ist gespeichert. Die Ergebnisse erscheinen hier.';
       await f.db.prepare('UPDATE canvas_agent_turns SET assistant_text=? WHERE id=?').bind(historical,turnId).run();
-      check((await c.read()).messages.at(-1).text.startsWith(text),'A historical generic acknowledgement projects the original validated stored reply');
+      const restored=await c.read();
+      check(modelReply(restored).text.startsWith(text),'A historical generic acknowledgement projects the original validated stored reply');
+      check(restored.messages.filter(message=>message.sourceNotificationId===sourceId).length===1
+        &&restored.messages.find(message=>message.sourceNotificationId===sourceId).id===explanations[0].id
+        &&c.calls.length===1&&restored.allowance.capCredits===before.allowance.capCredits,
+        'Rereading preserves one unpaid incident explanation without changing the briefing ceiling');
       check((await f.db.prepare('SELECT assistant_text FROM canvas_agent_turns WHERE id=?').bind(turnId).first()).assistant_text===historical,
         'Restoring the visible answer never rewrites historical accepted evidence');
       for(const invalidReceipt of [null,'{']){
