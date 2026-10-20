@@ -1152,6 +1152,11 @@ for(const locale of ['en','de']) test(`Canvas full video ordered clips ${locale}
   await rejectedRow.locator('summary').click();await expect(rejectedRow.locator('code')).toContainText('video_source_changed');
   await expect(rejectedRow.locator('code')).toContainText('ordered-clips-rejected-source');
   await expect(block.getByRole('status',{name:de?'Exportstatus':'Export status',exact:true})).toBeEmpty();expect(posts).toBe(1);
+  // This completed 409 invalidates the source selection; it is not an
+  // interrupted connection or an uncertain render that can be replayed.
+  await expect(inbox.locator('[data-code="canvas_connection_interrupted"]')).toHaveCount(0);
+  await expect(block.getByRole('button',{name:de?'Dieselbe Anfrage erneut senden':'Retry the same submission',exact:true})).toBeHidden();
+  expect(state.notificationClients).toHaveLength(1);
   await inbox.getByRole('button',{name:de?'Meldungen schließen':'Close notifications',exact:true}).click();
   await expect(sequence.getByLabel('Clip 1',{exact:true})).toHaveValue('');await expect(create).toBeDisabled();reject=false;
   await block.locator('..').getByRole('button',{name:de?'Status aktualisieren':'Refresh status',exact:true}).click();

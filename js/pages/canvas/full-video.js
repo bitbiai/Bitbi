@@ -80,7 +80,7 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
         if(previewMode && (auditionState==='loading'||!resultVideo?.paused) && selected.enabled && (!previous.enabled || previous.musicAssetId!==selected.musicAssetId))startPreview();else updateButtons();
     },{signal});
     const createButton=document.createElement('button');createButton.type='button';createButton.className='canvas-button canvas-button--primary';createButton.textContent=copy.create;createButton.hidden=true;
-    let observer=null,preparing=false,connectionNoticeKey=null;
+    let observer=null,preparing=false,connectionNoticeKey=null,selectionRejected=false;
     const nodeId=output.nodeId||getGraph().nodes.find(node=>node.output?.runId===output.runId)?.id||output.runId;
     const mergeSettings=canvasDisclosure([projectId,nodeId,'merge'],german?'Clips zusammenfügen':'Merge clips','canvas-merge-settings');
     controls.append(mergeSettings);
@@ -107,7 +107,7 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
         createButton.disabled=blocked||!sequence.valid;sequence.lock(blocked);joins?.lock(blocked);
         retrySubmission.hidden=!state?.canRetry;retrySubmission.disabled=Boolean(state?.busy);
         if(!state)return;
-        const feedback=state.busy?'':state.paused&&!state.reconnecting
+        const feedback=state.busy?'':state.paused&&!state.reconnecting&&!selectionRejected
             ?(german?'Status konnte nicht abgerufen werden. Zugriff prüfen und Status aktualisieren.':'Status could not be read. Check access and refresh status.'):state.pending
             ?(german?'Übermittlung noch nicht bestätigt. Der Status wird automatisch erneut geprüft; es wird kein neuer Auftrag gestartet.':'Submission is not yet confirmed. Status will be checked again automatically; no new job will be started.')
             :state.reconnecting?(german?'Statusverbindung unterbrochen. Die Verbindung wird automatisch wiederhergestellt; der Auftrag kann weiterlaufen.':'Status connection interrupted. Reconnecting automatically; the job may still be running.'):'';
@@ -149,16 +149,18 @@ export function renderCanvasFullVideo({section,output,projectId,german,signal,vi
     }
     async function renderResult(result,request){
         if(!request.current())return;
+        // A definite source rejection already has an actionable notice. The
+        // observer is paused, but that does not establish a connection failure.
+        selectionRejected=!result.ok&&['canvas_selection_changed','video_source_changed'].includes(result.code);
         const status=result.data?.export;
         if(result.ok){sequence.update(result.data);if(sequence.assembly?.backgroundMusic){selected={...sequence.assembly.backgroundMusic};sound.setMusic({...selected,...(chosen()?{musicAssetId:chosen().assetId}:{})});}joins?.setEnabled(sequence.assembly?.smoothJoins??readSmooth());}
-        else if(['canvas_selection_changed','video_source_changed'].includes(result.code))sequence.invalidate();
+        else if(selectionRejected)sequence.invalidate();
         const signature=JSON.stringify([result.ok,result.code,result.data]);
         if(signature!==previous) {
         previous=signature;
         const fragment=document.createDocumentFragment();
         if(!result.ok) {
-            const changed=['canvas_selection_changed','video_source_changed'].includes(result.code);
-            canvasNotice(`${changed?(german?'Eine ausgewählte Ausgabe wurde gelöscht oder ersetzt. Status aktualisieren und Clips erneut auswählen.':'A selected output was deleted or replaced. Refresh status and choose the clips again.'):copy.unavailable} (${result.code})`,{projectId,code:result.code,diagnosticRef:result.diagnosticRef});message.textContent='';
+            canvasNotice(`${selectionRejected?(german?'Eine ausgewählte Ausgabe wurde gelöscht oder ersetzt. Status aktualisieren und Clips erneut auswählen.':'A selected output was deleted or replaced. Refresh status and choose the clips again.'):copy.unavailable} (${result.code})`,{projectId,code:result.code,diagnosticRef:result.diagnosticRef});message.textContent='';
         } else if(result.data.eligible || status || result.data.current) {
             const deliveryBlocked=status?.status==='queued'&&status.processing?.blocked===true&&status.processing.stage==='waiting_for_media'&&status.processing.errorCode==='media_delivery_exhausted';
             message.textContent=deliveryBlocked?'':status?.status==='failed'?(status.asset?copy.ready:''):status?copy[status.status]||'':'';

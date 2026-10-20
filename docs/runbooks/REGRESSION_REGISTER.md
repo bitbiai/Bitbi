@@ -2110,7 +2110,12 @@ source. Notification fixtures use relative timestamps and verify viewport
 intersection: a fixed future timestamp otherwise sorts a new arrival offscreen,
 where it must remain unread. Read only explicitly acknowledged, presented IDs; a later failure or
 concurrent arrival remains unread. Remove superseded mutable projections, retain
-immutable events, and fence old-account asynchronous responses. Actual callers:
+immutable events, and fence old-account asynchronous responses.
+Browser acceptance also exposed a panel-only Escape listener: disabling a focused
+read/refresh control can move focus outside the panel. Close the open menu from
+the document and test explicit outside focus; Escape cannot acknowledge anything.
+A definite export rejection is distinct from a paused status observer: do not add
+a misleading connection-outage notice to an already evidenced rejection. Actual callers:
 `tests/q2-canvas-reliability.spec.js`, conversation/provider specs, additive native
 `canvas-reliability`, and EN/DE Chromium/WebKit `tests/canvas.spec.js`. The native
 suite stages its full helper graph and tests the populated migration, old-trigger

@@ -1,6 +1,6 @@
 const {responseBytes}=require('./canvas-agent-ui.cjs');
 
-async function mount({page,locale,mockSharedAuth,createCanvasApiMock,f,requests,errors,loseDecision}) {
+async function mount({page,locale,mockSharedAuth,createCanvasApiMock,f,requests,errors,loseDecision,holdTakeover}) {
     await page.setViewportSize({width:locale==='de'?390:1440,height:1000});
     await mockSharedAuth(page,true,'user',f.owner);createCanvasApiMock(page);page.on('pageerror',error=>errors.push(error.message));
     await page.route('**/api/account/canvas/**',async route=>{
@@ -9,6 +9,13 @@ async function mount({page,locale,mockSharedAuth,createCanvasApiMock,f,requests,
         requests.push({path:url.pathname,method:req.method(),body,key:headers['Idempotency-Key'],tariff:headers['X-Bitbi-Tariff-Revision']});
         const response=await f.request(url.pathname+url.search,req.method(),body,headers),bytes=await responseBytes(response);
         if(loseDecision?.value&&url.pathname.endsWith('/budget')&&req.method()==='POST'){loseDecision.value=false;return route.abort('failed');}
+        if(holdTakeover?.response&&req.method()==='POST'&&url.pathname.endsWith('/control')&&body?.action==='takeover'){
+            holdTakeover.response=false;holdTakeover.projectRead=true;
+            await new Promise(resolve=>{holdTakeover.releaseResponse=()=>{delete holdTakeover.releaseResponse;resolve();};});
+        }else if(holdTakeover?.projectRead&&req.method()==='GET'&&url.pathname===f.projectPath){
+            holdTakeover.projectRead=false;
+            await new Promise(resolve=>{holdTakeover.releaseProjectRead=()=>{delete holdTakeover.releaseProjectRead;resolve();};});
+        }
         if(!page.isClosed())await route.fulfill({status:response.status,headers:Object.fromEntries(response.headers),body:bytes});
     });
     await page.goto(locale==='de'?'/de/canvas/':'/canvas/');await page.locator('#canvasAgentToggle').click();if(await page.locator('#canvasAgentPanel').isVisible())await page.locator('#canvasAgentPanel').getByRole('tab',{name:locale==='de'?'Projekt & Produktion':'Project & production',exact:true}).click();
@@ -27,7 +34,7 @@ exports.proposal=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMo
         const f=await canvasAgentAutonomyFixture({...createAuthTestEnv(),DB},{scope:'autonomy-ui-'+locale,locale,plan});
         expect(Object.hasOwn(f.input,'targetDurationSeconds')).toBe(false);
         await f.deliver();expect(f.calls).toHaveLength(1);
-        const panel=await mount({page,locale,mockSharedAuth,createCanvasApiMock,f,requests,errors});
+        const holdTakeover={},panel=await mount({page,locale,mockSharedAuth,createCanvasApiMock,f,requests,errors,holdTakeover});
         const inbox=page.locator('#canvasNotificationsPanel'),check=panel.getByRole('button',{name:de?'Status prüfen':'Check status',exact:true});
         await expect(panel.locator('h3')).toHaveText(de?'Antwort des Anbieters ausstehend':'Waiting for the provider response');
         await expect(panel.locator('.canvas-agent__events,.canvas-agent__activity')).toHaveCount(0);
@@ -57,7 +64,20 @@ exports.proposal=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMo
         await expect(inbox).not.toContainText('Keep the same house and neighboring duck pool');
         await inbox.getByRole('button',{name:de?'Meldungen schließen':'Close notifications',exact:true}).click();
         // Explicit manual takeover is the only browser mutation in this case.
+        // A click and even an accepted server receipt precede completion of the
+        // response and the follow-up project read. Reload only after both.
+        const inspect=panel.getByRole('button',{name:de?'Projekt öffnen':'Open project',exact:true,includeHidden:true});
+        holdTakeover.response=true;
         await panel.getByRole('button',{name:de?'Manuell übernehmen':'Take over manually',exact:true}).click();
+        await expect.poll(()=>typeof holdTakeover.releaseResponse).toBe('function');
+        expect((await f.observe()).status).toBe('manual_takeover');await expect(inspect).toBeDisabled();
+        expect(requests.filter(item=>item.method!=='GET').map(item=>item.body)).toEqual([{action:'takeover'}]);
+        const takeoverResponse=page.waitForResponse(response=>response.request().method()==='POST'&&new URL(response.url()).pathname===`${f.projectPath}/agent/${f.runId}/control`);
+        holdTakeover.releaseResponse();expect(await (await takeoverResponse).finished()).toBeNull();
+        await expect.poll(()=>typeof holdTakeover.releaseProjectRead).toBe('function');
+        await expect(panel.locator('h3')).toHaveText(de?'Manuell übernommen':'Taken over manually');await expect(inspect).toBeDisabled();
+        const projectResponse=page.waitForResponse(response=>response.request().method()==='GET'&&new URL(response.url()).pathname===f.projectPath);
+        holdTakeover.releaseProjectRead();expect(await (await projectResponse).finished()).toBeNull();await expect(inspect).toBeEnabled();await expect(panel).toBeHidden();
         await page.reload();await page.locator('#canvasAgentToggle').click();if(await page.locator('#canvasAgentPanel').isVisible())await page.locator('#canvasAgentPanel').getByRole('tab',{name:locale==='de'?'Projekt & Produktion':'Project & production',exact:true}).click();
         await expect(panel.locator('h3')).toHaveText(de?'Manuell übernommen':'Taken over manually');
         await expect(panel.locator('.canvas-agent__plan')).toContainText('House construction');

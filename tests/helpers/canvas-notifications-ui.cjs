@@ -36,7 +36,11 @@ module.exports=async options=>{
   await inbox.getByRole('button',{name:de?'Ältere Meldungen laden':'Load older notifications'}).click();await expect(inbox.locator('li')).toHaveCount(43);
   const list=inbox.locator('ol');await list.evaluate(node=>node.scrollTop=node.scrollHeight);const scroll=await list.evaluate(node=>node.scrollTop);
   await inbox.getByRole('button',{name:de?'Aktualisieren':'Refresh',exact:true}).click();await expect.poll(()=>list.evaluate(node=>node.scrollTop)).toBeGreaterThan(scroll-10);
-  await page.keyboard.press('Escape');await expect(inbox).toBeHidden();await expect(toggle).toBeFocused();
+  // Keep closing available after focus leaves the non-modal panel (including
+  // disabled acknowledgement/refresh controls in WebKit). The old panel-only
+  // listener leaves the menu open under this explicit broken-case control.
+  await toggle.focus();await page.keyboard.press('Escape');await expect(inbox).toBeHidden();await expect(toggle).toBeFocused();
+  await page.keyboard.press('Escape');await expect(inbox).toBeHidden();
   expect(state.notificationReads).toHaveLength(1);await page.reload();await toggle.click();
   const readId=state.notificationReads[0][0];await expect(inbox.locator(`[data-notification-id="${readId}"]`)).toHaveAttribute('data-unread','false');
   expect(state.notificationClients).toEqual([]);expect(state.requests.filter(request=>request.pathname.endsWith('/run'))).toEqual([]);

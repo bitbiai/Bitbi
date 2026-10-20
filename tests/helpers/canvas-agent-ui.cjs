@@ -68,6 +68,10 @@ async function fixture({page,locale,mockSharedAuth,createCanvasApiMock}) {
                 return respondChat();
             }
             const kind=url.pathname.split('/').at(-1);
+            if(kind==='messages'&&state.holdMessageAcceptance){
+                state.holdMessageAcceptance=false;
+                await new Promise(resolve=>{state.releaseMessageAcceptance=()=>{delete state.releaseMessageAcceptance;resolve();};});
+            }
             (kind==='messages'?state.chatPosts:kind==='allowance'?state.allowancePosts:state.chatControls).push({body,key});
             if(chatReceipts.has(key))return respondChat();
             if(body.expectedConversationRevision!==conversation.revision)return route.fulfill({status:409,json:{ok:false,code:'canvas_conversation_revision_conflict'}});
@@ -542,10 +546,24 @@ exports.conversation=async({page,expect,locale,info,mockSharedAuth,createCanvasA
     await expect(form.locator('button[type=submit]')).toBeDisabled();
     // An interrupted response retains the original request across reload. The
     // fixture independently rejects stale revisions and de-duplicates its key.
-    await showChat(panel,locale);state.loseChatResponse=true;await input.fill('A 120 second film.');await composer.locator('button[type=submit]').click();
-    const check=button(de?'Nachricht prüfen':'Check message');await expect(check).toBeVisible();
-    const accepted=structuredClone(state.chatPosts.at(-1));await page.reload();await page.locator('#canvasAgentToggle').click();await expect(check).toBeVisible();
+    await showChat(panel,locale);await expect(input).toBeEnabled();state.loseChatResponse=true;state.holdMessageAcceptance=true;
+    const beforeMessage={posts:state.chatPosts.length,revision:state.conversation.revision,briefRevision:state.conversation.briefRevision};
+    await input.fill('A 120 second film.');await composer.locator('button[type=submit]').click();
+    await expect.poll(()=>typeof state.releaseMessageAcceptance).toBe('function');
+    const check=button(de?'Nachricht prüfen':'Check message');await expect(check).toBeVisible();await expect(check).toBeDisabled();
+    // Local pending UI precedes acceptance: it cannot identify the new server
+    // request while the transport is deliberately held at that boundary.
+    expect(state.chatPosts).toHaveLength(beforeMessage.posts);expect(state.conversation.revision).toBe(beforeMessage.revision);
+    expect(state.conversation.messages.filter(message=>message.role==='user'&&message.text==='A 120 second film.')).toHaveLength(0);
+    state.releaseMessageAcceptance();
+    await expect.poll(()=>state.chatPosts.length).toBe(beforeMessage.posts+1);await expect(check).toBeEnabled();
+    const accepted=structuredClone(state.chatPosts.at(-1));
+    expect(accepted.body).toEqual({text:'A 120 second film.',locale,expectedConversationRevision:beforeMessage.revision,expectedBriefRevision:beforeMessage.briefRevision});
+    expect(accepted.key).toBeTruthy();expect(state.chatPosts.slice(0,-1).some(request=>request.key===accepted.key)).toBe(false);
+    expect(state.conversation.revision).toBe(beforeMessage.revision+1);expect(state.conversation.briefRevision).toBe(beforeMessage.briefRevision+1);
+    await page.reload();await page.locator('#canvasAgentToggle').click();await expect(check).toBeVisible();await expect(check).toBeEnabled();
     await check.click();await expect(check).toBeHidden();expect(state.chatPosts.at(-1)).toEqual(accepted);
+    expect(state.chatPosts).toHaveLength(beforeMessage.posts+2);expect(state.conversation.revision).toBe(beforeMessage.revision+1);
     expect(state.conversation.messages.filter(message=>message.role==='user'&&message.text==='A 120 second film.')).toHaveLength(1);
     expect(state.conversation.messages.filter(message=>/How long|Wie lang/.test(message.text))).toHaveLength(1);
     await expect(panel.locator('.canvas-agent__brief')).toContainText('120 s');

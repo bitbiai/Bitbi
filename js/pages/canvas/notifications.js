@@ -148,7 +148,9 @@ export function createCanvasNotifications({button,panel,german,getProject=()=>nu
         items.set(item.id,item);if(ownerId)pending.set(requestId,item);storePending();paint();if(active&&!localOnly)void observe();
     }
     button.addEventListener('click',()=>panel.hidden?show():hide());close.addEventListener('click',()=>{hide();button.focus({preventScroll:true});});
-    panel.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();hide();button.focus({preventScroll:true});}});
+    // An acknowledgement can disable its focused button, and WebKit may move
+    // focus to the document. Escape still closes the open workspace menu.
+    document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!event.defaultPrevented&&!panel.hidden){event.preventDefault();event.stopPropagation();hide();button.focus({preventScroll:true});}});
     mark.addEventListener('click',()=>void acknowledge());more.addEventListener('click',()=>void observe(true));refresh.addEventListener('click',()=>void observe());
     document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'){clearTimeout(timer);observer.disconnect();}else{paint();void observe();}});
     window.addEventListener('online',()=>{failures=0;void observe();});window.addEventListener('offline',()=>{status.textContent=copy.offline;});
