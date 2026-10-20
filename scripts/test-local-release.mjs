@@ -21,6 +21,11 @@ import { LOCAL_IMPORT_REPAIR, assertImportRepairWorkflow, localRepairCommand, ve
 import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,assertPermissionContinuationTree,permissionContinuationPrefix,CANVAS_STAGE_CASES,canvasStageContinuation} from './lib/local-release-evidence.mjs';
 import {testLocalMediaProcess} from './test-local-media-process.mjs';
 
+if(process.argv.includes('--reliability-control-progress-only')) {
+  assert.deepEqual(process.argv.slice(2),['--reliability-control-progress-only']);
+  await testReliabilityControlProgress();process.exit(0);
+}
+
 if(process.argv.includes('--reliability-browser-only')) {
   assert.deepEqual(process.argv.slice(2),['--reliability-browser-only']);
   await testReliabilityBrowserContinuation();process.exit(0);
@@ -3858,3 +3863,29 @@ async function testReliabilityBrowserContinuation() {
   console.log('Notification continuation: original browser/Worker/native receipts, exact affected selections, strict source guards and broken/resume controls passed.');
 }
 await testReliabilityBrowserContinuation();
+
+async function testReliabilityControlProgress() {
+  if(!process.argv.includes('--reliability-control-progress-only'))return;
+  const {RELIABILITY_BROWSER_PREFLIGHT:p}=await import('./lib/local-release-browser.mjs');
+  const {assertReliabilityBrowserTree,verifyReliabilityControlProgress,verifyReliabilityControlWorkerUnion,verifyReliabilityBrowserOrigin,reliabilityControlContinuation,reliabilityControlProgressGuard}=await import('./lib/local-release-evidence.mjs');
+  const head=execFileSync('git',['rev-parse','HEAD']).toString().trim(),read=args=>execFileSync('git',args,{maxBuffer:64*1024*1024}),directory='.local-release';
+  assertReliabilityBrowserTree(head);const origin=verifyReliabilityBrowserOrigin(directory,head),commands=selectedCommands(gitSelection(origin.original.base,head),{GITHUB_SHA:head,CANDIDATE_BASE:origin.original.base});
+  const progress=verifyReliabilityControlProgress(directory,head,commands);assert.deepEqual(progress.retained,[7,16,27,29,40]);assert.equal(progress.rows.length,16);assert.equal(progress.failed.length,1);
+  assert.equal(reliabilityControlProgressGuard(commands[17].run),'npm run test:local-release -- --reliability-control-progress-only');assert.throws(()=>reliabilityControlProgressGuard('echo skipped'));
+  const continued=reliabilityControlContinuation(commands[41].run,{progress:true});assert(continued.includes('--suite canvas-notification-controls')&&continued.includes('--retries=0'));assert.equal(continued.split(p.workerProgress.failedTitle).length,3);assert(!continued.includes('Canvas natural chat immediate')&&!continued.includes('test-q2-runtime-launcher'));
+  for(const file of ['workers/auth/src/routes/canvas.js','tests/helpers/q2-runtime/canvas.mjs']){let injected=false;assert.throws(()=>assertReliabilityBrowserTree(head,args=>{if(args[0]==='diff'&&args[3]===head){injected=true;return Buffer.concat([read(args),Buffer.from(file+'\n')]);}return read(args);}),/Unreviewed continuation/);assert(injected);}
+  assert.throws(()=>assertReliabilityBrowserTree(head,args=>args[0]==='show'&&args[1]===`${head}:${p.workerProgress.fixture}`?Buffer.from('changed helper'):read(args)),/Changed reviewed/);
+  const root=path.join(directory,'reuse/reliability-control-progress');
+  for(const file of ['checkpoint.json','logs/17.log','logs/41.log','test-results/reliability-control-alias.tap','test-results/reliability-control-workers.json','test-results/reliability-control-discovery.json']){
+    const target=path.join(root,file),bytes=fs.readFileSync(target);try{fs.writeFileSync(target,Buffer.concat([bytes,Buffer.from('\nchanged')]));assert.throws(()=>verifyReliabilityControlProgress(directory,head,commands));}finally{fs.writeFileSync(target,bytes);}
+  }
+  const changed=structuredClone(commands);changed[40].run+='\necho skipped';assert.throws(()=>verifyReliabilityControlProgress(directory,head,changed));
+  const raw=JSON.parse(fs.readFileSync(path.join(root,'test-results/reliability-control-workers.json'))),fresh=structuredClone(raw),id=progress.failed[0].id;
+  const filter=suite=>{suite.specs=(suite.specs||[]).filter(spec=>spec.id===id);for(const spec of suite.specs)for(const test of spec.tests){test.status='expected';test.expectedStatus='passed';test.results=[{status:'passed',retry:0}];}for(const child of suite.suites||[])filter(child);};fresh.suites.forEach(filter);fresh.stats={expected:1,unexpected:0,flaky:0,skipped:0};
+  assert.deepEqual(verifyReliabilityControlWorkerUnion(origin.workers,origin.workers,progress.rows,fresh),{workerRetained:1652,workerFresh:1,workerTotal:1653});
+  for(const mutate of [r=>r.config.projects[0].retries=1,r=>r.stats.expected=0,r=>r.errors=[{message:'missing output'}],r=>{const change=s=>{for(const spec of s.specs||[])spec.tests[0].results.push({status:'passed',retry:1});for(const child of s.suites||[])change(child);};r.suites.forEach(change);}]){const bad=structuredClone(fresh);mutate(bad);assert.throws(()=>verifyReliabilityControlWorkerUnion(origin.workers,origin.workers,progress.rows,bad));}
+  assert.throws(()=>verifyReliabilityControlWorkerUnion(origin.workers,origin.workers,progress.rows.slice(1),fresh));assert.throws(()=>verifyReliabilityControlWorkerUnion(origin.workers,origin.workers,progress.rows,raw));
+  const alias=fs.readFileSync(path.join(directory,'test-results/reliability-control-alias.tap'));assert.equal(sha256(alias),p.workerProgress.alias,'Already passed alias proof must be retained without execution');
+  console.log('Notification Worker continuation: authentic15 passed results retained, one exact failure fresh, original alias proof preserved; changed receipts/source/retries reject. Native19 and affected browser52 remain required.');
+}
+await testReliabilityControlProgress();

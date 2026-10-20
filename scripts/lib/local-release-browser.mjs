@@ -335,6 +335,13 @@ export const RELIABILITY_BROWSER_PREFLIGHT=Object.freeze({
     run:'392ae860fdf9c7d8884f9fd08fd860c0e225a630-64c21a56-7118-42f9-937e-3a07bba347ef',
     tree:'2f64b48c0cbcdc3c10c8c98e2773fd2d18c9e51e',checkpoint:'77ca83e937b7af07c332f74a0c685a6fd6859b37b3807ae5b813b10f45230d12',
     failed:'2423c4265fd3c0aac771b4aec9c9fbf11e9ddb61118cf1cbfa0c6f14b301145a',retain:Object.freeze([7,16])}),
+  workerProgress:Object.freeze({source:'5cd7f107edc3439e9b323b26b8689539690c2b79',fixtureSource:'87b0776c3585169ec59cca0c8594a1307bf8ac6f',
+    run:'5cd7f107edc3439e9b323b26b8689539690c2b79-0c6ee2d0-617e-4424-82dc-16cf8d153d44',
+    checkpoint:'0f228053fa681268803e0e8f8750470adfe9dc8e607329377b79d1336947269b',tree:'59de4d1ca24a89974c2f955ae37e291ce593e0d6',failed:'6a859dca1865a71ce4070faf9c207971b117582ef65e0877d2fc9a5535f0a21d',
+    fixture:'tests/helpers/canvas-notifications-control.mjs',fixtureHash:'73b1a8f45e672ff6c56d62835c96e7fc61e4fac447b537f1a7bca898e4873ab6',
+    report:'320391a8afa450c9c89d921ba3fe9a024b8868a0b09a6e13156e065359304487',selected:'ba448fbcade81f26ce06589a107e051e304382fbb2a731e8e2249c01b9eda89b',discovery:'963801bf086388c9c2d3b399bfcfede3562f040f634fd07228d9163b3cc4bee8',
+    alias:'42415e344f922cb4afeb7ae59f144ce3d179b181eacc68df56b5a4590545530f',guardLog:'3d6e9ce5207d0973fcc140f5b85a825891c11a92870efb2390810f073144651d',
+    failedTitle:'Canvas reliability notifications preserve ownership, explicit acknowledgements and real operation states',retain:Object.freeze([7,16,27,29,40])}),
   selectionSpecs:Object.freeze({
   "scripts/lib/ci-test-selection.mjs": "063905bb4e56e79b6691907aa1fb50d107b918d25947b804fe6460a4ef6efcb9",
   "scripts/test-ci-test-selection.mjs": "33f04cf03dab00af3fcfca566560761dd22fbb5e51993d6fcfaa37c1fa1d2c28"
