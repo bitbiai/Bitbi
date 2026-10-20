@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
-import {COMPLETED_MEDIA_SOURCE,assertCompletedMediaDelta,resolveCompletedMediaSource} from './completed-media-continuation.mjs';
+import {completedMediaContinuationParent,assertCompletedMediaDelta,resolveCompletedMediaSource} from './completed-media-continuation.mjs';
 
 export const CANVAS_AGENT_DEPLOY_SOURCE = Object.freeze({
   policy:'canvas-agent-deploy-only-v1',
@@ -353,7 +353,7 @@ export function canvasAgentDeployPushDeferred(env=process.env,options={}) {
   if(env.GITHUB_EVENT_NAME!=='push'||env.GITHUB_REF!=='refs/heads/main')return false;
   const readGit=options.readGit||git;
   const parent=readGit(['rev-parse',`${env.GITHUB_SHA}^`]);
-  if(parent===COMPLETED_MEDIA_SOURCE.sha){assertCompletedMediaDelta(env.GITHUB_SHA,{read:readGit});return true;}
+  if(completedMediaContinuationParent(env.GITHUB_SHA,{read:readGit})){assertCompletedMediaDelta(env.GITHUB_SHA,{read:readGit});return true;}
   if([CANVAS_AGENT_RECOVERY_SOURCE.sha,CANVAS_AGENT_RECOVERY_CHECK_SOURCE.sha,CANVAS_AGENT_RECOVERY_DEPLOY_SOURCE.sha,CANVAS_AGENT_FRONTEND_SOURCE.sha,CANVAS_AGENT_RECONCILIATION_SOURCE.sha].includes(parent)){assertCanvasAgentRecoveryDelta(env.GITHUB_SHA,{readGit});return true;}
   if(parent!==CANVAS_AGENT_DEPLOY_SOURCE.sha)return false;
   assertCanvasAgentDeployDelta(env.GITHUB_SHA,{readGit});

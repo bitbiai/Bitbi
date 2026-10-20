@@ -13,6 +13,11 @@ export const COMPLETED_MEDIA_SOURCE=Object.freeze({
   media:Object.freeze({id:12289713086,digest:'sha256:a873781a2ffb27ed155c2433c693935c0e71f8f45e1f22ade41106682067e708'}),
 });
 export const COMPLETED_MEDIA_FIRST_CONTINUATION='b7b5ede1ff5a5af19b0f9ddeb98b27ae73f0ff59';
+export const COMPLETED_MEDIA_SECOND_CONTINUATION='66435cd9f8c7e71b005d44943528bcc5d7a09329';
+const continuationParents=Object.freeze({
+  [COMPLETED_MEDIA_FIRST_CONTINUATION]:COMPLETED_MEDIA_SOURCE.sha,
+  [COMPLETED_MEDIA_SECOND_CONTINUATION]:COMPLETED_MEDIA_FIRST_CONTINUATION,
+});
 // The original GitHub runner finished its accepted poster publication after the
 // independent release observer failed. Retain that exact terminal row; the
 // protected activation window remains unchanged for every other record.
@@ -35,13 +40,20 @@ export function completedMediaFiles(files) {
   return files.includes('scripts/lib/completed-media-continuation.mjs')&&
     files.every(file=>COMPLETED_MEDIA_FILES.includes(file));
 }
+export function completedMediaContinuationParent(head,{read=git}={}) {
+  const parent=read(['rev-parse',`${head}^`]);
+  return parent===COMPLETED_MEDIA_SOURCE.sha||Object.hasOwn(continuationParents,parent)?parent:null;
+}
 export function assertCompletedMediaDelta(head,{read=git}={}) {
   const source=COMPLETED_MEDIA_SOURCE;
   assert(/^[a-f0-9]{40}$/.test(head||'')&&head!==source.sha,'Missing exact continuation head');
-  const parent=read(['rev-parse',`${head}^`]);
-  if(parent===COMPLETED_MEDIA_FIRST_CONTINUATION)
-    assert.equal(read(['rev-parse',`${parent}^`]),source.sha,'Changed first continuation ancestry');
-  else assert.equal(parent,source.sha,'Continuation must follow its accepted source or the pinned first continuation');
+  let parent=completedMediaContinuationParent(head,{read});
+  assert(parent,'Continuation must follow its accepted source or an exact pinned tooling successor');
+  while(parent!==source.sha) {
+    const expected=continuationParents[parent];
+    assert.equal(read(['rev-parse',`${parent}^`]),expected,'Changed pinned continuation ancestry');
+    parent=expected;
+  }
   const rows=sha=>read(['ls-tree','-rz',sha]).split('\0').filter(Boolean);
   const keep=rows=>rows.filter(row=>!COMPLETED_MEDIA_FILES.includes(row.split('\t')[1]));
   assert.deepEqual(keep(rows(head)),keep(rows(source.sha)),'Completed-media continuation changed accepted product inputs');

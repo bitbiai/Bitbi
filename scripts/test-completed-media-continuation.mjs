@@ -1,9 +1,12 @@
 // Changed release guards only. No remote request, deployment, inference or job start.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {execFileSync,spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import vm from 'node:vm';
-import {COMPLETED_MEDIA_SOURCE as source,COMPLETED_MEDIA_FILES,COMPLETED_MEDIA_FIRST_CONTINUATION,COMPLETED_MEDIA_LATE_FINISH,assertCompletedMediaDelta,resolveCompletedMediaSource,
+import {COMPLETED_MEDIA_SOURCE as source,COMPLETED_MEDIA_FILES,COMPLETED_MEDIA_FIRST_CONTINUATION,COMPLETED_MEDIA_SECOND_CONTINUATION,COMPLETED_MEDIA_LATE_FINISH,assertCompletedMediaDelta,resolveCompletedMediaSource,
   assertCompletedMediaAcceptance,assertCompletedMediaArtifact,completedMediaDeferredPush,readCompletedMediaJobs,verifyCompletedMediaJobs,
   completedMediaLifecycle,verifyCompletedMediaLifecycle} from './lib/completed-media-continuation.mjs';
 import {canvasRecoveryId,verifyCanvasRecoveryLifecycle} from './lib/canvas-agent-backend-recovery.mjs';
@@ -34,6 +37,9 @@ const read=args=>args[0]==='rev-parse'?source.sha:args[0]==='diff'?COMPLETED_MED
 assertCompletedMediaDelta(head,{read});
 const successor=args=>args[0]==='rev-parse'&&args[1]===`${head}^`?COMPLETED_MEDIA_FIRST_CONTINUATION:read(args);
 assertCompletedMediaDelta(head,{read:successor});
+const nextSuccessor=args=>args[0]==='rev-parse'&&args[1]===`${head}^`?COMPLETED_MEDIA_SECOND_CONTINUATION:
+  args[0]==='rev-parse'&&args[1]===`${COMPLETED_MEDIA_SECOND_CONTINUATION}^`?COMPLETED_MEDIA_FIRST_CONTINUATION:read(args);
+assertCompletedMediaDelta(head,{read:nextSuccessor});
 assert.throws(()=>assertCompletedMediaDelta(head,{read:args=>args[0]==='rev-parse'&&args[1]===`${COMPLETED_MEDIA_FIRST_CONTINUATION}^`?head:successor(args)}));
 assert.throws(()=>assertCompletedMediaDelta(head,{read:args=>args[0]==='rev-parse'&&args[1]===`${head}^`?'e'.repeat(40):read(args)}));
 const env={GITHUB_ACTIONS:'true',GITHUB_REPOSITORY:'bitbiai/Bitbi',GITHUB_REF:'refs/heads/main',GITHUB_EVENT_NAME:'workflow_dispatch',
@@ -56,6 +62,37 @@ const missing=structuredClone(jobs);missing[0].steps.pop();assert.throws(()=>ass
 const deferred=[{name:'release-compatibility',head_sha:head,status:'completed',conclusion:'success',steps:[{name:'Set up job',conclusion:'success'},{name:'Defer pinned deployment-only push',conclusion:'success'},{name:'Verify local release evidence and candidate bytes',conclusion:'skipped'}]},{name:'deploy',conclusion:'skipped'}];
 assert(completedMediaDeferredPush(deferred,head));
 const unexpected=structuredClone(deferred);unexpected[0].steps.at(-1).conclusion='failure';assert.equal(completedMediaDeferredPush(unexpected,head),false);
+// Recorded 39495093969 shape: selection failed while the independent dispatch
+// was running. Its skipped reuse job must never be reclassified as acceptance.
+const failedPush=[{name:'release-compatibility',head_sha:head,status:'completed',conclusion:'failure',steps:[
+  {name:'Defer pinned deployment-only push',conclusion:'success'},
+  {name:'Select tests from changed files',conclusion:'failure'}]},
+  ...['reuse-candidate','recover-frontend','deploy'].map(name=>({name,head_sha:head,status:'completed',conclusion:'skipped',steps:[]}))];
+assert.equal(completedMediaDeferredPush(failedPush,head),false);
+assert.throws(()=>assertCompletedMediaAcceptance(failedPush,head));
+// Real Git trees + the workflow's actual CLI, isolated from the user's index.
+// Both push and source must recognize the same closed ancestry. Product edits
+// reject it; subsequent ordinary commits must not inherit a test exemption.
+const cli=path.resolve('scripts/lib/canvas-agent-deploy-continuation.mjs'),temp=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-continuation-cli-'));
+try {
+  execFileSync('git',['clone','--quiet','--shared','--no-checkout',process.cwd(),temp],{stdio:'pipe'});
+  const git=(args,input)=>execFileSync('git',args,{cwd:temp,input,encoding:'utf8',stdio:['pipe','pipe','pipe'],env:{...process.env,GIT_AUTHOR_NAME:'Synthetic guard',GIT_AUTHOR_EMAIL:'guard@example.invalid',GIT_COMMITTER_NAME:'Synthetic guard',GIT_COMMITTER_EMAIL:'guard@example.invalid'}}).trim();
+  git(['read-tree',COMPLETED_MEDIA_SECOND_CONTINUATION]);
+  for(const file of ['scripts/lib/completed-media-continuation.mjs','scripts/lib/canvas-agent-deploy-continuation.mjs','scripts/test-completed-media-continuation.mjs']) {
+    const blob=git(['hash-object','-w','--stdin'],fs.readFileSync(file));git(['update-index','--add','--cacheinfo',`100644,${blob},${file}`]);
+  }
+  const commit=parent=>git(['commit-tree',git(['write-tree']),'-p',parent], 'Synthetic continuation guard\n');
+  const candidate=commit(COMPLETED_MEDIA_SECOND_CONTINUATION),output=path.join(temp,'github-output');
+  const invoke=(sha,command)=>{fs.writeFileSync(output,'');return spawnSync(process.execPath,[cli,command],{cwd:temp,encoding:'utf8',env:{...process.env,...env,GITHUB_SHA:sha,GITHUB_EVENT_NAME:command==='push'?'push':'workflow_dispatch',GITHUB_OUTPUT:output,GITHUB_ENV:path.join(temp,'github-env')}});};
+  for(const command of ['push','source']) {
+    const result=invoke(candidate,command);assert.equal(result.status,0,result.stderr);
+    assert(fs.readFileSync(output,'utf8').includes(command==='push'?'deferred=true':`repair_source_sha=${source.sha}`));
+  }
+  const wrongBlob=git(['hash-object','-w','--stdin'],'Unexpected product change\n');git(['update-index','--cacheinfo',`100644,${wrongBlob},js/shared/canvas-assembly.mjs`]);
+  const wrong=commit(COMPLETED_MEDIA_SECOND_CONTINUATION);
+  for(const command of ['push','source'])assert.notEqual(invoke(wrong,command).status,0);
+  const ordinary=invoke(commit(candidate),'push');assert.equal(ordinary.status,0,ordinary.stderr);assert.equal(fs.readFileSync(output,'utf8'),'deferred=false\n');
+} finally {fs.rmSync(temp,{recursive:true,force:true});}
 const at='2026-10-20T18:53:00Z',owner='bitbi-private-media-release-smoke';
 const evidence={source,logDigest:source.log.sha256,logBytes:source.log.bytes,job:{steps:[{name:'Apply verified candidate backend prerequisites',status:'completed',conclusion:'failure',started_at:'2026-10-20T18:50:10Z',completed_at:'2026-10-20T18:55:07Z'}]}};
 const groups=Object.fromEntries(['github','cloudflare'].map(backend=>{
@@ -77,7 +114,7 @@ const queryFor=data=>async(sql,params)=>{
 };
 const proof=await readCompletedMediaJobs(evidence,queryFor(data));verifyCompletedMediaJobs(proof);
 assert(!JSON.stringify(proof).includes('private-key')&&!JSON.stringify(proof).includes('sensitive-token'));
-// Real sanitized synthetic row: the independent poster callback committed 7.8s
+// Real sanitized synthetic row: the independent poster callback committed
 // after the release step ended. That is completion of accepted work, not a new
 // render. Keep the exact row and the historical failure window distinct.
 const lateProof=structuredClone(proof),late=COMPLETED_MEDIA_LATE_FINISH;
