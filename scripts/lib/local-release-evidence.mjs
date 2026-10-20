@@ -3218,8 +3218,11 @@ export function assertReliabilityBrowserTree(head,read=gitBytes){
     assert.deepEqual(files(q.source,q.fixtureSource),[q.fixture],'Unreviewed notification envelope correction');
     assert.deepEqual(read(['rev-list','--parents','-n','1',q.guardSource]).toString().trim().split(/\s+/),[q.guardSource,q.fixtureSource]);
     assert.deepEqual(files(q.fixtureSource,q.guardSource),[...reliabilityBrowserTools].sort(),'Unreviewed continuation Worker correction');
-    assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,q.guardSource]);
-    assert.deepEqual(files(q.guardSource,head),['scripts/lib/local-release-browser.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs'],'Unreviewed selected-branch guard correction');
+    const branchSource='7e3f937e8f93bb66944175b51b6a1c8896ecd4a7';
+    assert.deepEqual(read(['rev-list','--parents','-n','1',branchSource]).toString().trim().split(/\s+/),[branchSource,q.guardSource]);
+    assert.deepEqual(files(q.guardSource,branchSource),['scripts/lib/local-release-browser.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs'],'Unreviewed continuation selected-branch guard correction');
+    assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,branchSource]);
+    assert.deepEqual(files(branchSource,head),['scripts/lib/local-release-evidence.mjs'],'Unreviewed continuation guard diagnostic correction');
     assert.equal(sha256(read(['show',`${head}:scripts/test-local-release.mjs`])),q.guardTestHash,'Changed reviewed selected-branch guard');
   }
   const specs={...p.specs,...p.toolSpecs,...p.selectionSpecs,...(head===q.source?{}:{[q.fixture]:q.fixtureHash})};
