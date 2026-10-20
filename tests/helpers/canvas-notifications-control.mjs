@@ -45,6 +45,33 @@ export async function verifyCanvasNotificationsMigration(env,fixture){
   check((await env.DB.prepare('SELECT COUNT(*) n FROM canvas_notification_reads WHERE user_id=?').bind(fixture.owner).first()).n===0,'Migration and GET do not fabricate per-viewer acknowledgements');
   return{originalRowsPreserved:2,oldResolvedRead:true,oldUnresolvedUnread:true,readWrites:0};
 }
+async function notificationReadBatchBoundary(env){
+  const f=await seed(env,'read-batch'),db=env.DB,request=transport(env,f.owner),now=iso(0);
+  const ids=await Promise.all(Array.from({length:101},(_,index)=>sha256Hex(`${f.owner}:notice:${index}`).then(value=>value.slice(0,32))));
+  await db.prepare(`INSERT INTO canvas_notification_clients(id,user_id,request_key,project_id,code,http_status,created_at)
+    SELECT value,?,value,?,'network_error',0,? FROM json_each(?)`).bind(f.owner,f.project,now,JSON.stringify(ids.slice(0,100))).run();
+  const selected=ids.slice(0,100).map(id=>`client:${id}`),unselected=`client:${ids[100]}`;
+  const savedReads=async()=> (await db.prepare('SELECT notification_id,read_at FROM canvas_notification_reads WHERE user_id=? ORDER BY notification_id').bind(f.owner).all()).results;
+  await bodyOf(await request(`${api}/read`,{ids:[...selected,unselected]}),400);
+  check((await savedReads()).length===0,'A 101-ID request is rejected before any acknowledgements are written');
+  const before=await bodyOf(await request(`${api}?limit=80`));
+  check(Boolean(before.nextCursor),'The maximum acknowledgement spans more than one ordinary page');
+  const next=await bodyOf(await request(`${api}?limit=80&cursor=${encodeURIComponent(before.nextCursor)}`));
+  const presented=[...before.items,...next.items].map(item=>item.id);
+  check(selected.every(id=>presented.includes(id)),'All 100 acknowledged identities were returned by owned paginated GETs');
+  await db.prepare("INSERT INTO canvas_notification_clients(id,user_id,request_key,project_id,code,http_status,created_at) VALUES(?,?,?,?,'network_error',0,?)").bind(ids[100],f.owner,ids[100],f.project,iso(0)).run();
+  const accepted=await bodyOf(await request(`${api}/read`,{ids:selected}));
+  check(accepted.viewerId===f.owner&&accepted.readIds.length===100&&JSON.stringify([...accepted.readIds].sort())===JSON.stringify([...selected].sort()),'The real read endpoint acknowledges all 100 selected owned IDs');
+  check(accepted.unreadCount===before.unreadCount+1-100,'A full acknowledgement consumes exactly its selected rows and preserves the later arrival');
+  const saved=await savedReads();
+  check(saved.length===100&&saved.every(row=>selected.includes(row.notification_id)),'The 100-ID acknowledgement stores no unselected identity');
+  check(!await db.prepare('SELECT notification_id FROM canvas_notification_reads WHERE user_id=? AND notification_id=?').bind(f.owner,unselected).first(),'An unselected arrival remains unread after the maximum batch');
+  const repeated=await bodyOf(await request(`${api}/read`,{ids:selected}));
+  check(repeated.readIds.length===100&&repeated.unreadCount===accepted.unreadCount&&JSON.stringify(await savedReads())===JSON.stringify(saved),'Replaying a 100-ID batch preserves read timestamps and exact unread counts');
+  const foreign=await bodyOf(await request(`${api}/read`,{ids:[selected[0],selected[99]]},f.other));
+  check(foreign.viewerId===f.other&&foreign.readIds.length===0,'The compact ID selection cannot acknowledge another viewer’s history');
+  check((await db.prepare('SELECT COUNT(*) n FROM canvas_notification_reads WHERE user_id=?').bind(f.other).first()).n===0,'A foreign selection writes no acknowledgements');
+}
 export async function canvasNotificationsCase(env){
   const f=await seed(env,'api'),db=env.DB,request=transport(env,f.owner),now=iso(0),expires=iso(3600000);
   const id=async label=>(await sha256Hex(`notifications:${label}`)).slice(0,32);
@@ -150,5 +177,6 @@ export async function canvasNotificationsCase(env){
   check(deleted.items.some(item=>item.id===`project:${f.project}:deleted`&&item.confirmed&&item.projectDeleted===true),'Account inbox retains canonical deletion evidence without linking to a removed project');
   check(!deleted.items.some(item=>['action','event','run','export','conversation'].includes(item.source)&&item.projectId===f.project),'Deleted creative context is no longer exposed by operational projections');
   check(deleted.items.find(item=>item.id===first.item.id)?.confirmed===false&&deleted.items.find(item=>item.id===first.item.id)?.projectDeleted===true,'Client history keeps its unconfirmed provenance and removed-project context');
+  await notificationReadBatchBoundary(env);
   return{ownerIsolation:true,baseline:true,explicitReadIds:true,arrivalPreserved:true,clientDeduplicated:true,canonicalOnly:true,posterTruth:true,deletedProjectNotice:true};
 }

@@ -56,7 +56,9 @@ export async function readCanvasNotifications(env, userId, body) {
     await env.DB.batch(ids.map(id => env.DB.prepare(`INSERT INTO canvas_notification_reads(user_id,notification_id,read_at)
         SELECT user_id,id,? FROM canvas_notification_sources WHERE user_id=? AND id=?
         ON CONFLICT(user_id,notification_id) DO NOTHING`).bind(now,userId,id)));
-    const rows = (await env.DB.prepare(`SELECT notification_id FROM canvas_notification_reads WHERE user_id=? AND notification_id IN (${ids.map(() => '?').join(',')})`).bind(userId,...ids).all()).results;
+    // D1 permits 100 bound values per statement. Keep the owner plus the entire
+    // validated 100-ID selection in two bindings, including on replay.
+    const rows = (await env.DB.prepare('SELECT notification_id FROM canvas_notification_reads WHERE user_id=? AND notification_id IN (SELECT value FROM json_each(?))').bind(userId,JSON.stringify(ids)).all()).results;
     return { viewerId: userId, readIds: rows.map(row => row.notification_id), unreadCount: await unread(env,userId) };
 }
 export async function recordCanvasClientNotification(env, userId, body) {

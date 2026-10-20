@@ -32,6 +32,13 @@ export async function runCanvasReliabilityTests(f){
     await assert.rejects(()=>f.control('/canvas-notifications-migration-verify',changed),/preserves original generation evidence/);
   });
   for(const [name,path]of[[canvasReliabilityInventory[1],'/canvas-project-lifecycle'],[canvasReliabilityInventory[2],'/canvas-notifications']])await f.test(name,async()=>{
+    if(path==='/canvas-notifications'){
+      // The previous readback used one owner plus 100 ID bindings. Prove that
+      // native D1 rejects that query; the shared authenticated caller below
+      // must still accept all 100 IDs with the compact two-binding readback.
+      const ids=Array.from({length:100},(_,index)=>`client:native-limit-${index}`);
+      await assert.rejects(()=>f.db.prepare(`SELECT notification_id FROM canvas_notification_reads WHERE user_id=? AND notification_id IN (${ids.map(()=>'?').join(',')})`).bind('native-limit-owner',...ids).all(),/too many SQL variables|variable number must be between/);
+    }
     const response=await f.control(path,{});assert.equal(response.status,200,await response.clone().text());
     const result=await response.json();assert.deepEqual(result,path==='/canvas-project-lifecycle'
       ?{foreignKeyCountercontrol:true,committedDeletion:true,redactedHistory:true,duplicateDeletion:true,lateWorkFenced:true,lateGraphWritesFenced:6,cleanupFailureBoundaries:3,completedGenerationReplayed:true}

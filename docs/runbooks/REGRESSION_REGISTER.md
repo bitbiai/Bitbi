@@ -2092,6 +2092,8 @@ The first native D1 run rejected the ten-arm notification view: the pinned
 workerd runtime permits five compound SELECT terms, unlike Node SQLite. Group
 the unchanged projections into bounded CTEs; retain a native five/ten-term
 positive/negative control and populated inbox/read tests before publication.
+Likewise, 100 acknowledged IDs plus the owner exceeded D1's 100-parameter
+limit; bind the validated ID list as JSON and retain owner/arrival boundaries.
 
 Another verified boundary replaced model answers with action acknowledgements.
 Preserve validated dialogue and model/application provenance; project explanations
