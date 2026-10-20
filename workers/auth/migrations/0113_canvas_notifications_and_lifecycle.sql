@@ -40,7 +40,11 @@ CREATE INDEX canvas_notification_clients_owner ON canvas_notification_clients(us
 CREATE TRIGGER canvas_notification_client_identity BEFORE UPDATE ON canvas_notification_clients
 BEGIN SELECT RAISE(ABORT,'canvas_notification_identity_immutable'); END;
 
+-- Native D1 limits each compound SELECT to five terms. Keep the same ten
+-- projections in two non-materialized groups, so callers still apply their
+-- ownership, cursor and unread filters to this one read-only source view.
 CREATE VIEW canvas_notification_sources AS
+WITH project_and_production_sources AS (
  SELECT 'project:'||p.id||':created' AS id,p.user_id,p.id AS project_id,'lifecycle' AS source,
  'project' AS kind,'canvas_project_created' AS code,'success' AS severity,p.created_at,
  NULL AS diagnostic_ref,NULL AS stage,'created' AS status,1 AS resolved,'{}' AS details_json,1 AS confirmed
@@ -88,7 +92,7 @@ CREATE VIEW canvas_notification_sources AS
  json_object('exportId',j.id,'assetId',j.asset_id,'nodeId',j.node_id,'runId',j.run_id,'posterPending',j.asset_id IS NOT NULL AND j.status!='ready'),1
  FROM canvas_video_processing j JOIN canvas_projects p ON p.id=j.project_id AND p.user_id=j.user_id
  WHERE j.kind='concat' AND p.deleted_at IS NULL
- UNION ALL
+), generation_and_dialogue_sources AS (
  SELECT 'run:'||r.id||':'||r.status||CASE WHEN r.status='failed' THEN ':'||CASE
    WHEN r.error_code GLOB '[a-z]*' AND r.error_code NOT GLOB '*[^a-z0-9_]*' AND length(r.error_code) BETWEEN 2 AND 101 THEN r.error_code ELSE 'canvas_request_failed' END
    ELSE '' END,r.user_id,r.project_id,'run','generation',
@@ -128,4 +132,8 @@ CREATE VIEW canvas_notification_sources AS
  CASE WHEN c.http_status>=400 OR c.code IN ('network_error','request_timeout','canvas_save_failed','canvas_request_failed','canvas_action_failed','canvas_project_delete_unconfirmed')
  THEN 'warning' ELSE 'info' END,c.created_at,c.diagnostic_ref,NULL,CAST(c.http_status AS TEXT),1,json_object('errorCode',c.error_code),0
  FROM canvas_notification_clients c LEFT JOIN canvas_projects p ON p.id=c.project_id AND p.user_id=c.user_id
- WHERE c.project_id IS NULL OR p.id IS NOT NULL;
+ WHERE c.project_id IS NULL OR p.id IS NOT NULL
+)
+SELECT * FROM project_and_production_sources
+UNION ALL
+SELECT * FROM generation_and_dialogue_sources;

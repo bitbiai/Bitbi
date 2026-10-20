@@ -19,6 +19,12 @@ export async function runCanvasReliabilityTests(f){
   }
   assert(snapshot,'The populated lifecycle migration boundary must be exercised');
   await f.test(canvasReliabilityInventory[0],async()=>{
+    // Calibrate the real native D1 boundary: Node SQLite accepts the original
+    // ten-arm view, while workerd limits each compound SELECT to five terms.
+    const terms=count=>Array.from({length:count},(_,index)=>`SELECT ${index+1} AS value`).join(' UNION ALL ');
+    assert.deepEqual(await f.rows(terms(5)),[1,2,3,4,5].map(value=>({value})));
+    await assert.rejects(()=>f.db.prepare(`CREATE VIEW canvas_notification_limit_countercontrol AS ${terms(10)}`).run(),/too many terms in compound SELECT/);
+    assert.deepEqual(await f.rows("SELECT name FROM sqlite_master WHERE name='canvas_notification_limit_countercontrol'"),[]);
     const response=await f.control('/canvas-notifications-migration-verify',snapshot);
     assert.equal(response.status,200,await response.clone().text());
     assert.deepEqual(await response.json(),{originalRowsPreserved:2,oldResolvedRead:true,oldUnresolvedUnread:true,readWrites:0});

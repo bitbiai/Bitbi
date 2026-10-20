@@ -2088,6 +2088,10 @@ pending cleanup, rather than inviting another deletion or paid generation.
 An earlier access check also cannot authorize a late graph write: keep current
 project/node deletion predicates in the mutation and verify its returned row
 before reporting a successful save. Exercise deletion between the read and write.
+The first native D1 run rejected the ten-arm notification view: the pinned
+workerd runtime permits five compound SELECT terms, unlike Node SQLite. Group
+the unchanged projections into bounded CTEs; retain a native five/ten-term
+positive/negative control and populated inbox/read tests before publication.
 
 Another verified boundary replaced model answers with action acknowledgements.
 Preserve validated dialogue and model/application provenance; project explanations
