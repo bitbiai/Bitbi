@@ -336,6 +336,7 @@ export const RELIABILITY_BROWSER_PREFLIGHT=Object.freeze({
     tree:'2f64b48c0cbcdc3c10c8c98e2773fd2d18c9e51e',checkpoint:'77ca83e937b7af07c332f74a0c685a6fd6859b37b3807ae5b813b10f45230d12',
     failed:'2423c4265fd3c0aac771b4aec9c9fbf11e9ddb61118cf1cbfa0c6f14b301145a',retain:Object.freeze([7,16])}),
   workerProgress:Object.freeze({source:'5cd7f107edc3439e9b323b26b8689539690c2b79',fixtureSource:'87b0776c3585169ec59cca0c8594a1307bf8ac6f',
+    guardSource:'2b848a03ca837c0672304154159c45c6536f9ff0',guardTestHash:'6241175240aab476cc702445fa69e066417b9e9fe1f5ac4cd77ea83c4ea5ebcf',
     run:'5cd7f107edc3439e9b323b26b8689539690c2b79-0c6ee2d0-617e-4424-82dc-16cf8d153d44',
     checkpoint:'0f228053fa681268803e0e8f8750470adfe9dc8e607329377b79d1336947269b',tree:'59de4d1ca24a89974c2f955ae37e291ce593e0d6',failed:'6a859dca1865a71ce4070faf9c207971b117582ef65e0877d2fc9a5535f0a21d',
     fixture:'tests/helpers/canvas-notifications-control.mjs',fixtureHash:'73b1a8f45e672ff6c56d62835c96e7fc61e4fac447b537f1a7bca898e4873ab6',

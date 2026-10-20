@@ -3872,7 +3872,18 @@ async function testReliabilityControlProgress() {
   assertReliabilityBrowserTree(head);const origin=verifyReliabilityBrowserOrigin(directory,head),commands=selectedCommands(gitSelection(origin.original.base,head),{GITHUB_SHA:head,CANDIDATE_BASE:origin.original.base});
   const progress=verifyReliabilityControlProgress(directory,head,commands);assert.deepEqual(progress.retained,[7,16,27,29,40]);assert.equal(progress.rows.length,16);assert.equal(progress.failed.length,1);
   assert.equal(reliabilityControlProgressGuard(commands[17].run),'npm run test:local-release -- --reliability-control-progress-only');assert.throws(()=>reliabilityControlProgressGuard('echo skipped'));
-  const continued=reliabilityControlContinuation(commands[41].run,{progress:true});assert(continued.includes('--suite canvas-notification-controls')&&continued.includes('--retries=0'));assert.equal(continued.split(p.workerProgress.failedTitle).length,3);assert(!continued.includes('Canvas natural chat immediate')&&!continued.includes('test-q2-runtime-launcher'));
+  const continued=reliabilityControlContinuation(commands[41].run,{progress:true});
+  const selectedBranch=value=>{
+    const guards=value.split('\n').filter(line=>/^(?:if|elif) /.test(line));
+    assert.deepEqual(guards,[`if [ "" = 'true' ] && [ "" != 'true' ]; then`,...Array(8).fill(`elif [ "" = 'true' ]; then`)],'Every earlier top-level selector must be inactive');
+    const start=value.lastIndexOf('\nelse\n');assert(start>=0&&value.endsWith('\nfi\n'));
+    const branch=value.slice(start+6,-4);assert(branch.startsWith('  set -o pipefail\n'));
+    assert(branch.includes('--suite canvas-notification-controls')&&branch.includes('--retries=0'));assert.equal(branch.split(p.workerProgress.failedTitle).length,3);
+    assert(!['Canvas natural chat immediate','test-q2-runtime-launcher','npm run test:workers'].some(text=>branch.includes(text)),'Previously passed cases or launcher cannot execute in the selected branch');return branch;
+  };
+  selectedBranch(continued);
+  for(const forbidden of ['node scripts/test-q2-runtime-launcher.mjs','npm run test:workers'])assert.throws(()=>selectedBranch(continued.replace(/\nfi\n$/,'\n  '+forbidden+'\nfi\n')),/Previously passed/);
+  assert.throws(()=>selectedBranch(continued.replace(`if [ "" = 'true' ]`,`if [ "true" = 'true' ]`)),/Every earlier/);
   for(const file of ['workers/auth/src/routes/canvas.js','tests/helpers/q2-runtime/canvas.mjs']){let injected=false;assert.throws(()=>assertReliabilityBrowserTree(head,args=>{if(args[0]==='diff'&&args[3]===head){injected=true;return Buffer.concat([read(args),Buffer.from(file+'\n')]);}return read(args);}),/Unreviewed continuation/);assert(injected);}
   assert.throws(()=>assertReliabilityBrowserTree(head,args=>args[0]==='show'&&args[1]===`${head}:${p.workerProgress.fixture}`?Buffer.from('changed helper'):read(args)),/Changed reviewed/);
   const root=path.join(directory,'reuse/reliability-control-progress');
