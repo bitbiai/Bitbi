@@ -21,6 +21,11 @@ import { LOCAL_IMPORT_REPAIR, assertImportRepairWorkflow, localRepairCommand, ve
 import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,assertPermissionContinuationTree,permissionContinuationPrefix,CANVAS_STAGE_CASES,canvasStageContinuation} from './lib/local-release-evidence.mjs';
 import {testLocalMediaProcess} from './test-local-media-process.mjs';
 
+if(process.argv.includes('--reliability-browser-progress-only')) {
+  assert.deepEqual(process.argv.slice(2),['--reliability-browser-progress-only']);
+  await testReliabilityBrowserProgress();process.exit(0);
+}
+
 if(process.argv.includes('--reliability-control-progress-only')) {
   assert.deepEqual(process.argv.slice(2),['--reliability-control-progress-only']);
   await testReliabilityControlProgress();process.exit(0);
@@ -3900,3 +3905,27 @@ async function testReliabilityControlProgress() {
   console.log('Notification Worker continuation: authentic15 passed results retained, one exact failure fresh, original alias proof preserved; changed receipts/source/retries reject. Native19 and affected browser52 remain required.');
 }
 await testReliabilityControlProgress();
+
+async function testReliabilityBrowserProgress() {
+  if(!process.argv.includes('--reliability-browser-progress-only'))return;
+  const {RELIABILITY_BROWSER_PREFLIGHT:p,modelBrowserRetained,MODEL_BROWSER_POLICY,verifyModelBrowserReport,reliabilityBrowserRetryTitles}=await import('./lib/local-release-browser.mjs');
+  const {assertReliabilityBrowserTree,verifyReliabilityBrowserOrigin,verifyReliabilityBrowserTail,reliabilityBrowserProgressGuard}=await import('./lib/local-release-evidence.mjs');
+  const directory='.local-release',head=execFileSync('git',['rev-parse','HEAD']).toString().trim(),read=args=>execFileSync('git',args,{maxBuffer:64*1024*1024});
+  const original=verifyReliabilityBrowserOrigin(directory,head),commands=selectedCommands(gitSelection(original.original.base,head),{GITHUB_SHA:head,CANDIDATE_BASE:original.original.base}),tail=verifyReliabilityBrowserTail(directory,head,commands);
+  assert.deepEqual(tail.retained,[7,16,27,29,40,41]);assert.equal(tail.progress.rows.filter(passedBrowserCase).length,39);assert.equal(reliabilityBrowserProgressGuard(commands[17].run),'npm run test:local-release -- --reliability-browser-progress-only');assert.throws(()=>reliabilityBrowserProgressGuard('echo bypass'));
+  for(const file of ['workers/auth/src/routes/canvas.js','tests/helpers/q2-runtime/canvas.mjs']){let injected=false;assert.throws(()=>assertReliabilityBrowserTree(head,args=>{if(args[0]==='diff'&&args[3]===head){injected=true;return Buffer.concat([read(args),Buffer.from(file+'\n')]);}return read(args);}),/Unreviewed continuation/);assert(injected);}
+  for(const file of Object.keys(p.browserProgress.specs))assert.throws(()=>assertReliabilityBrowserTree(head,args=>args[0]==='show'&&args[1]===`${head}:${file}`?Buffer.from('changed source'):read(args)),/Changed reviewed/);
+  const root=path.join(directory,'reuse/reliability-browser-tail');
+  for(const file of ['checkpoint.json','browser.json','discovery.json','selected.json','origin/logs/17.log','origin/logs/41.log','origin/logs/49.log','origin/'+p.browserProgress.nativeResult]){const target=path.join(root,file),bytes=fs.readFileSync(target);try{fs.writeFileSync(target,Buffer.concat([bytes,Buffer.from('\nchanged')]));assert.throws(()=>verifyReliabilityBrowserTail(directory,head,commands));}finally{fs.writeFileSync(target,bytes);}}
+  const changedCommands=structuredClone(commands);changedCommands[41].run+='\necho bypass';assert.throws(()=>verifyReliabilityBrowserTail(directory,head,changedCommands));
+  const discovery=browserRows(JSON.parse(fs.readFileSync(path.join(root,'discovery.json'))),{discovery:true}),retained=modelBrowserRetained(original.previous,p,tail.progress);
+  const fresh=tail.progress.rows.filter(row=>reliabilityBrowserRetryTitles.includes(row.title)).map(row=>({...row,status:'expected',expectedStatus:'passed',results:[{status:'passed',retry:0,error:false}]}));assert.equal(fresh.length,16);
+  const report={policy:MODEL_BROWSER_POLICY,sha:head,source:p.source,scope:'homepage',previous:original.previous,progress:tail.progress,discovery,fresh,counts:verifyBrowserUnion(discovery,retained,fresh)};
+  assert.deepEqual(verifyModelBrowserReport(report,head),{required:650,reused:634,executed:16});
+  for(const mutate of [r=>r.progress.sha='0'.repeat(40),r=>r.progress.rows.pop(),r=>r.progress.rows[0].results[0].retry=1,r=>r.fresh.pop(),r=>r.fresh.push(r.fresh[0]),r=>r.fresh[0].results[0].status='skipped',r=>r.fresh[0].results[0].retry=1,r=>r.discovery.pop(),r=>delete r.progress]){const bad=structuredClone(report);mutate(bad);assert.throws(()=>verifyModelBrowserReport(bad,head));}
+  const passedAffected=tail.progress.rows.filter(row=>passedBrowserCase(row)&&reliabilityBrowserRetryTitles.includes(row.title));assert.equal(passedAffected.length,3);assert(passedAffected.every(row=>row.title.includes(': conversation')));assert(passedAffected.every(row=>!retained.has(row.key)));
+  const auth=browserRows(JSON.parse(fs.readFileSync(path.join(directory,'reuse/model-browser-standard.json'))),{discovery:true}).filter(row=>row.project==='chromium'&&(/^(auth-admin|wallet-nav|locale|oma2-q1-member)\.spec\.js$/.test(row.file)||row.file.startsWith('oma2-q3-')));
+  assert.equal(auth.filter(row=>retained.has(row.key)).length,25);assert.equal(auth.filter(row=>!retained.has(row.key)).length,684);
+  console.log('Browser progress proof: original13 failures and3 affected passes require16 fresh cases;634 browser passes plus actual1653Worker/456native retained. Auth684 remains unexecuted and required.');
+}
+await testReliabilityBrowserProgress();

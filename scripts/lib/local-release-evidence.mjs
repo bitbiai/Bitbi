@@ -3221,17 +3221,27 @@ export function assertReliabilityBrowserTree(head,read=gitBytes){
     const branchSource='7e3f937e8f93bb66944175b51b6a1c8896ecd4a7';
     assert.deepEqual(read(['rev-list','--parents','-n','1',branchSource]).toString().trim().split(/\s+/),[branchSource,q.guardSource]);
     assert.deepEqual(files(q.guardSource,branchSource),['scripts/lib/local-release-browser.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs'],'Unreviewed continuation selected-branch guard correction');
-    assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,branchSource]);
-    assert.deepEqual(files(branchSource,head),['scripts/lib/local-release-evidence.mjs'],'Unreviewed continuation guard diagnostic correction');
-    assert.equal(sha256(read(['show',`${head}:scripts/test-local-release.mjs`])),q.guardTestHash,'Changed reviewed selected-branch guard');
+    const b=p.browserProgress;
+    assert.deepEqual(read(['rev-list','--parents','-n','1',b.source]).toString().trim().split(/\s+/),[b.source,branchSource]);
+    assert.deepEqual(files(branchSource,b.source),['scripts/lib/local-release-evidence.mjs'],'Unreviewed continuation guard diagnostic correction');
+    assert.equal(sha256(read(['show',`${b.source}:scripts/test-local-release.mjs`])),q.guardTestHash,'Changed reviewed selected-branch guard');
+    if(head!==b.source){
+      assert.deepEqual(read(['rev-list','--parents','-n','1',b.fixtureSource]).toString().trim().split(/\s+/),[b.fixtureSource,b.source]);
+      assert.deepEqual(files(b.source,b.fixtureSource),Object.keys(b.specs).sort(),'Unreviewed continuation browser correction');
+      assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,b.fixtureSource]);
+      assert.deepEqual(files(b.fixtureSource,head),[...reliabilityBrowserTools].sort(),'Unreviewed continuation browser proof');
+    }
   }
-  const specs={...p.specs,...p.toolSpecs,...p.selectionSpecs,...(head===q.source?{}:{[q.fixture]:q.fixtureHash})};
+  const currentBrowser=head!==q.source&&head!==p.browserProgress.source;
+  const specs={...p.specs,...p.toolSpecs,...p.selectionSpecs,...(head===q.source?{}:{[q.fixture]:q.fixtureHash}),...(currentBrowser?p.browserProgress.specs:{})};
   for(const[file,hash]of Object.entries(specs))assert.equal(sha256(read(['show',`${head}:${file}`])),hash,`Changed reviewed notification input ${file}`);
   const before=read(['show',`${p.source}:scripts/test-local-release.mjs`]).toString(),after=read(['show',`${head}:scripts/test-local-release.mjs`]).toString();
   const entry="if(process.argv.includes('--reliability-browser-only')) {\n  assert.deepEqual(process.argv.slice(2),['--reliability-browser-only']);\n  await testReliabilityBrowserContinuation();process.exit(0);\n}\n\n",tail='\nasync function testReliabilityBrowserContinuation() {';
   const progressEntry="if(process.argv.includes('--reliability-control-progress-only')) {\n  assert.deepEqual(process.argv.slice(2),['--reliability-control-progress-only']);\n  await testReliabilityControlProgress();process.exit(0);\n}\n\n",progressTail='\nasync function testReliabilityControlProgress() {';
-  assert.equal(after.split(entry).length,2);assert.equal(after.split(tail).length,2);assert.equal(after.split(tail)[0].replace(entry,'').replace(progressEntry,''),before,'Previously passed verifier assertions changed');
-  if(head!==q.source){assert.equal(after.split(progressEntry).length,2);assert.equal(after.split(progressTail).length,2);assert.equal(after.split(progressTail)[0].replace(progressEntry,''),read(['show',`${q.source}:scripts/test-local-release.mjs`]).toString(),'Previously passed notification guard assertions changed');}
+  const browserEntry="if(process.argv.includes('--reliability-browser-progress-only')) {\n  assert.deepEqual(process.argv.slice(2),['--reliability-browser-progress-only']);\n  await testReliabilityBrowserProgress();process.exit(0);\n}\n\n",browserTail='\nasync function testReliabilityBrowserProgress() {';
+  assert.equal(after.split(entry).length,2);assert.equal(after.split(tail).length,2);assert.equal(after.split(tail)[0].replace(entry,'').replace(progressEntry,'').replace(browserEntry,''),before,'Previously passed verifier assertions changed');
+  if(head!==q.source){assert.equal(after.split(progressEntry).length,2);assert.equal(after.split(progressTail).length,2);assert.equal(after.split(progressTail)[0].replace(progressEntry,'').replace(browserEntry,''),read(['show',`${q.source}:scripts/test-local-release.mjs`]).toString(),'Previously passed notification guard assertions changed');}
+  if(currentBrowser){assert.equal(after.split(browserEntry).length,2);assert.equal(after.split(browserTail).length,2);assert.equal(after.split(browserTail)[0].replace(browserEntry,''),read(['show',`${p.browserProgress.source}:scripts/test-local-release.mjs`]).toString(),'Previously passed Worker progress guard changed');}
   const nativeBefore=read(['show',`${p.source}:tests/helpers/q2-runtime/canvas-policy-tail.mjs`]).toString(),nativeAfter=read(['show',`${head}:tests/helpers/q2-runtime/canvas-policy-tail.mjs`]).toString();
   assert(nativeAfter.startsWith(nativeBefore),'Existing native callback wrappers changed');
   const launcherBefore=read(['show',`${p.source}:scripts/test-q2-runtime-launcher.mjs`]).toString(),launcherAfter=read(['show',`${head}:scripts/test-q2-runtime-launcher.mjs`]).toString();
@@ -3376,12 +3386,41 @@ export function verifyReliabilityControlSelection(directory,head){
   const prior=verifyReliabilityControlRepair(directory,head,{allowPending:true}),report=parseDiscovery(fs.readFileSync(path.join(directory,'test-results/reliability-control-selected.json'),'utf8'));assert.deepEqual(report.errors,[]);
   const identity=rows=>rows.map(({id,file,title})=>({id,file,title})).sort((a,b)=>a.id.localeCompare(b.id));assert.deepEqual(identity(workerDiscovery(report)),identity(prior.progress?prior.progress.failed:prior.workers.filter(row=>reliabilityNativeWorkerNames.includes(row.title))));return workerDiscovery(report).length;
 }
+export function verifyReliabilityBrowserTail(directory,head,commands,{read=gitBytes}={}){
+  const p=RELIABILITY_BROWSER_PREFLIGHT,b=p.browserProgress,folder=path.join(directory,'reuse/reliability-browser-tail'),origin=path.join(folder,'origin');assertReliabilityBrowserTree(head,read);
+  const pinned=(file,hash)=>{const bytes=fs.readFileSync(path.join(folder,file));assert.equal(sha256(bytes),hash,`Changed notification browser progress ${file}`);return bytes;};
+  const original=JSON.parse(pinned('checkpoint.json',b.checkpoint));assert.equal(original.sha,b.source);assert.equal(original.sourceTree,b.tree);assert.equal(original.status,'failed');assert.equal(original.commands.length,50);
+  const accepted=selectedCommands(original.selection,{GITHUB_SHA:b.source,CANDIDATE_BASE:original.base});
+  const prior=JSON.parse(fs.readFileSync(path.join(origin,'reuse/preflight-checkpoint.json'))),worker=verifyReliabilityControlProgress(origin,b.source,accepted,{read});
+  const finished=verifyReliabilityControlRepair(origin,b.source,{read});assert.deepEqual(finished.result,{workerRetained:1652,workerFresh:1,workerTotal:1653,nativeRetained:437,nativeFresh:19,nativeTotal:456});
+  assert.deepEqual(original.preflightContinuation,{source:p.source,checkpoint:p.checkpoint});assert.deepEqual(original.preflightProgress,{source:p.workerProgress.source,checkpoint:p.workerProgress.checkpoint});
+  for(const key of ['base','planHash'])assert.equal(original[key],prior[key]);assert.equal(original.environment.key,prior.environment.key);assert.equal(original.nativeBrowsers.key,prior.nativeBrowsers.key);
+  assert.deepEqual(original.selection,gitSelection(original.base,b.source));assert.deepEqual(original.selection.files,gitSelection(original.base,head).files);assert.deepEqual(commands,selectedCommands(original.selection,{GITHUB_SHA:head,CANDIDATE_BASE:original.base}));
+  for(const[i,row]of original.commands.entries()){
+    assert.equal(sha256(fs.readFileSync(path.join(origin,row.log))),row.logHash);
+    if(worker.retained.includes(i)){assert.deepEqual(row,{...worker.original.commands[i],reusedFrom:worker.original.commands[i].reusedFrom||worker.original.sha});continue;}
+    if(p.retain.includes(i)){assert.deepEqual(row,{...prior.commands[i],reusedFrom:prior.commands[i].reusedFrom||p.source});continue;}
+    assert.deepEqual(row.command,accepted[i]);assert.equal(row.exitCode,i===49?1:0);assert(!row.reusedFrom);
+    if(i===17)assert.equal(row.continuation,reliabilityControlProgressGuard(accepted[i].run));else if(i===41)assert.equal(row.continuation,reliabilityControlContinuation(accepted[i].run,{progress:true}));
+    else if(i===49){assert.equal(row.logHash,b.failed);assert.equal(row.continuation,reliabilityBrowserContinuation(accepted[i].run));assert.equal(row.browserContinuation,MODEL_BROWSER_POLICY);}else assert(!row.continuation&&!row.browserContinuation);
+  }
+  for(const i of b.retain){assert.equal(original.commands[i].exitCode,0);assert.deepEqual(original.commands[i].command,commands[i]);}
+  pinned('origin/'+b.nativeResult,b.native);pinned('origin/'+b.nativeResult.replace(/result\.json$/,'build-provenance.json'),b.nativeBuild);pinned('origin/test-results/reliability-control-workers.json',b.worker);
+  const report=JSON.parse(pinned('browser.json',b.report)),rows=browserRows(report);assert.equal(report.config.workers,1);assert(report.config.projects.every(row=>row.retries===0));assert.deepEqual(report.errors,[]);
+  assert.deepEqual({expected:report.stats.expected,unexpected:report.stats.unexpected,flaky:report.stats.flaky,skipped:report.stats.skipped},{expected:39,unexpected:13,flaky:0,skipped:0});
+  const discovery=browserRows(JSON.parse(pinned('discovery.json',b.discovery)),{discovery:true}),selected=browserRows(JSON.parse(pinned('selected.json',b.selected)),{discovery:true});assert.equal(sha256(JSON.stringify(discovery)),p.discovery);
+  assert.deepEqual(rows.map(({key,file,title,project})=>({key,file,title,project})),selected);assert.deepEqual(selected,discovery.filter(row=>reliabilityBrowserAffectedTitles.includes(row.title)));
+  const progress={sha:b.source,rows};modelBrowserRetained(browserRows(JSON.parse(fs.readFileSync(path.join(directory,'reuse/model-browser-original.json')))),p,progress);
+  return {original,retained:b.retain,progress,origin};
+}
+export function reliabilityBrowserProgressGuard(command){assert.equal(command,'npm run test:local-release');return command+' -- --reliability-browser-progress-only';}
 export function verifyReliabilityBrowserReports(directory,head,{allowPending=false}={}){
-  const prior=verifyReliabilityBrowserOrigin(directory,head);if(allowPending)return {...prior,result:null};
+  const prior=verifyReliabilityBrowserOrigin(directory,head),tail=fs.existsSync(path.join(directory,'reuse/reliability-browser-tail/checkpoint.json'))?verifyReliabilityBrowserTail(directory,head,selectedCommands(gitSelection(prior.original.base,head),{GITHUB_SHA:head,CANDIDATE_BASE:prior.original.base})):null;
+  if(allowPending)return {...prior,...(tail?{progress:tail.progress}:{}),result:null};
   const result={};for(const scope of ['homepage','auth']){
     const prefix=scope==='auth'?'model-browser-auth':'model-browser',raw=JSON.parse(fs.readFileSync(path.join(directory,`test-results/${prefix}-fresh.json`)));assert.deepEqual(raw.errors,[]);assert.equal(raw.config.workers,1);assert(raw.config.projects.every(row=>row.retries===0));
     const discovery=browserRows(JSON.parse(fs.readFileSync(path.join(directory,`test-results/${prefix}-discovery.json`))),{discovery:true}),report=JSON.parse(fs.readFileSync(path.join(directory,`test-results/candidate-${scope}.json`)));
-    assert.equal(report.scope,scope);assert.deepEqual(report.previous,prior.previous);assert.deepEqual(report.discovery,discovery);assert.deepEqual(report.fresh,browserRows(raw));result[scope]=verifyModelBrowserReport(report,head);
+    assert.equal(report.scope,scope);assert.deepEqual(report.previous,prior.previous);assert.deepEqual(report.progress,tail?.progress);assert.deepEqual(report.discovery,discovery);assert.deepEqual(report.fresh,browserRows(raw));result[scope]=verifyModelBrowserReport(report,head);
   }return {...prior,result};
 }
 export const reliabilityBrowserContinuation=(command,scope='homepage')=>modelBrowserContinuation(command,scope).replace('model-browser-continuation','reliability-browser-continuation');
@@ -3394,12 +3433,13 @@ export function reliabilityControlContinuation(command,{progress=false}={}){
 }
 export function verifyReliabilityBrowserContinuation(directory,evidence,commands){
   const p=RELIABILITY_BROWSER_PREFLIGHT;assert.deepEqual(evidence.preflightContinuation,{source:p.source,checkpoint:p.checkpoint});
-  const old=reliabilityBrowserPrefix(fs.readFileSync(path.join(directory,'reuse/preflight-checkpoint.json')),{...evidence,commands});verifyReliabilityControlRepair(directory,evidence.sha);verifyReliabilityBrowserReports(directory,evidence.sha);assert.equal(evidence.commands.length,commands.length);
+  const old=reliabilityBrowserPrefix(fs.readFileSync(path.join(directory,'reuse/preflight-checkpoint.json')),{...evidence,commands}),browserProgress=evidence.preflightProgress?.source===p.browserProgress.source;
+  if(!browserProgress)verifyReliabilityControlRepair(directory,evidence.sha);verifyReliabilityBrowserReports(directory,evidence.sha);assert.equal(evidence.commands.length,commands.length);
   const workerProgress=evidence.preflightProgress?.source===p.workerProgress.source;
-  const progress=evidence.preflightProgress?(workerProgress?verifyReliabilityControlProgress(directory,evidence.sha,commands):verifyReliabilityBrowserProgress(directory,evidence.sha,commands)):null;
-  if(progress){const q=workerProgress?p.workerProgress:p.progress;assert.deepEqual(evidence.preflightProgress,{source:q.source,checkpoint:q.checkpoint});}
+  const progress=evidence.preflightProgress?(browserProgress?verifyReliabilityBrowserTail(directory,evidence.sha,commands):workerProgress?verifyReliabilityControlProgress(directory,evidence.sha,commands):verifyReliabilityBrowserProgress(directory,evidence.sha,commands)):null;
+  if(progress){const q=browserProgress?p.browserProgress:workerProgress?p.workerProgress:p.progress;assert.deepEqual(evidence.preflightProgress,{source:q.source,checkpoint:q.checkpoint});}
   for(const[i,row]of evidence.commands.entries())if(progress?.retained.includes(i))assert.deepEqual(row,{...progress.original.commands[i],reusedFrom:progress.original.commands[i].reusedFrom||progress.original.sha});
   else if(p.retain.includes(i))assert.deepEqual(row,{...old.commands[i],reusedFrom:old.commands[i].reusedFrom||p.source});
   else{assert(!row.reusedFrom);if([49,50].includes(i)){assert.equal(row.browserContinuation,MODEL_BROWSER_POLICY);assert.equal(row.continuation,reliabilityBrowserContinuation(commands[i].run,i===50?'auth':'homepage'));}
-    else{assert(!row.browserContinuation);if(i===17)assert.equal(row.continuation,workerProgress?reliabilityControlProgressGuard(commands[i].run):reliabilityBrowserGuard(commands[i].run));else if(i===41)assert.equal(row.continuation,reliabilityControlContinuation(commands[i].run,{progress:workerProgress}));else assert(!row.continuation);}}
+    else{assert(!row.browserContinuation);if(i===17)assert.equal(row.continuation,browserProgress?reliabilityBrowserProgressGuard(commands[i].run):workerProgress?reliabilityControlProgressGuard(commands[i].run):reliabilityBrowserGuard(commands[i].run));else if(i===41)assert.equal(row.continuation,reliabilityControlContinuation(commands[i].run,{progress:workerProgress}));else assert(!row.continuation);}}
 }
