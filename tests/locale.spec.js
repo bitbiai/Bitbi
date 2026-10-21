@@ -705,12 +705,6 @@ test.describe('Bilingual locale pages', () => {
       'https://bitbi.ai/de/',
       'https://bitbi.ai/pricing.html',
       'https://bitbi.ai/de/pricing.html',
-      'https://bitbi.ai/legal/privacy.html',
-      'https://bitbi.ai/de/legal/datenschutz.html',
-      'https://bitbi.ai/legal/imprint.html',
-      'https://bitbi.ai/de/legal/imprint.html',
-      'https://bitbi.ai/legal/terms.html',
-      'https://bitbi.ai/de/legal/terms.html',
     ];
     expect(indexablePublicPages().map((page) => page.url).sort()).toEqual([...indexableCanonicals].sort());
     const entries = sitemapEntries(sitemap);
@@ -732,6 +726,12 @@ test.describe('Bilingual locale pages', () => {
       'https://bitbi.ai/de/generate-lab/',
       'https://bitbi.ai/canvas/index.html',
       'https://bitbi.ai/generate-lab/index.html',
+      'https://bitbi.ai/legal/privacy.html',
+      'https://bitbi.ai/de/legal/datenschutz.html',
+      'https://bitbi.ai/legal/imprint.html',
+      'https://bitbi.ai/de/legal/imprint.html',
+      'https://bitbi.ai/legal/terms.html',
+      'https://bitbi.ai/de/legal/terms.html',
       'https://bitbi.ai/legal/datenschutz.html',
       'https://bitbi.ai/de/legal/privacy.html',
       'https://bitbi.ai/admin/',
