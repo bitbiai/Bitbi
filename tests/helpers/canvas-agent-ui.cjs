@@ -747,3 +747,90 @@ exports.media_counts=async({page,expect,locale,mockSharedAuth,createCanvasApiMoc
  delete state.run.mediaProgress;await refresh.click();await expect(counts).toHaveText(locale==='de'?'2 / 8 abgeschlossen':'2 / 8 completed');
  expect(state.posts).toEqual([]);
 };
+
+// Presentation-only interaction coverage reuses the same conversation fixture.
+exports.workspace=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock,scenario})=>{
+    const {state,canvas,project,panel,composer}=await fixture({page,locale,mockSharedAuth,createCanvasApiMock}),de=locale==='de',errors=[];
+    page.on('pageerror',error=>errors.push(error.message));
+    await page.setViewportSize({width:1440,height:820});
+    canvas.nodes=[{id:'b'.repeat(32),project_id:project,type:'note',title:'Retained selection',x:380,y:160,width:230,height:140,config:{},content:{text:'Preserve this node'},output:null}];
+    state.conversation.allowance={capCredits:3000,committedCredits:0,remainingCredits:3000,tariffRevision:29};
+    state.conversation.messages=Array.from({length:40},(_,i)=>({id:'size-'+i,role:i%2?'assistant':'user',text:`${i}. ${'A film scene with the same characters and location. '.repeat(i%4+2)}`,status:'completed'}));
+    state.conversation.pendingTurnId='pending-size';
+    state.conversation.messages.push({id:'pending-size:reply',role:'assistant',text:'',status:'pending',delivery:{stage:'provider_pending',canObserve:true,source:'system'}});
+    await page.reload();await page.locator('#canvasAgentToggle').click();
+    const handle=page.locator('#canvasAgentResize'),expand=page.locator('#canvasAgentExpand'),input=composer.locator('textarea'),scroll=panel.locator('.canvas-agent__transcript');
+    const width=async()=>Math.round((await panel.boundingBox()).width);
+    const graph=page.locator('#canvasViewport');
+    await page.locator(`[data-node-id="${'b'.repeat(32)}"]`).press('Enter');
+    await page.locator('.canvas-view-controls button').filter({hasText:'−'}).click();
+    await graph.evaluate(node=>node.scrollTo(170,110));
+    const graphState=()=>graph.evaluate(node=>({x:node.scrollLeft,y:node.scrollTop,transform:document.getElementById('canvasSurface').style.transform,selected:document.querySelector('.canvas-node.is-selected')?.dataset.nodeId}));
+    const originalGraph=await graphState();expect(originalGraph.selected).toBe('b'.repeat(32));
+    await input.fill('A retained unsent draft');
+    await scroll.evaluate(node=>{node.scrollTop=node.scrollHeight/3;node.dispatchEvent(new Event('scroll'));});
+    const reading=await scroll.evaluate(node=>{const top=node.getBoundingClientRect().top,row=[...node.querySelectorAll('[data-message-id]')].find(r=>r.getBoundingClientRect().bottom>top+2);window.retainedComposer=document.querySelector('.canvas-agent__composer');return{id:row.dataset.messageId,offset:row.getBoundingClientRect().top-top};});
+    const readingOffset=()=>scroll.evaluate((node,id)=>node.querySelector(`[data-message-id="${id}"]`).getBoundingClientRect().top-node.getBoundingClientRect().top,reading.id);
+    const writes=()=>canvas.requests.filter(r=>r.method!=='GET'&&!r.pathname.endsWith('/notifications/read'));
+    const beforeWrites=writes().length;
+    if(scenario==='layout'){
+        const start=await width(),box=await handle.boundingBox();
+        await page.mouse.move(box.x+5,box.y+100);await page.mouse.down();await page.mouse.move(box.x-180,box.y+100,{steps:12});
+        await expect.poll(width).toBeGreaterThan(start+170);await page.mouse.move(box.x-80,box.y+100,{steps:8});await page.mouse.up();
+        await expect.poll(width).toBeGreaterThan(start+70);await expect.poll(width).toBeLessThan(start+100);
+        expect(await graphState()).toEqual(originalGraph);expect(Math.abs(await readingOffset()-reading.offset)).toBeLessThan(4);
+        const chosen=await width();await expect(handle).toHaveAttribute('aria-valuenow',String(chosen));
+        await expand.click();await expect(expand).toHaveAccessibleName(de?'Zur Seitenleiste zurück':'Restore sidebar');
+        const bounds=await panel.evaluate(node=>{const p=node.getBoundingClientRect(),l=node.parentElement.getBoundingClientRect(),t=document.querySelector('.canvas-topbar').getBoundingClientRect();return{left:p.left,right:p.right,top:p.top,bottom:p.bottom,layoutLeft:l.left,layoutRight:l.right,layoutTop:l.top,layoutBottom:l.bottom,toolbarBottom:t.bottom};});
+        expect(bounds.left).toBe(bounds.layoutLeft);expect(bounds.right).toBe(bounds.layoutRight);expect(bounds.top).toBe(bounds.layoutTop);expect(bounds.bottom).toBe(bounds.layoutBottom);expect(bounds.top).toBeGreaterThanOrEqual(bounds.toolbarBottom);
+        await expect(page.locator('#canvasProjectsPanel')).toBeHidden();await expect(page.locator('#canvasGraphPanel')).toHaveAttribute('inert','');
+        // The geometry assertion must detect a graph-only rather than full-workspace overlay.
+        expect(await panel.evaluate(node=>{node.style.left='220px';const bad=node.getBoundingClientRect().left>node.parentElement.getBoundingClientRect().left;node.style.left='';return bad;})).toBe(true);
+        await expect(page.locator('body > header')).toBeVisible();await page.locator('#canvasNotificationsToggle').click();
+        const inbox=page.locator('#canvasNotificationsPanel');await expect(inbox).toBeVisible();
+        expect(await inbox.evaluate(node=>{const r=node.getBoundingClientRect();return node.contains(document.elementFromPoint(r.left+20,r.top+20));})).toBe(true);
+        await inbox.getByRole('button',{name:de?'Meldungen schließen':'Close notifications',exact:true}).click();
+        await page.screenshot({path:info.outputPath(`canvas-ai-expanded-${locale}.png`)});
+        state.conversation.messages.at(-1).status='completed';state.conversation.messages.at(-1).text='One incoming reply during expansion.';state.conversation.pendingTurnId=null;state.conversation.revision++;
+        await expect(panel.locator('[data-message-id="pending-size:reply"]')).toContainText('One incoming reply during expansion.',{timeout:15000});
+        await expect(panel.locator('[data-message-id="pending-size:reply"]')).toHaveCount(1);await expect(input).toHaveValue('A retained unsent draft');
+        expect(Math.abs(await readingOffset()-reading.offset)).toBeLessThan(4);
+        await expand.click();await expect.poll(width).toBe(chosen);expect(await graphState()).toEqual(originalGraph);
+        await showProject(panel,locale);await expand.click();await expect(panel.getByRole('tab',{name:de?'Projekt & Produktion':'Project & production',exact:true})).toHaveAttribute('aria-selected','true');
+        await page.locator('#canvasInspectorToggle').click();await expect(page.locator('#canvasInspectorPanel')).toBeVisible();expect(Math.round((await page.locator('#canvasInspectorPanel').boundingBox()).width)).toBe(320);
+        await page.locator('#canvasAgentToggle').click();await expect.poll(width).toBe(chosen);await showChat(panel,locale);
+        for(let i=0;i<4;i++){await expand.click();await expand.click();}
+        expect(await composer.evaluate(node=>node===window.retainedComposer)).toBe(true);await expect(input).toHaveValue('A retained unsent draft');
+        const c=await composer.boundingBox(),p=await panel.boundingBox();expect(c.y+c.height).toBeLessThanOrEqual(p.y+p.height);
+        await expect(panel.locator('.canvas-agent__make-now')).toBeInViewport();
+        await expand.click();await page.locator('#canvasProjectsToggle').click();await expect(page.locator('#canvasProjectsPanel')).toBeVisible();await expect(expand).toHaveAttribute('aria-expanded','false');
+        await expand.click();await page.locator('#canvasAgentToggle').click();await expect(panel).toBeHidden();await expect(page.locator('#canvasGraphPanel')).not.toHaveAttribute('inert','');
+        await page.locator('#canvasAgentToggle').click();await expect.poll(width).toBe(chosen);
+    }else{
+        await handle.focus();const initial=await width();await handle.press('ArrowLeft');await expect.poll(width).toBe(initial+16);await handle.press('ArrowRight');await expect.poll(width).toBe(initial);
+        await handle.press('End');expect(await width()).toBe(Number(await handle.getAttribute('aria-valuemax')));expect((await graph.boundingBox()).width).toBeGreaterThanOrEqual(359);
+        await handle.press('Home');await expect.poll(width).toBe(320);await handle.press('Shift+ArrowLeft');await expect.poll(width).toBe(368);
+        await input.focus();await input.press('ArrowLeft');await expect.poll(width).toBe(368);
+        const cancelBox=await handle.boundingBox();await page.mouse.move(cancelBox.x+5,cancelBox.y+100);await page.mouse.down();await page.mouse.move(cancelBox.x-70,cancelBox.y+100);await expect.poll(width).toBeGreaterThan(420);
+        await handle.dispatchEvent('pointercancel');await page.mouse.up();await expect.poll(width).toBe(368);await expect(page.locator('#canvasApp')).not.toHaveClass(/is-agent-resizing/);
+        const chosen=await width();await page.reload();await page.locator('#canvasAgentToggle').click();await expect.poll(width).toBe(chosen);
+        await page.setViewportSize({width:980,height:620});await expand.click();
+        await expect(panel.locator('.canvas-agent__make-now')).toBeInViewport();await expect(page.locator('#canvasNotificationsToggle')).toBeInViewport();
+        await page.setViewportSize({width:640,height:720});await expect(panel).toBeVisible();await expect(handle).toBeHidden();await expect(expand).toBeHidden();
+        await page.locator('#canvasHistoryToggle').click();await expect(page.locator('#canvasHistoryPanel')).toBeVisible();await page.locator('#canvasAgentToggle').click();
+        await page.setViewportSize({width:1440,height:820});await expect.poll(width).toBe(chosen);await expect(handle).toBeVisible();
+        const box=await handle.boundingBox();await page.mouse.move(box.x+5,box.y+80);await page.mouse.down();await page.mouse.move(box.x-40,box.y+80);await page.locator('#canvasAgentToggle').evaluate(node=>node.click());await page.mouse.up();
+        await expect(page.locator('#canvasApp')).not.toHaveClass(/is-agent-resizing/);await page.locator('#canvasAgentToggle').click();
+        await page.evaluate(()=>{document.documentElement.style.zoom='1.25';});await expand.click();
+        const r=await panel.boundingBox(),t=await page.locator('.canvas-topbar').boundingBox();expect(r.y).toBeGreaterThanOrEqual(t.y+t.height-1);
+        await expect(expand).toBeInViewport();await expand.focus();await page.keyboard.press('Escape');await expect(expand).toHaveAttribute('aria-expanded','false');await expect(expand).toBeFocused();
+        await handle.press('End');expect((await graph.boundingBox()).width).toBeGreaterThanOrEqual(449);
+        await page.evaluate(()=>{document.documentElement.style.zoom='';localStorage.setItem('bitbi:canvas-agent-width:v1','not-a-number');});
+        await page.reload();await page.locator('#canvasAgentToggle').click();await expect.poll(width).toBe(390);
+        await page.evaluate(()=>{Storage.prototype.setItem=()=>{throw new DOMException('Storage unavailable','SecurityError');};});
+        await handle.focus();await handle.press('ArrowLeft');await expect.poll(width).toBe(406);
+    }
+    expect(writes()).toHaveLength(beforeWrites);expect(state.chatPosts).toHaveLength(0);expect(state.posts).toHaveLength(0);expect(state.controls).toHaveLength(0);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth)).toBe(true);expect(errors).toEqual([]);
+    await panel.screenshot({path:info.outputPath(`canvas-ai-workspace-${locale}-${scenario}.png`)});
+};

@@ -2229,6 +2229,20 @@ use the complete signed prepare/dispatch/callback/normalize path in ordinary
 Worker and native D1 callers; EN/DE Chromium/WebKit cover scrolling and late
 response observation. Synthetic responses are not fresh live-provider acceptance.
 
+The 2026-10-21 AI workspace extension keeps the same mounted panel below the
+existing toolbar: its left separator changes only a bounded browser preference;
+expand covers all content columns while covered controls are inert and graph
+geometry remains mounted. Inspector/History retain their independent widths.
+Do not call conversation visibility hooks again for a width/mode-only change.
+Defer layout-observer writes to animation frames rather than changing grid
+geometry during synchronous resize delivery.
+`tests/canvas.spec.js` → `canvas-agent-ui.cjs.workspace` exercises actual pointer
+capture/cancellation, focused keyboard sizing, storage failure, compact/zoomed
+layouts, full-area geometry with a graph-only broken control, notification hit
+layering, a late reply, retained draft/reading anchor/graph view and zero creative
+or paid POSTs. EN/DE Chromium/WebKit passed locally; publication evidence remains
+separate. No production, media, billing or API contract changes belong here.
+
 The pre-conversation source (`6c2d0724`) treated missing duration as a truthy
 `automatic` choice; the start route therefore queued planning rather than its
 intended clarification branch. The new conversation path requires a user-stated

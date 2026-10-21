@@ -65,7 +65,7 @@
   .canvas-notifications .canvas-button { min-height: 38px; }
   .canvas-notifications :is(button,summary):focus-visible { outline: 2px solid var(--canvas-accent); outline-offset: 2px; }
 
-  .canvas-layout { display: grid; grid-template-columns: 220px minmax(0, 1fr) 320px; min-height: 0; min-width: 0; }
+  .canvas-layout { position: relative; isolation: isolate; display: grid; grid-template-columns: 220px minmax(0, 1fr) 320px; min-height: 0; min-width: 0; }
   .canvas-app[data-projects="closed"] .canvas-layout { grid-template-columns: minmax(0, 1fr) 320px; }
   .canvas-app[data-detail="closed"] .canvas-layout { grid-template-columns: 220px minmax(0, 1fr); }
   .canvas-app[data-projects="closed"][data-detail="closed"] .canvas-layout { grid-template-columns: minmax(0, 1fr); }
@@ -74,9 +74,21 @@
   .canvas-projects { display: flex; flex-direction: column; border-right: 1px solid var(--canvas-line); }
   .canvas-inspector, .canvas-history, .canvas-agent { border-left: 1px solid var(--canvas-line); }
   .canvas-agent__production { display: grid; gap: 12px; min-width: 0; }
-  .canvas-agent { display: flex; flex-direction: column; overflow: hidden; padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+  .canvas-agent { position: relative; display: flex; flex-direction: column; overflow: hidden; padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+  .canvas-agent__expand { display: grid; place-items: center; flex: none; width: 36px; height: 36px; padding: 7px; margin-left: auto; }
+  .canvas-agent__expand svg { width: 20px; height: 20px; }
+  .canvas-agent__expand:focus-visible { outline: 2px solid var(--canvas-accent); outline-offset: 2px; }
+  .canvas-agent__resize { position: absolute; z-index: 5; inset: 0 auto 0 0; width: 12px; cursor: col-resize; touch-action: none; }
+  .canvas-agent__resize::after { content: ''; position: absolute; inset: 0 auto 0 0; width: 3px; background: transparent; }
+  .canvas-agent__resize:is(:hover,:focus-visible)::after, .is-agent-resizing .canvas-agent__resize::after { background: var(--canvas-accent); }
+  .canvas-agent__resize:focus-visible { outline: 2px solid var(--canvas-accent); outline-offset: -2px; }
+  .is-agent-resizing, .is-agent-resizing * { cursor: col-resize !important; user-select: none !important; -webkit-user-select: none !important; }
+  .canvas-app[data-agent-expanded="true"] .canvas-layout > [inert] { visibility: hidden; }
+  .canvas-app[data-agent-expanded="true"] .canvas-agent { position: absolute; inset: 0; z-index: 4; border-left: 0; }
+  .canvas-app[data-agent-expanded="true"] #canvasAgentBody { width: 100%; max-width: 1200px; margin-inline: auto; }
+  .canvas-agent :is(.canvas-agent__messages, .canvas-agent__chat-footer) { width: 100%; max-width: 88ch; margin-inline: auto; }
   .canvas-agent > .canvas-panel__head { flex: none; margin-bottom: 6px; }
-  .canvas-agent .help-menu__trigger { position: static; flex: none; inline-size: 36px; block-size: 36px; min-width: 36px; min-height: 36px; font-size: 1.15rem; box-shadow: none; margin-left: auto; }
+  .canvas-agent .help-menu__trigger { position: static; flex: none; inline-size: 36px; block-size: 36px; min-width: 36px; min-height: 36px; font-size: 1.15rem; box-shadow: none; margin-left: 0; }
   .canvas-agent > .canvas-eyebrow { flex: none; margin: 0 0 10px; }
   #canvasAgentBody, .canvas-agent__mount { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; }
   .canvas-agent__conversation { display: grid; flex: 1; grid-template-rows: auto auto minmax(0,1fr); min-height: 0; min-width: 0; }
@@ -152,10 +164,6 @@
   .canvas-agent__questions { padding-left: 20px; font-size: .75rem; line-height: 1.6; overflow-wrap: anywhere; }
   .canvas-agent__clear { display: flex; flex-wrap: wrap; gap: 8px; }
   .canvas-agent__clear p { flex-basis: 100%; }
-  @media (min-width: 1201px) {
-    .canvas-app[data-detail="agent"] .canvas-layout { grid-template-columns: 220px minmax(0, 1fr) 390px; }
-    .canvas-app[data-projects="closed"][data-detail="agent"] .canvas-layout { grid-template-columns: minmax(0, 1fr) 390px; }
-  }
   .canvas-agent p { font-size: .78rem; line-height: 1.6; overflow-wrap: anywhere; }
   .canvas-agent h3 { margin: 0; font-size: .92rem; line-height: 1.5; }
   .canvas-agent__notice { padding: 10px; border: 1px solid var(--canvas-line); border-radius: 8px; background: var(--canvas-inset); }
@@ -367,6 +375,13 @@
     .canvas-agent { padding: 10px 12px max(8px,env(safe-area-inset-bottom)); }
     .canvas-agent > .canvas-panel__head { margin-bottom: 2px; }
     .canvas-agent > .canvas-eyebrow { margin-bottom: 4px; }
+  }
+  @media (min-width: 901px) {
+    .canvas-app[data-detail="agent"] .canvas-layout { grid-template-columns: 220px minmax(0, 1fr) var(--canvas-agent-width, 390px); }
+    .canvas-app[data-projects="closed"][data-detail="agent"] .canvas-layout { grid-template-columns: minmax(0, 1fr) var(--canvas-agent-width, 390px); }
+  }
+  @media (min-width: 901px) and (max-width: 1200px) {
+    .canvas-app[data-projects="open"][data-detail="agent"] .canvas-layout { grid-template-columns: 210px minmax(0, 1fr) var(--canvas-agent-width, 320px); }
   }
   /* Let the last panel content scroll completely above the existing Help button. */
   .canvas-inspector, .canvas-history { padding-bottom: max(84px, calc(env(safe-area-inset-bottom) + 72px)); scroll-padding-bottom: 84px; }

@@ -2,6 +2,9 @@ const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
 const {openCanvasSettings} = require('./helpers/canvas-inspector-actions.cjs');
+for(const locale of ['en','de'])for(const scenario of ['layout','responsive'])test(`Canvas AI workspace ${locale}: ${scenario}`,async({page},info)=>{
+    await require('./helpers/canvas-agent-ui.cjs').workspace({page,expect,locale,info,mockSharedAuth,createCanvasApiMock,scenario});
+});
 for(const locale of ['en','de'])test(`Canvas conversation ${locale}: assistant selection and natural budget approval`,async({page},info)=>{
     await require('./helpers/canvas-conversation-budget-ui.cjs')({page,expect,locale,info,mockSharedAuth,createCanvasApiMock});
 });

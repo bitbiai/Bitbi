@@ -69,7 +69,9 @@
                 <div id="canvasInspectorBody" class="canvas-inspector__body"><p class="canvas-muted">Wähle einen Node, um Prompt, Modell, Einstellungen und Ausgabe zu bearbeiten.</p></div>
             </aside>
             <aside id="canvasAgentPanel" class="canvas-panel canvas-agent" hidden aria-labelledby="canvasAgentTitle">
-                <div class="canvas-panel__head"><h2 id="canvasAgentTitle" tabindex="-1">Mit KI erstellen</h2></div>
+                <div id="canvasAgentResize" class="canvas-agent__resize" role="separator" tabindex="0" aria-label="Breite der KI-Seitenleiste" aria-orientation="vertical" aria-controls="canvasAgentPanel" aria-describedby="canvasAgentResizeHelp" aria-valuemin="320" aria-valuemax="800" aria-valuenow="390" hidden></div>
+                <span id="canvasAgentResizeHelp" class="canvas-sr-only">Pfeil links verbreitert, Pfeil rechts verkleinert. Umschalt für größere Schritte; Pos1 und Ende für die Grenzen.</span>
+                <div class="canvas-panel__head"><h2 id="canvasAgentTitle" tabindex="-1">Mit KI erstellen</h2><button id="canvasAgentExpand" class="canvas-button canvas-button--compact canvas-agent__expand" type="button" title="Arbeitsfläche ausfüllen" aria-label="Arbeitsfläche ausfüllen" aria-controls="canvasAgentBody" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3H3v6 M15 3h6v6 M3 15v6h6 M21 15v6h-6"/></svg></button></div>
                 <p class="canvas-eyebrow">Canvas · Produktionsassistent</p>
                 <div id="canvasAgentBody"></div>
             </aside>

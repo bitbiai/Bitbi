@@ -1,5 +1,6 @@
 import { transitionControls } from './transition-controls.js?v=__ASSET_VERSION__';
 import { createWorkspaceView } from './workspace-view.js?v=__ASSET_VERSION__';
+import { createCanvasAgentWorkspace } from './agent-workspace.js?v=__ASSET_VERSION__';
 import { canvasMergeStrand } from '../../shared/canvas-export.mjs?v=__ASSET_VERSION__';
 import { SEEDANCE_25_MODEL, SEEDANCE_25_ROLES } from '../../shared/seedance-25-contract.mjs';
 import { createSeedance25Controls } from '../../shared/seedance-25-controls.js';
@@ -112,6 +113,7 @@ let workspaceActor=null,sessionInvalidated=false;
 const pendingRunKeys = new Map();
 let workflowAnalysis = { byNode: new Map(), edgeStates: new Map() };
 let agentPanel = null;
+let agentVisible = null;
 
 // Panel state is presentation-only: retain mounted inputs, media and graph scroll.
 const compactWorkspace = window.matchMedia('(max-width: 900px)');
@@ -120,6 +122,7 @@ const panels = Object.fromEntries(['projects', 'graph', 'inspector', 'history', 
     const key = name[0].toUpperCase() + name.slice(1);
     return [name, { panel: document.getElementById(`canvas${key}Panel`), button: document.getElementById(`canvas${key}Toggle`) }];
 }));
+const agentWorkspace = createCanvasAgentWorkspace({ app: dom.app, panels, compact: compactWorkspace, german: isGerman, onChange: syncPanels });
 
 function syncPanels() {
     const compact = compactWorkspace.matches;
@@ -129,14 +132,27 @@ function syncPanels() {
     for (const [name, { panel, button }] of Object.entries(panels)) {
         const visible = compact ? panelState.mobile === name : name === 'graph' || (name === 'projects' ? panelState.projects : panelState.detail === name);
         panel.hidden = !visible;
-        button.setAttribute(name === 'graph' ? 'aria-pressed' : 'aria-expanded', String(visible));
+        const covered = agentWorkspace.expanded && name !== 'agent';
+        panel.inert = covered;
+        if (covered) panel.setAttribute('aria-hidden', 'true'); else panel.removeAttribute('aria-hidden');
+        button.setAttribute(name === 'graph' ? 'aria-pressed' : 'aria-expanded', String(visible && !covered));
+        if (covered && panel.contains(active)) agentWorkspace.focusToggle();
         if (!visible && panel.contains(active)) (compact ? panels.graph.button : button).focus({ preventScroll: true });
     }
     if (!compact && active === panels.graph.button) dom.viewport.focus({ preventScroll: true });
-    agentPanel?.setVisible(!panels.agent.panel.hidden);
+    agentWorkspace.sync({ visible: !panels.agent.panel.hidden, projects: panelState.projects });
+    const nextAgentVisible = !panels.agent.panel.hidden;
+    if (agentPanel && agentVisible !== nextAgentVisible) {
+        agentVisible = nextAgentVisible;
+        agentPanel.setVisible(nextAgentVisible);
+    }
 }
 
 function showPanel(name, toggle = false) {
+    if (agentWorkspace.expanded && (name !== 'agent' || toggle)) {
+        agentWorkspace.collapse();
+        if (name !== 'agent') toggle = false;
+    }
     if (compactWorkspace.matches) panelState.mobile = toggle && panelState.mobile === name ? 'graph' : name;
     else if (name === 'projects') panelState.projects = toggle ? !panelState.projects : true;
     else if (name !== 'graph') panelState.detail = toggle && panelState.detail === name ? null : name;
@@ -151,12 +167,17 @@ function bindPanels() {
             // Help may still be moving focus from its relocated trigger. Its
             // own document handler must close that dialog before this panel.
             if (document.getElementById('bitbiHelpTrigger')?.getAttribute('aria-expanded') === 'true') return;
+            if (event.target.matches('select')) return;
             event.stopPropagation();
+            if (name === 'agent' && agentWorkspace.expanded) { agentWorkspace.collapse(); syncPanels(); agentWorkspace.focusToggle(); return; }
             showPanel(name, true);
             button.focus({ preventScroll: true });
         });
     }
-    compactWorkspace.addEventListener('change', syncPanels);
+    compactWorkspace.addEventListener('change', () => {
+        if (compactWorkspace.matches && panelState.detail === 'agent') panelState.mobile = 'agent';
+        agentWorkspace.collapse(); syncPanels();
+    });
     syncPanels();
 }
 
