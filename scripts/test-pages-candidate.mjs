@@ -279,6 +279,9 @@ for (const [file,jobName,required] of [
  ['full-regression.yml','browser-tests',['release-security','homepage-validation','worker-tests']],
 ]) {
  const source=fs.readFileSync(new URL(`../.github/workflows/${file}`,import.meta.url),'utf8');
+ const planner=source.match(/^  release-security:\n[\s\S]*?(?=^  [a-z][\w-]*:|$(?![\s\S]))/m)[0];
+ const plannerCheckout=planner.split('uses: actions/checkout@v5')[1].split('      - name:')[0];
+ assert(plannerCheckout.includes('fetch-depth: 0'),'Release planner ancestry checks need historical repair commits');
  const section=source.match(new RegExp(`^  ${jobName}:\\n[\\s\\S]*?(?=^  [a-z][\\w-]*:|$(?![\\s\\S]))`,'m'))[0];
  const dependencies=section.match(/^    needs: \[(.+)\]/m)[1].split(',').map(s=>s.trim());
  assert.deepEqual(dependencies,required);
