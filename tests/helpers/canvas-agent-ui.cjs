@@ -784,6 +784,9 @@ exports.workspace=async({page,expect,locale,info,mockSharedAuth,createCanvasApiM
         const bounds=await panel.evaluate(node=>{const p=node.getBoundingClientRect(),l=node.parentElement.getBoundingClientRect(),t=document.querySelector('.canvas-topbar').getBoundingClientRect();return{left:p.left,right:p.right,top:p.top,bottom:p.bottom,layoutLeft:l.left,layoutRight:l.right,layoutTop:l.top,layoutBottom:l.bottom,toolbarBottom:t.bottom};});
         expect(bounds.left).toBe(bounds.layoutLeft);expect(bounds.right).toBe(bounds.layoutRight);expect(bounds.top).toBe(bounds.layoutTop);expect(bounds.bottom).toBe(bounds.layoutBottom);expect(bounds.top).toBeGreaterThanOrEqual(bounds.toolbarBottom);
         await expect(page.locator('#canvasProjectsPanel')).toBeHidden();await expect(page.locator('#canvasGraphPanel')).toHaveAttribute('inert','');
+        const dialogs=[],onDialog=async dialog=>{dialogs.push(dialog.type());await dialog.dismiss();};page.on('dialog',onDialog);
+        await expand.press('Delete');await expand.press('Backspace');expect(dialogs).toEqual([]);
+        await page.locator('#canvasNotificationsToggle').press('Delete');expect(dialogs).toEqual([]);
         // The geometry assertion must detect a graph-only rather than full-workspace overlay.
         expect(await panel.evaluate(node=>{node.style.left='220px';const bad=node.getBoundingClientRect().left>node.parentElement.getBoundingClientRect().left;node.style.left='';return bad;})).toBe(true);
         await expect(page.locator('body > header')).toBeVisible();await page.locator('#canvasNotificationsToggle').click();
@@ -796,6 +799,7 @@ exports.workspace=async({page,expect,locale,info,mockSharedAuth,createCanvasApiM
         await expect(panel.locator('[data-message-id="pending-size:reply"]')).toHaveCount(1);await expect(input).toHaveValue('A retained unsent draft');
         expect(Math.abs(await readingOffset()-reading.offset)).toBeLessThan(4);
         await expand.click();await expect.poll(width).toBe(chosen);expect(await graphState()).toEqual(originalGraph);
+        await graph.focus();await graph.press('Delete');expect(dialogs).toEqual(['confirm']);page.off('dialog',onDialog);
         await showProject(panel,locale);await expand.click();await expect(panel.getByRole('tab',{name:de?'Projekt & Produktion':'Project & production',exact:true})).toHaveAttribute('aria-selected','true');
         await page.locator('#canvasInspectorToggle').click();await expect(page.locator('#canvasInspectorPanel')).toBeVisible();expect(Math.round((await page.locator('#canvasInspectorPanel').boundingBox()).width)).toBe(320);
         await page.locator('#canvasAgentToggle').click();await expect.poll(width).toBe(chosen);await showChat(panel,locale);

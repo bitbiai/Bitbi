@@ -1238,8 +1238,10 @@ function bindEvents() {
     });
     document.addEventListener('keydown', (event) => {
         if (assetPicker.isOpen()) return;
-        if (!['Delete', 'Backspace'].includes(event.key) || !store.state.selected) return;
+        if (!['Delete', 'Backspace'].includes(event.key)) return;
         if (event.target.closest?.('input, textarea, select, [contenteditable="true"], #canvasNotificationsPanel')) return;
+        if (panels.graph.panel.inert) { event.preventDefault(); return; }
+        if (!store.state.selected) return;
         event.preventDefault(); void deleteSelection();
     });
     window.addEventListener('beforeunload', (event) => {

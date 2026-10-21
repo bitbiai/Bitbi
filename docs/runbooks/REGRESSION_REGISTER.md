@@ -2236,6 +2236,14 @@ geometry remains mounted. Inspector/History retain their independent widths.
 Do not call conversation visibility hooks again for a width/mode-only change.
 Defer layout-observer writes to animation frames rather than changing grid
 geometry during synchronous resize delivery.
+Global document shortcuts must also check the covered graph: native `inert`
+does not stop a Delete/Backspace event originating on the AI/header buttons.
+The initial candidate `067b426b` failed a real dialog countercheck; the guard
+blocks both keys (including WebKit Backspace navigation) while expanded and retains
+ordinary graph deletion on restore. The new layout observer is active only while
+the AI panel is visible; a startup trace caught the hidden layout changing from
+zero size to its visible size during resize delivery before any user interaction.
+Keep the existing strict page-error assertion and avoid hidden-panel resize work.
 `tests/canvas.spec.js` → `canvas-agent-ui.cjs.workspace` exercises actual pointer
 capture/cancellation, focused keyboard sizing, storage failure, compact/zoomed
 layouts, full-area geometry with a graph-only broken control, notification hit

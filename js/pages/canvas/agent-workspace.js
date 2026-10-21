@@ -91,12 +91,15 @@ export function createCanvasAgentWorkspace({ app, panels, compact, german, onCha
         if (resizeFrame !== null) return;
         resizeFrame = requestAnimationFrame(() => { resizeFrame = null; finish(); paint(); });
     });
-    observer.observe(layout);
     return {
         get expanded() { return expanded && !compact.matches; },
         collapse() { finish(); expanded = false; },
         focusToggle() { toggle.focus({ preventScroll: true }); },
         sync(state) {
+            if (visible !== state.visible) {
+                observer.disconnect(); cancelAnimationFrame(resizeFrame); resizeFrame = null;
+                if (state.visible) observer.observe(layout);
+            }
             visible = state.visible; projects = state.projects;
             if (!visible || compact.matches) { finish(); expanded = false; }
             paint();
