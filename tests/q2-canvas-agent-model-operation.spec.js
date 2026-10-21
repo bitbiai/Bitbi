@@ -12,3 +12,12 @@ for(const name of ['late','evaluate','lease','cancel','manual','newer','failed',
     } finally {DB.close();}
   });
 }
+
+for(const name of ['fresh','resume','transient','bounded','unknown','guards','diagnostics'])test(`Canvas local planning recovery ${name}`,async()=>{
+  const DB=new SqliteD1Database();applyAuthMigrations(DB);
+  try{
+    const {canvasLocalRecoveryCase}=await import('./helpers/canvas-agent-model-operation-cases.mjs');
+    expect((await canvasLocalRecoveryCase({...createAuthTestEnv(),DB},name)).case).toBe(name);
+    expect((await DB.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);
+  }finally{DB.close();}
+});

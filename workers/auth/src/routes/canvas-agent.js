@@ -86,6 +86,12 @@ async function control(ctx,session,projectId,id) {
     if(prior){if(prior.action!==parsed.body.action)agentFail('idempotency_conflict');await releaseCanvasAgentUndispatched(env,id);return respond({run:await publicAgentRun(env,run),idempotentReplay:true});}
     const action=parsed.body.action,status={pause:'paused',resume:run.plan_json?'running':'queued',cancel:'cancelled',takeover:'taken_over'}[action];
     if(['completed','cancelled','taken_over'].includes(run.status))agentFail('canvas_agent_control_closed');
+    if(action==='resume'&&['blocked','review_required'].includes(run.status)) {
+        const {readmitCanvasPlanning}=await import('../lib/canvas-agent-planning-recovery.js');
+        await readmitCanvasPlanning(env,run,{requestKey:key});
+        await wakeCanvasAgent(env,id);
+        return respond({run:await publicAgentRun(env,await env.DB.prepare('SELECT * FROM canvas_agent_runs WHERE id=?').bind(id).first())});
+    }
     if(!canvasAgentAllowedActions(run,await publicCanvasAgentModelOperation(env,run.id)).includes(action))agentFail('canvas_agent_review_required');
     if(action==='resume') {
         if(run.status!=='paused'||run.error_code==='canvas_agent_brief_changed')agentFail('canvas_agent_review_required');

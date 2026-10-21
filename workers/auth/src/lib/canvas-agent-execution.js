@@ -1,3 +1,4 @@
+import { canvasProductionFailure,canvasExecutionDiagnostic } from './canvas-agent-execution-failure.js';
 import { claimCanvasAgent,readAgentRun,agentTransition,wakeCanvasAgent,agentFail,ACTIVE_AGENT_STATES } from './canvas-agent-store.js';
 import { canvasAgentProject } from '../routes/canvas-agent.js';
 import { canvasAgentCapabilities } from './canvas-agent-capabilities.js';
@@ -149,6 +150,20 @@ export async function processCanvasAgent(env,id) {
     // lease. A cancellation still retains the already accepted paid result.
     const {reconcileCanvasAgentModelOperations}=await import('./canvas-agent-model-operations.js');
     await reconcileCanvasAgentModelOperations(env,{runId:id});
+    const pending=await readAgentRun(env,id);
+    if(pending?.status==='planning'&&JSON.parse(pending.cause_json||'{}').recovery==='local_retry'){
+        if(pending.lease_until>nowIso())return {status:'ignored'};
+        try{await (await import('./canvas-agent-planning-recovery.js')).readmitCanvasPlanning(env,pending,{automatic:true});}
+        catch(error){
+            const execution=await canvasExecutionDiagnostic(error,{stage:'reservation'});
+            const cause={...JSON.parse(pending.cause_json),recovery:'support',readmissionFailure:execution};
+            const stopped=await env.DB.prepare("UPDATE canvas_agent_runs SET status='blocked',cause_json=?,updated_at=? WHERE id=? AND status='planning' AND cause_json=?")
+                .bind(JSON.stringify(cause),nowIso(),id,pending.cause_json).run();
+            if(stopped.meta?.changes===1)await appendCanvasAgentEvent(env,pending,`readmission:${execution.reference}`,'error',
+                {phase:pending.phase,code:execution.reason,tool:'production.resume',execution});
+            return {status:'blocked'};
+        }
+    }
     let run=await claimCanvasAgent(env,id);if(!run)return {status:'ignored'};
     if(run.purpose==='briefing'&&run.status==='queued')logCanvasDialogueStage('consumer_received',{runId:id,durationMs:Date.now()-Date.parse(run.created_at)});
     try {
@@ -261,17 +276,17 @@ export async function processCanvasAgent(env,id) {
             await appendCanvasAgentEvent(env,run,`readiness:${readiness.firstFailureAt}:${readiness.attempts}`,'error',{phase:run.phase,code:error.code,tool:'production.readiness',readiness});
             return {status:run.status};
         }
-        const failure=run.purpose==='briefing'?await canvasDialogueFailure(env,run,error):null;
-        const code=failure?.code||(/^[a-z0-9_]{1,90}$/.test(error?.code||'')?error.code:'canvas_agent_execution_review_required');
-        const status=failure?.status||(/unknown|review|required|claim_lost|provider_timeout/.test(code)?'review_required':'blocked');
-        const cause={...(failure?.cause||{code,step:run.phase,recovery:code==='canvas_agent_provider_review_required'?'receipt':'manual',...(Array.isArray(error.issues)?{issues:error.issues.slice(0,16)}:{})}),
+        const failure=run.purpose==='briefing'?await canvasDialogueFailure(env,run,error):await canvasProductionFailure(env,run,error);
+        const {code,status}=failure;
+        const cause={...failure.cause,...(Array.isArray(error.issues)?{issues:error.issues.slice(0,16)}:{}),
             ...(canvasAgentValidationDiagnostic(error.validationDiagnostic)?{diagnostic:canvasAgentValidationDiagnostic(error.validationDiagnostic),outcome:error.outcome==='completed'?'completed':null}:{}),
             ...(readiness?{readiness:{...readiness,exhausted:readiness.retryable&&readiness.attempts>=5}}:{})};
         const failed=await env.DB.prepare('UPDATE canvas_agent_runs SET status=?,error_code=?,cause_json=?,updated_at=? WHERE id=? AND lease_token=?')
             .bind(status,code,JSON.stringify(cause),nowIso(),id,run.lease_token).run();
         if(failed.meta?.changes===1)await appendCanvasAgentEvent(env,run,`error:${run.rounds}:${run.repair_attempts||0}:${code}`,'error',{phase:run.phase,code,tool:'production.reconcile',
-            ...(cause.diagnostic?{diagnostic:cause.diagnostic,outcome:cause.outcome}:{})});
-        if(failure){
+            ...(cause.diagnostic?{diagnostic:cause.diagnostic,outcome:cause.outcome}:{}),
+            ...(cause.execution?{execution:cause.execution,stepId:cause.stepId,operationId:cause.operationId,dispatchState:cause.dispatchState}:{})});
+        if(failure&&run.purpose==='briefing'){
             logCanvasDialogueStage(cause.stage,{runId:id,operationId:cause.operationId,code,dispatchState:cause.dispatchState,receiptState:cause.receiptState});
             if(cause.dispatchState==='not_dispatched'){
                 const {releaseCanvasAgentUndispatched}=await import('./canvas-agent-store.js');

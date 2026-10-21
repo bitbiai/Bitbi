@@ -21,6 +21,7 @@ export async function publicAgentRun(env,row) {
     let cause=row.cause_json?JSON.parse(row.cause_json):row.error_code?{code:row.error_code,step:row.phase,recovery:'manual'}:null;
     if(row.status==='paused'&&row.phase==='budget'&&!actionableBudget)cause={code:row.expires_at<=nowIso()?'canvas_agent_authorization_expired':project?.revision!==row.expected_revision?'canvas_agent_project_changed':'canvas_agent_budget_request_changed',step:'budget',recovery:'manual'};
     const proposedPlan=await publicCanvasAgentProposal(env,row),partialOutputs=await publicCanvasAgentOutputs(env,row);
+    const readmission=await (await import('./canvas-agent-planning-recovery.js')).inspectCanvasPlanningReadmission(env,row);
     const held=['cancelled','taken_over'].includes(row.status)||row.status==='paused'&&row.phase!=='budget';
     const event=await env.DB.prepare(`SELECT type,payload_json FROM canvas_agent_events WHERE run_id=? AND type IN ('action','decision_summary','error')
         AND (?=0 OR json_extract(payload_json,'$.code')=?) ORDER BY id DESC LIMIT 1`).bind(row.id,held?1:0,row.status).first();
@@ -38,7 +39,7 @@ export async function publicAgentRun(env,row) {
             event?JSON.parse(event.payload_json):{phase:held?row.status==='taken_over'?'manual_takeover':row.status:row.phase,model:!held&&modelOperation?modelOperation.modelId:null},
         cause,
         summarySupport:{status:'unavailable',mode:'completed'},
-        modelOperation,allowedActions:canvasAgentAllowedActions({...row,current_revision:project?.revision},modelOperation),
+        modelOperation,allowedActions:canvasAgentAllowedActions({...row,current_revision:project?.revision,planningReadmission:Boolean(readmission)},modelOperation),
         errorCode:row.error_code,result:row.result_json?JSON.parse(row.result_json):null,
         ...(row.status==='clarification_required'?{clarification:{field:'duration',code:'duration_required'}}:{}),
         createdAt:row.created_at,updatedAt:row.updated_at};
@@ -61,7 +62,8 @@ async function canvasAgentMediaProgress(env,run) {
     return counts;
 }
 export async function publicCanvasAgentModelOperation(env,runId) {
-    const op=await env.DB.prepare(`SELECT s.id,s.kind,s.status,a.provider_outcome,a.billing_status,o.id AS operation_id,o.model,o.state,o.error_code,o.dispatched_at,o.response_at,o.receipt_json,o.reconcile_attempts
+    const op=await env.DB.prepare(`SELECT s.id,s.kind,s.status,s.receipt_json AS step_receipt,a.provider_outcome,a.billing_status,a.dispatch_token,a.dispatched_at AS usage_dispatched_at,
+        EXISTS(SELECT 1 FROM member_credit_ledger l WHERE l.user_id=a.user_id AND l.idempotency_key=a.idempotency_key AND l.amount<0) AS charged,o.id AS operation_id,o.model,o.state,o.error_code,o.dispatched_at,o.response_at,o.receipt_json,o.reconcile_attempts
         FROM canvas_agent_steps s LEFT JOIN canvas_agent_model_operations o ON o.step_id=s.id
         LEFT JOIN member_ai_usage_attempts_v2 a ON a.id=s.usage_attempt_id
         WHERE s.run_id=? AND s.kind IN ('plan','evaluate') AND s.usage_attempt_id IS NOT NULL ORDER BY s.rowid DESC LIMIT 1`).bind(runId).first();
@@ -72,7 +74,7 @@ export async function publicCanvasAgentModelOperation(env,runId) {
     const settlementReview=op.state==='completed'&&receipt?.ok===true&&op.status!=='completed'&&op.billing_status==='reserved'
         &&['generation_result_requires_credit_review','canvas_agent_billing_review_required'].includes(op.error_code);
     const outcome=failed?'failed':op.state==='completed'?'completed':op.state==='rejected'?'rejected':op.state==='unknown'?'unknown':op.state?'pending':
-        ['dispatched','unknown'].includes(op.provider_outcome)?'unknown':op.provider_outcome==='succeeded'?'completed':op.provider_outcome==='failed'?'rejected':'not_dispatched';
+        ['dispatched','unknown'].includes(op.provider_outcome)?'unknown':op.provider_outcome==='succeeded'?'completed':op.provider_outcome==='failed'?'rejected':op.provider_outcome==='not_dispatched'&&!op.dispatch_token&&!op.usage_dispatched_at&&!op.step_receipt&&!op.charged?'not_dispatched':'unverified';
     return {operationId:op.operation_id||op.id,kind:op.kind,modelId:op.model||'xai/grok-4.7',outcome,
         recovery:invalid&&settled?'correction_required':settled?null:settlementReview?'settlement_review':failed?'billing_review':op.reconcile_attempts>=5?'review_required':op.state==='received'||(op.state==='completed'&&op.status!=='completed')?'receipt_ready':outcome==='unknown'?'review_required':outcome==='pending'?'waiting_callback':null,
         ...(op.dispatched_at?{dispatchedAt:op.dispatched_at}:{}),...(op.response_at?{responseAt:op.response_at}:{})};
@@ -80,6 +82,7 @@ export async function publicCanvasAgentModelOperation(env,runId) {
 export function canvasAgentAllowedActions(run,operation) {
     if(['completed','cancelled','taken_over','clarification_required'].includes(run.status))return [];
     const actions=['cancel','takeover'];
+    if(run.planningReadmission)actions.unshift('resume');
     if(ACTIVE_AGENT_STATES.includes(run.status))actions.unshift('pause');
     if(run.status==='paused'&&run.phase!=='budget'&&(run.current_revision===undefined||run.current_revision===run.expected_revision)
         &&!['pending','unknown','failed'].includes(operation?.outcome)&&!['review_required','billing_review','settlement_review'].includes(operation?.recovery))actions.unshift('resume');

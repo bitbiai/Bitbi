@@ -1,3 +1,4 @@
+import { canvasPlanningEvidence } from './canvas-agent-execution-failure.js';
 import { nowIso, sha256Hex } from './tokens.js';
 import { logDiagnostic } from '../../../../js/shared/worker-observability.mjs';
 import { canvasConversationExecutionFacts } from './canvas-agent-conversation-context.js';
@@ -38,7 +39,7 @@ export function canvasIncidentSource(row) {
 const validation=value=>canvasAgentValidationDiagnostic(value);
 export async function canvasIncidentContext(env,userId,projectId,source) {
   const facts=await canvasConversationExecutionFacts(env,userId,projectId),d=source.details;
-  let operation=null,affected=null,diagnostic=null,progress=null;
+  let operation=null,affected=null,diagnostic=null,progress=null,execution=null;
   if(source.source==='event'){
     const run=await env.DB.prepare('SELECT id,status,phase,error_code,cause_json,model_id,next_attempt_at,expires_at,expected_revision FROM canvas_agent_runs WHERE id=? AND project_id=? AND user_id=?')
       .bind(d.runId,projectId,userId).first();
@@ -50,9 +51,9 @@ export async function canvasIncidentContext(env,userId,projectId,source) {
     const payload=parse(event?.payload_json)||{},stepId=safe(initial?.operation?.stepId)||safe(payload.stepId),operationId=safe(initial?.operation?.id)||safe(payload.operationId);
     // Once captured, retain the exact original operation. Later correction/media
     // receipts must not become evidence about an earlier planning rejection.
-    const predicates=stepId?'s.id=?':operationId?'o.id=?':`s.created_at<=? AND (s.status IN ('rejected','accepted') OR o.error_code=?)
+    const predicates=stepId?'s.id=?':operationId?'o.id=?':`s.created_at<=? AND (s.status IN ('rejected','accepted') OR o.error_code=? OR s.kind='plan' AND ?=1)
       AND (o.response_at IS NULL OR o.response_at<=?)${d.nodeId?' AND s.node_id=?':''}`;
-    const bindings=stepId?[stepId]:operationId?[operationId]:[source.at,source.code,source.at,...(d.nodeId?[d.nodeId]:[])];
+    const bindings=stepId?[stepId]:operationId?[operationId]:[source.at,source.code,['planning','repairing'].includes(source.stage)?1:0,source.at,...(d.nodeId?[d.nodeId]:[])];
     const receipt=run?await env.DB.prepare(`SELECT s.id AS step_id,s.kind,s.status,s.receipt_json,o.id AS operation_id,o.state,o.response_json IS NOT NULL AS response_stored,
       o.receipt_json AS operation_receipt,o.model,o.response_at,a.billing_status,a.credit_cost,a.provider_outcome
       FROM canvas_agent_steps s LEFT JOIN canvas_agent_model_operations o ON o.step_id=s.id
@@ -60,6 +61,7 @@ export async function canvasIncidentContext(env,userId,projectId,source) {
       WHERE s.run_id=? AND ${predicates}
       ORDER BY CASE WHEN o.error_code=? THEN 0 ELSE 1 END,s.rowid DESC LIMIT 1`).bind(run.id,...bindings,source.code).first():null;
     const result=parse(receipt?.operation_receipt)||parse(receipt?.receipt_json),cause=parse(run?.cause_json);
+    execution=payload.execution||((run?.error_code===source.code)?cause?.execution:null)||null;
     diagnostic=validation(initial?.validation||payload.validationDiagnostic||payload.diagnostic||result?.validationDiagnostic||result?.diagnostic
       ||(run?.error_code===source.code?cause?.validationDiagnostic||cause?.diagnostic:null));
     if(!diagnostic&&receipt?.operation_id&&receipt.response_stored&&result?.outcome==='completed'&&result.ok===false){
@@ -68,7 +70,7 @@ export async function canvasIncidentContext(env,userId,projectId,source) {
     }
     const scheduled=run&&['queued','planning','applying','running','exporting'].includes(run.status)&&run.next_attempt_at
       &&run.expires_at>facts.observedAt&&run.expected_revision===facts.projectRevision
-      &&(run.error_code!==source.code||cause?.recovery==='readiness'&&!cause.readiness?.exhausted);
+      &&(run.error_code!==source.code||cause?.recovery==='local_retry'||cause?.recovery==='readiness'&&!cause.readiness?.exhausted);
     affected=run?{runId:run.id,status:run.status,phase:run.phase,errorCode:errorCode(run.error_code),modelId:run.model_id,
       recovery:scheduled?'automatic':null,nextAttemptAt:run.next_attempt_at}:null;
     if(receipt)operation={id:receipt.operation_id,stepId:receipt.step_id,kind:receipt.kind,state:receipt.state,
@@ -76,6 +78,11 @@ export async function canvasIncidentContext(env,userId,projectId,source) {
       valid:typeof result?.ok==='boolean'?result.ok:null,responseAt:receipt.response_at,modelId:receipt.model,
       validation:diagnostic,
       billingStatus:receipt.billing_status,reservationCredits:receipt.billing_status==='reserved'?receipt.credit_cost:null};
+    if(run&&receipt?.kind==='plan'){
+      const evidence=await canvasPlanningEvidence(env,{...run,project_id:projectId,user_id:userId},receipt.step_id);
+      operation={...operation,dispatchCertainty:evidence.certainty,dispatchEvidence:evidence.certainty==='not_dispatched'?'owned_usage_no_dispatch_token_no_intent_no_debit':'original_receipts',
+        usageAttemptId:evidence.attempts.length===1?evidence.attempts[0].id:null};
+    }
     if(run&&['planning','validating'].includes(source.stage)){
       const applied=await env.DB.prepare(`SELECT p.step_id,p.updated_at FROM canvas_agent_proposals p WHERE p.run_id=? AND p.status='applied' AND p.updated_at>=?
         AND EXISTS(SELECT 1 FROM canvas_agent_steps s JOIN canvas_nodes n ON n.id=s.node_id AND n.project_id=? AND n.user_id=?
@@ -106,6 +113,10 @@ export async function canvasIncidentContext(env,userId,projectId,source) {
     FROM canvas_nodes WHERE project_id=? AND user_id=? AND deleted_at IS NULL`).bind(projectId,userId).first();
   return {version:1,trust:'server_observation',source:{...source,details:d},observedAt:facts.observedAt,observedUntil:facts.observedUntil,
     changedDuringObservation:facts.changedDuringObservation,state,affected,operation,validation:diagnostic,progress,
+    execution,explanationConstraints:{missingRecordMeans:'unverified',nextStep:affected?.recovery==='automatic'?'Automatic recovery is scheduled; report progress only when evidenced.':
+      operation?.dispatchCertainty==='not_dispatched'?'The local planning admission did not dispatch. Preserve its released reservation. A guarded Resume can re-admit it only with current authorization; an unexplained application defect requires support, not a different creative prompt.':
+      'Observe the original operation when acceptance is uncertain. Missing records do not establish no dispatch or no cost.',
+      tone:'Explain the practical next step. Do not substitute a blanket refusal or tell the user to diagnose server code.'},
     production:facts.production?{id:facts.production.id,status:facts.production.status,phase:facts.production.phase,
       errorCode:facts.production.errorCode,completed:facts.production.completed,total:facts.production.total,
       repairAttempts:facts.production.repairAttempts,authorityExpired:facts.production.authorityExpired}:null,
@@ -115,7 +126,7 @@ export async function canvasIncidentContext(env,userId,projectId,source) {
 
 export function canvasIncidentExplanation(context,reason='not_authorized') {
   const de=context.source.locale==='de',source=context.source,affected=context.affected,op=context.operation;
-  const parts=[];
+  const execution=context.execution,parts=[];
   if(context.state==='resolved')parts.push(de?'Der zuvor gemeldete Fehler ist inzwischen überwunden; der gespeicherte Auftrag ist weitergekommen.':'The earlier error has now been overcome; the stored operation has advanced.');
   else if(!source.confirmed)parts.push(de?'Die Oberfläche konnte einen Canvas-Vorgang oder seinen Status nicht zuverlässig bestätigen. Das ist kein Nachweis dafür, dass die Produktion angehalten wurde.':'The interface could not reliably confirm a Canvas operation or its status. This does not establish that production stopped.');
   else if(source.code==='canvas_agent_plan_invalid')parts.push(de?'Der Produktionsplan konnte nicht übernommen werden.':'The production plan could not be accepted.');
@@ -126,6 +137,7 @@ export function canvasIncidentExplanation(context,reason='not_authorized') {
   if(context.state!=='resolved'){
     if((op?.validation||context.validation)?.reason==='terminal_transition')parts.push(de?'Beim letzten Clip ist eine Überblendung zu einem weiteren Clip eingetragen, obwohl kein weiterer Clip folgt.':'The last clip specifies a transition to another clip even though no clip follows it.');
     else if(op?.validation||context.validation)parts.push(de?'Die gespeicherte Antwort verletzt eine geprüfte Regel für die Struktur oder die Beziehungen des Plans. Die genaue Prüfstelle steht in Meldungen.':'The stored reply violates a validated rule for the plan structure or its relationships. Notifications contains the precise validation detail.');
+    else if(execution)parts.push(de?`Der interne Planungsschritt „${execution.stage}“ konnte nicht abgeschlossen werden. Das ist ein Ausführungsproblem; eine Änderung deiner Filmidee ist dafür keine belegte Lösung.`:`The internal planning stage “${execution.stage}” could not finish. This is an execution problem; changing your film idea is not an evidenced solution.`);
     else if(source.confirmed)parts.push(de?'Eine genauere Ursache ist anhand der gespeicherten Belege noch nicht gesichert.':'The stored evidence does not yet establish a more precise cause.');
   }
   const run=context.production,related=affected?.runId===run?.id;
@@ -135,9 +147,12 @@ export function canvasIncidentExplanation(context,reason='not_authorized') {
   }
   if(op?.responseStored&&op.valid===false&&op.outcome==='completed')parts.push(de?'Die ursprüngliche Antwort ist gespeichert; ihr Ausgang ist bekannt.':'The original response is retained; its outcome is known.');
   else if(context.retained.resultNodes||context.retained.exportAssets.length)parts.push(de?'Bereits gespeicherte Ergebnisse bleiben erhalten.':'Previously saved results remain retained.');
+  if(op?.dispatchCertainty==='not_dispatched')parts.push(de?'Für diesen konkreten Planungsschritt belegen der Abrechnungsversuch und die Versandprüfung, dass noch keine Anbieteranfrage versandt wurde.':'The usage attempt and dispatch checks establish that this specific planning step has not sent a provider request.');
   if(op?.billingStatus==='finalized')parts.push(de?'Der ursprüngliche Modellaufruf ist abgerechnet; eine ungültige Antwort bedeutet nicht, dass keine Kosten entstanden sind.':'The original model call has been settled; an invalid reply does not mean no cost was incurred.');
   if(context.state==='recovering')parts.push(de?'Die bestehende Wiederherstellung ist vorgemerkt oder läuft bereits; ein erfolgreicher Folgeschritt ist noch nicht belegt. Diese Erklärung startet keinen neuen Auftrag.':'Existing recovery is scheduled or underway; a successful next step is not yet evidenced. This explanation starts no new operation.');
-  else if(context.state!=='resolved')parts.push(de?'Der Beleg muss geprüft werden; diese Auskunft startet keine Wiederholung. Details stehen in Meldungen.':'The receipt needs review; this explanation starts no retry. Details are in Notifications.');
+  else if(context.state!=='resolved')parts.push(op?.dispatchCertainty==='not_dispatched'
+    ?(de?'Die sichere Fortsetzung ist eine erneute lokale Zulassung desselben Auftrags über „Fortsetzen“, sofern Freigabe und Projektstand unverändert sind. Bei einem wiederkehrenden internen Fehler muss der Support die Diagnose prüfen.':'The safe continuation is to re-admit this same operation with Resume, provided authorization and project state are unchanged. A recurring internal failure needs support to inspect the diagnostic.')
+    :(de?'Die gespeicherten Auftragsbelege müssen geklärt werden. Wenn die Ursache intern ist, benötigt der Support die Diagnosereferenz aus Meldungen; deine Filmidee muss deshalb nicht neu gestartet werden.':'The stored operation evidence needs reconciliation. For an internal cause, support needs the diagnostic reference in Notifications; this does not require restarting your film idea.'));
   if(reason==='model_failed'||reason==='model_outcome_unknown')parts.push(de?'Die KI-Erklärung konnte nicht bereitgestellt werden. Dies ist eine Canvas-Systemauskunft; der bestehende Modellauftrag wird nicht erneut versandt.':'The AI explanation could not be delivered. This is Canvas system information; the existing model request is not being resubmitted.');
   else if(reason!=='model_pending')parts.push(de?'KI-Analyse war für diese Erklärung nicht verfügbar oder nicht freigegeben. Dies ist eine Canvas-Systemauskunft ohne neuen Modellaufruf.':'AI analysis was unavailable or not authorized for this explanation. This is Canvas system information without a new model call.');
   else parts.push(de?'Dies ist zunächst eine Canvas-Systemauskunft; die freigegebene KI-Erklärung wird unter derselben Nachricht ergänzt.':'This is initial Canvas system information; the authorized AI explanation will update this same message.');

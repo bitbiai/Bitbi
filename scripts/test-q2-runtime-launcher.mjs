@@ -1187,6 +1187,7 @@ test('Canvas reliability runs additive native callers with the complete staged h
     'canvas_reliability_incident_fallback','canvas_reliability_incident_manual','canvas_reliability_incident_model','canvas_reliability_incident_fable',
     'canvas_reliability_incident_unknown','canvas_reliability_incident_resolved','canvas_reliability_incident_revoked','canvas_reliability_incident_isolation','canvas_reliability_incident_deleted',
     'canvas_reliability_plan_interpretation_recover','canvas_reliability_plan_interpretation_guards','canvas_reliability_plan_interpretation_crash','canvas_reliability_plan_interpretation_active','canvas_reliability_plan_interpretation_preflight',
+    'canvas_reliability_local_planning_fresh','canvas_reliability_local_planning_resume','canvas_reliability_local_planning_transient','canvas_reliability_local_planning_bounded','canvas_reliability_local_planning_unknown','canvas_reliability_local_planning_guards','canvas_reliability_local_planning_diagnostics',
     'canvas_reliability_plan_correction_review_recover','canvas_reliability_plan_correction_review_guards','canvas_reliability_plan_correction_review_race','canvas_reliability_plan_correction_review_format',
   ]);
   assert.equal(parseRuntimeArgs(['--suite','canvas-reliability'],{}).suite,'canvas-reliability');

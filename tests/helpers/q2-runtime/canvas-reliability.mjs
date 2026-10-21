@@ -7,6 +7,7 @@ export const canvasReliabilityInventory=Object.freeze([
   ...['evidence','quoted','budget-scope'].map(name=>`canvas_reliability_explanation_${name}`),
   ...['fallback','manual','model','fable','unknown','resolved','revoked','isolation','deleted'].map(name=>`canvas_reliability_incident_${name}`),
   ...['recover','guards','crash','active','preflight'].map(name=>`canvas_reliability_plan_interpretation_${name}`),
+  ...['fresh','resume','transient','bounded','unknown','guards','diagnostics'].map(name=>`canvas_reliability_local_planning_${name}`),
   ...['recover','guards','race','format'].map(name=>`canvas_reliability_plan_correction_review_${name}`),
 ]);
 // This additive suite is also part of Full. It does not relabel or rerun the
@@ -57,6 +58,10 @@ export async function runCanvasReliabilityTests(f){
   });
   for(const name of ['recover','guards','crash','active','preflight'])await f.test(`canvas_reliability_plan_interpretation_${name}`,async()=>{
     const response=await f.control('/canvas-agent-plan-interpretation',{name});assert.equal(response.status,200,await response.clone().text());
+    const result=await response.json();assert.equal(result.case,name);f.metrics.push(result);
+  });
+  for(const name of ['fresh','resume','transient','bounded','unknown','guards','diagnostics'])await f.test(`canvas_reliability_local_planning_${name}`,async()=>{
+    const response=await f.control('/canvas-local-planning-recovery',{name});assert.equal(response.status,200,await response.clone().text());
     const result=await response.json();assert.equal(result.case,name);f.metrics.push(result);
   });
   for(const name of ['recover','guards','race','format'])await f.test(`canvas_reliability_plan_correction_review_${name}`,async()=>{

@@ -1,6 +1,9 @@
+import { canvasPlanningEvidence } from '../../workers/auth/src/lib/canvas-agent-execution-failure.js';
+import { readmitCanvasPlanning } from '../../workers/auth/src/lib/canvas-agent-planning-recovery.js';
+import { syncCanvasProjectIncidents } from '../../workers/auth/src/lib/canvas-agent-incidents.js';
 import { canvasAgentModelOperationFixture } from './canvas-agent-model-operation-control.mjs';
 import worker from '../../workers/auth/src/index.js';
-import { claimCanvasAgent,agentTransition,requeueCanvasAgents } from '../../workers/auth/src/lib/canvas-agent-store.js';
+import { claimCanvasAgent,agentTransition,requeueCanvasAgents,releaseCanvasAgentUndispatched } from '../../workers/auth/src/lib/canvas-agent-store.js';
 import { executeCanvasAgentModel } from '../../workers/auth/src/lib/canvas-agent-planning.js';
 import { reconcileCanvasAgentModelOperations } from '../../workers/auth/src/lib/canvas-agent-model-operations.js';
 import { releaseExpiredAiDispatch,claimAiDispatch,markAiDispatchUnknown } from '../../workers/auth/src/lib/ai-dispatch-state.js';
@@ -218,4 +221,108 @@ export async function canvasModelOperationCase(base,name) {
     await f.atClock(()=>reconcileCanvasAgentModelOperations(f.env,{runId:f.runId}));
     check(await debits(f)===1&&f.calls.length===1,'Duplicate terminal events cannot duplicate charges or paid work');
     return {case:name,providerCalls:1,debits:1};
+}
+
+export const CANVAS_LOCAL_RECOVERY_CASES=['fresh','resume','transient','bounded','unknown','guards','diagnostics'];
+export async function canvasLocalRecoveryCase(base,name){
+    check(CANVAS_LOCAL_RECOVERY_CASES.includes(name),'Known local recovery case');
+    const f=await canvasAgentModelOperationFixture(base,{scope:'local-'+name,
+        ...(name==='unknown'?{providerResponse(){throw Object.assign(new TypeError('Synthetic ambiguous response'),{code:'generation_timeout'});}}:{})});
+    const run=()=>f.db.prepare('SELECT * FROM canvas_agent_runs WHERE id=?').bind(f.runId).first();
+    let injections=0;
+    if(!['fresh','unknown'].includes(name)){
+        // Lost local write acknowledgement, after the reservation was linked,
+        // before preparation or any provider call. The real D1 write still runs.
+        const DB=f.env.DB,raw=new WeakMap();
+        const wrap=(statement,sql)=>{
+            const proxy=new Proxy(statement,{get(target,key){
+                if(key==='bind')return (...args)=>wrap(target.bind(...args),sql);
+                if(key==='run')return async()=>{
+                    const result=await target.run();
+                    if(injections<(name==='bounded'?3:1)&&sql.startsWith('UPDATE canvas_agent_steps SET usage_attempt_id=')){
+                        injections++;
+                        if(name==='diagnostics')await DB.prepare('SELECT missing_synthetic_column FROM canvas_agent_runs').all();
+                        if(['transient','bounded'].includes(name))throw Object.assign(new Error('SQLITE_BUSY'),{code:'SQLITE_BUSY'});
+                        throw new TypeError('Synthetic private prompt and callback must not appear in diagnostics');
+                    }return result;
+                };
+                const value=target[key];return typeof value==='function'?value.bind(target):value;
+            }});raw.set(proxy,statement);return proxy;
+        };
+        f.env.DB={prepare:sql=>wrap(DB.prepare(sql),sql),batch:rows=>DB.batch(rows.map(row=>raw.get(row)||row))};
+    }
+    await f.deliver({duplicates:1});
+    if(name==='fresh'){
+        check(f.calls.length===1,'Ordinary fresh approved production dispatches once');
+        check((await f.complete()).ok,'Signed original callback is accepted');await f.observe();await f.deliver();
+        check((await run()).status==='running','Ordinary fresh production applies its editable graph');
+        check((await f.db.prepare('SELECT COUNT(*) AS n FROM canvas_nodes WHERE project_id=?').bind(f.project).first()).n>0,'Real Canvas nodes persist');
+        return {case:name,providerCalls:1};
+    }
+    const failed=await run(),evidence=await canvasPlanningEvidence(f.env,failed);
+    if(name==='unknown'){
+        check(evidence.certainty==='unknown'&&failed.status==='review_required','Ambiguous accepted dispatch stays protected');
+        await readmitCanvasPlanning(f.env,failed,{requestKey:'forbidden-unknown'}).then(()=>{throw Error('Unknown must not readmit');},e=>check(e.code==='canvas_agent_readmission_not_safe','Specific unknown admission refusal'));
+        await f.deliver();check(f.calls.length===1,'Unknown cannot repeat provider inference');return {case:name,providerCalls:1};
+    }
+    check(evidence.certainty==='not_dispatched'&&f.calls.length===0,'Durable usage positively proves no dispatch');
+    const cause=JSON.parse(failed.cause_json);
+    check(cause.execution.stage==='reservation_link'&&cause.execution.reference.startsWith('canvas-execution-'),'Original stage and safe reference survive catch');
+    check(!failed.cause_json.includes('private prompt')&&!failed.cause_json.includes('callback'),'No raw exception content enters persisted public diagnostics');
+    if(name==='diagnostics'){
+        check(cause.execution.category==='database'&&failed.status==='blocked'&&cause.recovery==='readmission','Native SQL error is not an invented provider outcome');
+        return {case:name,providerCalls:0};
+    }
+    if(name==='bounded'){
+        await f.deliver();await f.deliver();await f.deliver();
+        const exhausted=await run(),steps=(await f.db.prepare("SELECT input_json FROM canvas_agent_steps WHERE run_id=? AND kind='plan' ORDER BY rowid").bind(f.runId).all()).results;
+        check(exhausted.status==='blocked'&&steps.length===3&&JSON.parse(steps[2].input_json).readmission.ordinal===2,'Two local readmissions exhaust the automatic bound');
+        check(!(await f.observe()).allowedActions.includes('resume')&&f.calls.length===0,'Exhaustion cannot loop through Resume or dispatch paid inference');
+        return {case:name,providerCalls:0};
+    }
+    if(name==='transient'){
+        check(cause.execution.transient&&cause.recovery==='local_retry','Only classified transient local failures get bounded automatic continuation');
+        await f.deliver();check(f.calls.length===1,'Next durable wake re-admits once without a user action');
+    }else{
+        check(failed.status==='blocked','Deterministic local exception does not loop automatically');
+        await releaseCanvasAgentUndispatched(f.env,f.runId);
+        const released=await f.db.prepare('SELECT * FROM member_ai_usage_attempts_v2 WHERE id=?').bind(evidence.attempts[0].id).first();
+        check(released.billing_status==='released'&&!released.dispatch_token,'Old undispatched reservation is released');
+        if(name==='guards'){
+            await f.db.prepare("UPDATE canvas_agent_runs SET expires_at='2000-01-01T00:00:00.000Z' WHERE id=?").bind(f.runId).run();
+            check((await f.request(`${f.route}/${f.runId}/control`,'POST',{action:'resume'},{'Idempotency-Key':'expired-resume'})).status===409,'Expired authority cannot re-admit');
+            await f.db.prepare('UPDATE canvas_agent_runs SET expires_at=? WHERE id=?').bind(failed.expires_at,f.runId).run();
+            const edited=await f.request(f.projectPath+'/nodes','POST',{type:'note',title:'Manual change',content:{text:'Keep it'},config:{}});
+            check(edited.ok,'Manual change persists');
+            const response=await f.request(`${f.route}/${f.runId}/control`,'POST',{action:'resume'},{'Idempotency-Key':'stale-resume'});
+            check(response.status===409&&f.calls.length===0,'Changed graph cannot be overwritten by local recovery');
+            check((await f.request(`${f.route}/${f.runId}/control`,'POST',{action:'cancel'},{'Idempotency-Key':'cancel-local'})).ok,'Cancellation remains available');
+            check((await f.request(`${f.route}/${f.runId}/control`,'POST',{action:'resume'},{'Idempotency-Key':'cancelled-resume'})).status===409,'Cancellation cannot be laundered into readmission');
+            return {case:name,providerCalls:0};
+        }
+        // Automatic explanation is informational. It must not dispatch, alter
+        // creative state, or claim that a null operation proves no dispatch.
+        const revision=(await f.db.prepare('SELECT revision FROM canvas_projects WHERE id=?').bind(f.project).first()).revision;
+        await syncCanvasProjectIncidents(f.env,{projectId:f.project,userId:f.owner,allowInference:false});
+        await syncCanvasProjectIncidents(f.env,{projectId:f.project,userId:f.owner,allowInference:false});
+        const incidents=(await f.db.prepare('SELECT context_json FROM canvas_agent_incidents WHERE project_id=?').bind(f.project).all()).results;
+        check(incidents.length===1&&JSON.parse(incidents[0].context_json).operation.dispatchCertainty==='not_dispatched','One incident contains exact usage evidence');
+        check(f.calls.length===0&&(await f.db.prepare('SELECT revision FROM canvas_projects WHERE id=?').bind(f.project).first()).revision===revision,'Explanation cannot execute or change the creative revision');
+        const raced=await Promise.all([1,2].map(()=>readmitCanvasPlanning(f.env,failed,{requestKey:'local-resume-once'})));
+        check(raced[0].stepId===raced[1].stepId,'Concurrent readmission acknowledges one durable successor');
+        const resume=()=>f.request(`${f.route}/${f.runId}/control`,'POST',{action:'resume'},{'Idempotency-Key':'local-resume-once'});
+        check((await resume()).ok&&(await resume()).ok,'Authenticated Resume and its exact replay succeed');
+        await f.deliver();check(f.calls.length===1,'Resumption dispatches only the previously undispatched film request');
+        check(JSON.stringify(await f.db.prepare('SELECT * FROM member_ai_usage_attempts_v2 WHERE id=?').bind(released.id).first())===JSON.stringify(released),'Released original attempt is immutable during re-admission');
+    }
+    const steps=(await f.db.prepare("SELECT * FROM canvas_agent_steps WHERE run_id=? AND kind='plan' ORDER BY rowid").bind(f.runId).all()).results;
+    check(steps.length===2&&JSON.parse(steps[1].input_json).readmission.sourceStepId===steps[0].id,'One linked local attempt preserves original history');
+    check(steps[1].usage_attempt_id!==steps[0].usage_attempt_id,'Readmission uses a fresh reservation, never resurrects a released one');
+    check(JSON.stringify(JSON.parse(steps[0].input_json).payload)===JSON.stringify(JSON.parse(steps[1].input_json).payload),'Creative input, accepted policy and request identity remain unchanged');
+    check((await f.complete()).ok,'Original accepted provider result is stored');await f.observe();await f.deliver();
+    check((await run()).status==='running','Recovered original production applies its editable graph');
+    check((await f.db.prepare('SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(f.owner).first()).n===1,'One provider operation settles exactly once');
+    check((await f.complete()).ok,'Duplicate receipt remains idempotent');await f.observe();
+    check(f.calls.length===1&&(await f.db.prepare('SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(f.owner).first()).n===1,'No duplicate inference or debit');
+    return {case:name,providerCalls:1};
 }

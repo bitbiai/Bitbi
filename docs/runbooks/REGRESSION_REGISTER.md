@@ -2318,6 +2318,37 @@ separate. Keep exact candidate reports in the existing local release checkpoint.
 
 ### Completed Canvas plan admission and autonomy — 2026-10-16
 
+The separate 2026-10-21 07:51 UTC stop on Auth `8559f068` / AI `a0117ed4`
+lost its original exception in the generic `canvas_agent_execution_review_required`
+catch. Its owned planning usage attempt had no dispatch token/time, operation,
+receipt or debit and was released as definitely undispatched. The exact saved
+input passed both the Node caller and native workerd/D1 reproduction with a
+synthetic provider. Historical observability access returned 403; the original
+exception remains unknown. Do not call the fallback label, a hypothetical SQL
+error, or the earlier completed-invalid-plan incident its proven cause.
+
+Production failures now retain bounded stage/category/invariant diagnostics
+before public classification. Recovery follows exact dispatch evidence, not an
+error-code substring. Missing receipts are unverified. Only classified transient
+local failures with positively undispatched usage get bounded automatic
+re-admission; a deterministic local failure stops with the original diagnostic.
+The ordinary Resume service can admit a linked successor step under unchanged
+inputs, policy, owner, brief/graph, tariff and spending authorization. Released
+attempts remain released; atomic state/identity guards prevent duplicate steps
+or revival after cancellation, expiry, manual edits or a newer production.
+Accepted/unknown requests retain their original identity; a stored answer is
+reconciled rather than regenerated. Explanations remain informational and keep
+the failure snapshot distinct from current progress.
+
+Smallest controls: `Canvas local planning recovery` in
+`tests/q2-canvas-agent-model-operation.spec.js`, shared through the existing
+native `canvas-reliability` caller. They exercise fresh approved production,
+failure after linking a reservation, concurrent Resume, transient D1 failure,
+unknown dispatch, expired/cancelled/edited authority, genuine invalid SQL,
+signed receipt/graph continuation and explanation isolation. Private incident
+inputs/readbacks stay outside Git. Current-source release acceptance and actual
+live continuation must be recorded separately from these synthetic controls.
+
 A separate 2026-10-20 incident on Auth `5124a1c8` / AI `6881a7f8`
 retained a completed, settled plan rejected for an outgoing dissolve on its final
 clip (`plan.assembly.clips[4].transition.preset`, `terminal_transition`). A schema

@@ -268,12 +268,14 @@ export async function reconcileCanvasModelOperation(env,op) {
     if(['completed','rejected'].includes(op.state)) {
         const result=JSON.parse(op.receipt_json),now=nowIso();
         await env.DB.prepare(`UPDATE canvas_agent_runs SET status=?,error_code=?,next_attempt_at=?,updated_at=? WHERE id=?
-            AND status='review_required' AND error_code IN ('canvas_agent_provider_outcome_unknown','canvas_agent_provider_timeout','canvas_agent_planning_review_required')
+            AND status='review_required' AND (error_code IN ('canvas_agent_provider_outcome_unknown','canvas_agent_provider_timeout','canvas_agent_planning_review_required')
+              OR error_code='canvas_agent_local_execution_failed' AND json_extract(cause_json,'$.recovery')='receipt'
+                AND json_extract(cause_json,'$.operationId')=?)
             AND expires_at>? AND EXISTS(SELECT 1 FROM canvas_projects p JOIN users u ON u.id=p.user_id
               WHERE p.id=canvas_agent_runs.project_id AND p.deleted_at IS NULL AND (p.revision=canvas_agent_runs.expected_revision OR canvas_agent_runs.purpose='briefing') AND u.status='active')
             AND NOT EXISTS(SELECT 1 FROM canvas_agent_runs newer WHERE newer.project_id=canvas_agent_runs.project_id AND newer.id!=canvas_agent_runs.id AND newer.purpose=canvas_agent_runs.purpose
               AND newer.status IN ('queued','planning','applying','running','exporting'))`)
-            .bind(result.ok?(op.kind==='plan'?'planning':'running'):'blocked',result.ok?null:result.code,now,now,op.run_id,now).run();
+            .bind(result.ok?(op.kind==='plan'?'planning':'running'):'blocked',result.ok?null:result.code,now,now,op.run_id,op.id,now).run();
     }
     await env.DB.prepare('UPDATE canvas_agent_model_operations SET next_attempt_at=? WHERE id=?').bind(new Date(Date.now()+60_000).toISOString(),op.id).run();
     return op;
