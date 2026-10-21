@@ -527,15 +527,19 @@ async function extractGeneratedImage(env, result, { allowProviderUrl = false, si
 }
 
 function decodeDataUriImage(imageData) {
-  const match = String(imageData).match(/^data:(image\/[a-z+]+);base64,(.+)$/i);
-  if (!match) {
+  // Match only the small header. Capturing a multi-megabyte payload with the
+  // case-insensitive expression can exhaust V8's regexp stack before size admission.
+  const value = String(imageData), comma = value.indexOf(',');
+  const match = comma < 0 ? null : value.slice(0, comma).match(/^data:(image\/[a-z+]+);base64$/i);
+  const encoded = comma < 0 ? '' : value.slice(comma + 1);
+  if (!match || !encoded || /[\r\n\u2028\u2029]/.test(encoded)) {
     throw new Error("invalid_image_data_format");
   }
 
   try {
     return {
       mimeType: match[1],
-      imageBytes: decodeBase64ToBytes(match[2]),
+      imageBytes: decodeBase64ToBytes(encoded),
     };
   } catch {
     throw new Error("invalid_base64_image_data");

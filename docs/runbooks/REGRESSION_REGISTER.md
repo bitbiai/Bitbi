@@ -2337,7 +2337,9 @@ inputs, policy, owner, brief/graph, tariff and spending authorization. Released
 attempts remain released; atomic state/identity guards prevent duplicate steps
 or revival after cancellation, expiry, manual edits or a newer production.
 Accepted/unknown requests retain their original identity; a stored answer is
-reconciled rather than regenerated. Explanations remain informational and keep
+reconciled rather than regenerated. Existing H3 receipt recovery must retain its
+explicit receipt transition, and an exhausted quality evaluation remains a
+review state. Neither is a local planning re-admission. Explanations remain informational and keep
 the failure snapshot distinct from current progress.
 
 Smallest controls: `Canvas local planning recovery` in
