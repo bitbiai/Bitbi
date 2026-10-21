@@ -2351,6 +2351,23 @@ signed receipt/graph continuation and explanation isolation. Private incident
 inputs/readbacks stay outside Git. Current-source release acceptance and actual
 live continuation must be recorded separately from these synthetic controls.
 
+The same production then reached a real provider response and two authorized
+corrections. The final stored plan put Seedance duration/audio/resolution in
+common config fields without `seedance25`; the native request therefore defaulted
+to five seconds and correctly rejected its longer trims. New proposed nodes now
+translate these exact aliases only when the native namespace is absent. Explicit
+native settings and existing-node updates remain authoritative. The raw proposal
+stays immutable; normal editable node settings and validation retain the effective
+interpretation. No duration/trim or pricing guard is relaxed.
+
+The normal Resume path can reuse this already settled answer after full current
+preflight and exact receipt/usage/debit/owner/revision checks. It neither creates
+another inference nor resets correction history. `Canvas local planning recovery
+stored` exercises signed completion, raced Resume, expiry/cancel/edit fences,
+unchanged receipts, graph application and contradictory/duplicate late replies
+in Node and the native caller. The Seedance native-duration case separately
+proves alias transfer, explicit native precedence and invalid-duration rejection.
+
 A separate 2026-10-20 incident on Auth `5124a1c8` / AI `6881a7f8`
 retained a completed, settled plan rejected for an outgoing dissolve on its final
 clip (`plan.assembly.clips[4].transition.preset`, `terminal_transition`). A schema

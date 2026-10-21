@@ -452,12 +452,20 @@ export async function canvasAgentNativeDurationCase(env) {
   const model=getCanvasModelForRole('bytedance/seedance-2.5','member');check(inventory.models.some(candidate=>candidate.id===model.id),'Seedance fixture must have real eligible pricing');
   const plan=(config,duration=11.7)=>({version:1,title:'Four editable scenes',continuity:'Keep the same subject and location.',nodes:Array.from({length:4},(_,i)=>({key:`scene${i}`,type:'video_generation',title:`Scene ${i+1}`,modelId:model.id,prompt:`Film scene ${i+1} in the same location.`,config:structuredClone(config),dependencies:[]})),
     assembly:{clips:Array.from({length:4},(_,i)=>({key:`scene${i}`,trim:{start:.2,duration},transition:i===3?{preset:'none'}:{preset:'dissolve',duration:.45}})),musicKey:null,targetDurationSeconds:45,toleranceSeconds:.5,backgroundMusic:{enabled:false,gain:1},smoothJoins:false}});
-  for(const config of [{duration:13},{duration:13,seedance25:{duration:5}}]) {
+  for(const config of [{seedance25:{duration:5}},{duration:13,seedance25:{duration:5}}]) {
     check(canvasGenerationSettings(config,model,'Scene').duration===5,'Ordinary execution and quote actually request five seconds');
     const checked=await preflightCanvasAgentGraph(env,run,view,inventory,plan(config));
     check(!checked.ok&&checked.issues.some(issue=>issue.code==='canvas_agent_trim_outside_planned_source'),'Ignored top-level duration must not admit an eleven-second trim from a five-second native request');
     await rejected(()=>prepareCanvasAgentGraph(env,run,view,inventory,plan(config)),'canvas_agent_trim_outside_planned_source');
   }
+  const authored=plan({duration:13,resolution:'720p',generateAudio:false,watermark:false}),original=JSON.stringify(authored);
+  const interpreted=await preflightCanvasAgentGraph(env,run,view,inventory,authored);
+  check(interpreted.ok&&interpreted.repairs.length===4,'Unambiguous new-node aliases have recorded native interpretations');
+  check(JSON.stringify(authored)===original,'The accepted provider proposal is not mutated');
+  check(interpreted.plan.nodes.every(node=>node.config.seedance25.duration===13&&node.config.seedance25.generate_audio===false&&!Object.hasOwn(node.config,'duration')),'Native settings are explicit and editable, without a competing generic duration');
+  check(canvasGenerationSettings(interpreted.plan.nodes[0].config,model,'Scene').duration===13,'Quotation and normal execution use the interpreted thirteen seconds');
+  const outside=await preflightCanvasAgentGraph(env,run,view,inventory,plan({duration:31}));
+  check(!outside.ok,'Alias interpretation cannot raise the native duration limit');
   const long=await preflightCanvasAgentGraph(env,run,view,inventory,plan({duration:5,seedance25:{duration:13}}));
   check(long.ok&&long.plannedDurationSeconds>45,'Explicit native thirteen-second request, not an ignored generic five-second field, bounds the trim');
   const short=await preflightCanvasAgentGraph(env,run,view,inventory,plan({duration:13,seedance25:{duration:5}},4));

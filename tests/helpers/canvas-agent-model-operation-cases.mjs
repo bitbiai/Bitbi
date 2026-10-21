@@ -223,14 +223,14 @@ export async function canvasModelOperationCase(base,name) {
     return {case:name,providerCalls:1,debits:1};
 }
 
-export const CANVAS_LOCAL_RECOVERY_CASES=['fresh','resume','transient','bounded','unknown','guards','diagnostics'];
+export const CANVAS_LOCAL_RECOVERY_CASES=['fresh','resume','transient','bounded','unknown','guards','diagnostics','stored'];
 export async function canvasLocalRecoveryCase(base,name){
     check(CANVAS_LOCAL_RECOVERY_CASES.includes(name),'Known local recovery case');
     const f=await canvasAgentModelOperationFixture(base,{scope:'local-'+name,
         ...(name==='unknown'?{providerResponse(){throw Object.assign(new TypeError('Synthetic ambiguous response'),{code:'generation_timeout'});}}:{})});
     const run=()=>f.db.prepare('SELECT * FROM canvas_agent_runs WHERE id=?').bind(f.runId).first();
     let injections=0;
-    if(!['fresh','unknown'].includes(name)){
+    if(!['fresh','unknown','stored'].includes(name)){
         // Lost local write acknowledgement, after the reservation was linked,
         // before preparation or any provider call. The real D1 write still runs.
         const DB=f.env.DB,raw=new WeakMap();
@@ -252,6 +252,44 @@ export async function canvasLocalRecoveryCase(base,name){
         f.env.DB={prepare:sql=>wrap(DB.prepare(sql),sql),batch:rows=>DB.batch(rows.map(row=>raw.get(row)||row))};
     }
     await f.deliver({duplicates:1});
+    if(name==='stored'){
+        const plan={version:1,title:'Native settings',continuity:'One editable scene',nodes:[{key:'clip',title:'Garden',type:'video_generation',modelId:'bytedance/seedance-2.5',prompt:'A duck crossing a garden',config:{duration:13,resolution:'720p',generateAudio:false,watermark:false},dependencies:[]}],updates:[],
+            assembly:{clips:[{key:'clip',trim:{start:0.2,duration:11.7},transition:{preset:'none'}}],targetDurationSeconds:12,toleranceSeconds:0.5,musicKey:null}};
+        const completion={result:{id:'synthetic-native-plan',object:'chat.completion',model:'grok-4.7',choices:[{finish_reason:'stop',message:{role:'assistant',content:JSON.stringify(plan)}}],usage:{prompt_tokens:120,completion_tokens:200,total_tokens:320}}};
+        check((await f.complete(completion)).ok,'Original signed stored completion');
+        await f.observe();const original=await canvasPlanningEvidence(f.env,await run());
+        check(original.step.status==='completed'&&original.attempts[0].billing_status==='finalized','Normal receipt settlement precedes recovery');
+        // Historical preflight failure fixture, with real immutable signed receipt,
+        // proposal and debit. No live state or receipt is rewritten by recovery.
+        await f.db.prepare("UPDATE canvas_agent_runs SET status='blocked',phase='planning',error_code='canvas_agent_plan_correction_exhausted',repair_attempts=2,cause_json=? WHERE id=?")
+            .bind(JSON.stringify({issues:[{code:'canvas_agent_trim_outside_planned_source',nodeKey:'clip'}]}),f.runId).run();
+        const failed=await run(),before=JSON.stringify({step:original.step,operation:original.operation,attempt:original.attempts[0]});
+        await f.db.prepare("UPDATE canvas_agent_runs SET expires_at='2000-01-01T00:00:00.000Z' WHERE id=?").bind(f.runId).run();
+        check((await control(f,'resume','expired-stored')).status===409,'Stored result cannot renew expired authority');
+        await f.db.prepare('UPDATE canvas_agent_runs SET expires_at=? WHERE id=?').bind(failed.expires_at,f.runId).run();
+        await f.db.prepare('UPDATE canvas_projects SET revision=revision+1 WHERE id=?').bind(f.project).run();
+        check((await control(f,'resume','edited-stored')).status===409,'Stored answer cannot overwrite a newer creative revision');
+        await f.db.prepare('UPDATE canvas_projects SET revision=revision-1 WHERE id=?').bind(f.project).run();
+        await f.db.prepare("UPDATE canvas_agent_runs SET status='cancelled' WHERE id=?").bind(f.runId).run();
+        check((await control(f,'resume','cancelled-stored')).status===409,'Cancelled production stays closed even with a reusable answer');
+        await f.db.prepare("UPDATE canvas_agent_runs SET status='blocked' WHERE id=?").bind(f.runId).run();
+        check((await f.observe()).allowedActions.includes('resume'),'Normal Resume exposes validated stored-answer continuation');
+        const raced=await Promise.all([1,2].map(()=>readmitCanvasPlanning(f.env,failed,{requestKey:'stored-once'})));
+        check(raced.every(r=>r.kind==='stored_plan'&&r.newInferenceCalls===0&&r.newCharges===0),'Concurrent recovery reuses one paid answer');
+        check((await control(f,'resume','stored-once')).ok,'Lost response is acknowledged through normal control identity');
+        const retained=await canvasPlanningEvidence(f.env,await run());
+        check(before===JSON.stringify({step:retained.step,operation:retained.operation,attempt:retained.attempts[0]}),'Original receipt, tariff, response, usage and step remain intact');
+        await f.deliver();const active=await run();
+        check(active.status==='running'&&active.repair_attempts===2,'Existing production applies graph without resetting correction history');
+        const node=await f.db.prepare("SELECT config_json FROM canvas_nodes WHERE project_id=? AND type='video_generation'").bind(f.project).first(),config=JSON.parse(node.config_json);
+        check(config.seedance25.duration===13&&config.seedance25.generate_audio===false,'Editable node preserves exact native generation intent');
+        check(f.calls.length===1&&await debits(f)===1,'No new inference or charge for interpretation or duplicate wake');
+        check((await f.db.prepare("SELECT COUNT(*) AS n FROM canvas_agent_steps WHERE run_id=? AND kind='plan'").bind(f.runId).first()).n===1,'No replacement planning step');
+        check((await f.complete()).status===409,'A different late answer cannot replace the original immutable response');
+        check((await f.complete(completion)).ok,'Late duplicate original receipt remains safe');await f.observe();
+        check(f.calls.length===1&&await debits(f)===1,'Late receipt cannot charge or plan again');
+        return {case:name,providerCalls:1};
+    }
     if(name==='fresh'){
         check(f.calls.length===1,'Ordinary fresh approved production dispatches once');
         check((await f.complete()).ok,'Signed original callback is accepted');await f.observe();await f.deliver();

@@ -96,6 +96,21 @@ async function calculateCanvasAgentGraph(env,run,view,inventory,rawPlan,repairNo
             repairs.push({code:'canvas_agent_music_original_audio_noop',nodeKey:node.key,field:'config.originalAudio',from:audio,to:null});
         }
         validateConfig(model,node.config,node.prompt);
+        // New model-authored nodes sometimes use the common Canvas spelling.
+        // Translate only when the native namespace is entirely absent. An
+        // explicit native request (including historical defaults) stays authoritative.
+        // The original immutable proposal remains unchanged; effective settings
+        // and this interpretation are visible in the ordinary node and validation.
+        if(!node.update&&model.id==='bytedance/seedance-2.5'&&node.config.seedance25===undefined){
+            const aliases={duration:'duration',resolution:'resolution',aspectRatio:'aspect_ratio',generateAudio:'generate_audio',watermark:'watermark'};
+            const entries=Object.entries(aliases).filter(([key])=>Object.hasOwn(node.config,key));
+            if(entries.length){
+                node.config.seedance25=Object.fromEntries(entries.map(([key,native])=>[native,node.config[key]]));
+                repairs.push({code:'canvas_agent_seedance_native_settings',nodeKey:node.key,field:'config.seedance25',
+                    from:Object.fromEntries(entries.map(([key])=>[key,node.config[key]])),to:{...node.config.seedance25}});
+                for(const [key] of entries)delete node.config[key];
+            }
+        }
         const references=node.dependencies.map(dep=>({dep,source:specs.get(dep.key)}));
         if(model.id===H3_MODEL&&node.config.aspectRatio===undefined){
             const roles=references.filter(({dep})=>dep.role!=='prompt').map(({dep,source})=>
@@ -135,8 +150,8 @@ async function calculateCanvasAgentGraph(env,run,view,inventory,rawPlan,repairNo
         const spec=specs.get(clip.key),available=inventory.models.find(m=>m.id===spec.modelId);
         const old=view.nodes.find(node=>node.id===spec.id),output=old&&JSON.parse(old.output_json||'{}');
         // Duration belongs to the same native request used for quotation and
-        // execution. Seedance's nested controls intentionally ignore generic
-        // duration; an unused top-level value cannot authorize longer trims.
+        // execution. Seedance's explicit nested controls override any historical
+        // generic value; a trim never exceeds the effective native request.
         const model=getCanvasModelForRole(spec.modelId,'member');
         const requested=(effectiveInputs.get(spec.key)??(model?canvasGenerationSettings(spec.config,model,spec.prompt):null))?.duration;
         const known=(!spec.update?(output?.duration??output?.durationSeconds):null)??(requested>0?requested:null)

@@ -13,7 +13,7 @@ for(const name of ['late','evaluate','lease','cancel','manual','newer','failed',
   });
 }
 
-for(const name of ['fresh','resume','transient','bounded','unknown','guards','diagnostics'])test(`Canvas local planning recovery ${name}`,async()=>{
+for(const name of ['fresh','resume','transient','bounded','unknown','guards','diagnostics','stored'])test(`Canvas local planning recovery ${name}`,async()=>{
   const DB=new SqliteD1Database();applyAuthMigrations(DB);
   try{
     const {canvasLocalRecoveryCase}=await import('./helpers/canvas-agent-model-operation-cases.mjs');
