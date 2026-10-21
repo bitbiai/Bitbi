@@ -77,6 +77,50 @@ await assert.rejects(publishFrontend({...options,read:async()=>{throw Error('per
 const bootstrapApi=async endpoint=>endpoint.includes('task=bitbi-static-receipt')?[]:[];
 assert.equal(await cloudflarePublishedBase(bootstrapApi,hostingPolicy()),null);
 await assert.rejects(cloudflarePublishedBase(async endpoint=>endpoint.includes('task=bitbi-static-receipt')?[]:endpoint.includes('/statuses')?[{state:'success'}]:[{id:1}],hostingPolicy()),/Missing durable receipt/);
+const assetsFor = (body, okPath) => async request => new Response(body, { status: new URL(request.url).pathname === okPath ? 200 : 404, headers: { 'content-type': 'text/html' } });
+for (const [input, pathname] of [
+  ['/index.html?q=1', '/'],
+  ['/de/index.html?q=1', '/de/'],
+  ['/pricing?checkout=success', '/pricing.html'],
+  ['/pricing/?checkout=success', '/pricing.html'],
+  ['/de/pricing?x=1', '/de/pricing.html'],
+  ['/de/pricing/?x=1', '/de/pricing.html'],
+]) {
+  const response = await worker.fetch(new Request('https://bitbi.ai' + input), { ASSETS: { fetch: async () => { throw new Error('canonical redirect reached assets'); } } });
+  assert.equal(response.status, 301, input);
+  const location = new URL(response.headers.get('location'));
+  assert.equal(location.origin, 'https://bitbi.ai', input);
+  assert.equal(location.pathname, pathname, input);
+  assert.equal(location.search, new URL('https://bitbi.ai' + input).search, input);
+}
+const headPricing = await worker.fetch(new Request('https://bitbi.ai/pricing?q=1', { method: 'HEAD' }), { ASSETS: { fetch: async () => { throw new Error('HEAD redirect reached assets'); } } });
+assert.equal(headPricing.status, 301);
+assert.equal(await headPricing.text(), '');
+assert.equal(new URL(headPricing.headers.get('location')).pathname, '/pricing.html');
+const untouched = [
+  ['/admin/index.html?x=1', '/admin/index.html', 'admin'],
+  ['/pricing.html?q=1', '/pricing.html', 'pricing'],
+  ['/canvas/index.html', '/canvas/index.html', 'canvas'],
+  ['/generate-lab/index.html', '/generate-lab/index.html', 'lab'],
+];
+for (const [input, pathname, body] of untouched) {
+  const response = await worker.fetch(new Request('https://bitbi.ai' + input), { ASSETS: { fetch: assetsFor(body, pathname) } });
+  assert.equal(response.status, 200, input);
+  assert.equal(await response.text(), body, input);
+}
+let faviconFetch = '';
+const favicon = await worker.fetch(new Request('https://bitbi.ai/favicon.ico?v=1', { method: 'HEAD' }), { ASSETS: { fetch: async request => { faviconFetch = request.url; return new Response(null, { status: 200, headers: { 'content-type': 'image/vnd.microsoft.icon' } }); } } });
+assert.equal(favicon.status, 200);
+assert.equal(await favicon.text(), '');
+assert.equal(new URL(faviconFetch).pathname, '/assets/favicons/favicon.ico');
+assert.equal(new URL(faviconFetch).search, '?v=1');
+const wwwPricing = await worker.fetch(new Request('https://www.bitbi.ai/pricing?q=1'), { ASSETS: { fetch: async () => { throw new Error('www redirect reached assets'); } } });
+assert.equal(wwwPricing.status, 301);
+assert.equal(wwwPricing.headers.get('location'), 'https://bitbi.ai/pricing.html?q=1');
+const wwwIndex = await worker.fetch(new Request('https://www.bitbi.ai/de/index.html'), { ASSETS: { fetch: async () => { throw new Error('www redirect reached assets'); } } });
+assert.equal(wwwIndex.headers.get('location'), 'https://bitbi.ai/de/');
+const wwwAdmin = await worker.fetch(new Request('https://www.bitbi.ai/admin/index.html'), { ASSETS: { fetch: async () => { throw new Error('www redirect reached assets'); } } });
+assert.equal(wwwAdmin.headers.get('location'), 'https://bitbi.ai/admin/index.html');
 console.log('Hosting provenance, inactive/partial/wrong-version and no-Geo/API unit counterchecks passed.');
 if(process.argv.includes('--unit'))process.exit(0);
 if(process.argv.includes('--standalone')) {
@@ -106,6 +150,11 @@ try {
    const r=await get(url);assert.equal(r.status,200,url);assert.match(r.headers.get('content-type'),/text\/html/);assert(!r.headers.has('location'));
  }
  for(const url of ['/de','/admin']) {const r=await get(url+'?q=1');assert.equal(r.status,301);assert.equal(new URL(r.headers.get('location'),'http://localhost').pathname,url+'/');assert.equal(new URL(r.headers.get('location'),'http://localhost').search,'?q=1');}
+ for(const [url,pathname,search] of [['/index.html?q=1','/','?q=1'],['/de/index.html?q=1','/de/','?q=1'],['/pricing?checkout=success','/pricing.html','?checkout=success'],['/pricing/','/pricing.html',''],['/de/pricing?x=1','/de/pricing.html','?x=1'],['/de/pricing/','/de/pricing.html','']]) {
+  const r=await get(url);assert.equal(r.status,301,url);const location=new URL(r.headers.get('location'),'http://127.0.0.1:3000');assert.equal(location.pathname,pathname,url);assert.equal(location.search,search,url);
+ }
+ const canvasIndex=await get('/canvas/index.html');assert.equal(canvasIndex.status,200);assert.match(canvasIndex.headers.get('content-type'),/text\/html/);
+ const favicon=await get('/favicon.ico');assert.equal(favicon.status,200);assert.match(favicon.headers.get('content-type')||'','icon|image');assert.equal(hash(Buffer.from(await favicon.arrayBuffer())),hash(fs.readFileSync('assets/favicons/favicon.ico')));
  for(const url of ['/api','/api/admin/me','/api/nope']) {const r=await get(url);assert.equal(r.status,404);assert.match(r.headers.get('content-type'),/json/);assert.equal((await r.json()).error,'API_NOT_AVAILABLE_ON_STATIC_HOST');}
  for(const url of ['/account/','/missing','/de/missing','/admin/missing.html','/_worker.js','/frontend/index.mjs','/config/static-hosting.json','/candidate/manifest.json','/.git/config','/test-results/admin-discovery.json']) {const r=await get(url);assert.equal(r.status,404,url);}
  const asset='/js/pages/admin/newsfeed.js?v=unchanged-token';const a=await get(asset);assert.equal(a.status,200);assert.match(a.headers.get('content-type'),/javascript/);assert.equal(hash(Buffer.from(await a.arrayBuffer())),manifest.files['js/pages/admin/newsfeed.js']);assert(a.headers.get('etag'));

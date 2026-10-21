@@ -36,6 +36,26 @@ function pngDimensions(relativePath) {
   };
 }
 
+function jpegDimensions(relativePath) {
+  const buffer = fs.readFileSync(path.join(__dirname, '..', relativePath));
+  expect(buffer[0], `${relativePath} jpeg signature`).toBe(0xff);
+  expect(buffer[1]).toBe(0xd8);
+  let offset = 2;
+  while (offset + 9 < buffer.length) {
+    if (buffer[offset] !== 0xff) break;
+    const marker = buffer[offset + 1];
+    const isStartOfFrame = marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
+    if (isStartOfFrame) {
+      return {
+        height: buffer.readUInt16BE(offset + 5),
+        width: buffer.readUInt16BE(offset + 7),
+      };
+    }
+    offset += 2 + buffer.readUInt16BE(offset + 2);
+  }
+  throw new Error(`${relativePath} has no JPEG frame`);
+}
+
 function parseJsonLdBlocks(html, label) {
   return extractScriptBlocksByType(html, 'application/ld+json')
     .map((block, index) => {
@@ -228,16 +248,16 @@ function expectSocialMetadata(html, { title, description, url, locale, alternate
   expect(html).toContain('<meta property="og:site_name" content="BITBI">');
   expect(html).toContain(`<meta property="og:locale" content="${locale}">`);
   expect(html).toContain(`<meta property="og:locale:alternate" content="${alternateLocale}">`);
-  expect(html).toContain('<meta property="og:image" content="https://bitbi.ai/assets/images/1.png">');
-  expect(html).toContain('<meta property="og:image:type" content="image/png">');
-  expect(html).toContain('<meta property="og:image:width" content="600">');
-  expect(html).toContain('<meta property="og:image:height" content="391">');
+  expect(html).toContain('<meta property="og:image" content="https://bitbi.ai/assets/images/bitbi-social-preview.jpg">');
+  expect(html).toContain('<meta property="og:image:type" content="image/jpeg">');
+  expect(html).toContain('<meta property="og:image:width" content="1200">');
+  expect(html).toContain('<meta property="og:image:height" content="630">');
   expect(html).toContain(`<meta property="og:image:alt" content="${imageAlt}">`);
   expect(html).toContain('<meta name="twitter:card" content="summary_large_image">');
   expect(html).toContain('<meta name="twitter:site" content="@bitbi_ai">');
   expect(html).toContain(`<meta name="twitter:title" content="${title}">`);
   expect(html).toContain(`<meta name="twitter:description" content="${description}">`);
-  expect(html).toContain('<meta name="twitter:image" content="https://bitbi.ai/assets/images/1.png">');
+  expect(html).toContain('<meta name="twitter:image" content="https://bitbi.ai/assets/images/bitbi-social-preview.jpg">');
   expect(html).toContain(`<meta name="twitter:image:alt" content="${imageAlt}">`);
 }
 
@@ -523,13 +543,16 @@ test.describe('Bilingual locale pages', () => {
     const dePricing = repoFile('de/pricing.html');
     const robots = repoFile('robots.txt');
     const sitemap = repoFile('sitemap.xml');
-    const ogImage = pngDimensions('assets/images/1.png');
+    const heroImage = pngDimensions('assets/images/1.png');
+    const ogImage = jpegDimensions('assets/images/bitbi-social-preview.jpg');
     const enHomeJsonLd = parseJsonLdBlocks(enHome, 'English homepage');
     const deHomeJsonLd = parseJsonLdBlocks(deHome, 'German homepage');
     const enPricingJsonLd = parseJsonLdBlocks(enPricing, 'English pricing');
     const dePricingJsonLd = parseJsonLdBlocks(dePricing, 'German pricing');
 
-    expect(ogImage).toEqual({ width: 600, height: 391 });
+    expect(heroImage).toEqual({ width: 600, height: 391 });
+    expect(ogImage).toEqual({ width: 1200, height: 630 });
+    expect(fs.statSync(path.join(__dirname, '..', 'assets/images/bitbi-social-preview.jpg')).size).toBeLessThan(120000);
     expect(enHome).toContain('<meta name="robots" content="index, follow, max-image-preview:large">');
     expect(deHome).toContain('<meta name="robots" content="index, follow, max-image-preview:large">');
     expect(enPricing).toContain('<meta name="robots" content="index, follow, max-image-preview:large">');
@@ -538,8 +561,18 @@ test.describe('Bilingual locale pages', () => {
     expect(deHome).toContain('<meta property="og:image:alt" content="BITBI Logo auf dunklem Studiohintergrund">');
     expect(enHome).toContain('"inLanguage": "en"');
     expect(deHome).toContain('"inLanguage": "de"');
-    expect(enHome).toContain('"image": "https://bitbi.ai/assets/images/1.png"');
-    expect(deHome).toContain('"image": "https://bitbi.ai/assets/images/1.png"');
+    expect(enHome).toContain('"image": "https://bitbi.ai/assets/images/bitbi-social-preview.jpg"');
+    expect(deHome).toContain('"image": "https://bitbi.ai/assets/images/bitbi-social-preview.jpg"');
+    expect(enHome).toContain('<title>BITBI | Generate Lab, Canvas, Gallery, Video & Sound</title>');
+    expect(deHome).toContain('<title>BITBI | Generate Lab, Canvas, Galerie, Video & Sound</title>');
+    expect(enHome).toContain('<meta name="description" content="BITBI brings together the AI Creations Gallery, Video Creations, and Sound Lab with Generate Lab, Canvas, and Platform Models.">');
+    expect(deHome).toContain('<meta name="description" content="BITBI vereint die AI Creations Galerie, Video-Kreationen und Sound Lab mit Generate Lab, Canvas und Plattform Modelle.">');
+    expect(enHome).toContain('<meta property="og:image:width" content="1200">');
+    expect(deHome).toContain('<meta property="og:image:height" content="630">');
+    expect(enHomeJsonLd[0]['@graph'].find((entry) => entry['@type'] === 'WebPage').name).toBe('BITBI | Generate Lab, Canvas, Gallery, Video & Sound');
+    expect(deHomeJsonLd[0]['@graph'].find((entry) => entry['@type'] === 'WebPage').name).toBe('BITBI | Generate Lab, Canvas, Galerie, Video & Sound');
+    expect(enHomeJsonLd[0]['@graph'].find((entry) => entry['@type'] === 'WebPage').description).toBe('BITBI brings together the AI Creations Gallery, Video Creations, and Sound Lab with Generate Lab, Canvas, and Platform Models.');
+    expect(deHomeJsonLd[0]['@graph'].find((entry) => entry['@type'] === 'WebSite').description).toBe('BITBI vereint die AI Creations Galerie, Video-Kreationen und Sound Lab mit Generate Lab, Canvas und Plattform Modelle.');
     expect(enPricing).toContain('"@type": "WebPage"');
     expect(dePricing).toContain('"@type": "WebPage"');
     expect(enHomeJsonLd[0]['@graph'].map((entry) => entry['@type'])).toEqual(['Organization', 'WebSite', 'WebPage']);

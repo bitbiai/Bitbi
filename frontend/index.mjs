@@ -18,11 +18,34 @@ export default {
   },
 };
 
+// Exact public aliases only. Other *.html paths, including /admin/index.html,
+// stay addressable files.
+const CANONICAL_PUBLIC_PATHS = new Map([
+  ['/index.html', '/'],
+  ['/de/index.html', '/de/'],
+  ['/pricing', '/pricing.html'],
+  ['/pricing/', '/pricing.html'],
+  ['/de/pricing', '/de/pricing.html'],
+  ['/de/pricing/', '/de/pricing.html'],
+]);
+
+function applyCanonicalPublicPath(url) {
+  const canonicalPath = CANONICAL_PUBLIC_PATHS.get(url.pathname);
+  if (!canonicalPath) return false;
+  url.pathname = canonicalPath;
+  return true;
+}
+
+function permanentRedirect(url) {
+  return new Response(null, { status: 301, headers: { Location: url.href } });
+}
+
 async function serve(request, env) {
     const url = new URL(request.url);
     if (url.hostname === 'www.bitbi.ai') {
       url.hostname = 'bitbi.ai'; url.protocol = 'https:'; url.port = '';
-      return new Response(null, { status: 301, headers: { Location: url.href } });
+      if (['GET', 'HEAD'].includes(request.method)) applyCanonicalPublicPath(url);
+      return permanentRedirect(url);
     }
     if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
       // Production /api/* is still served by the separate, more-specific Auth
@@ -34,6 +57,12 @@ async function serve(request, env) {
     if (!['GET', 'HEAD'].includes(request.method)) return new Response(null, { status: 405, headers: { Allow: 'GET, HEAD' } });
     // Document requests run here for www canonicalization; resource prefixes
     // stay asset-first. Never perform geographic/language redirects.
+    if (applyCanonicalPublicPath(url)) return permanentRedirect(url);
+    if (url.pathname === '/favicon.ico') {
+      const assetUrl = new URL(url);
+      assetUrl.pathname = '/assets/favicons/favicon.ico';
+      return env.ASSETS.fetch(new Request(assetUrl, request));
+    }
     const exact = await env.ASSETS.fetch(request);
     if (exact.status !== 404) return exact;
     // Resolve real directory indexes, not a catch-all SPA/homepage.

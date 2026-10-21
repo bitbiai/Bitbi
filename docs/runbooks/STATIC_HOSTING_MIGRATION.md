@@ -21,8 +21,12 @@ not public assets; `_worker.js` is deliberately excluded. GitHub Pages did not
 execute its Geo redirect, and moving hosts must not silently activate it.
 
 `frontend/index.mjs` supplies explicit directory-index handling and document-level
-www-to-apex canonicalization, preserving query strings. `.html` URLs stay valid;
-missing files return real 404s, with no SPA fallback. `/account/` has no index and
+www-to-apex canonicalization, preserving query strings. `/index.html` and
+`/de/index.html` redirect to `/` and `/de/`. `/pricing`, `/pricing/`,
+`/de/pricing`, and `/de/pricing/` redirect to `/pricing.html` and
+`/de/pricing.html`. Other `.html` URLs stay valid, including `/pricing.html`,
+`/admin/index.html`, and `/canvas/index.html`. `/favicon.ico` is served from
+`/assets/favicons/favicon.ico`. Missing files return real 404s, with no SPA fallback. `/account/` has no index and
 remains unavailable; actual `/account/profile.html` is served. The frontend's
 `/api` and `/api/*` return a JSON 404. On production the existing more-specific
 `bitbi.ai/api/*` Auth route must remain intact and takes precedence over the
