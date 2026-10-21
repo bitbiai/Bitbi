@@ -4,7 +4,7 @@ import {canvasAgentModelOperationFixture} from './canvas-agent-model-operation-c
 import {canvasConversationExecutionFacts} from '../../workers/auth/src/lib/canvas-agent-conversation-context.js';
 import {recoverCanvasStoredMedia} from '../../workers/auth/src/lib/canvas-agent-media-resume.js';
 const check=(value,message)=>{if(!value)throw new Error(message);};
-export const MEDIA_COMPLETION_CASES=['resume','automatic','lost-ack','missing-storage','edited','adopt-current','unknown','cancelled','expired','foreign'];
+export const MEDIA_COMPLETION_CASES=['resume','automatic','lost-ack','missing-storage','edited','adopt-current','unknown','cancelled','expired','foreign','completion-window','proof-recheck'];
 
 export async function canvasMediaCompletionCase(base,name,media,{processor=null}={}){
   check(MEDIA_COMPLETION_CASES.includes(name),'Known media completion case');
@@ -57,18 +57,49 @@ export async function canvasMediaCompletionCase(base,name,media,{processor=null}
   const jobs=()=>f.db.prepare('SELECT * FROM member_generation_jobs WHERE user_id=? ORDER BY rowid').bind(f.owner).all();
   const deliverJob=job=>f.atClock(()=>worker.queue({queue:'bitbi-ai-video-jobs',messages:[{body:{type:'member_generation.process',job_id:job.id},attempts:1,ack(){},retry(){throw new Error('Unexpected media retry');}}]},f.env,{waitUntil(){throw new Error('Detached media forbidden');}}));
   const first=(await jobs()).results[0];check(first?.media_type==='image','First normal accepted job is the reference image');
-  await deliverJob(first);
+  const original=f.env.DB;
+  let windowObserved=false,windowState=null;
+  if(name==='completion-window')f.env.DB=new Proxy(original,{get(target,key){
+    if(key==='prepare')return sql=>{
+      const statement=target.prepare(sql);
+      if(!sql.startsWith('UPDATE member_generation_jobs SET status=?,result_r2_key=?'))return statement;
+      return {bind(...args){const bound=statement.bind(...args);return {async run(){
+        const node=await f.db.prepare('SELECT status FROM canvas_runs WHERE id=?').bind(first.canvas_run_id).first();
+        const job=await f.db.prepare('SELECT status FROM member_generation_jobs WHERE id=?').bind(first.id).first();
+        check(node.status==='completed'&&job.status==='ingesting','Real producer exposes the completed node before the final job write');
+        f.advance(10000);
+        await worker.queue({queue:'bitbi-ai-video-jobs',messages:[{body:{type:'canvas_agent.process',run_id:f.runId},attempts:1,ack(){},retry(){throw new Error('Unexpected agent retry');}}]},f.env,{waitUntil(){throw new Error('Detached completion forbidden');}});
+        const run=await f.db.prepare('SELECT status,error_code FROM canvas_agent_runs WHERE id=?').bind(f.runId).first();
+        const step=await f.db.prepare("SELECT status FROM canvas_agent_steps WHERE run_id=? AND kind='node' ORDER BY rowid LIMIT 1").bind(f.runId).first();
+        windowState={run,step};
+        check(calls.length===1,'Observation does not submit another image');windowObserved=true;
+        return bound.run();
+      }};}};
+    };const value=target[key];return typeof value==='function'?value.bind(target):value;
+  }});
+  try{await deliverJob(first);}finally{f.env.DB=original;}
   const saved=await f.db.prepare('SELECT * FROM member_generation_jobs WHERE id=?').bind(first.id).first();
   check(saved.status==='succeeded'&&saved.asset_id,'The normal image provider/storage/callback completes before the injected local failure');
-  const original=f.env.DB;let injected=false;
+  if(name==='completion-window'){
+    check(windowObserved,'Actual producer finalization window was exercised');
+    check(windowState.run.status==='running'&&!windowState.run.error_code&&windowState.step.status==='accepted','An unfinished local job is observed without blocking or releasing dependencies');
+    await f.deliver();await deliverJob(first);await f.deliver();
+    const step=await f.db.prepare("SELECT status,receipt_json FROM canvas_agent_steps WHERE run_id=? AND kind='node' ORDER BY rowid LIMIT 1").bind(f.runId).first();
+    check(step.status==='completed'&&JSON.parse(step.receipt_json).assetId===saved.asset_id,'Normal wake finishes the original stored result');
+    check((await jobs()).results.some(j=>j.media_type==='video')&&calls.length===1,'Only the dependent video is admitted, no repeated image inference');
+    const debits=await f.db.prepare('SELECT COUNT(*) AS count FROM member_credit_ledger WHERE user_id=? AND idempotency_key=(SELECT idempotency_key FROM member_ai_usage_attempts_v2 WHERE id=?) AND amount<0').bind(f.owner,first.usage_attempt_id).first();
+    check(debits.count===1,'Interleaved completion and duplicate delivery debit the image once');
+    return {case:name,recovered:true,mediaCalls:calls.length};
+  }
+  let injected=false;
   f.env.DB=new Proxy(original,{get(target,key){if(key==='prepare')return sql=>{
-    const statement=target.prepare(sql);if(sql!=='SELECT * FROM canvas_runs WHERE user_id=? AND idempotency_key=?')return statement;
-    return {bind(...args){const bound=statement.bind(...args);return {async first(){if(!injected){injected=true;throw new Error('D1_ERROR: synthetic read interruption');}return bound.first();}};}};
+    const statement=target.prepare(sql);if(name==='proof-recheck'?!sql.startsWith('SELECT c.*,j.id AS job_id'):sql!=='SELECT * FROM canvas_runs WHERE user_id=? AND idempotency_key=?')return statement;
+    return {bind(...args){const bound=statement.bind(...args);return {async first(){if(!injected){injected=true;throw name==='proof-recheck'?Object.assign(new Error('canvas_agent_media_recovery_evidence_invalid'),{code:'canvas_agent_media_recovery_evidence_invalid',status:409}):new Error('D1_ERROR: synthetic read interruption');}return bound.first();}};}};
   };const value=target[key];return typeof value==='function'?value.bind(target):value;}});
   try{await f.deliver();}finally{f.env.DB=original;}
   const current=()=>f.db.prepare('SELECT * FROM canvas_agent_runs WHERE id=?').bind(f.runId).first();
-  const held=await current();check(injected&&held.status==='review_required'&&held.error_code==='canvas_agent_local_execution_failed','Actual generation caller retains the database failure');
-  const cause=JSON.parse(held.cause_json);check(cause.execution.stepId&&cause.execution.stage==='media_lookup','Diagnostic identifies the media step');
+  const held=await current();check(injected&&held.status===(name==='proof-recheck'?'blocked':'review_required')&&held.error_code===(name==='proof-recheck'?'canvas_agent_media_recovery_evidence_invalid':'canvas_agent_local_execution_failed'),'Actual generation caller retains the original failure and execution certainty');
+  const cause=JSON.parse(held.cause_json);check(cause.execution.stepId&&cause.execution.stage===(name==='proof-recheck'?'media_completion':'media_lookup'),'Diagnostic identifies the media step');
   const facts=await canvasConversationExecutionFacts(f.env,f.owner,f.project);
   const accepted=facts.production.steps.find(s=>s.id===cause.execution.stepId);
   check(accepted?.receipt?.ok===null&&accepted.receipt.outcome==='accepted','Missing ok is not a corrupt receipt');
@@ -103,7 +134,7 @@ export async function canvasMediaCompletionCase(base,name,media,{processor=null}
     check(calls.length===1&&JSON.stringify((await f.db.prepare('SELECT * FROM member_credit_ledger WHERE user_id=? ORDER BY id').bind(f.owner).all()).results)===ledgerBefore,'Rejected recovery spends nothing');
     return {case:name,recovered:false,mediaCalls:calls.length};
   }
-  if(name==='automatic')await f.atClock(()=>recoverCanvasStoredMedia(f.env));
+  if(['automatic','proof-recheck'].includes(name))await f.atClock(()=>recoverCanvasStoredMedia(f.env));
   else if(name==='lost-ack'){
     let lost=false;f.env.DB=new Proxy(original,{get(target,key){if(key==='batch')return async statements=>{const value=await target.batch(statements);if(!lost){lost=true;throw new Error('Synthetic lost commit acknowledgement');}return value;};const value=target[key];return typeof value==='function'?value.bind(target):value;}});
     try{await resume();}finally{f.env.DB=original;}

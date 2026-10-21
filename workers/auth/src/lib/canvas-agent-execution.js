@@ -51,8 +51,14 @@ async function reconcileGenerationStep(env,run,step,user,requireReadiness,bounda
     let nodeRun=await env.DB.prepare('SELECT * FROM canvas_runs WHERE user_id=? AND idempotency_key=?').bind(run.user_id,key).first();
     if(nodeRun?.status==='completed') {
         boundary.stage='media_completion';
-        const durable=await env.DB.prepare('SELECT id FROM member_generation_jobs WHERE canvas_run_id=? AND user_id=?').bind(nodeRun.id,run.user_id).first();
-        if(durable){await completeCanvasAgentMedia(env,run,step);return;}
+        const durable=await env.DB.prepare('SELECT id,status FROM member_generation_jobs WHERE canvas_run_id=? AND user_id=?').bind(nodeRun.id,run.user_id).first();
+        if(durable){
+            // finishCanvasGeneration publishes the node before the job's final
+            // write. Its still-running owner retains storage/settlement recovery;
+            // a visible image is not yet proof that the whole job is complete.
+            if(['queued','processing','ingesting'].includes(durable.status))return;
+            await completeCanvasAgentMedia(env,run,step);return;
+        }
         if(nodeRun.asset_id)await saveCanvasMedia(env,run.user_id,run.project_id,nodeRun.id);
         await env.DB.prepare("UPDATE canvas_agent_steps SET status='completed',receipt_json=?,usage_attempt_id=?,updated_at=? WHERE id=?")
             .bind(JSON.stringify({canvasRunId:nodeRun.id,assetId:nodeRun.asset_id}),nodeRun.usage_attempt_id,nowIso(),step.id).run();

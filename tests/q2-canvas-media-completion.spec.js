@@ -4,7 +4,7 @@ const {createAuthTestEnv}=require('./helpers/auth-worker-harness.js');
 const fs=require('node:fs'),path=require('node:path');
 const media=()=>Object.fromEntries([['videoBase64','canvas-end-frame.mp4'],['imageBase64','member-image.png'],['musicBase64','member-music.mp3']]
   .map(([key,file])=>[key,fs.readFileSync(path.join(__dirname,'fixtures/media',file)).toString('base64')]));
-for(const name of ['resume','automatic','lost-ack','missing-storage','edited','adopt-current','unknown','cancelled','expired','foreign'])test(`Canvas media completion recovery ${name}`,async()=>{
+for(const name of ['resume','automatic','lost-ack','missing-storage','edited','adopt-current','unknown','cancelled','expired','foreign','completion-window','proof-recheck'])test(`Canvas media completion recovery ${name}`,async()=>{
   const DB=new SqliteD1Database();applyAuthMigrations(DB);
   try{
     const {canvasMediaCompletionCase}=await import('./helpers/canvas-agent-media-completion-control.mjs');

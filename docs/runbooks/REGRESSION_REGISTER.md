@@ -2336,6 +2336,17 @@ post-completion read retains its step/substage and distinguishes stored results
 from unknown acceptance. Missing media `ok` is not provider rejection. The
 assistant receives the original media job and settlement facts separately.
 
+A follow-up on `ccef1894` exposed a completion observation window: the normal
+member job calls `finishCanvasGeneration` before committing its terminal status.
+The agent must wait while that same job is queued/processing/ingesting, even
+when the node already has an image. A prior evidence-review stop can resume
+only after all existing storage, identity, billing and authority proofs pass;
+contradictory or incomplete proof stays blocked. The live 13:20 UTC stop retained
+only the combined proof error, so its particular failed predicate is unknown.
+`completion-window` interleaves the real queue consumer before the final job
+write; `proof-recheck` covers subsequent verified completion. Both fail against
+the preceding implementation and run in the Worker and native reliability suite.
+
 An explicit current-revision Resume may adopt unstarted node edits only after
 current-graph preflight within existing per-step allocations and total cap;
 accepted sources and dependencies stay fenced. A legacy unambiguous Resume

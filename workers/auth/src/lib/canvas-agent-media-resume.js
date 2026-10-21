@@ -10,8 +10,12 @@ import { canvasAgentCapabilities } from './canvas-agent-capabilities.js';
 import { canvasAgentDependencyKind } from './canvas-agent-price-input.js';
 import { preflightCanvasAgentGraph } from './canvas-agent-graph.js';
 const fail=code=>{throw Object.assign(new Error(code),{code,status:409});};
+// Older observers could inspect the node during the producer's final writes.
+// These codes are candidates for inspection, never permission to resume: all
+// current storage, settlement, attachment and authority proofs below must pass.
+const recoverableCodes=['canvas_agent_local_execution_failed','canvas_agent_media_recovery_evidence_invalid'];
 const eligible=run=>run?.purpose==='production'&&run.plan_json&&run.phase==='generating'
-  &&['blocked','review_required'].includes(run.status)&&run.error_code==='canvas_agent_local_execution_failed';
+  &&['blocked','review_required'].includes(run.status)&&recoverableCodes.includes(run.error_code);
 
 export async function inspectCanvasMediaResume(env,run,{storage=false,expectedProjectRevision=null}={}) {
   if(!eligible(run))return {eligible:false,code:'canvas_agent_media_recovery_state_changed'};
@@ -152,8 +156,8 @@ async function validateCurrentUnstartedMedia(env,run,current){
 
 export async function recoverCanvasStoredMedia(env) {
   const rows=(await env.DB.prepare(`SELECT * FROM canvas_agent_runs WHERE purpose='production' AND phase='generating'
-    AND status IN ('blocked','review_required') AND error_code='canvas_agent_local_execution_failed'
-    AND expires_at>? AND (lease_until IS NULL OR lease_until<=?) ORDER BY updated_at LIMIT 10`).bind(nowIso(),nowIso()).all()).results;
+    AND status IN ('blocked','review_required') AND error_code IN (?,?)
+    AND expires_at>? AND (lease_until IS NULL OR lease_until<=?) ORDER BY updated_at LIMIT 10`).bind(...recoverableCodes,nowIso(),nowIso()).all()).results;
   for(const run of rows){
     const proof=await inspectCanvasMediaResume(env,run);if(!proof.eligible)continue;
     try{await resumeCanvasMedia(env,run);}catch(error){

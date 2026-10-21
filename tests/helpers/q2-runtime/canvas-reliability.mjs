@@ -8,7 +8,7 @@ export const canvasReliabilityInventory=Object.freeze([
   ...['evidence','quoted','budget-scope'].map(name=>`canvas_reliability_explanation_${name}`),
   ...['fallback','manual','model','fable','unknown','resolved','revoked','isolation','deleted'].map(name=>`canvas_reliability_incident_${name}`),
   ...['recover','guards','crash','active','preflight'].map(name=>`canvas_reliability_plan_interpretation_${name}`),
-  ...['resume','automatic','lost-ack','missing-storage','edited','adopt-current','unknown','cancelled','expired','foreign'].map(name=>`canvas_reliability_media_completion_${name}`),
+  ...['resume','automatic','lost-ack','missing-storage','edited','adopt-current','unknown','cancelled','expired','foreign','completion-window','proof-recheck'].map(name=>`canvas_reliability_media_completion_${name}`),
   ...['fresh','resume','transient','bounded','unknown','guards','diagnostics','stored'].map(name=>`canvas_reliability_local_planning_${name}`),
   ...['recover','guards','race','format'].map(name=>`canvas_reliability_plan_correction_review_${name}`),
 ]);
@@ -62,7 +62,7 @@ export async function runCanvasReliabilityTests(f){
     const response=await f.control('/canvas-agent-plan-interpretation',{name});assert.equal(response.status,200,await response.clone().text());
     const result=await response.json();assert.equal(result.case,name);f.metrics.push(result);
   });
-  for(const name of ['resume','automatic','lost-ack','missing-storage','edited','adopt-current','unknown','cancelled','expired','foreign'])await f.test(`canvas_reliability_media_completion_${name}`,async()=>{
+  for(const name of ['resume','automatic','lost-ack','missing-storage','edited','adopt-current','unknown','cancelled','expired','foreign','completion-window','proof-recheck'])await f.test(`canvas_reliability_media_completion_${name}`,async()=>{
     const paths={videoBase64:new URL('../../fixtures/media/canvas-end-frame.mp4',import.meta.url),
       imageBase64:new URL('../../fixtures/media/h3-frame.png',import.meta.url),musicBase64:new URL('../../fixtures/media/member-music.mp3',import.meta.url)};
     const media=Object.fromEntries(Object.entries(paths).map(([key,file])=>[key,fs.readFileSync(file).toString('base64')]));
