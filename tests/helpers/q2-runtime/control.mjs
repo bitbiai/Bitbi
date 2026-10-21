@@ -1,3 +1,4 @@
+import {MEDIA_COMPLETION_CASES,canvasMediaCompletionCase} from '../canvas-agent-media-completion-control.mjs';
 import {CANVAS_LOCAL_RECOVERY_CASES,canvasLocalRecoveryCase} from '../canvas-agent-model-operation-cases.mjs';
 import {seedCanvasAssistantMigration,verifyCanvasAssistantMigration} from '../canvas-assistant-migration-control.mjs';
 import {canvasProjectLifecycleCase} from '../canvas-project-lifecycle-control.mjs';
@@ -111,6 +112,7 @@ export default {
       }
       return Response.json(await canvasImageSchedulingCase(scoped,body));
     }
+    if(path==='/canvas-agent-media-completion'&&MEDIA_COMPLETION_CASES.includes(body.name))return Response.json(await canvasMediaCompletionCase(env,body.name,body));
     if(path==='/canvas-agent-h3-recovery'&&H3_RECOVERY_CASES.includes(body.name))return Response.json(await canvasH3RecoveryCase(env,body.name,body));
     if(path==='/canvas-agent-readiness'&&READINESS_CASES.includes(body.name))return Response.json(await canvasAgentReadinessCase(env,body.name,body));
     if(path==='/canvas-conversation-decision'&&CANVAS_CONVERSATION_DECISION_CASES.includes(body.name))return Response.json(await canvasConversationDecisionCase(env,body.name));

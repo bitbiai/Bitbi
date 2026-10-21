@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import assert from 'node:assert/strict';
 
 export const canvasReliabilityInventory=Object.freeze([
@@ -7,6 +8,7 @@ export const canvasReliabilityInventory=Object.freeze([
   ...['evidence','quoted','budget-scope'].map(name=>`canvas_reliability_explanation_${name}`),
   ...['fallback','manual','model','fable','unknown','resolved','revoked','isolation','deleted'].map(name=>`canvas_reliability_incident_${name}`),
   ...['recover','guards','crash','active','preflight'].map(name=>`canvas_reliability_plan_interpretation_${name}`),
+  ...['resume','automatic','lost-ack','missing-storage','edited','adopt-current','unknown','cancelled','expired','foreign'].map(name=>`canvas_reliability_media_completion_${name}`),
   ...['fresh','resume','transient','bounded','unknown','guards','diagnostics','stored'].map(name=>`canvas_reliability_local_planning_${name}`),
   ...['recover','guards','race','format'].map(name=>`canvas_reliability_plan_correction_review_${name}`),
 ]);
@@ -59,6 +61,14 @@ export async function runCanvasReliabilityTests(f){
   for(const name of ['recover','guards','crash','active','preflight'])await f.test(`canvas_reliability_plan_interpretation_${name}`,async()=>{
     const response=await f.control('/canvas-agent-plan-interpretation',{name});assert.equal(response.status,200,await response.clone().text());
     const result=await response.json();assert.equal(result.case,name);f.metrics.push(result);
+  });
+  for(const name of ['resume','automatic','lost-ack','missing-storage','edited','adopt-current','unknown','cancelled','expired','foreign'])await f.test(`canvas_reliability_media_completion_${name}`,async()=>{
+    const paths={videoBase64:new URL('../../fixtures/media/canvas-end-frame.mp4',import.meta.url),
+      imageBase64:new URL('../../fixtures/media/member-image.png',import.meta.url),musicBase64:new URL('../../fixtures/media/member-music.mp3',import.meta.url)};
+    const media=Object.fromEntries(Object.entries(paths).map(([key,file])=>[key,fs.readFileSync(file).toString('base64')]));
+    const response=await f.control('/canvas-agent-media-completion',{name,...media});
+    assert.equal(response.status,200,await response.clone().text());const result=await response.json();
+    assert.equal(result.case,name);assert.equal(result.mediaCalls,1);f.metrics.push(result);
   });
   for(const name of ['fresh','resume','transient','bounded','unknown','guards','diagnostics','stored'])await f.test(`canvas_reliability_local_planning_${name}`,async()=>{
     const response=await f.control('/canvas-local-planning-recovery',{name});assert.equal(response.status,200,await response.clone().text());

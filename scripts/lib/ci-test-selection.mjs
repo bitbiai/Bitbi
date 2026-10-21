@@ -609,6 +609,7 @@ const EXACT_WORKER_TEST_FILES = new Set([
 ]);
 
 const WORKER_TEST_PREFIXES = [
+  "tests/q2-canvas-media-completion.spec.js", "tests/helpers/canvas-agent-media-completion-control.mjs",
   "tests/grok-chat-workers.spec.js",
   "tests/q2-canvas-agent-provider.spec.js", "tests/q2-canvas-agent.spec.js", "tests/q2-processor-capability.spec.js", "tests/canvas-assembly.test.mjs",
   "tests/q2-canvas-agent-preflight.spec.js", "tests/helpers/canvas-agent-preflight-control.mjs",

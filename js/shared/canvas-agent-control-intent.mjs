@@ -13,6 +13,7 @@ export function detectCanvasDirectControl(text) {
     ||/^(?:please\s+)?(?:pause|stop|halt)\s+(?:the\s+)?(?:production|film|video)(?:\s+(?:please|now))?$/u.test(value))return 'production_pause';
   if(/^(?:bitte\s+)?(?:produktion\s+abbrechen|brich\s+(?:die\s+)?produktion\s+ab|cancel\s+(?:the\s+)?production)(?:\s+(?:bitte|jetzt|please|now))?$/u.test(value))return 'production_cancel';
   if(/^(?:wie\s+(?:weit|läuft)\s+(?:ist\s+)?(?:die\s+)?produktion|wie\s+weit\s+bist\s+du|produktionsstatus|production\s+status|how\s+(?:far\s+along\s+are\s+you|is\s+(?:the\s+)?production))(?:\s+(?:jetzt|now))?$/u.test(value))return 'status';
+  if(/^(?:und\s+jetzt\?\s*)?(?:mach\s+weiter|weiter\s+mit\s+der\s+produktion)(?:\s+bitte)?$/u.test(value)||/^(?:what\s+now\?\s*)?keep\s+going(?:\s+please)?$/u.test(value))return 'production_resume';
   if(/^(?:bitte\s+)?(?:produktion\s+fortsetzen|setze\s+(?:die\s+)?produktion\s+fort|mach\s+mit\s+der\s+produktion\s+weiter|resume\s+(?:the\s+)?production|continue\s+(?:the\s+)?production)(?:\s+(?:bitte|jetzt|please|now))?$/u.test(value))return 'production_resume';
   if(/^(?:ich\s+übernehme(?:\s+manuell)?|manuell\s+übernehmen|take\s+over(?:\s+manually)?|manual\s+takeover)$/u.test(value))return 'production_takeover';
   if(/^(?:status|wie\s+ist\s+der\s+stand|was\s+ist\s+der\s+stand|how\s+is\s+it\s+going|what(?:'s|\s+is)\s+the\s+status)$/u.test(value))return 'status';

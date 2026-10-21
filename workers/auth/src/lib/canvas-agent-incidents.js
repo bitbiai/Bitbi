@@ -89,6 +89,23 @@ export async function canvasIncidentContext(env,userId,projectId,source) {
           WHERE s.run_id=p.run_id AND s.kind='node') ORDER BY p.updated_at DESC LIMIT 1`).bind(run.id,source.at,projectId,userId).first();
       if(applied)progress={kind:'plan_applied',stepId:applied.step_id,at:applied.updated_at};
     } else if(receipt?.status==='completed'&&parse(receipt.receipt_json)?.ok===true)progress={kind:'step_completed',stepId:receipt.step_id};
+    if(run&&receipt?.kind==='node'){
+      const media=await env.DB.prepare(`SELECT c.id,c.model_id,c.status,c.asset_id,c.completed_at,j.id AS job_id,j.status AS job_status,
+        j.result_r2_key IS NOT NULL AS result_stored,a.id AS usage_id,a.billing_status,a.provider_outcome,m.state AS retention_state
+        FROM canvas_runs c LEFT JOIN member_generation_jobs j ON j.canvas_run_id=c.id AND j.user_id=c.user_id
+        LEFT JOIN member_ai_usage_attempts_v2 a ON a.id=COALESCE(j.usage_attempt_id,c.usage_attempt_id) AND a.user_id=c.user_id
+        LEFT JOIN canvas_media_outputs m ON m.run_id=c.id AND m.user_id=c.user_id AND m.role='original' AND m.asset_id=c.asset_id
+        WHERE c.idempotency_key=? AND c.user_id=? AND c.project_id=? AND c.deleted_at IS NULL`)
+        .bind(`canvas-agent-${receipt.step_id}`,userId,projectId).first();
+      operation={...operation,kind:'node',valid:null,validation:null,modelId:media?.model_id||null,
+        canvasRunId:media?.id||null,jobId:media?.job_id||null,usageAttemptId:media?.usage_id||null,
+        outcome:media?.provider_outcome||'unverified',responseStored:Boolean(media?.result_stored),
+        billingStatus:media?.billing_status||null,assetId:media?.asset_id||null,retentionState:media?.retention_state||null,
+        canvasStatus:media?.status||null,jobStatus:media?.job_status||null,
+        dispatchCertainty:media?.provider_outcome==='succeeded'?'result_recorded':media?.job_id?'original_job':'unverified'};
+      if(receipt.status==='completed'&&media?.status==='completed'&&media.asset_id===result?.assetId&&media.retention_state==='saved')
+        progress={kind:'step_completed',stepId:receipt.step_id,assetId:media.asset_id,at:media.completed_at};
+    }
   } else if(source.source==='export'){
     const job=await env.DB.prepare('SELECT id,status,error_code,asset_id,next_attempt_at,attempt_count FROM canvas_video_processing WHERE id=? AND project_id=? AND user_id=?')
       .bind(d.exportId,projectId,userId).first();
@@ -148,7 +165,8 @@ export function canvasIncidentExplanation(context,reason='not_authorized') {
   if(op?.responseStored&&op.valid===false&&op.outcome==='completed')parts.push(de?'Die ursprüngliche Antwort ist gespeichert; ihr Ausgang ist bekannt.':'The original response is retained; its outcome is known.');
   else if(context.retained.resultNodes||context.retained.exportAssets.length)parts.push(de?'Bereits gespeicherte Ergebnisse bleiben erhalten.':'Previously saved results remain retained.');
   if(op?.dispatchCertainty==='not_dispatched')parts.push(de?'Für diesen konkreten Planungsschritt belegen der Abrechnungsversuch und die Versandprüfung, dass noch keine Anbieteranfrage versandt wurde.':'The usage attempt and dispatch checks establish that this specific planning step has not sent a provider request.');
-  if(op?.billingStatus==='finalized')parts.push(de?'Der ursprüngliche Modellaufruf ist abgerechnet; eine ungültige Antwort bedeutet nicht, dass keine Kosten entstanden sind.':'The original model call has been settled; an invalid reply does not mean no cost was incurred.');
+  if(op?.kind==='node'&&op.billingStatus==='finalized')parts.push(de?'Der ursprüngliche Medienauftrag ist bereits abgerechnet. Sein lokaler Abschluss darf keine zweite Generierung oder Abbuchung auslösen.':'The original media operation is already settled. Its local completion must not trigger another generation or debit.');
+  else if(op?.billingStatus==='finalized')parts.push(de?'Der ursprüngliche Modellaufruf ist abgerechnet; eine ungültige Antwort bedeutet nicht, dass keine Kosten entstanden sind.':'The original model call has been settled; an invalid reply does not mean no cost was incurred.');
   if(context.state==='recovering')parts.push(de?'Die bestehende Wiederherstellung ist vorgemerkt oder läuft bereits; ein erfolgreicher Folgeschritt ist noch nicht belegt. Diese Erklärung startet keinen neuen Auftrag.':'Existing recovery is scheduled or underway; a successful next step is not yet evidenced. This explanation starts no new operation.');
   else if(context.state!=='resolved')parts.push(op?.dispatchCertainty==='not_dispatched'
     ?(de?'Die sichere Fortsetzung ist eine erneute lokale Zulassung desselben Auftrags über „Fortsetzen“, sofern Freigabe und Projektstand unverändert sind. Bei einem wiederkehrenden internen Fehler muss der Support die Diagnose prüfen.':'The safe continuation is to re-admit this same operation with Resume, provided authorization and project state are unchanged. A recurring internal failure needs support to inspect the diagnostic.')

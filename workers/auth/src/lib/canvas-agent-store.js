@@ -22,6 +22,7 @@ export async function publicAgentRun(env,row) {
     if(row.status==='paused'&&row.phase==='budget'&&!actionableBudget)cause={code:row.expires_at<=nowIso()?'canvas_agent_authorization_expired':project?.revision!==row.expected_revision?'canvas_agent_project_changed':'canvas_agent_budget_request_changed',step:'budget',recovery:'manual'};
     const proposedPlan=await publicCanvasAgentProposal(env,row),partialOutputs=await publicCanvasAgentOutputs(env,row);
     const readmission=await (await import('./canvas-agent-planning-recovery.js')).inspectCanvasPlanningReadmission(env,row);
+    const mediaResume=await (await import('./canvas-agent-media-resume.js')).inspectCanvasMediaResume(env,row);
     const held=['cancelled','taken_over'].includes(row.status)||row.status==='paused'&&row.phase!=='budget';
     const event=await env.DB.prepare(`SELECT type,payload_json FROM canvas_agent_events WHERE run_id=? AND type IN ('action','decision_summary','error')
         AND (?=0 OR json_extract(payload_json,'$.code')=?) ORDER BY id DESC LIMIT 1`).bind(row.id,held?1:0,row.status).first();
@@ -39,7 +40,8 @@ export async function publicAgentRun(env,row) {
             event?JSON.parse(event.payload_json):{phase:held?row.status==='taken_over'?'manual_takeover':row.status:row.phase,model:!held&&modelOperation?modelOperation.modelId:null},
         cause,
         summarySupport:{status:'unavailable',mode:'completed'},
-        modelOperation,allowedActions:canvasAgentAllowedActions({...row,current_revision:project?.revision,planningReadmission:Boolean(readmission)},modelOperation),
+        modelOperation,allowedActions:canvasAgentAllowedActions({...row,current_revision:project?.revision,planningReadmission:Boolean(readmission)||mediaResume.eligible},modelOperation),
+        ...(row.phase==='generating'&&['blocked','review_required'].includes(row.status)?{resumeBlocker:mediaResume.eligible?null:mediaResume.code}:{}),
         errorCode:row.error_code,result:row.result_json?JSON.parse(row.result_json):null,
         ...(row.status==='clarification_required'?{clarification:{field:'duration',code:'duration_required'}}:{}),
         createdAt:row.created_at,updatedAt:row.updated_at};
@@ -96,6 +98,7 @@ export async function requeueCanvasAgents(env) {
     const {reconcileCanvasAgentModelOperations}=await import('./canvas-agent-model-operations.js');
     await reconcileCanvasAgentModelOperations(env);
     await (await import('./canvas-agent-media-recovery.js')).recoverCanvasAgentMedia(env);
+    await (await import('./canvas-agent-media-resume.js')).recoverCanvasStoredMedia(env);
     const {observeCanvasConversationReceipts}=await import('./canvas-agent-conversation.js');
     const recoverable=(await env.DB.prepare(`SELECT DISTINCT r.project_id,r.user_id FROM canvas_agent_runs r
         JOIN canvas_agent_turns t ON t.run_id=r.id JOIN canvas_agent_steps s ON s.run_id=r.id AND s.step_key='dialogue'

@@ -2318,6 +2318,42 @@ separate. Keep exact candidate reports in the existing local release checkpoint.
 
 ### Completed Canvas plan admission and autonomy — 2026-10-16
 
+The 2026-10-21 10:33 UTC media stop on Auth `176cf769` occurred at
+`generationStep`'s original Canvas-run SELECT (deployed bundle
+`index.js:123149:17`). The stored diagnostic identifies a database exception but
+not its original message; restricted historical telemetry returned 403. A later
+read succeeded. Do not claim a corrupt provider receipt or a proven transient
+cause. The reference image's durable job, finalized usage/debit, original R2
+bytes and Canvas retention were already successful; its agent step was still
+accepted. Resume incorrectly entered planning-only recovery.
+
+Media completion now checks the original job/usage/debit, private result/bytes,
+owner/node version and retained asset before completing the same step. Ordinary
+Resume and bounded cron recovery use this proof and current authority; neither
+submits replacement inference nor rewrites provider evidence. Image and native
+music primary receipts use their actual `ai-0` / `service-0` paths. A failed
+post-completion read retains its step/substage and distinguishes stored results
+from unknown acceptance. Missing media `ok` is not provider rejection. The
+assistant receives the original media job and settlement facts separately.
+
+An explicit current-revision Resume may adopt unstarted node edits only after
+current-graph preflight within existing per-step allocations and total cap;
+accepted sources and dependencies stay fenced. A legacy unambiguous Resume
+utterance recorded as `latestInstruction` may be reconciled only when its owned
+accepted turn proves all creative fields unchanged. New direct EN/DE Resume
+utterances do not become creative memory. Original run/brief identities remain
+immutable, and acknowledgement keys bind the approved revision.
+
+Smallest controls: `tests/q2-canvas-media-completion.spec.js`, its shared
+`canvas-agent-media-completion-control.mjs`, and native `canvas-reliability`.
+They inject a database read failure after actual image generation/storage,
+exercise duplicate/lost acknowledgements and authority/storage countercases,
+and continue through signed review, three real decoded clips, mixed audio and
+saved MP4. Manual rerun, clip deletion/reordering, transition/music change and
+re-export retain the old film without the assistant. The staging inventory and
+selector include these actual callers; synthetic inference is not live film
+acceptance. Private before/after records remain outside Git.
+
 The separate 2026-10-21 07:51 UTC stop on Auth `8559f068` / AI `a0117ed4`
 lost its original exception in the generic `canvas_agent_execution_review_required`
 catch. Its owned planning usage attempt had no dispatch token/time, operation,

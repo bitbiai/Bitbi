@@ -77,7 +77,7 @@ if(process.argv.includes('--canvas-readiness-only')) {
 }
 
 {
- const scoped=['tests/q2-canvas-h3-operator.spec.js','scripts/canvas-h3-recovery.mjs','tests/q2-canvas-agent-h3-recovery.spec.js',
+ const scoped=['tests/q2-canvas-media-completion.spec.js','tests/helpers/canvas-agent-media-completion-control.mjs','tests/q2-canvas-h3-operator.spec.js','scripts/canvas-h3-recovery.mjs','tests/q2-canvas-agent-h3-recovery.spec.js',
  'tests/helpers/canvas-agent-h3-recovery-control.mjs','tests/q2-canvas-assistant-migration.spec.js','tests/helpers/canvas-assistant-migration-control.mjs',
  'tests/helpers/canvas-assistant-model-control.mjs','tests/q2-canvas-conversation-decisions.spec.js','tests/helpers/canvas-conversation-decisions-control.mjs',
  'tests/q2-canvas-image-scheduling.spec.js','tests/helpers/canvas-image-scheduling-control.mjs','tests/helpers/image-capacity-mock.js'];

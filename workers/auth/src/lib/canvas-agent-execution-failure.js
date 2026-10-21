@@ -2,7 +2,7 @@ import { logDiagnostic } from '../../../../js/shared/worker-observability.mjs';
 import { sha256Hex } from './tokens.js';
 
 const safeCode=value=>typeof value==='string'&&/^[a-z][a-z0-9_]{0,89}$/.test(value)?value:null;
-const stages=new Set(['authority','input','policy','readiness','reservation','reservation_link','admission','prepare','dispatch_claim','dispatch','receipt','planning','repairing','generating','waiting_limit','evaluating','exporting','execution']);
+const stages=new Set(['authority','input','policy','readiness','reservation','reservation_link','admission','prepare','dispatch_claim','dispatch','receipt','planning','repairing','generating','media_completion','media_lookup','media_projection','media_reference','media_admission','media_acceptance','waiting_limit','evaluating','exporting','execution']);
 const causes=new Set(['canvas_agent_authority_revoked','canvas_agent_recovery_brief_changed','canvas_agent_diagnostic_authority_required',
     'canvas_agent_step_immutable','model_pricing_stale','model_area_disabled','canvas_agent_budget_exceeded']);
 export async function canvasExecutionDiagnostic(error,{stage='planning',stepId=null}={}) {
@@ -11,7 +11,7 @@ export async function canvasExecutionDiagnostic(error,{stage='planning',stepId=n
     const invariant=[...causes].find(code=>new RegExp(`\\b${code}\\b`).test(text));
     const sqlite=chain.some(e=>/SQLITE|D1_/.test(String(e.code||'')))||/\b(?:D1_ERROR|SQLITE_ERROR)\b/.test(text);
     const busy=chain.some(e=>['SQLITE_BUSY','SQLITE_LOCKED','D1_SESSION_ERROR'].includes(e.code)||/^D1_ERROR:.*\b(?:SQLITE_BUSY|SQLITE_LOCKED)\b/.test(String(e.message||'')));
-    const nativeCode=chain.map(e=>e.code).find(value=>['SQLITE_BUSY','SQLITE_LOCKED','SQLITE_ERROR','ERR_SQLITE_ERROR','D1_ERROR','D1_TYPE_ERROR','D1_SESSION_ERROR'].includes(value))||null;
+    const nativeCode=chain.map(e=>e.code).find(value=>['SQLITE_BUSY','SQLITE_LOCKED','SQLITE_ERROR','ERR_SQLITE_ERROR','D1_ERROR','D1_TYPE_ERROR','D1_SESSION_ERROR'].includes(value))||text.match(/\b(?:SQLITE_BUSY|SQLITE_LOCKED|SQLITE_ERROR|D1_ERROR|D1_TYPE_ERROR|D1_SESSION_ERROR)\b/)?.[0]||null;
     const category=invariant?'invariant':busy?'database_transient':sqlite?'database':chain.some(e=>e instanceof TypeError)?'type':chain.some(e=>e instanceof SyntaxError)?'syntax':'internal';
     // Only fixed codes and source locations leave the exception boundary. Never
     // retain arbitrary messages, SQL, inputs, provider text or complete stacks.
@@ -43,17 +43,35 @@ export async function canvasPlanningEvidence(env,run,stepId=null) {
     return {step,attempts,operation,certainty};
 }
 
+export async function canvasMediaEvidence(env,run,stepId) {
+    if(!stepId)return {certainty:'unverified'};
+    const step=await env.DB.prepare("SELECT * FROM canvas_agent_steps WHERE id=? AND run_id=? AND kind='node'").bind(stepId,run.id).first();
+    if(!step)return {certainty:'unverified'};
+    const media=await env.DB.prepare(`SELECT c.id AS canvas_run_id,j.id AS job_id,j.status,j.result_r2_key,j.asset_id,
+      a.provider_outcome,a.dispatch_token,a.dispatched_at,a.billing_status FROM canvas_runs c
+      LEFT JOIN member_generation_jobs j ON j.canvas_run_id=c.id AND j.user_id=c.user_id
+      LEFT JOIN member_ai_usage_attempts_v2 a ON a.id=c.usage_attempt_id AND a.user_id=c.user_id
+      WHERE c.user_id=? AND c.project_id=? AND c.node_id=? AND c.idempotency_key=?`)
+      .bind(run.user_id,run.project_id,step.node_id,`canvas-agent-${step.id}`).first();
+    const certainty=media?.result_r2_key&&media.asset_id&&media.provider_outcome==='succeeded'?'response_stored'
+      :media?.dispatch_token||media?.dispatched_at||media?.job_id?'accepted_or_dispatching':'unverified';
+    return {step,certainty,media};
+}
+
 export async function canvasProductionFailure(env,run,error) {
     const diagnostic=error?.executionDiagnostic||await canvasExecutionDiagnostic(error,{stage:run.phase});
     logDiagnostic({service:'bitbi-auth',component:'canvas-agent',event:'canvas_execution_failed',level:'error',correlationId:run.id,...diagnostic});
-    const evidence=run.phase==='planning'||run.phase==='repairing'?await canvasPlanningEvidence(env,run,diagnostic.stepId):null;
+    let evidence=null;
+    try{evidence=run.phase==='planning'||run.phase==='repairing'?await canvasPlanningEvidence(env,run,diagnostic.stepId)
+      :['generating','waiting_limit'].includes(run.phase)?await canvasMediaEvidence(env,run,diagnostic.stepId):null;}
+    catch{ /* Keep the original diagnostic if its evidence read also fails. Certainty stays unverified. */ }
     const code=safeCode(error?.code)||(causes.has(diagnostic.reason)?diagnostic.reason:'canvas_agent_local_execution_failed');
     const certainty=evidence?.certainty||'unverified';
     const knownReview=new Set(['canvas_agent_policy_review_required','canvas_agent_billing_review_required','canvas_agent_planning_review_required',
         'canvas_agent_result_review_required','canvas_agent_provider_review_required','canvas_agent_receipt_review_required','canvas_agent_provider_failure_review_required',
         'canvas_agent_provider_outcome_unknown','canvas_agent_provider_timeout','canvas_agent_claim_lost','canvas_agent_quality_review_required','generation_result_requires_credit_review']).has(code);
-    const retry=diagnostic.transient&&certainty==='not_dispatched'&&Number(JSON.parse(evidence.step.input_json).readmission?.ordinal||0)<2;
+    const retry=diagnostic.transient&&evidence?.step?.kind==='plan'&&certainty==='not_dispatched'&&Number(JSON.parse(evidence.step.input_json).readmission?.ordinal||0)<2;
     return {code,status:retry?'planning':['unknown','accepted_or_dispatching'].includes(certainty)||certainty==='response_stored'&&code==='canvas_agent_local_execution_failed'||knownReview?'review_required':'blocked',
         cause:{code,step:run.phase,recovery:retry?'local_retry':certainty==='not_dispatched'?'readmission':code==='canvas_agent_provider_review_required'||['response_stored','accepted_or_dispatching','unknown'].includes(certainty)?'receipt':'support',
-            dispatchState:certainty,stepId:evidence?.step?.id||diagnostic.stepId,operationId:evidence?.operation?.id||null,execution:diagnostic},evidence};
+            dispatchState:certainty,stepId:evidence?.step?.id||diagnostic.stepId,operationId:evidence?.operation?.id||null,canvasRunId:evidence?.media?.canvas_run_id||null,jobId:evidence?.media?.job_id||null,execution:diagnostic},evidence};
 }

@@ -23,6 +23,7 @@ import { imageGenerationCapacity } from './image-generation-capacity.js';
 import { getCanvasModelForRole } from '../../../../js/shared/canvas-model-contract.mjs';
 import { canvasAgentValidationDiagnostic } from '../../../shared/canvas-agent-plan.mjs';
 import { readValidCanvasPlanInterpretation,persistCanvasPlanInterpretation,readCanvasCompletedInvalidPlan } from './canvas-agent-plan-interpretation.js';
+import { completeCanvasAgentMedia } from './canvas-agent-media-completion.js';
 
 async function checkAuthority(env,run) {
     if(run.expires_at<=nowIso())agentFail('canvas_agent_authorization_expired');
@@ -38,9 +39,20 @@ async function checkAuthority(env,run) {
     return {user,view};
 }
 async function generationStep(env,run,step,user,requireReadiness) {
+    const boundary={stage:'media_lookup'};
+    try{return await reconcileGenerationStep(env,run,step,user,requireReadiness,boundary);}
+    catch(error){
+        error.executionDiagnostic=await canvasExecutionDiagnostic(error,{stage:boundary.stage,stepId:step.id});
+        throw error;
+    }
+}
+async function reconcileGenerationStep(env,run,step,user,requireReadiness,boundary) {
     const key=`canvas-agent-${step.id}`;
     let nodeRun=await env.DB.prepare('SELECT * FROM canvas_runs WHERE user_id=? AND idempotency_key=?').bind(run.user_id,key).first();
     if(nodeRun?.status==='completed') {
+        boundary.stage='media_completion';
+        const durable=await env.DB.prepare('SELECT id FROM member_generation_jobs WHERE canvas_run_id=? AND user_id=?').bind(nodeRun.id,run.user_id).first();
+        if(durable){await completeCanvasAgentMedia(env,run,step);return;}
         if(nodeRun.asset_id)await saveCanvasMedia(env,run.user_id,run.project_id,nodeRun.id);
         await env.DB.prepare("UPDATE canvas_agent_steps SET status='completed',receipt_json=?,usage_attempt_id=?,updated_at=? WHERE id=?")
             .bind(JSON.stringify({canvasRunId:nodeRun.id,assetId:nodeRun.asset_id}),nodeRun.usage_attempt_id,nowIso(),step.id).run();
@@ -59,6 +71,7 @@ async function generationStep(env,run,step,user,requireReadiness) {
                 if(!stored)agentFail('canvas_agent_result_review_required');
                 const result=await new Response(stored.body).json();
                 if(!result.ok||result.data?.asset?.id!==job.asset_id)agentFail('canvas_agent_result_review_required');
+                boundary.stage='media_projection';
                 const {finishCanvasGeneration}=await import('./canvas-video-output.js');
                 await finishCanvasGeneration(env,job,result);return;
             }
@@ -74,6 +87,7 @@ async function generationStep(env,run,step,user,requireReadiness) {
             if(retryAt>nowIso()){await agentTransition(env,run,{phase:'waiting_limit',next_attempt_at:retryAt});return;}
         }else if(nodeRun.error_code!=='canvas_image_save_pending')agentFail('canvas_agent_provider_review_required');
     }
+    boundary.stage='media_reference';
     const input=JSON.parse(step.input_json);
     for(const dep of input.dependencies){
         const source=await env.DB.prepare('SELECT output_json,asset_id,type FROM canvas_nodes WHERE id=? AND project_id=? AND user_id=? AND deleted_at IS NULL').bind(dep.nodeId,run.project_id,run.user_id).first();
@@ -91,7 +105,9 @@ async function generationStep(env,run,step,user,requireReadiness) {
     const request=new Request(`https://bitbi.ai${pathname}`,{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':key,'X-Bitbi-Tariff-Revision':String(run.tariff_revision)},body:'{}'});
     const {runCanvasNode}=await import('../routes/canvas.js');
     await appendCanvasAgentEvent(env,run,`generate:${step.id}`,'action',{code:'generating',phase:'generating',nodeId:step.node_id,model:input.modelId,tool:'node.execute'});
+    boundary.stage='media_admission';
     const response=await runCanvasNode({env:scoped,request,pathname,method:'POST',canvasUser:user},{user},run.project_id,step.node_id);
+    boundary.stage='media_acceptance';
     const payload=await response.json();
     if(payload.code==='canvas_agent_admission_wait'){
         const retryAt=payload.data?.retryAt;

@@ -79,16 +79,25 @@ export async function startCanvasAgent(ctx,session,projectId,{briefRevision=null
 async function control(ctx,session,projectId,id) {
     const {env,request}=ctx,key=keyFor(request),parsed=await readJsonBodyOrResponse(request,{maxBytes:BODY_LIMITS.smallJson});
     if(parsed.response)return parsed.response;
-    if(Object.keys(parsed.body||{}).join(',')!=='action'||!['pause','resume','cancel','takeover'].includes(parsed.body.action))agentFail('canvas_agent_control_invalid',400);
+    if(Object.keys(parsed.body||{}).some(k=>!['action','expectedRevision'].includes(k))||!['pause','resume','cancel','takeover'].includes(parsed.body?.action)
+        ||parsed.body.expectedRevision!==undefined&&(parsed.body.action!=='resume'||!Number.isSafeInteger(parsed.body.expectedRevision)||parsed.body.expectedRevision<0))agentFail('canvas_agent_control_invalid',400);
     const run=await env.DB.prepare("SELECT * FROM canvas_agent_runs WHERE id=? AND user_id=? AND project_id=? AND purpose='production'").bind(id,session.user.id,projectId).first();
     if(!run)agentFail('canvas_agent_not_found',404);
     const prior=await env.DB.prepare('SELECT action FROM canvas_agent_controls WHERE run_id=? AND request_key=?').bind(id,key).first();
-    if(prior){if(prior.action!==parsed.body.action)agentFail('idempotency_conflict');await releaseCanvasAgentUndispatched(env,id);return respond({run:await publicAgentRun(env,run),idempotentReplay:true});}
+    if(prior){
+        const event=await env.DB.prepare('SELECT payload_json FROM canvas_agent_events WHERE run_id=? AND event_key=?').bind(id,`control:${key}`).first();
+        if(prior.action!==parsed.body.action||(JSON.parse(event?.payload_json||'{}').requestedProjectRevision??null)!==(parsed.body.expectedRevision??null))agentFail('idempotency_conflict');
+        await releaseCanvasAgentUndispatched(env,id);return respond({run:await publicAgentRun(env,run),idempotentReplay:true});
+    }
+    if(parsed.body.expectedRevision!==undefined&&!(run.phase==='generating'&&['blocked','review_required'].includes(run.status)))agentFail('canvas_agent_control_invalid',400);
     const action=parsed.body.action,status={pause:'paused',resume:run.plan_json?'running':'queued',cancel:'cancelled',takeover:'taken_over'}[action];
     if(['completed','cancelled','taken_over'].includes(run.status))agentFail('canvas_agent_control_closed');
     if(action==='resume'&&['blocked','review_required'].includes(run.status)) {
-        const {readmitCanvasPlanning}=await import('../lib/canvas-agent-planning-recovery.js');
-        await readmitCanvasPlanning(env,run,{requestKey:key});
+        if(run.phase==='generating')await (await import('../lib/canvas-agent-media-resume.js')).resumeCanvasMedia(env,run,{requestKey:key,expectedProjectRevision:parsed.body.expectedRevision??null});
+        else {
+            const {readmitCanvasPlanning}=await import('../lib/canvas-agent-planning-recovery.js');
+            await readmitCanvasPlanning(env,run,{requestKey:key});
+        }
         await wakeCanvasAgent(env,id);
         return respond({run:await publicAgentRun(env,await env.DB.prepare('SELECT * FROM canvas_agent_runs WHERE id=?').bind(id).first())});
     }

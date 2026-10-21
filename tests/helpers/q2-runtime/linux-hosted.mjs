@@ -102,7 +102,7 @@ export function stageInputPlan() {
     'tests/helpers/canvas-agent-settlement-review-control.mjs',
     'tests/helpers/canvas-image-scheduling-control.mjs',
     'tests/helpers/canvas-agent-readiness-control.mjs',
-    'tests/helpers/canvas-agent-h3-recovery-control.mjs','tests/helpers/canvas-assistant-migration-control.mjs','tests/helpers/canvas-assistant-model-control.mjs',
+    'tests/helpers/canvas-agent-h3-recovery-control.mjs','tests/helpers/canvas-agent-media-completion-control.mjs','tests/helpers/canvas-assistant-migration-control.mjs','tests/helpers/canvas-assistant-model-control.mjs',
     'tests/helpers/canvas-conversation-decisions-control.mjs',
     'tests/helpers/canvas-agent-conversation-control.mjs',
     'tests/helpers/canvas-agent-conversation-recovery-control.mjs',

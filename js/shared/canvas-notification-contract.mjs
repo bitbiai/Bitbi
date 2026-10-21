@@ -13,6 +13,11 @@ export const CANVAS_CLIENT_NOTIFICATION_CODES = Object.freeze([
     'canvas_pricing_stale', 'canvas_project_changed', 'canvas_node_saved', 'canvas_assembly_saved',
 ]);
 const messages = {
+    canvas_agent_local_execution_failed: ['An internal processing step could not finish. Existing requests and saved media are retained; the diagnostic identifies the affected stage.', 'Ein interner Verarbeitungsschritt konnte nicht abgeschlossen werden. Bestehende Aufträge und gespeicherte Medien bleiben erhalten; die Diagnose nennt den betroffenen Schritt.'],
+    canvas_agent_media_recovery_evidence_invalid: ['The original media job cannot yet be reconciled with its storage and billing records. No replacement generation was started.', 'Der ursprüngliche Medienauftrag kann noch nicht mit seinen Speicher- und Abrechnungsbelegen abgeglichen werden. Es wurde keine Ersatzgenerierung gestartet.'],
+    canvas_agent_media_recovery_storage_missing: ['The recorded media file could not be verified in private storage. Its original job is retained; generating a replacement is not a safe retry.', 'Die verzeichnete Mediendatei konnte im privaten Speicher nicht bestätigt werden. Der ursprüngliche Auftrag bleibt erhalten; eine Ersatzgenerierung ist keine sichere Wiederholung.'],
+    canvas_agent_media_recovery_pending: ['The existing media result is not ready for reconciliation. Its original request must be observed before continuing.', 'Das bestehende Medienergebnis ist noch nicht für den Abgleich bereit. Vor der Fortsetzung muss der ursprüngliche Auftrag weiter beobachtet werden.'],
+    canvas_agent_media_recovery_state_changed: ['This production state has no verified media continuation yet. Review the original operation; no new generation was started.', 'Für diesen Produktionsstand ist noch keine geprüfte Medienfortsetzung möglich. Der ursprüngliche Auftrag muss geklärt werden; es wurde keine neue Generierung gestartet.'],
     canvas_project_created: ['Project created.', 'Projekt erstellt.'],
     canvas_project_deleted: ['Project removed. Independently saved assets are retained.', 'Projekt entfernt. Separat gespeicherte Assets bleiben erhalten.'],
     canvas_project_renamed: ['Project name saved.', 'Projektname gespeichert.'],
@@ -69,6 +74,7 @@ const messages = {
     unauthorized: ['Sign in again to access your Canvas notifications.', 'Melde dich erneut an, um deine Canvas-Meldungen abzurufen.'],
 };
 const phases = {
+    media_reconciling: ['The saved media result is being reconciled with its original production step. No replacement generation is needed.', 'Das gespeicherte Medienergebnis wird seinem ursprünglichen Produktionsschritt zugeordnet. Eine Ersatzgenerierung ist dafür nicht nötig.'],
     started: ['Production accepted.', 'Produktion angenommen.'], planning: ['Planning request accepted.', 'Planungsauftrag angenommen.'],
     proposed: ['The saved plan is being checked.', 'Der gespeicherte Plan wird geprüft.'], applied: ['Editable Canvas nodes created.', 'Bearbeitbare Canvas-Knoten erstellt.'],
     generating: ['Media request accepted.', 'Medienauftrag angenommen.'], exporting: ['Full-video export accepted.', 'Gesamtvideo-Export angenommen.'],
