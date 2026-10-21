@@ -154,7 +154,7 @@ try {
   const r=await get(url);assert.equal(r.status,301,url);const location=new URL(r.headers.get('location'),'http://127.0.0.1:3000');assert.equal(location.pathname,pathname,url);assert.equal(location.search,search,url);
  }
  const canvasIndex=await get('/canvas/index.html');assert.equal(canvasIndex.status,200);assert.match(canvasIndex.headers.get('content-type'),/text\/html/);
- const favicon=await get('/favicon.ico');assert.equal(favicon.status,200);assert.match(favicon.headers.get('content-type')||'','icon|image');assert.equal(hash(Buffer.from(await favicon.arrayBuffer())),hash(fs.readFileSync('assets/favicons/favicon.ico')));
+ const favicon=await get('/favicon.ico');assert.equal(favicon.status,200);assert.match(favicon.headers.get('content-type')||'',/icon|image/);assert.equal(hash(Buffer.from(await favicon.arrayBuffer())),hash(fs.readFileSync('assets/favicons/favicon.ico')));
  for(const url of ['/api','/api/admin/me','/api/nope']) {const r=await get(url);assert.equal(r.status,404);assert.match(r.headers.get('content-type'),/json/);assert.equal((await r.json()).error,'API_NOT_AVAILABLE_ON_STATIC_HOST');}
  for(const url of ['/account/','/missing','/de/missing','/admin/missing.html','/_worker.js','/frontend/index.mjs','/config/static-hosting.json','/candidate/manifest.json','/.git/config','/test-results/admin-discovery.json']) {const r=await get(url);assert.equal(r.status,404,url);}
  const asset='/js/pages/admin/newsfeed.js?v=unchanged-token';const a=await get(asset);assert.equal(a.status,200);assert.match(a.headers.get('content-type'),/javascript/);assert.equal(hash(Buffer.from(await a.arrayBuffer())),manifest.files['js/pages/admin/newsfeed.js']);assert(a.headers.get('etag'));
