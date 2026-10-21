@@ -3,7 +3,7 @@
   xmlns:xhtml="http://www.w3.org/1999/xhtml">
   <url>
     <loc>https://bitbi.ai/</loc>
-    <lastmod>2026-06-01</lastmod>
+    <lastmod>2026-10-21</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
     <xhtml:link rel="alternate" hreflang="en" href="https://bitbi.ai/"/>
@@ -12,7 +12,7 @@
   </url>
   <url>
     <loc>https://bitbi.ai/de/</loc>
-    <lastmod>2026-06-01</lastmod>
+    <lastmod>2026-10-21</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
     <xhtml:link rel="alternate" hreflang="en" href="https://bitbi.ai/"/>
@@ -21,7 +21,7 @@
   </url>
   <url>
     <loc>https://bitbi.ai/pricing.html</loc>
-    <lastmod>2026-06-01</lastmod>
+    <lastmod>2026-10-21</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
     <xhtml:link rel="alternate" hreflang="en" href="https://bitbi.ai/pricing.html"/>
@@ -30,11 +30,65 @@
   </url>
   <url>
     <loc>https://bitbi.ai/de/pricing.html</loc>
-    <lastmod>2026-06-01</lastmod>
+    <lastmod>2026-10-21</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
     <xhtml:link rel="alternate" hreflang="en" href="https://bitbi.ai/pricing.html"/>
     <xhtml:link rel="alternate" hreflang="de" href="https://bitbi.ai/de/pricing.html"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://bitbi.ai/pricing.html"/>
+  </url>
+  <url>
+    <loc>https://bitbi.ai/legal/privacy.html</loc>
+    <lastmod>2026-10-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.3</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://bitbi.ai/legal/privacy.html"/>
+    <xhtml:link rel="alternate" hreflang="de" href="https://bitbi.ai/de/legal/datenschutz.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://bitbi.ai/legal/privacy.html"/>
+  </url>
+  <url>
+    <loc>https://bitbi.ai/de/legal/datenschutz.html</loc>
+    <lastmod>2026-10-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.3</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://bitbi.ai/legal/privacy.html"/>
+    <xhtml:link rel="alternate" hreflang="de" href="https://bitbi.ai/de/legal/datenschutz.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://bitbi.ai/legal/privacy.html"/>
+  </url>
+  <url>
+    <loc>https://bitbi.ai/legal/imprint.html</loc>
+    <lastmod>2026-10-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.3</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://bitbi.ai/legal/imprint.html"/>
+    <xhtml:link rel="alternate" hreflang="de" href="https://bitbi.ai/de/legal/imprint.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://bitbi.ai/legal/imprint.html"/>
+  </url>
+  <url>
+    <loc>https://bitbi.ai/de/legal/imprint.html</loc>
+    <lastmod>2026-10-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.3</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://bitbi.ai/legal/imprint.html"/>
+    <xhtml:link rel="alternate" hreflang="de" href="https://bitbi.ai/de/legal/imprint.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://bitbi.ai/legal/imprint.html"/>
+  </url>
+  <url>
+    <loc>https://bitbi.ai/legal/terms.html</loc>
+    <lastmod>2026-10-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.3</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://bitbi.ai/legal/terms.html"/>
+    <xhtml:link rel="alternate" hreflang="de" href="https://bitbi.ai/de/legal/terms.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://bitbi.ai/legal/terms.html"/>
+  </url>
+  <url>
+    <loc>https://bitbi.ai/de/legal/terms.html</loc>
+    <lastmod>2026-10-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.3</priority>
+    <xhtml:link rel="alternate" hreflang="en" href="https://bitbi.ai/legal/terms.html"/>
+    <xhtml:link rel="alternate" hreflang="de" href="https://bitbi.ai/de/legal/terms.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://bitbi.ai/legal/terms.html"/>
   </url>
 </urlset>
