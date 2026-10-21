@@ -1892,8 +1892,9 @@ export function canvasExampleBrowserContinuation(command){
   assert.equal(command.split(passed).length,2);assert(command.includes("--grep 'Canvas transition examples'"));
   return command.replace(passed,''); // Pinned decoded-asset pass remains in the archived original log.
 }
-export const canvasPreflightProfile=source=>[INCIDENT_BROWSER_PREFLIGHT,INCIDENT_NATIVE_PREFLIGHT,INCIDENT_WORKER_PREFLIGHT,INCIDENT_PREFLIGHT,RELIABILITY_BROWSER_PREFLIGHT,RELIABILITY_NATIVE_PREFLIGHT,RELIABILITY_WORKER_PREFLIGHT,EXPORT_DELIVERY_BROWSER_PREFLIGHT,EXPORT_DELIVERY_SDK_PREFLIGHT,EXPORT_DELIVERY_HOSTING_PREFLIGHT,EXPORT_DELIVERY_DISCOVERY_PREFLIGHT,EXPORT_DELIVERY_SELECTION_PREFLIGHT,EXPORT_DELIVERY_PREFLIGHT,ASSISTANT_BROWSER_PREFLIGHT,ASSISTANT_NATIVE_RATE,ASSISTANT_NATIVE_TAIL,ASSISTANT_NATIVE_PROGRESS,ASSISTANT_NATIVE_PREFLIGHT,ASSISTANT_WORKER_PREFLIGHT,ASSISTANT_PREFLIGHT,SETTLEMENT_BROWSER_PREFLIGHT,SETTLEMENT_NATIVE_PROGRESS,SETTLEMENT_NATIVE_PREFLIGHT,SETTLEMENT_HOSTING_PREFLIGHT,SETTLEMENT_PREFLIGHT,CANVAS_POLICY_NATIVE_PREFLIGHT,CANVAS_POLICY_WORKER_PREFLIGHT,AUTONOMY_BROWSER_PREFLIGHT,AUTONOMY_NATIVE_PREFLIGHT,CANVAS_PREFLIGHT,EXPORT_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,EXAMPLE_PREFLIGHT,EXAMPLE_BROWSER_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].find(p=>p.source===source)||null;
+export const canvasPreflightProfile=source=>[MEDIA_COMPLETION_PREFLIGHT,INCIDENT_BROWSER_PREFLIGHT,INCIDENT_NATIVE_PREFLIGHT,INCIDENT_WORKER_PREFLIGHT,INCIDENT_PREFLIGHT,RELIABILITY_BROWSER_PREFLIGHT,RELIABILITY_NATIVE_PREFLIGHT,RELIABILITY_WORKER_PREFLIGHT,EXPORT_DELIVERY_BROWSER_PREFLIGHT,EXPORT_DELIVERY_SDK_PREFLIGHT,EXPORT_DELIVERY_HOSTING_PREFLIGHT,EXPORT_DELIVERY_DISCOVERY_PREFLIGHT,EXPORT_DELIVERY_SELECTION_PREFLIGHT,EXPORT_DELIVERY_PREFLIGHT,ASSISTANT_BROWSER_PREFLIGHT,ASSISTANT_NATIVE_RATE,ASSISTANT_NATIVE_TAIL,ASSISTANT_NATIVE_PROGRESS,ASSISTANT_NATIVE_PREFLIGHT,ASSISTANT_WORKER_PREFLIGHT,ASSISTANT_PREFLIGHT,SETTLEMENT_BROWSER_PREFLIGHT,SETTLEMENT_NATIVE_PROGRESS,SETTLEMENT_NATIVE_PREFLIGHT,SETTLEMENT_HOSTING_PREFLIGHT,SETTLEMENT_PREFLIGHT,CANVAS_POLICY_NATIVE_PREFLIGHT,CANVAS_POLICY_WORKER_PREFLIGHT,AUTONOMY_BROWSER_PREFLIGHT,AUTONOMY_NATIVE_PREFLIGHT,CANVAS_PREFLIGHT,EXPORT_PREFLIGHT,EXPORT_NATIVE_PREFLIGHT,EXPORT_MEDIA_PREFLIGHT,EXAMPLE_PREFLIGHT,EXAMPLE_BROWSER_PREFLIGHT,MODEL_OPERATION_PREFLIGHT,MODEL_SELECTION_PREFLIGHT,MODEL_WORKFLOW_PREFLIGHT,MODEL_WORKER_PREFLIGHT,MODEL_BROWSER_PREFLIGHT].find(p=>p.source===source)||null;
 export function assertCanvasPreflightTree(head,read=gitBytes,profile=CANVAS_PREFLIGHT){
+  if(profile===MEDIA_COMPLETION_PREFLIGHT)return assertMediaCompletionTree(head,read);
   if(profile===INCIDENT_BROWSER_PREFLIGHT)return assertIncidentBrowserTree(head,read);
   if(profile===INCIDENT_NATIVE_PREFLIGHT)return assertIncidentNativeTree(head,read);
   if(profile===INCIDENT_WORKER_PREFLIGHT)return assertIncidentWorkerTree(head,read);
@@ -2231,6 +2232,7 @@ export function verifyWorkspaceGuardUnion(before,after){
 }
 export function canvasPreflightPrefix(bytes,{sha,base,planHash,environment,nativeBrowsers,commands,selection},read=gitBytes){
   const original=JSON.parse(bytes),profile=canvasPreflightProfile(original.sha)||CANVAS_PREFLIGHT;
+  if(profile===MEDIA_COMPLETION_PREFLIGHT)return mediaCompletionPrefix(bytes,{sha,base,planHash,environment,nativeBrowsers,commands,selection},read);
   if(profile===INCIDENT_BROWSER_PREFLIGHT)return incidentBrowserPrefix(bytes,{sha,base,planHash,environment,nativeBrowsers,commands,selection},read);
   if(profile===INCIDENT_NATIVE_PREFLIGHT)return incidentNativePrefix(bytes,{sha,base,planHash,environment,nativeBrowsers,commands,selection},read);
   if(profile===INCIDENT_WORKER_PREFLIGHT)return incidentWorkerPrefix(bytes,{sha,base,planHash,environment,nativeBrowsers,commands,selection},read);
@@ -2347,6 +2349,7 @@ export function verifyExportGuardUnion(before,after){
   assert.equal(new Set(after.map(r=>r.title)).size,after.length);assert(after.every(r=>before.some(old=>old.title===r.title)));
 }
 export function verifyCanvasPreflight(directory,evidence,commands){
+  if(evidence.preflightContinuation?.source===MEDIA_COMPLETION_PREFLIGHT.source)return verifyMediaCompletionContinuation(directory,evidence,commands);
   if(evidence.preflightContinuation?.source===INCIDENT_BROWSER_PREFLIGHT.source)return verifyIncidentBrowserContinuation(directory,evidence,commands);
   if(evidence.preflightContinuation?.source===INCIDENT_NATIVE_PREFLIGHT.source)return verifyIncidentNativeContinuation(directory,evidence,commands);
   if(evidence.preflightContinuation?.source===INCIDENT_WORKER_PREFLIGHT.source)return verifyIncidentWorkerContinuation(directory,evidence,commands);
@@ -3830,5 +3833,106 @@ export function verifyIncidentBrowserContinuation(directory,evidence,commands){
       else if([49,50].includes(i)){assert.equal(row.browserContinuation,MODEL_BROWSER_POLICY);assert.equal(row.continuation,incidentBrowserContinuation(commands[i].run,i===50?'auth':'homepage'));}
       else assert(!row.continuation&&!row.browserContinuation,'Unreviewed continuation');
     }
+  }
+}
+
+// Closed native-fixture continuation. Product/Worker/media inputs are identical;
+// the original failed H3 source is retained as a real admission countercontrol.
+export const MEDIA_COMPLETION_PREFLIGHT=Object.freeze({
+  source:'193163f6f1b9c1b9cf6b458d95859a98c1a6e0aa',
+  checkpoint:'42e1b554c882e04dcb15bd831f23a4746487e787d6fab36aa36773f36a232619',
+  failedLog:'b4a4fe699f634f0ff6629faebec5e8e064a0e21eee4a782881de0a73b33933b5',
+  fixture:'864c878c1dbdfa0d19af49b912414d98225df0b4ed1edf6b00392e9d0c6cf6be',
+  nativeDirectory:'q2-runtime-evidence/native-stp4rg',
+  nativeReport:'reports/bitbi-q2-runtime-TUnUE6__result.json',
+  nativeHash:'5137da226a71bb7280b8c4dfb68018b37b4e63148a7d1ef8eb58ffdfacc436d0',
+  retain:Object.freeze([1,5,6,7,8,9,10,11,13,18,19,20,21,22,24,25,26,27,30,31,32,38,39,40]),
+});
+export function assertMediaCompletionTree(head,read=gitBytes){
+  const p=MEDIA_COMPLETION_PREFLIGHT;
+  assert.deepEqual(read(['rev-list','--parents','-n','1',head]).toString().trim().split(/\s+/),[head,p.source]);
+  const files=read(['diff','--name-only',p.source,head]).toString().trim().split('\n');
+  assert(files.every(file=>['tests/helpers/q2-runtime/canvas-reliability.mjs','scripts/local-release.mjs','scripts/lib/local-release-evidence.mjs','scripts/test-local-release.mjs'].includes(file)),'Media continuation changed passed product or test inputs');
+  assert.equal(sha256(read(['show',`${head}:tests/helpers/q2-runtime/canvas-reliability.mjs`])),p.fixture,'Unreviewed native source fixture');
+  for(const file of files)assert(/^100644 blob [0-9a-f]{40}\t/.test(read(['ls-tree',head,'--',file]).toString()));
+  const file='scripts/test-local-release.mjs',before=read(['show',`${p.source}:${file}`]).toString(),after=read(['show',`${head}:${file}`]).toString();
+  const entry="if(process.argv.includes('--media-completion-only')) {\n  assert.deepEqual(process.argv.slice(2),['--media-completion-only']);\n  await testMediaCompletionContinuation();process.exit(0);\n}\n\n",tail='\nasync function testMediaCompletionContinuation() {';
+  assert.equal(after.split(entry).length,2);assert.equal(after.split(tail).length,2);
+  assert.equal(after.split(tail)[0].replace(entry,''),before,'Previously passed verifier assertions changed');
+  assert(after.endsWith('\nawait testMediaCompletionContinuation();\n'));
+}
+export function mediaCompletionPrefix(bytes,current,read=gitBytes){
+  const p=MEDIA_COMPLETION_PREFLIGHT;assertMediaCompletionTree(current.sha,read);assert.equal(sha256(bytes),p.checkpoint);
+  const original=JSON.parse(bytes);assert.equal(original.sha,p.source);assert.equal(original.status,'failed');
+  assert(!original.preflightContinuation&&!original.permissionContinuation&&!original.repair);
+  assert.equal(original.commands.length,42);assert(original.commands.slice(0,41).every(row=>row.exitCode===0));
+  assert.equal(original.commands[41].exitCode,1);assert.equal(original.commands[41].logHash,p.failedLog);
+  for(const key of ['base','planHash'])assert.equal(original[key],current[key]);
+  const env=({reused,preparationMs,...rest})=>rest;assert.deepEqual(env(original.environment),env(current.environment));
+  assert.equal(original.nativeBrowsers.key,current.nativeBrowsers.key);
+  const flags=({files,reasons,...rest})=>rest;assert.deepEqual(flags(original.selection),flags(current.selection));
+  assert.deepEqual(current.commands,selectedCommands(original.selection,{GITHUB_SHA:current.sha,CANDIDATE_BASE:current.base}));
+  for(const index of p.retain)assert.deepEqual(original.commands[index].command,current.commands[index]);
+  return original;
+}
+export function verifyMediaCompletionNativeUnion(before,after){
+  assert.equal(before.failedSuites,1);assert.equal(before.passed,470);
+  const original=before.reports.find(row=>row.suite==='canvas-reliability');
+  assert.deepEqual(original.failure,{stage:'canvas_reliability_media_completion_resume',name:'Error',message:'The next dependent video is admitted'});
+  assert.equal(original.records.length,20);assert(original.records.every(row=>row.status==='PASS'));
+  const retained=before.reports.filter(row=>row.suite!=='canvas-reliability');
+  assert.equal(retained.reduce((sum,row)=>sum+row.records.length,0),450);
+  assert(retained.every(row=>!row.failure&&row.records.every(record=>record.status==='PASS')));
+  assert.equal(after.failedSuites,0);assert.equal(after.passed,42);assert.equal(after.reports.length,1);
+  const fresh=after.reports[0];assert.equal(fresh.suite,'canvas-reliability');assert(!fresh.failure);assert.equal(fresh.records.length,42);
+  assert(fresh.records.every(row=>row.status==='PASS'));const names=fresh.records.map(row=>row.name);assert.equal(new Set(names).size,42);
+  assert.deepEqual(names.slice(0,20),original.records.map(row=>row.name));
+  assert.deepEqual(names.slice(20),[
+    ...['resume','automatic','lost-ack','missing-storage','edited','adopt-current','unknown','cancelled','expired','foreign'].map(name=>'canvas_reliability_media_completion_'+name),
+    ...['fresh','resume','transient','bounded','unknown','guards','diagnostics','stored'].map(name=>'canvas_reliability_local_planning_'+name),
+    ...['recover','guards','race','format'].map(name=>'canvas_reliability_plan_correction_review_'+name),
+  ]);
+  assert.equal(after.provenance.bundleSha256,before.provenance.bundleSha256,'Native application changed');
+  assert.deepEqual(after.provenance.sourceLedger,before.provenance.sourceLedger);
+  assert.equal(after.provenance.workerdBinarySha256,before.provenance.workerdBinarySha256);
+  assert.deepEqual(after.provenance.migrations,before.provenance.migrations);
+  return {nativeRetained:450,nativeFresh:42,nativeTotal:492,workerRetained:1694};
+}
+export function verifyMediaCompletionRepair(directory,head,{allowPending=false}={}){
+  const p=MEDIA_COMPLETION_PREFLIGHT;assertMediaCompletionTree(head);
+  const pinned=(file,hash)=>{const raw=fs.readFileSync(path.join(directory,file));assert.equal(sha256(raw),hash,`Changed media completion evidence: ${file}`);return raw;};
+  const original=JSON.parse(pinned('reuse/preflight-checkpoint.json',p.checkpoint));
+  const log=pinned('reuse/preflight-failed.log',p.failedLog).toString();
+  assert.match(log,/\n\s+1694 passed \(/);assert(!/\d+ failed \(/.test(log));
+  assert(log.includes('homepage ffmpeg processor tests passed')&&log.includes('Private video reference FFmpeg:'));
+  assert.match(log,/# tests 35\n# suites 0\n# pass 35\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0/);
+  const before=JSON.parse(pinned('reuse/media-native/'+p.nativeReport,p.nativeHash));
+  if(allowPending)return{original,before};
+  const freshLog=fs.readFileSync(path.join(directory,'test-results/media-completion-native.log'),'utf8');verifyNativeLocalReports(directory,freshLog);
+  const refs=freshLog.split('\n').flatMap(line=>{try{const row=JSON.parse(line);return row.q2LinuxEvidence?[row.q2LinuxEvidence]:[];}catch{return [];}});assert.equal(refs.length,1);
+  const folder=path.join(directory,'runtime',refs[0].slice('/tmp/bitbi-release/'.length));
+  const entry=JSON.parse(fs.readFileSync(path.join(folder,'launcher-result.json')));assert.equal(entry.hostedImage.GITHUB_SHA,head);
+  const reports=path.join(folder,'reports'),files=fs.readdirSync(reports).filter(file=>file==='result.json'||file.endsWith('__result.json'));assert.equal(files.length,1);
+  return{original,result:verifyMediaCompletionNativeUnion(before,JSON.parse(fs.readFileSync(path.join(reports,files[0]))))};
+}
+export function mediaCompletionGuard(command){assert.equal(command,'npm run test:local-release');return command+' -- --media-completion-only';}
+export function mediaCompletionContinuation(command){
+  assert.equal(command.split('  npm run test:workers').length,2);assert(command.endsWith('else\n  npm run test:workers\nfi\n'));
+  const verify=pending=>`node --input-type=module -e 'import{execFileSync}from"node:child_process";import{verifyMediaCompletionRepair}from"./scripts/lib/local-release-evidence.mjs";console.log(JSON.stringify(verifyMediaCompletionRepair(".local-release",execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim(),{allowPending:${pending}}).result||{workerRetained:1694,nativePending:42}));'`;
+  return command.replace('  npm run test:workers',()=>[
+    'mkdir -p .local-release/test-results',verify(true),
+    'node scripts/test-q2-runtime.mjs --suite canvas-reliability > .local-release/test-results/media-completion-native.log 2>&1 || { status=$?; cat .local-release/test-results/media-completion-native.log; exit "$status"; }',
+    'cat .local-release/test-results/media-completion-native.log',
+    // Runtime reports are collected by the ordinary release lifecycle after the
+    // command; the final verifier checks the union and candidate source then.
+  ].map(line=>'  '+line).join('\n'));
+}
+export function verifyMediaCompletionContinuation(directory,evidence,commands){
+  const p=MEDIA_COMPLETION_PREFLIGHT;assert.deepEqual(evidence.preflightContinuation,{source:p.source,checkpoint:p.checkpoint});
+  const original=mediaCompletionPrefix(fs.readFileSync(path.join(directory,'reuse/preflight-checkpoint.json')),{...evidence,commands});
+  verifyMediaCompletionRepair(directory,evidence.sha);assert.equal(evidence.commands.length,commands.length);
+  for(const[i,row]of evidence.commands.entries()){
+    if(p.retain.includes(i)){assert.deepEqual(row,{...original.commands[i],reusedFrom:p.source});assert.equal(sha256(fs.readFileSync(path.join(directory,row.log))),row.logHash);}
+    else{assert(!row.reusedFrom&&!row.browserContinuation);if(i===17)assert.equal(row.continuation,mediaCompletionGuard(commands[i].run));else if(i===41)assert.equal(row.continuation,mediaCompletionContinuation(commands[i].run));else assert(!row.continuation);}
   }
 }

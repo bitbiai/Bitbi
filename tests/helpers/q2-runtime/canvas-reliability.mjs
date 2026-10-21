@@ -64,8 +64,10 @@ export async function runCanvasReliabilityTests(f){
   });
   for(const name of ['resume','automatic','lost-ack','missing-storage','edited','adopt-current','unknown','cancelled','expired','foreign'])await f.test(`canvas_reliability_media_completion_${name}`,async()=>{
     const paths={videoBase64:new URL('../../fixtures/media/canvas-end-frame.mp4',import.meta.url),
-      imageBase64:new URL('../../fixtures/media/member-image.png',import.meta.url),musicBase64:new URL('../../fixtures/media/member-music.mp3',import.meta.url)};
+      imageBase64:new URL('../../fixtures/media/h3-frame.png',import.meta.url),musicBase64:new URL('../../fixtures/media/member-music.mp3',import.meta.url)};
     const media=Object.fromEntries(Object.entries(paths).map(([key,file])=>[key,fs.readFileSync(file).toString('base64')]));
+    // H3 requires at least 256px: use real valid bytes, not the 32px image
+    // accepted by the Node-only metadata stub (native failure countercontrol).
     const response=await f.control('/canvas-agent-media-completion',{name,...media});
     assert.equal(response.status,200,await response.clone().text());const result=await response.json();
     assert.equal(result.case,name);assert.equal(result.mediaCalls,1);f.metrics.push(result);

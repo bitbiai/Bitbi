@@ -21,6 +21,11 @@ import { LOCAL_IMPORT_REPAIR, assertImportRepairWorkflow, localRepairCommand, ve
 import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,assertPermissionContinuationTree,permissionContinuationPrefix,CANVAS_STAGE_CASES,canvasStageContinuation} from './lib/local-release-evidence.mjs';
 import {testLocalMediaProcess} from './test-local-media-process.mjs';
 
+if(process.argv.includes('--media-completion-only')) {
+  assert.deepEqual(process.argv.slice(2),['--media-completion-only']);
+  await testMediaCompletionContinuation();process.exit(0);
+}
+
 if(process.argv.includes('--incident-browser-only')) {
   assert.deepEqual(process.argv.slice(2),['--incident-browser-only']);
   await testIncidentBrowserContinuation();process.exit(0);
@@ -4305,3 +4310,36 @@ async function testIncidentBrowserContinuation() {
   console.log('Incident browser continuation: 654 homepage passes retained; eight changed consumers and 684 Auth cases required.');
 }
 await testIncidentBrowserContinuation();
+
+async function testMediaCompletionContinuation() {
+  const {MEDIA_COMPLETION_PREFLIGHT:p,assertMediaCompletionTree,mediaCompletionPrefix,verifyMediaCompletionNativeUnion,verifyMediaCompletionRepair,mediaCompletionGuard,mediaCompletionContinuation}=await import('./lib/local-release-evidence.mjs');
+  const names=[...Array.from({length:20},(_,i)=>'previous-'+i),
+    ...['resume','automatic','lost-ack','missing-storage','edited','adopt-current','unknown','cancelled','expired','foreign'].map(n=>'canvas_reliability_media_completion_'+n),
+    ...['fresh','resume','transient','bounded','unknown','guards','diagnostics','stored'].map(n=>'canvas_reliability_local_planning_'+n),
+    ...['recover','guards','race','format'].map(n=>'canvas_reliability_plan_correction_review_'+n)];
+  const records=rows=>rows.map(name=>({name,status:'PASS'})),provenance={bundleSha256:'unchanged',sourceLedger:[{path:'worker',hash:'unchanged'}],workerdBinarySha256:'native',migrations:['forward-only']};
+  const before={passed:470,failedSuites:1,provenance,reports:[{suite:'unaffected',records:records(Array.from({length:450},(_,i)=>'native-'+i))},
+    {suite:'canvas-reliability',records:records(names.slice(0,20)),failure:{stage:'canvas_reliability_media_completion_resume',name:'Error',message:'The next dependent video is admitted'}}]};
+  const after={passed:42,failedSuites:0,provenance,reports:[{suite:'canvas-reliability',records:records(names)}]};
+  assert.deepEqual(verifyMediaCompletionNativeUnion(before,after),{nativeRetained:450,nativeFresh:42,nativeTotal:492,workerRetained:1694});
+  for(const change of [r=>r.failedSuites=1,r=>r.passed=41,r=>r.reports[0].records.pop(),r=>r.reports[0].records[20].status='SKIP',r=>r.reports[0].records[21]=r.reports[0].records[20],r=>r.provenance.bundleSha256='changed',r=>r.provenance.sourceLedger=[],r=>r.provenance.migrations=[]]){const bad=structuredClone(after);change(bad);assert.throws(()=>verifyMediaCompletionNativeUnion(before,bad));}
+  const failed=structuredClone(before);failed.reports[0].records[0].status='FAIL';assert.throws(()=>verifyMediaCompletionNativeUnion(failed,after));
+  assert.equal(mediaCompletionGuard('npm run test:local-release'),'npm run test:local-release -- --media-completion-only');assert.throws(()=>mediaCompletionGuard('echo pass'));assert.throws(()=>mediaCompletionContinuation('npm run test:workers'));
+  if(!process.argv.includes('--media-completion-only'))return;
+  const directory='.local-release',read=args=>execFileSync('git',args),head=read(['rev-parse','HEAD']).toString().trim();
+  const bytes=fs.readFileSync(path.join(directory,'reuse/preflight-checkpoint.json')),old=JSON.parse(bytes),selection=gitSelection(old.base,head);
+  const commands=selectedCommands(selection,{GITHUB_SHA:head,CANDIDATE_BASE:old.base}),context={...old,sha:head,selection,commands};
+  assert.deepEqual(mediaCompletionPrefix(bytes,context),old);assertMediaCompletionTree(head);
+  for(const change of [v=>v.base='0'.repeat(40),v=>v.environment.image='wrong',v=>v.nativeBrowsers.key='changed',v=>v.selection.workers=false,v=>v.commands[41].run+='echo bypass']){const bad=structuredClone(context);change(bad);assert.throws(()=>mediaCompletionPrefix(bytes,bad));}
+  assert.throws(()=>mediaCompletionPrefix(Buffer.from(JSON.stringify({...old,status:'passed'})),context));
+  for(const file of ['workers/auth/src/lib/canvas-agent-media-completion.js','tests/helpers/canvas-agent-media-completion-control.mjs','package-lock.json'])assert.throws(()=>assertMediaCompletionTree(head,args=>args[0]==='diff'?Buffer.from(read(args).toString()+file+'\n'):read(args)));
+  assert.throws(()=>assertMediaCompletionTree(head,args=>args[0]==='show'&&args[1].endsWith(':tests/helpers/q2-runtime/canvas-reliability.mjs')?Buffer.from('unreviewed'):read(args)));
+  assert.equal(verifyMediaCompletionRepair(directory,head,{allowPending:true}).before.passed,470);
+  const wrapper=mediaCompletionContinuation(commands[41].run),active=wrapper.slice(wrapper.lastIndexOf('\nelse\n')+6);
+  assert(active.includes('--suite canvas-reliability')&&!active.includes('npm run test:workers')&&!active.includes('npm run test:homepage-ffmpeg-processor'));
+  const vm=await import('node:vm'),runner=fs.readFileSync('scripts/local-release.mjs','utf8'),writer=runner.slice(runner.indexOf('      record.runtimes=commandRuntimes(command)'),runner.indexOf('      state.commands[index] = record;'));
+  const globals={...await import('./lib/local-release-evidence.mjs'),...await import('./lib/local-release-browser.mjs'),...await import('./lib/canvas-export-release.mjs'),...await import('./lib/canvas-export-browser.mjs'),commandRuntimes};
+  for(const index of [17,40,41]){const execute=source=>{const record={};vm.runInNewContext(source,{...globals,state:{preflightContinuation:{source:p.source}},index,command:commands[index],record});return record;};const expected=index===17?mediaCompletionGuard(commands[index].run):index===41?mediaCompletionContinuation(commands[index].run):undefined;assert.equal(execute(writer).continuation,expected);if(expected){const broken=writer.split('\n').filter(line=>!line.includes(`MEDIA_COMPLETION_PREFLIGHT.source&&index===${index})record.continuation`)).join('\n');assert.notEqual(execute(broken).continuation,expected);}}
+  console.log('Media completion continuation: 1694 Worker, FFmpeg and 35 launcher passes retained; corrected native suite and unexecuted browser acceptance remain required.');
+}
+await testMediaCompletionContinuation();
