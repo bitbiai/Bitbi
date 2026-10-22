@@ -54,7 +54,11 @@ export function createCanvasNotifications({button,panel,german,getProject=()=>nu
         clearTimeout(readTimer);
         if(!panel.hidden&&!suspended&&!readBlocked&&!acknowledging&&document.visibilityState!=='hidden'&&[...presented].some(id=>items.has(id)&&!items.get(id).readAt))readTimer=setTimeout(()=>void acknowledge(),650);
     }
-    function updateRead(){mark.disabled=acknowledging||unread+[...items.values()].filter(item=>item.local&&!item.readAt).length===0;clear.disabled=acknowledging||total+items.size===0;}
+    function updateRead(){
+        mark.disabled=acknowledging||unread+[...items.values()].filter(item=>item.local&&!item.readAt).length===0;
+        clear.disabled=acknowledging||total+items.size===0;yes.disabled=acknowledging;
+        for(const entry of rows.values())if(entry.remove)entry.remove.disabled=acknowledging;
+    }
     function counts(data){
         if(Number.isSafeInteger(data.inboxRevision)&&data.inboxRevision<revision)return;
         if(Number.isSafeInteger(data.inboxRevision))revision=Math.max(revision,data.inboxRevision);
@@ -84,7 +88,7 @@ export function createCanvasNotifications({button,panel,german,getProject=()=>nu
             if(validation?.version===1&&['json','schema','semantic','size'].includes(validation.category)&&safeCode(validation.reason)&&typeof validation.path==='string'&&validation.path.length<=180&&/^(?:plan|evaluation)(?:\.[A-Za-z][A-Za-z0-9]*|\[[0-9]{1,2}\])*$/.test(validation.path))details.push(`${copy.validation}: ${validation.category}/${validation.reason}`,`${copy.field}: ${validation.path}`);
             if(Object.hasOwn(copy.outcomes,outcome||''))details.push(`${copy.providerOutcome}: ${copy.outcomes[outcome]}`);
             if(details.length){const disclosure=node('details');disclosure.append(node('summary','',copy.details),node('code','',details.join(' · ')));row.append(disclosure);}
-            const remove=node('button','canvas-button canvas-button--compact',copy.remove);remove.type='button';remove.addEventListener('click',()=>void removeItems([item]));row.append(remove);
+            const remove=node('button','canvas-button canvas-button--compact',copy.remove);remove.type='button';remove.addEventListener('click',()=>void removeItems([item]));entry.remove=remove;row.append(remove);
             if(identifier(item.projectId)&&item.projectDeleted!==true){const open=node('button','canvas-button canvas-button--compact',copy.open);open.type='button';open.addEventListener('click',()=>{hide();void openProject(item.projectId);});row.append(open);}
             }
             if(row!==next)list.insertBefore(row,next);next=row.nextElementSibling;if(!panel.hidden&&document.visibilityState!=='hidden')observer.observe(row);

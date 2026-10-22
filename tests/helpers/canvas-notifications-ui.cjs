@@ -25,7 +25,7 @@ module.exports=async options=>{
   await expect(inbox.locator('[data-notification-id="fixture:039"]')).not.toBeInViewport();
   await expect(inbox).toContainText(de?'tatsächliche Quelldauer':'actual source duration');
   await expect(inbox.locator('img')).toHaveCount(0);await expect(inbox).toContainText('<img src=x onerror=alert(1)>');
-  await expect(read).toBeEnabled();let release;
+  await expect(read).toBeEnabled();await inbox.getByRole('button',{name:de?'Alle Meldungen löschen':'Delete all notifications',exact:true}).click();let release;
   await page.route('**/api/account/canvas/notifications/read',async route=>{
     const {ids}=route.request().postDataJSON();state.notificationReads.push(ids);
     await new Promise(resolve=>{release=resolve;});
@@ -35,10 +35,13 @@ module.exports=async options=>{
   await readVisible();await expect.poll(()=>state.notificationReads.length).toBe(1);
   expect(state.notificationReads[0].length).toBeGreaterThan(0);expect(state.notificationReads[0].length).toBeLessThan(40);
   expect(state.notificationReads[0]).not.toContain('fixture:039');
+  // A delayed automatic read must visibly gate deletion instead of swallowing a click.
+  const firstDelete=inbox.locator('[data-notification-id="fixture:000"]').getByRole('button',{name:de?'Meldung löschen':'Delete notification',exact:true});
+  await expect(firstDelete).toBeDisabled();await expect(inbox.getByRole('group',{name:de?'Alle Meldungen löschen':'Delete all notifications',exact:true}).getByRole('button',{name:de?'Alle Meldungen löschen':'Delete all notifications',exact:true})).toBeDisabled();
   const late={id:'fixture:late',source:'lifecycle',kind:'lifecycle',severity:'success',code:'canvas_project_deleted',projectId:null,projectDeleted:true,createdAt:new Date(await page.evaluate(()=>Date.now())).toISOString(),readAt:null,confirmed:true};state.notifications.unshift(late);
   expect(Date.parse(late.createdAt)).toBeGreaterThan(Date.parse(now));
   await inbox.getByRole('button',{name:de?'Aktualisieren':'Refresh',exact:true}).click();await expect(inbox.locator('[data-notification-id="fixture:late"]')).toBeInViewport();
-  release();await expect(read).toBeEnabled();await page.unroute('**/api/account/canvas/notifications/read');await expect(badge).toBeVisible();
+  release();await expect(read).toBeEnabled();await page.unroute('**/api/account/canvas/notifications/read');await expect(badge).toBeVisible();await expect(firstDelete).toBeEnabled();await inbox.getByRole('button',{name:de?'Abbrechen':'Cancel',exact:true}).click();
   expect(state.notificationReads[0]).not.toContain(late.id);await expect(inbox.locator('[data-notification-id="fixture:late"]')).toHaveAttribute('data-unread','true');
   await expect(inbox.locator('[data-notification-id="fixture:039"]')).toHaveAttribute('data-unread','true');
   await inbox.getByRole('button',{name:de?'Ältere Meldungen laden':'Load older notifications'}).click();await expect(inbox.locator('li')).toHaveCount(43);
