@@ -8372,6 +8372,7 @@ test.describe('Pricing credit-pack rollout', () => {
     await expect(page.locator('.pricing-card__title')).toHaveText(['Free Account', 'BITBI Pro', 'Starter Credits', 'Creator Credits']);
     await expect(page.locator('.pricing-card').nth(0)).toContainText('0 €');
     await expect(page.locator('.pricing-card').nth(0)).toContainText('No paid credits included');
+    await expect(page.locator('.pricing-card').nth(0)).toContainText('Verified accounts are topped up to 10 free credits each day, and those daily credits do not accumulate.');
     await expect(page.locator('.pricing-card').nth(1)).toContainText('9,99 €');
     await expect(page.locator('.pricing-card').nth(1)).toContainText('/ month');
     await expect(page.locator('.pricing-card').nth(2)).toContainText('9.99 €');

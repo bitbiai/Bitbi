@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { applyPricingStaticRegions } from "./pricing-static-html.mjs";
 
 export const SITE_ROOT_FILES = ["index.html", "pricing.html", "robots.txt", "sitemap.xml"];
 export const SITE_ROOT_DIRS = ["assets", "css", "fonts", "js", "account", "admin", "legal", "generate-lab", "canvas", "de"];
@@ -157,6 +158,7 @@ export function buildStaticSite(repoRoot, { outDir, placeholder, versionToken })
     }
   }
 
+  applyPricingStaticRegions(outDir);
   replacePlaceholderInTree(outDir, placeholder, versionToken);
 
   const unresolved = [];
