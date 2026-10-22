@@ -7,11 +7,13 @@ import {
   generateAssetVersionToken,
   loadAssetVersionManifest,
 } from "./lib/asset-version.mjs";
+import { assertPricingSourcesMatch } from "./lib/pricing-static-html.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 checkWebsiteAssistantKnowledge();
 if (process.exitCode) throw new Error('Public assistant knowledge/acceptance inputs require review before building.');
 const repoRoot = path.resolve(__dirname, "..");
+assertPricingSourcesMatch(repoRoot);
 const manifest = loadAssetVersionManifest(repoRoot);
 const placeholder = manifest.assetVersion.placeholder;
 const versionToken = generateAssetVersionToken();

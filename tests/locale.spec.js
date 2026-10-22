@@ -593,6 +593,7 @@ test.describe('Bilingual locale pages', () => {
     await expect(page.locator('main')).toContainText('Secure payment continues on pay.bitbi.ai.');
     await expect(page.locator('.pricing-hero__link')).toHaveCount(0);
     await expect(page.locator('.pricing-card__title')).toHaveText(['Free Account', 'BITBI Pro', 'Starter Credits', 'Creator Credits']);
+    await expect(page.locator('.pricing-card').first()).toContainText('Verified accounts are topped up to 10 free credits each day, and those daily credits do not accumulate.');
     await expect(page.locator('[data-pricing-auth-entry="register"]')).toContainText('Create account');
     await expect(page.locator('#pricingDecision')).toHaveCount(0);
     await expect(page.locator('#pricingJourney')).toHaveCount(0);
@@ -615,6 +616,7 @@ test.describe('Bilingual locale pages', () => {
     await expect(page.locator('main')).toContainText('Die sichere Zahlung wird auf pay.bitbi.ai fortgesetzt.');
     await expect(page.locator('.pricing-hero__link')).toHaveCount(0);
     await expect(page.locator('.pricing-card__title')).toHaveText(['Free Account', 'BITBI Pro', 'Starter Credits', 'Creator Credits']);
+    await expect(page.locator('.pricing-card').first()).toContainText('Verifizierte Konten werden täglich auf 10 kostenlose Credits aufgefüllt, ohne dass sich diese Credits ansammeln.');
     await expect(page.locator('[data-pricing-auth-entry="register"]')).toContainText('Konto erstellen');
     await expect(page.locator('#pricingDecision')).toHaveCount(0);
     await expect(page.locator('#pricingJourney')).toHaveCount(0);
@@ -629,6 +631,49 @@ test.describe('Bilingual locale pages', () => {
     await expect(page.locator('main')).not.toContainText('Von der Auswahl zum nächsten Prompt');
     await expect(page.locator('main')).not.toContainText('Kontopfad vor dem Checkout klären');
     await expect(page.locator('.site-footer__links')).toContainText('Datenschutz');
+  });
+
+  test('pricing HTML includes pack names, credits, and prices without JavaScript', () => {
+    const enPricing = repoFile('pricing.html');
+    const dePricing = repoFile('de/pricing.html');
+    const enJson = parseJsonLdBlocks(enPricing, 'English pricing')[0];
+    const deJson = parseJsonLdBlocks(dePricing, 'German pricing')[0];
+    const offerNames = ['Free Account', 'BITBI Pro', 'Starter Credits', 'Creator Credits'];
+    const offerPrices = ['0.00', '9.99', '9.99', '19.99'];
+
+    for (const html of [enPricing, dePricing]) {
+      expect(html).toContain('data-subscription-plan="bitbi_pro_monthly"');
+      expect(html).toContain('data-pricing-pack="live_credits_5000"');
+      expect(html).toContain('data-pricing-pack="live_credits_12000"');
+      expect(html).toContain('6000');
+      expect(html).not.toContain('https://pay.bitbi.ai');
+      expect(html).not.toContain('checkout.stripe.com');
+    }
+    expect(enPricing).toContain('9.99 €');
+    expect(enPricing).toContain('19.99 €');
+    expect(enPricing).toContain('9,99 €');
+    expect(enPricing).toContain('5,000 credits');
+    expect(enPricing).toContain('12,000 credits');
+    expect(enPricing).toContain('Best value');
+    expect(enPricing).toContain('href="/account/profile.html"');
+    expect(enPricing).toContain('href="/account/credits.html"');
+    expect(enPricing).toContain('Verified accounts are topped up to 10 free credits each day, and those daily credits do not accumulate.');
+    expect(enPricing).not.toContain('Loading credit packs.');
+    expect(dePricing).toContain('9,99 €');
+    expect(dePricing).toContain('19,99 €');
+    expect(dePricing).toContain('5.000 Credits');
+    expect(dePricing).toContain('12.000 Credits');
+    expect(dePricing).toContain('Bester Wert');
+    expect(dePricing).toContain('href="/de/account/profile.html"');
+    expect(dePricing).toContain('href="/de/account/credits.html"');
+    expect(dePricing).toContain('Verifizierte Konten werden täglich auf 10 kostenlose Credits aufgefüllt, ohne dass sich diese Credits ansammeln.');
+    expect(dePricing).not.toContain('Credit-Pakete werden geladen.');
+    expect(enJson.mainEntity.itemListElement.map((offer) => offer.name)).toEqual(offerNames);
+    expect(deJson.mainEntity.itemListElement.map((offer) => offer.name)).toEqual(offerNames);
+    expect(enJson.mainEntity.itemListElement.map((offer) => offer.price)).toEqual(offerPrices);
+    expect(deJson.mainEntity.itemListElement.map((offer) => offer.price)).toEqual(offerPrices);
+    expect(enJson.mainEntity.itemListElement.every((offer) => offer.priceCurrency === 'EUR')).toBe(true);
+    expect(deJson.mainEntity.itemListElement.every((offer) => offer.priceCurrency === 'EUR')).toBe(true);
   });
 
   test('pricing checkout scripts avoid deprecated Stripe redirect helpers', () => {

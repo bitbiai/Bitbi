@@ -48,6 +48,7 @@
     <link rel="stylesheet" href="../css/components/auth.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/pages/pricing.css?v=__ASSET_VERSION__">
     <link rel="stylesheet" href="../css/base/utilities.css?v=__ASSET_VERSION__">
+    <!-- BITBI_PRICING_JSONLD:de -->
     <script type="application/ld+json">
     {
         "@context": "https://schema.org",
@@ -63,9 +64,50 @@
         "publisher": {
             "@id": "https://bitbi.ai/#organization"
         },
-        "image": "https://bitbi.ai/assets/images/bitbi-social-preview.jpg"
+        "image": "https://bitbi.ai/assets/images/bitbi-social-preview.jpg",
+        "mainEntity": {
+            "@type": "OfferCatalog",
+            "name": "BITBI Credits & Pro",
+            "itemListElement": [
+                {
+                    "@type": "Offer",
+                    "name": "Free Account",
+                    "description": "Erstellen Sie ein BITBI-Konto vor Checkout, Generierung oder Speichern. Verifizierte Konten werden täglich auf 10 kostenlose Credits aufgefüllt, ohne dass sich diese Credits ansammeln.",
+                    "price": "0.00",
+                    "priceCurrency": "EUR"
+                },
+                {
+                    "@type": "Offer",
+                    "name": "BITBI Pro",
+                    "sku": "bitbi_pro_monthly",
+                    "description": "Monatliche BITBI Mitgliedschaft mit getrennten Abo-Credits und mehr Assets-Manager-Speicher. 6000 Credits monatlich inklusive",
+                    "price": "9.99",
+                    "priceCurrency": "EUR",
+                    "valueAddedTaxIncluded": true
+                },
+                {
+                    "@type": "Offer",
+                    "name": "Starter Credits",
+                    "sku": "live_credits_5000",
+                    "description": "Ideal für erste Experimente, Bildgenerierungen und kleinere Kreativ-Sessions. 5.000 Prepaid-Credits",
+                    "price": "9.99",
+                    "priceCurrency": "EUR",
+                    "valueAddedTaxIncluded": true
+                },
+                {
+                    "@type": "Offer",
+                    "name": "Creator Credits",
+                    "sku": "live_credits_12000",
+                    "description": "Mehr Spielraum für hochwertige Bilder, Video-Tests, Musik und referenzbasierte Workflows. 12.000 Prepaid-Credits",
+                    "price": "19.99",
+                    "priceCurrency": "EUR",
+                    "valueAddedTaxIncluded": true
+                }
+            ]
+        }
     }
     </script>
+    <!-- /BITBI_PRICING_JSONLD -->
     <link rel="stylesheet" href="/css/base/appearance.css?v=__ASSET_VERSION__">
 </head>
 <body>
@@ -135,9 +177,77 @@
         </div>
     </section>
     <div id="pricingRoot" class="pricing-root" aria-live="polite">
-        <section class="pricing-access glass glass-card reveal visible">
-            <p class="pricing-access__copy">Credit-Pakete werden geladen.</p>
+        <!-- BITBI_PRICING_OFFERS:de -->
+        <section id="pricingOffers" class="pricing-offers-section" aria-labelledby="pricingOffersTitle">
+            <h2 id="pricingOffersTitle" class="sr-only">Credit-Pakete</h2>
+            <div class="pricing-offers-grid">
+            <article class="pricing-card glass glass-card reveal visible pricing-card--free" data-pricing-free-account="true">
+                <div class="pricing-card__head"><div class="pricing-card__title-wrap">
+                    <p class="pricing-card__eyebrow">Konto</p>
+                    <h2 class="pricing-card__title">Free Account</h2>
+                </div></div>
+                <div class="pricing-card__price"><span class="pricing-card__price-value">0 €</span><span class="pricing-card__cadence">Konto</span></div>
+                <p class="pricing-card__copy">Erstellen Sie ein BITBI-Konto vor Checkout, Generierung oder Speichern.</p>
+                <p class="pricing-card__best-for"><span class="pricing-card__best-for-label">Geeignet für</span>Öffentliches Stöbern und Kontostart vor bezahlten Credits.</p>
+                <ul class="pricing-card__list" aria-label="Enthalten">
+                    <li>Profil und Wiederherstellung</li>
+                    <li>Gespeicherter Arbeitsbereichskontext</li>
+                    <li>Keine bezahlten Credits enthalten</li>
+                    <li>Verifizierte Konten werden täglich auf 10 kostenlose Credits aufgefüllt, ohne dass sich diese Credits ansammeln.</li>
+                </ul>
+                <a class="pricing-card__cta" href="/de/account/profile.html" data-pricing-auth-entry="register">Konto erstellen</a>
+            </article>
+            <article class="pricing-card glass glass-card reveal visible pricing-card--featured pricing-card--selected" data-subscription-plan="bitbi_pro_monthly">
+                <div class="pricing-card__head"><div class="pricing-card__title-wrap">
+                    <p class="pricing-card__eyebrow">Monatsabo</p>
+                    <h2 class="pricing-card__title">BITBI Pro</h2>
+                </div><span class="pricing-badge pricing-badge--featured">Pro</span></div>
+                <div class="pricing-card__price"><span class="pricing-card__price-value">9,99 €</span><span class="pricing-card__cadence">/ Monat</span></div>
+                <p class="pricing-card__copy">Monatliche BITBI Mitgliedschaft mit getrennten Abo-Credits und mehr Assets-Manager-Speicher.</p>
+                <p class="pricing-card__best-for"><span class="pricing-card__best-for-label">Geeignet für</span>Regelmäßige Creator, die planbare Monats-Credits und mehr Speicher möchten.</p>
+                <ul class="pricing-card__list" aria-label="Enthalten">
+                    <li>6000 Credits monatlich inklusive</li>
+                    <li>5 GB Assets-Manager-Speicher</li>
+                    <li>Abo-Credits werden jeden Monat auf 6000 aufgefüllt</li>
+                    <li>Keine Ansammlung über das monatliche Kontingent hinaus</li>
+                    <li>Einmalig gekaufte Credits bleiben getrennt und zusätzlich erhalten</li>
+                    <li>Sicherer Stripe-Checkout</li>
+                </ul>
+                <a class="pricing-card__cta" href="/de/account/credits.html" data-subscription-checkout="bitbi_pro_monthly">Konto erstellen und kaufen</a>
+            </article>
+            <article class="pricing-card glass glass-card reveal visible" data-pack-id="live_credits_5000">
+                <div class="pricing-card__head"><div class="pricing-card__title-wrap">
+                    <p class="pricing-card__eyebrow">5.000 Credits</p>
+                    <h2 class="pricing-card__title">Starter Credits</h2>
+                </div></div>
+                <div class="pricing-card__price"><span class="pricing-card__price-value">9,99 €</span><span class="pricing-card__cadence">Einmalzahlung</span></div>
+                <p class="pricing-card__copy">Ideal für erste Experimente, Bildgenerierungen und kleinere Kreativ-Sessions.</p>
+                <p class="pricing-card__best-for"><span class="pricing-card__best-for-label">Geeignet für</span>BITBI ausprobieren oder ein kleineres Projekt aufladen.</p>
+                <ul class="pricing-card__list" aria-label="Enthalten">
+                    <li>5.000 Prepaid-Credits</li>
+                    <li>Für unterstützte BITBI-KI-Werkzeuge nutzbar</li>
+                    <li>Kein Abo und keine Verlängerung</li>
+                </ul>
+                <a class="pricing-card__cta" href="/de/account/credits.html" data-pricing-pack="live_credits_5000">Konto erstellen und kaufen</a>
+            </article>
+            <article class="pricing-card glass glass-card reveal visible pricing-card--featured" data-pack-id="live_credits_12000">
+                <div class="pricing-card__head"><div class="pricing-card__title-wrap">
+                    <p class="pricing-card__eyebrow">12.000 Credits</p>
+                    <h2 class="pricing-card__title">Creator Credits</h2>
+                </div><span class="pricing-badge pricing-badge--featured">Bester Wert</span></div>
+                <div class="pricing-card__price"><span class="pricing-card__price-value">19,99 €</span><span class="pricing-card__cadence">Einmalzahlung</span></div>
+                <p class="pricing-card__copy">Mehr Spielraum für hochwertige Bilder, Video-Tests, Musik und referenzbasierte Workflows.</p>
+                <p class="pricing-card__best-for"><span class="pricing-card__best-for-label">Geeignet für</span>Größere Sessions und mehr Credits pro Checkout.</p>
+                <ul class="pricing-card__list" aria-label="Enthalten">
+                    <li>12.000 Prepaid-Credits</li>
+                    <li>Aktuell bester Gegenwert pro Credit</li>
+                    <li>Für größere Kreativ-Sessions ausgelegt</li>
+                </ul>
+                <a class="pricing-card__cta" href="/de/account/credits.html" data-pricing-pack="live_credits_12000">Konto erstellen und kaufen</a>
+            </article>
+            </div>
         </section>
+        <!-- /BITBI_PRICING_OFFERS -->
     </div>
 </main>
 

@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   buildStaticSite,
   extractAssetVersionTokens,
   generateAssetVersionToken,
   validateAssetVersionSources,
 } from "./lib/asset-version.mjs";
+import { assertPricingSourcesMatch } from "./lib/pricing-static-html.mjs";
 
 {
   assert.deepEqual(extractAssetVersionTokens('?v=__ASSET_VERSION__ foo ?v=abc123'), [
@@ -88,5 +90,7 @@ import {
     'export const version = "release-1234";'
   );
 }
+
+assertPricingSourcesMatch(path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."));
 
 console.log("Asset version tests passed.");

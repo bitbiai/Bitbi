@@ -12,7 +12,7 @@ import {
     apiCreateMemberSubscriptionCheckout,
 } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 import { getCurrentLocale, localizedHref } from '../../shared/locale.js?v=__ASSET_VERSION__';
-import { BITBI_LIVE_CREDIT_PACKS } from '../../shared/live-credit-packs.mjs?v=__ASSET_VERSION__';
+import { getPublicPricingCards } from '../../shared/pricing-public-offers.mjs?v=__ASSET_VERSION__';
 import { BITBI_MEMBER_SUBSCRIPTION } from '../../shared/member-subscription.mjs?v=__ASSET_VERSION__';
 
 const TERMS_VERSION = '2026-05-05';
@@ -48,15 +48,11 @@ const COPY = Object.freeze({
         viewCredits: 'View credits',
         cancelled: 'Checkout was cancelled',
         cancelCopy: 'You have not been charged. Your selected BITBI credit pack is still available if you want to continue later.',
-        oneTime: 'One-time payment',
-        monthly: 'Monthly subscription',
         subscriptionSection: 'Monthly subscription',
         oneTimeSection: 'One-time credit packs',
         subscribe: 'Subscribe',
         selectedSubscription: 'BITBI Pro selected',
         subscriptionSelected: 'BITBI Pro selected. Review the legal confirmations below before checkout.',
-        subscriptionSummary: 'Selected subscription: BITBI Pro · 6000 credits per month · 9,99 € / month. Prices include statutory VAT where applicable.',
-        loggedOutCta: 'Create account to buy',
         selectedPack: 'Selected pack',
         selectPack: 'Select pack',
         loggedOutMessage: 'Create an account or sign in to buy credits.',
@@ -75,19 +71,6 @@ const COPY = Object.freeze({
         checkoutFailed: 'Checkout could not be opened. Please try again.',
         unsafeCheckout: 'Checkout response was not a recognized Stripe-hosted payment URL. No payment was started.',
         accountCreated: 'Account created. Please review the terms and continue to checkout.',
-        creditPacks: 'Credit packs',
-        freeAccountTitle: 'Free Account',
-        freeAccountPrice: '0 €',
-        freeAccountCadence: 'account',
-        freeAccountDescription: 'Create a BITBI account before checkout, generation, or saving.',
-        freeAccountBestFor: 'Public browsing and account setup before paid credits.',
-        freeAccountBenefits: Object.freeze([
-            'Profile and recovery access',
-            'Saved workspace context',
-            'No paid credits included',
-        ]),
-        freeAccountCta: 'Create account',
-        freeAccountMemberCta: 'Open profile',
         freeAccountAuthMessage: 'Create a free BITBI account to continue.',
         offersTitle: 'Choose how you want to create',
         offersCopy: 'BITBI Pro is best for regular creation. One-time packs stay available for flexible top-ups without a subscription.',
@@ -100,35 +83,7 @@ const COPY = Object.freeze({
             Object.freeze(['Try a focused idea', 'Starter Credits', 'A smaller top-up for first tests, prototypes, and light experiments.', 'Choose this when you want low-commitment capacity.']),
         ]),
         decisionFootnote: 'Credits are added only after verified Stripe payment confirmation. They remain account-bound and are not transferable value.',
-        included: 'Included',
-        bestFor: 'Best for',
-        subscriptionBestFor: 'Regular creators who want predictable monthly credits and more storage.',
-        subscriptionBenefits: Object.freeze([
-            '6000 credits included each month',
-            '5 GB Asset Manager storage',
-            'Subscription credits are topped up to 6000 each month',
-            'No accumulation beyond the monthly allowance',
-            'One-time purchased credits remain separate and additional',
-            'Secure Stripe checkout',
-        ]),
-        creditsLabel: 'credits',
-        creditBenefit: '{credits} prepaid credits',
         trustNotes: 'Pricing trust notes',
-        packs: Object.freeze({
-            live_credits_5000: Object.freeze({
-                title: 'Starter Credits',
-                description: 'Perfect for first experiments, image generations, and smaller creative sessions.',
-                bestFor: 'Trying BITBI or topping up a smaller project.',
-                benefits: ['Use across supported BITBI AI tools', 'No subscription or renewal'],
-            }),
-            live_credits_12000: Object.freeze({
-                title: 'Creator Credits',
-                badge: 'Best value',
-                description: 'More room for high-quality images, video tests, music creation, and reference-based workflows.',
-                bestFor: 'Larger sessions and users who want more credits per checkout.',
-                benefits: ['Best current value per credit', 'Built for larger creative sessions'],
-            }),
-        }),
         guideTitle: 'What happens after purchase',
         guideCopy: 'Credits are digital usage units for supported BITBI AI tools. They are added only after verified Stripe payment confirmation.',
         info: Object.freeze([
@@ -212,15 +167,11 @@ const COPY = Object.freeze({
         viewCredits: 'Credits anzeigen',
         cancelled: 'Checkout wurde abgebrochen',
         cancelCopy: 'Ihnen wurde nichts berechnet. Ihr ausgewähltes BITBI Credit-Paket bleibt verfügbar, falls Sie später fortfahren möchten.',
-        oneTime: 'Einmalzahlung',
-        monthly: 'Monatsabo',
         subscriptionSection: 'Monatsabo',
         oneTimeSection: 'Einmalige Credit-Pakete',
         subscribe: 'Abonnieren',
         selectedSubscription: 'BITBI Pro ausgewählt',
         subscriptionSelected: 'BITBI Pro ausgewählt. Bitte prüfen Sie unten die rechtlichen Bestätigungen vor dem Checkout.',
-        subscriptionSummary: 'Ausgewähltes Abo: BITBI Pro · 6000 Credits pro Monat · 9,99 € / Monat. Preise enthalten die gesetzliche Umsatzsteuer, soweit anwendbar.',
-        loggedOutCta: 'Konto erstellen und kaufen',
         selectedPack: 'Paket ausgewählt',
         selectPack: 'Paket auswählen',
         loggedOutMessage: 'Erstelle ein Konto oder melde dich an, um Credits zu kaufen.',
@@ -239,19 +190,6 @@ const COPY = Object.freeze({
         checkoutFailed: 'Checkout konnte nicht geöffnet werden. Bitte versuchen Sie es erneut.',
         unsafeCheckout: 'Die Checkout-Antwort war keine erkannte von Stripe gehostete Zahlungs-URL. Es wurde keine Zahlung gestartet.',
         accountCreated: 'Konto erstellt. Bitte prüfen Sie die Bedingungen und fahren Sie mit dem Checkout fort.',
-        creditPacks: 'Credit-Pakete',
-        freeAccountTitle: 'Free Account',
-        freeAccountPrice: '0 €',
-        freeAccountCadence: 'Konto',
-        freeAccountDescription: 'Erstellen Sie ein BITBI-Konto vor Checkout, Generierung oder Speichern.',
-        freeAccountBestFor: 'Öffentliches Stöbern und Kontostart vor bezahlten Credits.',
-        freeAccountBenefits: Object.freeze([
-            'Profil und Wiederherstellung',
-            'Gespeicherter Arbeitsbereichskontext',
-            'Keine bezahlten Credits enthalten',
-        ]),
-        freeAccountCta: 'Konto erstellen',
-        freeAccountMemberCta: 'Profil öffnen',
         freeAccountAuthMessage: 'Erstellen Sie ein kostenloses BITBI-Konto, um fortzufahren.',
         offersTitle: 'Wählen Sie, wie Sie erstellen möchten',
         offersCopy: 'BITBI Pro eignet sich für regelmäßige Nutzung. Einmalige Pakete bleiben für flexible Aufladungen ohne Abo verfügbar.',
@@ -264,35 +202,7 @@ const COPY = Object.freeze({
             Object.freeze(['Fokussierte Idee testen', 'Starter Credits', 'Eine kleinere Aufladung für erste Tests, Prototypen und leichte Experimente.', 'Wählen Sie dies, wenn Sie Kapazität mit geringer Verpflichtung möchten.']),
         ]),
         decisionFootnote: 'Credits werden erst nach bestätigter Stripe-Zahlung gutgeschrieben. Sie bleiben kontogebunden und sind kein übertragbarer Wert.',
-        included: 'Enthalten',
-        bestFor: 'Geeignet für',
-        subscriptionBestFor: 'Regelmäßige Creator, die planbare Monats-Credits und mehr Speicher möchten.',
-        subscriptionBenefits: Object.freeze([
-            '6000 Credits monatlich inklusive',
-            '5 GB Assets-Manager-Speicher',
-            'Abo-Credits werden jeden Monat auf 6000 aufgefüllt',
-            'Keine Ansammlung über das monatliche Kontingent hinaus',
-            'Einmalig gekaufte Credits bleiben getrennt und zusätzlich erhalten',
-            'Sicherer Stripe-Checkout',
-        ]),
-        creditsLabel: 'Credits',
-        creditBenefit: '{credits} Prepaid-Credits',
         trustNotes: 'Vertrauenshinweise zu Preisen',
-        packs: Object.freeze({
-            live_credits_5000: Object.freeze({
-                title: 'Starter Credits',
-                description: 'Ideal für erste Experimente, Bildgenerierungen und kleinere Kreativ-Sessions.',
-                bestFor: 'BITBI ausprobieren oder ein kleineres Projekt aufladen.',
-                benefits: ['Für unterstützte BITBI-KI-Werkzeuge nutzbar', 'Kein Abo und keine Verlängerung'],
-            }),
-            live_credits_12000: Object.freeze({
-                title: 'Creator Credits',
-                badge: 'Bester Wert',
-                description: 'Mehr Spielraum für hochwertige Bilder, Video-Tests, Musik und referenzbasierte Workflows.',
-                bestFor: 'Größere Sessions und mehr Credits pro Checkout.',
-                benefits: ['Aktuell bester Gegenwert pro Credit', 'Für größere Kreativ-Sessions ausgelegt'],
-            }),
-        }),
         guideTitle: 'Was nach dem Kauf passiert',
         guideCopy: 'Credits sind digitale Nutzungseinheiten für unterstützte BITBI-KI-Werkzeuge. Sie werden erst nach bestätigter Stripe-Zahlung gutgeschrieben.',
         info: Object.freeze([
@@ -362,20 +272,8 @@ function t(key, values = {}) {
     return String(value).replace(/\{([^}]+)\}/g, (_, name) => values[name] ?? '');
 }
 
-function formatPackPrice(amountCents) {
-    const amount = Number(amountCents || 0) / 100;
-    return `${amount.toLocaleString(LOCALE === 'de' ? 'de-DE' : 'en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-    })} €`;
-}
-
-const CREDIT_PACKS = Object.freeze(BITBI_LIVE_CREDIT_PACKS.map((pack) => Object.freeze({
-    id: pack.id,
-    credits: pack.credits,
-    price: formatPackPrice(pack.amountCents),
-    featured: pack.id === 'live_credits_12000',
-})));
+const PRICING_CARDS = getPublicPricingCards(LOCALE);
+const CREDIT_PACKS = Object.freeze(PRICING_CARDS.packs.map((pack) => Object.freeze({ ...pack })));
 
 let selectedPackId = sessionStorage.getItem(PENDING_PACK_KEY) || 'live_credits_12000';
 let selectedOfferType = sessionStorage.getItem(PENDING_OFFER_KEY) || 'subscription';
@@ -473,6 +371,7 @@ function openPricingRegistration() {
 }
 
 function createFreeAccountCard(auth) {
+    const free = PRICING_CARDS.free;
     const card = document.createElement('article');
     card.className = 'pricing-card glass glass-card reveal visible pricing-card--free';
     card.dataset.pricingFreeAccount = 'true';
@@ -482,31 +381,31 @@ function createFreeAccountCard(auth) {
     const titleWrap = document.createElement('div');
     titleWrap.className = 'pricing-card__title-wrap';
     titleWrap.append(
-        createTextElement('p', 'pricing-card__eyebrow', t('freeAccountCadence')),
-        createTextElement('h2', 'pricing-card__title', t('freeAccountTitle')),
+        createTextElement('p', 'pricing-card__eyebrow', free.eyebrow),
+        createTextElement('h2', 'pricing-card__title', free.title),
     );
     head.appendChild(titleWrap);
 
     const price = document.createElement('div');
     price.className = 'pricing-card__price';
     price.append(
-        createTextElement('span', 'pricing-card__price-value', t('freeAccountPrice')),
-        createTextElement('span', 'pricing-card__cadence', t('freeAccountCadence')),
+        createTextElement('span', 'pricing-card__price-value', free.price),
+        createTextElement('span', 'pricing-card__cadence', free.cadence),
     );
 
-    const description = createTextElement('p', 'pricing-card__copy', t('freeAccountDescription'));
+    const description = createTextElement('p', 'pricing-card__copy', free.description);
 
     const bestFor = document.createElement('p');
     bestFor.className = 'pricing-card__best-for';
     bestFor.append(
-        createTextElement('span', 'pricing-card__best-for-label', t('bestFor')),
-        document.createTextNode(t('freeAccountBestFor')),
+        createTextElement('span', 'pricing-card__best-for-label', PRICING_CARDS.labels.bestFor),
+        document.createTextNode(free.bestFor),
     );
 
     const list = document.createElement('ul');
     list.className = 'pricing-card__list';
-    list.setAttribute('aria-label', t('included'));
-    for (const item of (COPY[LOCALE] || COPY.en).freeAccountBenefits) {
+    list.setAttribute('aria-label', PRICING_CARDS.labels.included);
+    for (const item of free.benefits) {
         const li = document.createElement('li');
         li.textContent = item;
         list.appendChild(li);
@@ -517,7 +416,7 @@ function createFreeAccountCard(auth) {
         link.className = 'pricing-card__cta';
         link.dataset.pricingAccountLink = 'profile';
         link.href = localizedHref('/account/profile.html');
-        link.textContent = t('freeAccountMemberCta');
+        link.textContent = free.memberCta;
         card.append(head, price, description, bestFor, list, link);
         return card;
     }
@@ -526,7 +425,7 @@ function createFreeAccountCard(auth) {
     button.type = 'button';
     button.className = 'pricing-card__cta';
     button.dataset.pricingAuthEntry = 'register';
-    button.textContent = t('freeAccountCta');
+    button.textContent = free.cta;
     button.addEventListener('click', openPricingRegistration);
 
     card.append(head, price, description, bestFor, list, button);
@@ -535,7 +434,6 @@ function createFreeAccountCard(auth) {
 
 function createPackCard(pack, auth) {
     const selected = selectedOfferType !== 'subscription' && pack.id === getSelectedPack().id;
-    const localizedPack = COPY[LOCALE]?.packs?.[pack.id] || COPY.en.packs[pack.id];
     const card = document.createElement('article');
     card.className = `pricing-card glass glass-card reveal visible${pack.featured ? ' pricing-card--featured' : ''}${selected ? ' pricing-card--selected' : ''}`;
     card.dataset.packId = pack.id;
@@ -545,36 +443,32 @@ function createPackCard(pack, auth) {
     const titleWrap = document.createElement('div');
     titleWrap.className = 'pricing-card__title-wrap';
     titleWrap.append(
-        createTextElement('p', 'pricing-card__eyebrow', `${NUMBER_FORMATTER.format(pack.credits)} ${t('creditsLabel')}`),
-        createTextElement('h2', 'pricing-card__title', localizedPack.title),
+        createTextElement('p', 'pricing-card__eyebrow', pack.eyebrow),
+        createTextElement('h2', 'pricing-card__title', pack.title),
     );
     head.appendChild(titleWrap);
-    if (localizedPack.badge) head.appendChild(createBadge(localizedPack.badge, 'featured'));
+    if (pack.badge) head.appendChild(createBadge(pack.badge, 'featured'));
 
     const price = document.createElement('div');
     price.className = 'pricing-card__price';
     price.append(
         createTextElement('span', 'pricing-card__price-value', pack.price),
-        createTextElement('span', 'pricing-card__cadence', t('oneTime')),
+        createTextElement('span', 'pricing-card__cadence', pack.cadence),
     );
 
-    const description = createTextElement('p', 'pricing-card__copy', localizedPack.description);
+    const description = createTextElement('p', 'pricing-card__copy', pack.description);
 
     const bestFor = document.createElement('p');
     bestFor.className = 'pricing-card__best-for';
     bestFor.append(
-        createTextElement('span', 'pricing-card__best-for-label', t('bestFor')),
-        document.createTextNode(localizedPack.bestFor),
+        createTextElement('span', 'pricing-card__best-for-label', PRICING_CARDS.labels.bestFor),
+        document.createTextNode(pack.bestFor),
     );
 
     const list = document.createElement('ul');
     list.className = 'pricing-card__list';
-    list.setAttribute('aria-label', t('included'));
-    const benefits = [
-        t('creditBenefit', { credits: NUMBER_FORMATTER.format(pack.credits) }),
-        ...localizedPack.benefits,
-    ];
-    for (const item of benefits) {
+    list.setAttribute('aria-label', PRICING_CARDS.labels.included);
+    for (const item of pack.benefits) {
         const li = document.createElement('li');
         li.textContent = item;
         list.appendChild(li);
@@ -586,7 +480,7 @@ function createPackCard(pack, auth) {
     button.dataset.pricingPack = pack.id;
     button.textContent = auth.loggedIn
         ? (selected ? t('selectedPack') : t('selectPack'))
-        : t('loggedOutCta');
+        : PRICING_CARDS.labels.loggedOutCta;
     button.setAttribute('aria-pressed', selected ? 'true' : 'false');
     button.addEventListener('click', () => {
         selectedOfferType = 'credit-pack';
@@ -605,7 +499,7 @@ function createPackCard(pack, auth) {
         }
         sessionStorage.setItem(PENDING_PACK_KEY, pack.id);
         sessionStorage.setItem(PENDING_OFFER_KEY, 'credit-pack');
-        setInlineMessage(t('packSelected', { title: localizedPack.title }), 'success');
+        setInlineMessage(t('packSelected', { title: pack.title }), 'success');
     });
 
     card.append(head, price, description, bestFor, list, button);
@@ -613,43 +507,42 @@ function createPackCard(pack, auth) {
 }
 
 function createSubscriptionCard(auth) {
+    const subscription = PRICING_CARDS.subscription;
     const selected = selectedOfferType === 'subscription';
     const card = document.createElement('article');
     card.className = `pricing-card glass glass-card reveal visible pricing-card--featured${selected ? ' pricing-card--selected' : ''}`;
-    card.dataset.subscriptionPlan = BITBI_MEMBER_SUBSCRIPTION.id;
+    card.dataset.subscriptionPlan = subscription.id;
 
     const head = document.createElement('div');
     head.className = 'pricing-card__head';
     const titleWrap = document.createElement('div');
     titleWrap.className = 'pricing-card__title-wrap';
     titleWrap.append(
-        createTextElement('p', 'pricing-card__eyebrow', t('monthly')),
-        createTextElement('h2', 'pricing-card__title', 'BITBI Pro'),
+        createTextElement('p', 'pricing-card__eyebrow', subscription.eyebrow),
+        createTextElement('h2', 'pricing-card__title', subscription.title),
     );
-    head.append(titleWrap, createBadge('Pro', 'featured'));
+    head.append(titleWrap, createBadge(subscription.badge, 'featured'));
 
     const price = document.createElement('div');
     price.className = 'pricing-card__price';
     price.append(
-        createTextElement('span', 'pricing-card__price-value', BITBI_MEMBER_SUBSCRIPTION.displayPrice),
-        createTextElement('span', 'pricing-card__cadence', `/ ${LOCALE === 'de' ? 'Monat' : 'month'}`),
+        createTextElement('span', 'pricing-card__price-value', subscription.price),
+        createTextElement('span', 'pricing-card__cadence', subscription.cadence),
     );
 
-    const description = createTextElement('p', 'pricing-card__copy', LOCALE === 'de'
-        ? 'Monatliche BITBI Mitgliedschaft mit getrennten Abo-Credits und mehr Assets-Manager-Speicher.'
-        : 'Monthly BITBI membership with separate subscription credits and expanded Asset Manager storage.');
+    const description = createTextElement('p', 'pricing-card__copy', subscription.description);
 
     const bestFor = document.createElement('p');
     bestFor.className = 'pricing-card__best-for';
     bestFor.append(
-        createTextElement('span', 'pricing-card__best-for-label', t('bestFor')),
-        document.createTextNode(t('subscriptionBestFor')),
+        createTextElement('span', 'pricing-card__best-for-label', PRICING_CARDS.labels.bestFor),
+        document.createTextNode(subscription.bestFor),
     );
 
     const list = document.createElement('ul');
     list.className = 'pricing-card__list';
-    list.setAttribute('aria-label', t('included'));
-    for (const item of (COPY[LOCALE] || COPY.en).subscriptionBenefits) {
+    list.setAttribute('aria-label', PRICING_CARDS.labels.included);
+    for (const item of subscription.benefits) {
         const li = document.createElement('li');
         li.textContent = item;
         list.appendChild(li);
@@ -658,10 +551,10 @@ function createSubscriptionCard(auth) {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'pricing-card__cta';
-    button.dataset.subscriptionCheckout = BITBI_MEMBER_SUBSCRIPTION.id;
+    button.dataset.subscriptionCheckout = subscription.id;
     button.textContent = auth.loggedIn
         ? (selected ? t('selectedSubscription') : t('subscribe'))
-        : t('loggedOutCta');
+        : PRICING_CARDS.labels.loggedOutCta;
     button.setAttribute('aria-pressed', selected ? 'true' : 'false');
     button.addEventListener('click', () => {
         selectedOfferType = 'subscription';
@@ -689,7 +582,7 @@ function createOffersSection(auth) {
     section.className = 'pricing-offers-section';
     section.setAttribute('aria-labelledby', 'pricingOffersTitle');
 
-    const heading = createTextElement('h2', 'sr-only', t('creditPacks'));
+    const heading = createTextElement('h2', 'sr-only', PRICING_CARDS.labels.creditPacks);
     heading.id = 'pricingOffersTitle';
     section.appendChild(heading);
 
@@ -752,9 +645,9 @@ function createLegalCheckout(auth) {
 
     const selectedPack = getSelectedPack();
     const summaryText = selectedOfferType === 'subscription'
-        ? t('subscriptionSummary')
+        ? PRICING_CARDS.subscription.summary
         : t('selectedSummary', {
-            title: (COPY[LOCALE]?.packs?.[selectedPack.id] || COPY.en.packs[selectedPack.id]).title,
+            title: selectedPack.title,
             credits: NUMBER_FORMATTER.format(selectedPack.credits),
             price: selectedPack.price,
         });
@@ -816,7 +709,7 @@ function createLegalCheckout(auth) {
     button.disabled = checkoutBusy;
     button.textContent = checkoutBusy
         ? t('checkoutBusy')
-        : (auth.loggedIn ? t('checkout') : t('loggedOutCta'));
+        : (auth.loggedIn ? t('checkout') : PRICING_CARDS.labels.loggedOutCta);
     button.addEventListener('click', () => handleCheckout(auth));
     actions.appendChild(button);
     section.appendChild(actions);
