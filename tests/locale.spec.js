@@ -565,7 +565,6 @@ test.describe('Bilingual locale pages', () => {
         { width: 390, height: 844 },
       ]) {
         await page.setViewportSize(viewport);
-        await link.scrollIntoViewIfNeeded();
         await expect(link).toBeVisible();
         await expect(link).toHaveAttribute('href', href);
         const box = await link.boundingBox();
