@@ -222,6 +222,65 @@ function uiHtmlText(html) {
   return `${visibleHtmlText(html)} ${attrText}`.replace(/\s+/g, ' ');
 }
 
+const SITEMAP_REDIRECTS = new Set([
+  '/index.html',
+  '/de/index.html',
+  '/pricing',
+  '/pricing/',
+  '/de/pricing',
+  '/de/pricing/',
+]);
+
+function publicHtmlFiles() {
+  const root = path.join(__dirname, '..');
+  const skipped = new Set(['node_modules', '_site', 'candidate', 'test-results', 'docs', 'playwright-report', 'frontend']);
+  const files = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name.startsWith('.') || skipped.has(entry.name)) continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith('.html')) files.push(path.relative(root, full).replace(/\\/g, '/'));
+    }
+  };
+  walk(root);
+  return files;
+}
+
+function publicPathFor(relative) {
+  if (relative === 'index.html') return '/';
+  if (relative === 'de/index.html') return '/de/';
+  return `/${relative}`;
+}
+
+function pageAlternates(html) {
+  return [...html.matchAll(/<link rel="alternate" hreflang="([^"]+)" href="([^"]+)">/g)]
+    .map((match) => [match[1], match[2]]);
+}
+
+function indexablePublicPages() {
+  return publicHtmlFiles().flatMap((relative) => {
+    const html = repoFile(relative);
+    const robots = html.match(/<meta name="robots" content="([^"]+)">/)?.[1] || '';
+    const canonical = html.match(/<link rel="canonical" href="([^"]+)">/)?.[1] || '';
+    const urlPath = publicPathFor(relative);
+    const url = `https://bitbi.ai${urlPath}`;
+    if (robots.includes('noindex') || SITEMAP_REDIRECTS.has(urlPath) || canonical !== url) return [];
+    return [{ relative, url, alternates: pageAlternates(html) }];
+  });
+}
+
+function sitemapEntries(xml) {
+  return [...xml.matchAll(/<url>([\s\S]*?)<\/url>/g)].map((match) => {
+    const block = match[1];
+    return {
+      loc: block.match(/<loc>([^<]+)<\/loc>/)[1],
+      alternates: [...block.matchAll(/<xhtml:link rel="alternate" hreflang="([^"]+)" href="([^"]+)"\/>/g)]
+        .map((link) => [link[1], link[2]]),
+    };
+  });
+}
+
 function listHtmlFiles(dir) {
   const root = path.join(__dirname, '..', dir);
   const out = [];
@@ -310,6 +369,18 @@ test.describe('Bilingual locale pages', () => {
   test('English and German root pages expose the expected lang attributes', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+    await expect(page.locator('#hero h1')).toHaveCount(1);
+    const enHeading = page.locator('#hero h1 .sr-only');
+    await expect(enHeading).toHaveText('BITBI – AI Image, Video & Music Generator');
+    await expect(enHeading).not.toHaveCSS('display', 'none');
+    await expect(enHeading).toHaveCSS('position', 'absolute');
+    await expect(page.locator('#hero .hero__title-img')).toBeVisible();
+    const enHiddenBox = await enHeading.boundingBox();
+    const enImageBox = await page.locator('#hero .hero__title-img').boundingBox();
+    expect(enHiddenBox.width).toBeLessThanOrEqual(1);
+    expect(enHiddenBox.height).toBeLessThanOrEqual(1);
+    expect(enImageBox.width).toBeGreaterThan(200);
+    expect(enImageBox.height).toBeGreaterThan(100);
     await expect(page.locator('#hero')).not.toContainText('Start creating from the public site');
     await expect(page.locator('#hero')).not.toContainText('Backend credit checks');
     await expect(page.locator('#hero')).not.toContainText('Compare credits');
@@ -333,6 +404,18 @@ test.describe('Bilingual locale pages', () => {
 
     await page.goto('/de/');
     await expect(page.locator('html')).toHaveAttribute('lang', 'de');
+    await expect(page.locator('#hero h1')).toHaveCount(1);
+    const deHeading = page.locator('#hero h1 .sr-only');
+    await expect(deHeading).toHaveText('BITBI – KI-Bilder, Videos & Musik erstellen');
+    await expect(deHeading).not.toHaveCSS('display', 'none');
+    await expect(deHeading).toHaveCSS('position', 'absolute');
+    await expect(page.locator('#hero .hero__title-img')).toBeVisible();
+    const deHiddenBox = await deHeading.boundingBox();
+    const deImageBox = await page.locator('#hero .hero__title-img').boundingBox();
+    expect(deHiddenBox.width).toBeLessThanOrEqual(1);
+    expect(deHiddenBox.height).toBeLessThanOrEqual(1);
+    expect(deImageBox.width).toBeGreaterThan(200);
+    expect(deImageBox.height).toBeGreaterThan(100);
     await expect(page.locator('#hero')).not.toContainText('Direkt von der öffentlichen Seite starten');
     await expect(page.locator('#hero')).not.toContainText('Backend prüft Credits');
     await expect(page.locator('#hero')).not.toContainText('Credits vergleichen');
@@ -600,6 +683,16 @@ test.describe('Bilingual locale pages', () => {
     expect(enHome).toContain('decoding="async"');
     expect(deHome).toContain('decoding="async"');
 
+    expect((enHome.match(/<h1[\s>]/g) || [])).toHaveLength(1);
+    expect((deHome.match(/<h1[\s>]/g) || [])).toHaveLength(1);
+    expect(enHome).toContain('<span class="sr-only">BITBI – AI Image, Video &amp; Music Generator</span>');
+    expect(deHome).toContain('<span class="sr-only">BITBI – KI-Bilder, Videos &amp; Musik erstellen</span>');
+    expect(enHome).toContain('alt="BITBI"');
+    expect(deHome).toContain('alt="BITBI"');
+    const srOnly = repoFile('css/base/utilities.css');
+    expect(srOnly).toContain('.sr-only {');
+    expect(srOnly).not.toMatch(/\.sr-only\s*\{[^}]*display:\s*none/);
+
     for (const disallowed of ['/api/', '/admin/', '/account/', '/de/account/']) {
       expect(robots).toContain(`Disallow: ${disallowed}`);
     }
@@ -607,15 +700,47 @@ test.describe('Bilingual locale pages', () => {
     expect(robots).not.toContain('Disallow: /de/generate-lab/');
     expect(robots).toContain('Sitemap: https://bitbi.ai/sitemap.xml');
 
-    for (const loc of ['https://bitbi.ai/', 'https://bitbi.ai/de/', 'https://bitbi.ai/pricing.html', 'https://bitbi.ai/de/pricing.html']) {
-      expect(sitemap).toContain(`<loc>${loc}</loc>`);
+    const indexableCanonicals = [
+      'https://bitbi.ai/',
+      'https://bitbi.ai/de/',
+      'https://bitbi.ai/pricing.html',
+      'https://bitbi.ai/de/pricing.html',
+    ];
+    expect(indexablePublicPages().map((page) => page.url).sort()).toEqual([...indexableCanonicals].sort());
+    const entries = sitemapEntries(sitemap);
+    expect(entries.map((entry) => entry.loc).sort()).toEqual([...indexableCanonicals].sort());
+    const pagesByUrl = new Map(indexablePublicPages().map((page) => [page.url, page]));
+    for (const entry of entries) {
+      expect(entry.alternates).toEqual(pagesByUrl.get(entry.loc).alternates);
     }
-    for (const privateOrNoindexPath of ['generate-lab', 'account', 'admin', 'legal/privacy', 'legal/imprint', 'legal/terms']) {
-      expect(sitemap).not.toContain(privateOrNoindexPath);
+    for (const absent of [
+      'https://bitbi.ai/index.html',
+      'https://bitbi.ai/de/index.html',
+      'https://bitbi.ai/pricing',
+      'https://bitbi.ai/pricing/',
+      'https://bitbi.ai/de/pricing',
+      'https://bitbi.ai/de/pricing/',
+      'https://bitbi.ai/canvas/',
+      'https://bitbi.ai/de/canvas/',
+      'https://bitbi.ai/generate-lab/',
+      'https://bitbi.ai/de/generate-lab/',
+      'https://bitbi.ai/canvas/index.html',
+      'https://bitbi.ai/generate-lab/index.html',
+      'https://bitbi.ai/legal/privacy.html',
+      'https://bitbi.ai/de/legal/datenschutz.html',
+      'https://bitbi.ai/legal/imprint.html',
+      'https://bitbi.ai/de/legal/imprint.html',
+      'https://bitbi.ai/legal/terms.html',
+      'https://bitbi.ai/de/legal/terms.html',
+      'https://bitbi.ai/legal/datenschutz.html',
+      'https://bitbi.ai/de/legal/privacy.html',
+      'https://bitbi.ai/admin/',
+      'https://bitbi.ai/admin/index.html',
+      'https://bitbi.ai/account/profile.html',
+    ]) {
+      expect(sitemap).not.toContain(`<loc>${absent}</loc>`);
     }
     expect(sitemap).toContain('xmlns:xhtml="http://www.w3.org/1999/xhtml"');
-    expect(sitemap).toContain('<xhtml:link rel="alternate" hreflang="de" href="https://bitbi.ai/de/"/>');
-    expect(sitemap).toContain('<xhtml:link rel="alternate" hreflang="de" href="https://bitbi.ai/de/pricing.html"/>');
   });
 
   test('account member and recovery pages expose canonical and hreflang metadata parity', () => {
