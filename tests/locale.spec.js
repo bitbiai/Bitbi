@@ -67,6 +67,20 @@ function parseJsonLdBlocks(html, label) {
     });
 }
 
+function collectTypedJsonLdNodes(value, nodes = []) {
+  if (!value || typeof value !== 'object') return nodes;
+  if (Array.isArray(value)) {
+    for (const item of value) collectTypedJsonLdNodes(item, nodes);
+    return nodes;
+  }
+  if (typeof value['@type'] === 'string') nodes.push(value);
+  for (const [key, child] of Object.entries(value)) {
+    if (key === '@context' || !child || typeof child !== 'object') continue;
+    collectTypedJsonLdNodes(child, nodes);
+  }
+  return nodes;
+}
+
 function findHtmlTagEnd(html, startIndex) {
   let quote = '';
   for (let index = startIndex; index < html.length; index += 1) {
@@ -680,6 +694,33 @@ test.describe('Bilingual locale pages', () => {
     expect(deHomeJsonLd[0]['@graph'].map((entry) => entry['@type'])).toEqual(['Organization', 'WebSite', 'WebPage']);
     expect(enPricingJsonLd[0]['@type']).toBe('WebPage');
     expect(dePricingJsonLd[0]['@type']).toBe('WebPage');
+    const canonicalOrganizationId = 'https://bitbi.ai/#organization';
+    const enOrganization = enHomeJsonLd[0]['@graph'].find((entry) => entry['@type'] === 'Organization');
+    const deOrganization = deHomeJsonLd[0]['@graph'].find((entry) => entry['@type'] === 'Organization');
+    expect(enOrganization).toEqual(deOrganization);
+    expect(enOrganization['@id']).toBe(canonicalOrganizationId);
+    expect(enOrganization.url).toBe('https://bitbi.ai/');
+    expect(enOrganization.name).toBe('BITBI');
+    expect(enWebSite['@id']).toBe('https://bitbi.ai/#website');
+    expect(deWebSite['@id']).toBe('https://bitbi.ai/de/#website');
+    expect(enWebSite.url).toBe('https://bitbi.ai/');
+    expect(deWebSite.url).toBe('https://bitbi.ai/de/');
+    expect(enWebSite.publisher).toEqual({ '@id': canonicalOrganizationId });
+    expect(deWebSite.publisher).toEqual({ '@id': canonicalOrganizationId });
+    expect(enWebPage.isPartOf).toEqual({ '@id': 'https://bitbi.ai/#website' });
+    expect(deWebPage.isPartOf).toEqual({ '@id': 'https://bitbi.ai/de/#website' });
+    expect(enHome).not.toContain('https://bitbi.ai/de/#organization');
+    expect(deHome).not.toContain('https://bitbi.ai/de/#organization');
+    expect(enPricingJsonLd[0]['@id']).toBe('https://bitbi.ai/pricing.html#webpage');
+    expect(dePricingJsonLd[0]['@id']).toBe('https://bitbi.ai/de/pricing.html#webpage');
+    expect(enPricingJsonLd[0].url).toBe('https://bitbi.ai/pricing.html');
+    expect(dePricingJsonLd[0].url).toBe('https://bitbi.ai/de/pricing.html');
+    expect(enPricingJsonLd[0].inLanguage).toBe('en');
+    expect(dePricingJsonLd[0].inLanguage).toBe('de');
+    expect(enPricingJsonLd[0].isPartOf).toEqual({ '@id': 'https://bitbi.ai/#website' });
+    expect(dePricingJsonLd[0].isPartOf).toEqual({ '@id': 'https://bitbi.ai/de/#website' });
+    expect(enPricingJsonLd[0].publisher).toEqual({ '@id': canonicalOrganizationId });
+    expect(dePricingJsonLd[0].publisher).toEqual({ '@id': canonicalOrganizationId });
     expect(enHome).toContain('decoding="async"');
     expect(deHome).toContain('decoding="async"');
 
@@ -741,6 +782,33 @@ test.describe('Bilingual locale pages', () => {
       expect(sitemap).not.toContain(`<loc>${absent}</loc>`);
     }
     expect(sitemap).toContain('xmlns:xhtml="http://www.w3.org/1999/xhtml"');
+  });
+
+  test('web app manifest uses the current public name and description', () => {
+    const manifest = JSON.parse(repoFile('assets/favicons/site.webmanifest'));
+    const enDescription = 'Create AI images, videos and music in one place. Use Generate Lab and Canvas, explore the AI gallery and Sound Lab, and pick from top AI models.';
+    expect(manifest.name).toBe('BITBI | AI Image, Video & Music Generator');
+    expect(manifest.short_name).toBe('BITBI');
+    expect(manifest.description).toBe(enDescription);
+    expect(manifest.lang).toBe('en');
+    expect(manifest.id).toBe('/');
+    expect(manifest.start_url).toBe('/');
+    expect(manifest.scope).toBe('/');
+    expect(manifest.display).toBe('standalone');
+    expect(manifest.background_color).toBe('#0A0A0A');
+    expect(manifest.theme_color).toBe('#0A0A0A');
+    expect(manifest.icons).toEqual([
+      {
+        src: '/assets/favicons/android-chrome-192x192.png',
+        sizes: '192x192',
+        type: 'image/png',
+      },
+      {
+        src: '/assets/favicons/android-chrome-512x512.png',
+        sizes: '512x512',
+        type: 'image/png',
+      },
+    ]);
   });
 
   test('account member and recovery pages expose canonical and hreflang metadata parity', () => {
@@ -1770,7 +1838,23 @@ test.describe('Bilingual locale pages', () => {
       if (ogUrl) {
         expect(ogUrl[1], `${file} og:url`).toMatch(/^https:\/\/bitbi\.ai\/de(?:\/|$)/);
       }
-      expect(html, `${file} JSON-LD url should not point to English root`).not.toContain('"url": "https://bitbi.ai/"');
+      const jsonLdNodes = parseJsonLdBlocks(html, file).flatMap((block) => collectTypedJsonLdNodes(block));
+      const englishRootUrls = html.match(/"url": "https:\/\/bitbi\.ai\/"/g) || [];
+      const canonicalOrganizations = jsonLdNodes.filter((node) => (
+        node['@type'] === 'Organization'
+        && node['@id'] === 'https://bitbi.ai/#organization'
+        && node.url === 'https://bitbi.ai/'
+      ));
+      expect(englishRootUrls, `${file} JSON-LD url should not point to English root`).toHaveLength(canonicalOrganizations.length);
+      for (const node of jsonLdNodes) {
+        if (node['@type'] === 'Organization') {
+          expect(node['@id'], `${file} Organization @id`).toBe('https://bitbi.ai/#organization');
+          expect(node.url, `${file} Organization url`).toBe('https://bitbi.ai/');
+        } else if (typeof node.url === 'string') {
+          expect(node.url, `${file} JSON-LD url should not point to English root`).not.toBe('https://bitbi.ai/');
+        }
+      }
+      expect(html, `${file} should use the shared Organization @id`).not.toContain('https://bitbi.ai/de/#organization');
       expect(html, `${file} German privacy links`).not.toContain('/de/legal/privacy.html');
     }
   });
