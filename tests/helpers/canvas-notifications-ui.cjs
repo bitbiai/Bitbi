@@ -226,12 +226,16 @@ module.exports.inbox=async({page,expect,locale,mockSharedAuth,createCanvasApiMoc
   await inbox.locator('li').getByRole('button',{name:de?'Meldung löschen':'Delete notification',exact:true}).click();await expect(inbox.locator('li')).toHaveCount(0);
   await page.unroute('**/api/account/canvas/notifications?*');release();await expect(refresh).toBeEnabled();await expect(inbox.locator('li')).toHaveCount(0);await expect(badge).toBeHidden();
   // Deletion commits before an arrival; a lost response must reuse its identity.
-  state.notifications=[notice('client:before-bulk')];await refresh.click();let first=true,bulkKey;
-  await page.route('**/api/account/canvas/notifications/delete',route=>{
-    const body=route.request().postDataJSON();if(first){first=false;bulkKey=body.requestId;state.notificationMutations.set(bulkKey,state.notifications.map(item=>item.id));for(const item of state.notifications)state.notificationTombstones.add(item.id);state.notifications=[notice('client:after-bulk')];state.notificationRevision++;return route.abort('failed');}expect(body.requestId).toBe(bulkKey);return route.fallback();
+  state.notifications=[notice('client:before-bulk')];await refresh.click();let first=true,bulkKey,releaseReplay,replayWaiting=false;
+  await page.route('**/api/account/canvas/notifications/delete',async route=>{
+    const body=route.request().postDataJSON();if(first){first=false;bulkKey=body.requestId;state.notificationMutations.set(bulkKey,state.notifications.map(item=>item.id));for(const item of state.notifications)state.notificationTombstones.add(item.id);state.notifications=[notice('client:after-bulk')];state.notificationRevision++;return route.abort('failed');}expect(body.requestId).toBe(bulkKey);replayWaiting=true;await new Promise(resolve=>releaseReplay=resolve);return route.fallback();
   });
   await clear.click();await inbox.getByRole('group',{name:de?'Alle Meldungen löschen':'Delete all notifications',exact:true}).getByRole('button',{name:de?'Alle Meldungen löschen':'Delete all notifications',exact:true}).click();await expect(inbox).toContainText(de?'noch nicht bestätigt':'not yet confirmed');
-  await page.evaluate(()=>window.dispatchEvent(new Event('online')));await expect(inbox.locator('[data-notification-id="client:after-bulk"]')).toBeVisible();await expect(badge).toBeVisible();await page.unroute('**/api/account/canvas/notifications/delete');
+  const readsBeforeReplay=state.requests.filter(item=>item.pathname==='/api/account/canvas/notifications').length;
+  await page.evaluate(()=>window.dispatchEvent(new Event('online')));await expect.poll(()=>replayWaiting).toBe(true);
+  await page.evaluate(()=>{window.dispatchEvent(new Event('online'));window.dispatchEvent(new Event('online'));});
+  await page.waitForTimeout(100);expect(state.requests.filter(item=>item.pathname==='/api/account/canvas/notifications')).toHaveLength(readsBeforeReplay);
+  releaseReplay();await expect(inbox.locator('[data-notification-id="client:after-bulk"]')).toBeVisible();await expect(badge).toBeVisible();await page.unroute('**/api/account/canvas/notifications/delete');
   await page.clock.resume();await expect(badge).toBeHidden();await page.clock.pauseAt(new Date(await page.evaluate(()=>Date.now())+50));
   // Offline client delivery is deleted by its request identity before retry.
   let offline=true,delivery;await page.route('**/api/account/canvas/notifications/client',route=>{delivery=route.request().postDataJSON();return offline?route.abort('failed'):route.fallback();});

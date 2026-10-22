@@ -124,8 +124,13 @@ export function createCanvasNotifications({button,panel,german,getProject=()=>nu
     async function observe(older=false){
         if(!active||suspended||document.visibilityState==='hidden')return;
         if(reading){catchUp=true;return;}
-        if(mutations.size&&viewer&&!acknowledging){await flushMutations();if(mutations.size){schedule();return;}}
-        reading=true;clearTimeout(timer);const current=epoch,clock=mutationClock,request=new AbortController();controller=request;
+        reading=true;clearTimeout(timer);const current=epoch;
+        if(mutations.size&&viewer&&!acknowledging){
+            await flushMutations();
+            if(current!==epoch)return;
+            if(mutations.size||!active||suspended||document.visibilityState==='hidden'){reading=false;schedule();return;}
+        }
+        const clock=mutationClock,request=new AbortController();controller=request;
         const response=await canvasApi.notifications(older?cursor:null,request.signal);
         if(current!==epoch||request.signal.aborted)return;
         controller=null;
