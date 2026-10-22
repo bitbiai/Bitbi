@@ -36,6 +36,9 @@ test('Canvas reliability populated notification migration preserves old receipts
     // The current inbox projection joins the additive incident schema; the
     // historical 0113 source/receipt assertions below remain unchanged.
     DB.exec(fs.readFileSync(path.join(process.cwd(),'workers/auth/migrations/0114_canvas_incident_explanations.sql'),'utf8'));
+    await DB.prepare('INSERT INTO canvas_notification_reads(user_id,notification_id,read_at) VALUES(?,?,?)').bind(snapshot.other,'client:historical-read',snapshot.old).run();
+    DB.exec(fs.readFileSync(path.join(process.cwd(),'workers/auth/migrations/0115_canvas_notification_inbox_removal.sql'),'utf8'));
+    expect(await DB.prepare('SELECT read_at,deleted_at FROM canvas_notification_reads WHERE user_id=? AND notification_id=?').bind(snapshot.other,'client:historical-read').first()).toEqual({read_at:snapshot.old,deleted_at:null});
     expect(await verifyCanvasNotificationsMigration(env,snapshot)).toEqual({originalRowsPreserved:2,oldResolvedRead:true,oldUnresolvedUnread:true,readWrites:0});
     const changed=structuredClone(snapshot);changed.rows[0].input_json='{"forged":true}';
     await expect(verifyCanvasNotificationsMigration(env,changed)).rejects.toThrow('preserves original generation evidence');

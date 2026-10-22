@@ -21,10 +21,12 @@ export async function runCanvasReliabilityTests(f){
       const response=await f.control('/canvas-notifications-migration-seed',{});
       assert.equal(response.status,200,await response.clone().text());snapshot=await response.json();
     }
+    if(migration.path.startsWith('0115'))await f.db.prepare('INSERT INTO canvas_notification_reads(user_id,notification_id,read_at) VALUES(?,?,?)').bind(snapshot.other,'client:historical-read',snapshot.old).run();
     await f.db.batch(migration.statements.map(sql=>f.db.prepare(sql)));
   }
   assert(snapshot,'The populated lifecycle migration boundary must be exercised');
   await f.test(canvasReliabilityInventory[0],async()=>{
+    assert.deepEqual(await f.db.prepare('SELECT read_at,deleted_at FROM canvas_notification_reads WHERE user_id=? AND notification_id=?').bind(snapshot.other,'client:historical-read').first(),{read_at:snapshot.old,deleted_at:null});
     // Calibrate the real native D1 boundary: Node SQLite accepts the original
     // ten-arm view, while workerd limits each compound SELECT to five terms.
     const terms=count=>Array.from({length:count},(_,index)=>`SELECT ${index+1} AS value`).join(' UNION ALL ');

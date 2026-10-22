@@ -2122,9 +2122,27 @@ inbox. Successful save/clear/cancel/allowance controls also need their existing
 conversation-action receipt projected; refreshing an inbox cannot invent a missing
 source. Notification fixtures use relative timestamps and verify viewport
 intersection: a fixed future timestamp otherwise sorts a new arrival offscreen,
-where it must remain unread. Read only explicitly acknowledged, presented IDs; a later failure or
-concurrent arrival remains unread. Remove superseded mutable projections, retain
-immutable events, and fence old-account asynchronous responses.
+where it must remain unread. Read only actually visible items (debounced while
+open and foreground), or an explicit whole-inbox snapshot; later arrivals remain
+unread. Remove superseded mutable projections, retain immutable events, and fence
+old-account asynchronous responses.
+
+Inbox follow-up, 2026-10-22: the AI toolbar button carried a permanent primary
+class despite its closed ARIA state. Keep action-button styling separate from
+visibility-derived panel styling, including covered panels in expanded AI mode.
+Migration 0115 adds viewer-only deletion markers and content-free mutation
+identities. Atomic INSERT/SELECT batches capture all existing sources without
+loading pages into a bulk request; replay cannot consume later arrivals. Preserve
+markers after client-report retention and derive pending-client aliases from the
+same owner/request hash. Never delete source events or incident explanations.
+List/count/revision share a D1 snapshot; stale reads and another device's mutation
+must not restore removed items or override an acknowledged zero. Existing
+notification controls exercise 123 entries, foreign/duplicate operations, late
+delivery, populated migration and preserved source records in Node and native D1.
+EN/DE Chromium/WebKit cases cover computed toggle colors, actual visibility,
+whole-inbox actions, cancellation, two tabs, offline identity replay and reload.
+Use one browser clock for timestamp fixtures and wait for actual intersection;
+advancing a frozen timer before asynchronous observer delivery is not a read.
 Browser acceptance also exposed a panel-only Escape listener: disabling a focused
 read/refresh control can move focus outside the panel. Close the open menu from
 the document and test explicit outside focus; Escape cannot acknowledge anything.

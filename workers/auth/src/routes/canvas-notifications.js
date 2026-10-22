@@ -1,10 +1,10 @@
-import { listCanvasNotifications, readCanvasNotifications, recordCanvasClientNotification } from '../lib/canvas-notifications.js';
+import { listCanvasNotifications, readCanvasNotifications, deleteCanvasNotifications, recordCanvasClientNotification } from '../lib/canvas-notifications.js';
 import { readJsonBodyOrResponse, BODY_LIMITS } from '../lib/request.js';
 import { enforceSensitiveUserRateLimit } from '../lib/sensitive-write-limit.js';
 import { withCorrelationId } from '../../../../js/shared/worker-observability.mjs';
 
 export async function handleCanvasNotifications(ctx,userId) {
-    const match = ctx.pathname.match(/^\/api\/account\/canvas\/notifications(?:\/(read|client))?$/);
+    const match = ctx.pathname.match(/^\/api\/account\/canvas\/notifications(?:\/(read|client|delete))?$/);
     if (!match) return null;
     const respond = (body,status=200) => withCorrelationId(Response.json(body,{status,headers:{'Cache-Control':'private, no-store'}}),ctx.correlationId || null);
     try {
@@ -19,6 +19,8 @@ export async function handleCanvasNotifications(ctx,userId) {
         if (parsed.response) return parsed.response;
         // route-policy: account.canvas.notifications.read-markers
         if (ctx.method === 'POST' && match[1] === 'read') return respond({ok:true,data:await readCanvasNotifications(ctx.env,userId,parsed.body)});
+        // route-policy: account.canvas.notifications.delete
+        if (ctx.method === 'POST' && match[1] === 'delete') return respond({ok:true,data:await deleteCanvasNotifications(ctx.env,userId,parsed.body)});
         // route-policy: account.canvas.notifications.client
         if (ctx.method === 'POST' && match[1] === 'client') return respond({ok:true,data:await recordCanvasClientNotification(ctx.env,userId,parsed.body)},201);
         return respond({ok:false,code:'method_not_allowed'},405);

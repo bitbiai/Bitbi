@@ -141,6 +141,8 @@ async function fixture({page,locale,mockSharedAuth,createCanvasApiMock}) {
     return {canvas,state,project,open,panel:page.locator('#canvasAgentPanel'),form:page.locator('.canvas-agent__production-approval'),composer:page.locator('.canvas-agent__composer')};
 }
 
+exports.fixture=fixture;
+
 const showProject=(panel,locale)=>panel.getByRole('tab',{name:locale==='de'?'Projekt & Produktion':'Project & production',exact:true}).click();
 const showChat=(panel,locale)=>panel.getByRole('tab',{name:locale==='de'?'Gespräch':'Conversation',exact:true}).click();
 async function disclose(panel,selector){const node=panel.locator(selector);if(await node.getAttribute('open')===null)await node.locator(':scope > summary').click();}

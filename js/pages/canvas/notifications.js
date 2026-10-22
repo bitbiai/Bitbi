@@ -18,19 +18,19 @@ export function canvasNotice(text,details={}){center?.publish({text,...details})
 export function refreshCanvasNotifications(){center?.refresh();}
 export function resolveCanvasNotice(key){center?.resolve(key);}
 const copyFor=german=>german?{
-    title:'Meldungen',close:'Meldungen schließen',empty:'Noch keine Meldungen.',read:'Angezeigte als gelesen markieren',more:'Ältere Meldungen laden',refresh:'Aktualisieren',
+    title:'Meldungen',close:'Meldungen schließen',empty:'Noch keine Meldungen.',read:'Alle als gelesen markieren',remove:'Meldung löschen',clear:'Alle Meldungen löschen',confirm:'Alle bisherigen Canvas-Meldungen für dein Konto in allen Projekten löschen? Projekte, Medien und Produktionsverlauf bleiben erhalten.',cancel:'Abbrechen',pending:'Löschen noch nicht bestätigt. Wird bei Verbindung erneut abgeglichen.',failed:'Änderung noch nicht bestätigt. Bitte erneut versuchen.',more:'Ältere Meldungen laden',refresh:'Aktualisieren',
     loading:'Meldungen werden geladen …',offline:'Verbindung unterbrochen. Gespeicherte Meldungen werden automatisch abgeglichen.',local:'Nur auf diesem Gerät · Speicherung noch nicht bestätigt',
     unread:'Ungelesene Meldungen',readFailed:'Gelesen-Markierung noch nicht bestätigt. Erneut versuchen.',reported:'Vom Browser gemeldet',details:'Details',project:'Projekt',open:'Projekt öffnen',unknown:'Canvas-Meldung',validation:'Prüfung',field:'Feld',providerOutcome:'Anbieterergebnis',outcomes:{completed:'Antwort gespeichert',not_submitted:'nicht versandt',unknown:'unbestätigt',rejected:'abgelehnt'},
-}: {title:'Notifications',close:'Close notifications',empty:'No notifications yet.',read:'Mark displayed as read',more:'Load older notifications',refresh:'Refresh',
+}: {title:'Notifications',close:'Close notifications',empty:'No notifications yet.',read:'Mark all as read',remove:'Delete notification',clear:'Delete all notifications',confirm:'Delete all existing Canvas notifications for your account across projects? Projects, media and production history are kept.',cancel:'Cancel',pending:'Deletion not yet confirmed. It will reconcile when connected.',failed:'Change not yet confirmed. Please retry.',more:'Load older notifications',refresh:'Refresh',
     loading:'Loading notifications …',offline:'Connection interrupted. Saved notifications will reconnect automatically.',local:'On this device · storage not yet confirmed',
     unread:'Unread notifications',readFailed:'Read acknowledgement is not confirmed. Please retry.',reported:'Reported by this browser',details:'Details',project:'Project',open:'Open project',unknown:'Canvas notification',validation:'Validation',field:'Field',providerOutcome:'Provider outcome',outcomes:{completed:'response saved',not_submitted:'not submitted',unknown:'unconfirmed',rejected:'rejected'}};
 
 // Account-owned inbox. Opening/reading never replays the operation described by
 // an item. Local delivery retries retain their immutable request identity.
 export function createCanvasNotifications({button,panel,german,getProject=()=>null,openProject=()=>{}}){
-    const copy=copyFor(german),items=new Map(),pending=new Map(),presented=new Set(),rows=new Map(),dedup=new Map(),deletedProjects=new Set(),explainedRequests=new Set();
+    const copy=copyFor(german),items=new Map(),pending=new Map(),presented=new Set(),rows=new Map(),dedup=new Map(),deletedProjects=new Set(),explainedRequests=new Set(),mutations=new Map();
     let actor=getAuthState().sessionConfirmed&&getAuthState().loggedIn?getAuthState().user?.id||null:null;
-    let viewer=null,epoch=0,controller=null,timer=null,reading=false,catchUp=false,acknowledging=false,active=false,suspended=false,failures=0,cursor=null,unread=0;
+    let viewer=null,epoch=0,controller=null,timer=null,reading=false,catchUp=false,acknowledging=false,active=false,suspended=false,failures=0,cursor=null,unread=0,total=0,revision=0,mutationClock=0,readTimer=null,readBlocked=false;
     const badge=node('span','canvas-notifications__badge','!');badge.hidden=true;badge.setAttribute('aria-hidden','true');button.append(badge);
     const heading=node('h2','',copy.title);heading.id='canvasNotificationsTitle';panel.setAttribute('aria-labelledby',heading.id);panel.setAttribute('role','dialog');
     const close=node('button','canvas-button canvas-button--compact',copy.close);close.type='button';
@@ -38,15 +38,33 @@ export function createCanvasNotifications({button,panel,german,getProject=()=>nu
     const status=node('p','canvas-muted');status.setAttribute('role','status');
     const list=node('ol','canvas-notifications__list');list.setAttribute('aria-label',copy.title);
     const empty=node('p','canvas-muted',copy.empty),actions=node('div','canvas-notifications__actions');
+    const clear=node('button','canvas-button',copy.clear);clear.type='button';
+    const confirmation=node('div','canvas-notifications__confirmation');confirmation.hidden=true;confirmation.setAttribute('role','group');confirmation.setAttribute('aria-label',copy.clear);
+    const yes=node('button','canvas-button',copy.clear),cancel=node('button','canvas-button',copy.cancel);yes.type=cancel.type='button';confirmation.append(node('p','',copy.confirm),yes,cancel);
     const mark=node('button','canvas-button',copy.read),more=node('button','canvas-button',copy.more),refresh=node('button','canvas-button',copy.refresh);
-    for(const value of [mark,more,refresh])value.type='button';actions.append(mark,more,refresh);panel.append(head,status,list,empty,actions);
-    const observer=new IntersectionObserver(entries=>{if(panel.hidden||document.visibilityState==='hidden')return;for(const entry of entries)if(entry.isIntersecting)presented.add(entry.target.dataset.notificationId);updateRead();},{root:list,threshold:0.1});
-    function updateRead(){mark.disabled=acknowledging||![...presented].some(id=>items.has(id)&&!items.get(id).readAt);}
+    for(const value of [mark,more,refresh])value.type='button';actions.append(mark,clear,more,refresh);panel.append(head,status,confirmation,list,empty,actions);
+    const observer=new IntersectionObserver(entries=>{
+        if(panel.hidden||document.visibilityState==='hidden'||suspended)return;
+        for(const entry of entries){const id=entry.target.dataset.notificationId;
+            if(entry.isIntersecting&&entry.intersectionRect.height>=Math.min(120,entry.boundingClientRect.height)*.5)presented.add(id);else presented.delete(id);
+        }
+        queueRead();
+    },{root:list,threshold:[0,.1,.5,1]});
+    function queueRead(){
+        clearTimeout(readTimer);
+        if(!panel.hidden&&!suspended&&!readBlocked&&!acknowledging&&document.visibilityState!=='hidden'&&[...presented].some(id=>items.has(id)&&!items.get(id).readAt))readTimer=setTimeout(()=>void acknowledge(),650);
+    }
+    function updateRead(){mark.disabled=acknowledging||unread+[...items.values()].filter(item=>item.local&&!item.readAt).length===0;clear.disabled=acknowledging||total+items.size===0;}
+    function counts(data){
+        if(Number.isSafeInteger(data.inboxRevision)&&data.inboxRevision<revision)return;
+        if(Number.isSafeInteger(data.inboxRevision))revision=Math.max(revision,data.inboxRevision);
+        if(Number.isSafeInteger(data.unreadCount))unread=Math.max(0,data.unreadCount);
+        if(Number.isSafeInteger(data.totalCount))total=Math.max(0,data.totalCount);
+    }
     function paint(){
         const localUnread=[...items.values()].filter(value=>value.local&&!value.readAt).length;
-        const knownUnread=[...items.values()].filter(value=>!value.local&&!value.readAt).length;
-        badge.hidden=Math.max(0,unread,knownUnread)+localUnread===0;button.setAttribute('aria-label',`${copy.title}${badge.hidden?'':` · ${copy.unread}`}`);
-        observer.disconnect();let next=list.firstElementChild;const retained=new Set();
+        badge.hidden=Math.max(0,unread)+localUnread===0;button.setAttribute('aria-label',`${copy.title}${badge.hidden?'':` · ${copy.unread}`}`);
+        observer.disconnect();presented.clear();let next=list.firstElementChild;const retained=new Set();
         const values=[...items.values()].sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt))||b.id.localeCompare(a.id));
         for(const item of values){
             retained.add(item.id);const signature=JSON.stringify([item.localText,item.code,item.details,item.projectTitle,item.projectDeleted,item.local,item.createdAt,item.diagnosticRef,item.status,item.stage]);
@@ -66,27 +84,30 @@ export function createCanvasNotifications({button,panel,german,getProject=()=>nu
             if(validation?.version===1&&['json','schema','semantic','size'].includes(validation.category)&&safeCode(validation.reason)&&typeof validation.path==='string'&&validation.path.length<=180&&/^(?:plan|evaluation)(?:\.[A-Za-z][A-Za-z0-9]*|\[[0-9]{1,2}\])*$/.test(validation.path))details.push(`${copy.validation}: ${validation.category}/${validation.reason}`,`${copy.field}: ${validation.path}`);
             if(Object.hasOwn(copy.outcomes,outcome||''))details.push(`${copy.providerOutcome}: ${copy.outcomes[outcome]}`);
             if(details.length){const disclosure=node('details');disclosure.append(node('summary','',copy.details),node('code','',details.join(' · ')));row.append(disclosure);}
+            const remove=node('button','canvas-button canvas-button--compact',copy.remove);remove.type='button';remove.addEventListener('click',()=>void removeItems([item]));row.append(remove);
             if(identifier(item.projectId)&&item.projectDeleted!==true){const open=node('button','canvas-button canvas-button--compact',copy.open);open.type='button';open.addEventListener('click',()=>{hide();void openProject(item.projectId);});row.append(open);}
             }
-            if(row!==next)list.insertBefore(row,next);next=row.nextElementSibling;observer.observe(row);
+            if(row!==next)list.insertBefore(row,next);next=row.nextElementSibling;if(!panel.hidden&&document.visibilityState!=='hidden')observer.observe(row);
         }
         for(const [id,entry]of rows)if(!retained.has(id)){entry.row.remove();rows.delete(id);}
         empty.hidden=values.length>0;more.hidden=!cursor;more.disabled=reading;refresh.disabled=reading;updateRead();
     }
-    function storePending(){if(!viewer)return;try{sessionStorage.setItem(`bitbi:canvas-notifications:${viewer}`,JSON.stringify([...pending.values()].map(value=>({body:value.body,createdAt:value.createdAt,readAt:value.readAt||null,savedId:value.savedId||null,localOnly:value.localOnly===true})).slice(-60)));}catch{}}
-    function restorePending(){try{const saved=JSON.parse(sessionStorage.getItem(`bitbi:canvas-notifications:${viewer}`)||'[]');for(const value of Array.isArray(saved)?saved.slice(-60):[]){const source=value?.body;if(!identifier(source?.requestId)||!CANVAS_CLIENT_NOTIFICATION_CODES.includes(source?.code))continue;const body={requestId:source.requestId,code:source.code,...(identifier(source.projectId)?{projectId:source.projectId}:{}),...(diagnostic(source.diagnosticRef)?{diagnosticRef:source.diagnosticRef}:{}),...(/^[a-z][a-z0-9_]{1,100}$/.test(source.errorCode||'')?{errorCode:source.errorCode}:{}),...(Number.isSafeInteger(source.status)&&source.status>=0&&source.status<=599?{status:source.status}:{})};const item={id:`local:${body.requestId}`,source:'client',kind:'client',severity:'warning',code:body.code,projectId:body.projectId||null,createdAt:value.createdAt,readAt:value.readAt,local:true,ownerId:viewer,savedId:identifier(value.savedId)?value.savedId:null,localOnly:value.localOnly===true,body};pending.set(body.requestId,item);items.set(item.id,item);}}catch{}}
-    function reset(){epoch++;controller?.abort();controller=null;reading=false;catchUp=false;acknowledging=false;clearTimeout(timer);viewer=null;cursor=null;unread=0;items.clear();pending.clear();presented.clear();dedup.clear();deletedProjects.clear();explainedRequests.clear();hide();paint();changed();}
-    function hide(){panel.hidden=true;button.setAttribute('aria-expanded','false');presented.clear();observer.disconnect();}
+    function storePending(){const owner=viewer||actor;if(!owner)return;try{sessionStorage.setItem(`bitbi:canvas-notification-mutations:${owner}`,JSON.stringify([...mutations.values()]));sessionStorage.setItem(`bitbi:canvas-notifications:${owner}`,JSON.stringify([...pending.values()].map(value=>({body:value.body,createdAt:value.createdAt,readAt:value.readAt||null,savedId:value.savedId||null,localOnly:value.localOnly===true})).slice(-60)));}catch{}}
+    function restorePending(){try{const removed=JSON.parse(sessionStorage.getItem(`bitbi:canvas-notification-mutations:${viewer}`)||'[]');for(const value of Array.isArray(removed)?removed.slice(-60):[])if(identifier(value?.requestId)&&Array.isArray(value.ids)&&value.ids.every(identifier)&&Array.isArray(value.clientRequestIds)&&value.clientRequestIds.every(identifier))mutations.set(value.requestId,value);const saved=JSON.parse(sessionStorage.getItem(`bitbi:canvas-notifications:${viewer}`)||'[]');for(const value of Array.isArray(saved)?saved.slice(-60):[]){const source=value?.body;if(!identifier(source?.requestId)||!CANVAS_CLIENT_NOTIFICATION_CODES.includes(source?.code))continue;const body={requestId:source.requestId,code:source.code,...(identifier(source.projectId)?{projectId:source.projectId}:{}),...(diagnostic(source.diagnosticRef)?{diagnosticRef:source.diagnosticRef}:{}),...(/^[a-z][a-z0-9_]{1,100}$/.test(source.errorCode||'')?{errorCode:source.errorCode}:{}),...(Number.isSafeInteger(source.status)&&source.status>=0&&source.status<=599?{status:source.status}:{})};const item={id:`local:${body.requestId}`,source:'client',kind:'client',severity:'warning',code:body.code,projectId:body.projectId||null,createdAt:value.createdAt,readAt:value.readAt,local:true,ownerId:viewer,savedId:identifier(value.savedId)?value.savedId:null,localOnly:value.localOnly===true,body};if(![...mutations.values()].some(value=>value.kind!=='read'&&value.clientRequestIds.includes(body.requestId))){pending.set(body.requestId,item);items.set(item.id,item);}}}catch{}}
+    function reset(){epoch++;controller?.abort();controller=null;reading=false;catchUp=false;acknowledging=false;clearTimeout(timer);clearTimeout(readTimer);viewer=null;cursor=null;unread=total=revision=mutationClock=0;readBlocked=false;mutations.clear();items.clear();pending.clear();presented.clear();dedup.clear();deletedProjects.clear();explainedRequests.clear();hide();paint();changed();}
+    function hide(){clearTimeout(readTimer);confirmation.hidden=true;panel.hidden=true;button.setAttribute('aria-expanded','false');presented.clear();observer.disconnect();}
     function show(){panel.hidden=false;button.setAttribute('aria-expanded','true');paint();close.focus({preventScroll:true});void observe();}
     function schedule(){clearTimeout(timer);if(!active||suspended||document.visibilityState==='hidden')return;timer=setTimeout(()=>void observe(),failures?Math.min(60000,3000*2**Math.min(failures,4)):panel.hidden?30000:10000);}
     async function deliver(){
         if(!viewer||!active||suspended)return;
         const current=epoch,actor=viewer;
         for(const [key,item]of pending){
-            if(item.ownerId!==viewer||item.localOnly)continue;
+            if(item.ownerId!==viewer||item.localOnly||!pending.has(key))continue;
             const response=await canvasApi.notificationClient(item.body);
             if(epoch!==current||actor!==viewer||suspended)return;
             if(!response.ok){if([401,403].includes(response.status)){reset();active=false;return;}if([400,404,409,422].includes(response.status)){item.localOnly=true;storePending();continue;}return;}
+            if(response.data?.viewerId===viewer&&response.data.deleted){pending.delete(key);items.delete(item.id);storePending();continue;}
+            if(!pending.has(key))continue;
             const saved=response.data?.item;if(!saved||!identifier(saved.id)||response.data.viewerId!==viewer)return;
             item.savedId=saved.id;storePending();
             // Transfer only this item's explicit offline acknowledgement. A new
@@ -95,21 +116,26 @@ export function createCanvasNotifications({button,panel,german,getProject=()=>nu
                 const acknowledgement=await canvasApi.notificationRead([saved.id]);
                 if(epoch!==current||actor!==viewer||suspended)return;
                 if(!acknowledgement.ok||acknowledgement.data?.viewerId!==viewer||!acknowledgement.data.readIds?.includes(saved.id)){status.textContent=copy.readFailed;return;}
-                saved.readAt=item.readAt;unread=acknowledgement.data.unreadCount;
+                saved.readAt=item.readAt;counts(acknowledgement.data);
             }
-            pending.delete(key);items.delete(item.id);items.set(saved.id,{...saved,localKey:item.localKey,localExplanationRequestId:key});storePending();changed();
+            pending.delete(key);items.delete(item.id);if(!saved.readAt&&!items.has(saved.id))unread++;items.set(saved.id,{...saved,localKey:item.localKey,localExplanationRequestId:key});storePending();changed();
         }
     }
     async function observe(older=false){
         if(!active||suspended||document.visibilityState==='hidden')return;
         if(reading){catchUp=true;return;}
-        reading=true;clearTimeout(timer);const current=epoch,request=new AbortController();controller=request;
+        if(mutations.size&&viewer&&!acknowledging){await flushMutations();if(mutations.size){schedule();return;}}
+        reading=true;clearTimeout(timer);const current=epoch,clock=mutationClock,request=new AbortController();controller=request;
         const response=await canvasApi.notifications(older?cursor:null,request.signal);
         if(current!==epoch||request.signal.aborted)return;
         controller=null;
+        if(clock!==mutationClock){reading=false;void observe();return;}
         if(response.ok&&identifier(response.data?.viewerId)&&Array.isArray(response.data.items)){
-            const data=response.data;if(viewer&&viewer!==data.viewerId){reset();active=true;void observe();return;}
+            const data=response.data;if(actor&&actor!==data.viewerId){reset();active=false;return;}if(viewer&&viewer!==data.viewerId){reset();active=true;void observe();return;}
             if(!viewer){viewer=data.viewerId;for(const [key,item]of pending)if(item.ownerId!==viewer){pending.delete(key);items.delete(item.id);}restorePending();}
+            if(Number.isSafeInteger(data.inboxRevision)&&data.inboxRevision<revision){reading=false;schedule();return;}
+            if(data.inboxRevision>revision){cursor=null;for(const [id,item]of items)if(!item.local)items.delete(id);if(older){counts(data);cursor=null;reading=false;void observe();return;}}
+            counts(data);
             for(const item of data.items)if(identifier(item?.id)&&['event','action','export','run','client','lifecycle','conversation','decision','immediate'].includes(item.source)){
                 // The canonical tombstone retires every confirmed operational
                 // projection, including rows retained from older inbox pages.
@@ -128,29 +154,59 @@ export function createCanvasNotifications({button,panel,german,getProject=()=>nu
                 const previous=items.get(item.id);
                 items.set(item.id,{...item,...(previous?.localKey?{localKey:previous.localKey}:{}),...(previous?.localExplanationRequestId?{localExplanationRequestId:previous.localExplanationRequestId}:{})});
             }
-            cursor=data.nextCursor||null;unread=Number.isSafeInteger(data.unreadCount)?Math.max(0,data.unreadCount):0;failures=0;dedup.delete('notification-connection');status.textContent='';
-            await deliver();if(current!==epoch)return;
+            if(older||!cursor)cursor=data.nextCursor||null;failures=0;status.textContent=mutations.size?copy.pending:'';
+            if(!mutations.size)await deliver();if(current!==epoch)return;
         }else if([401,403].includes(response.status)){reset();active=false;status.textContent=copy.offline;return;}
         else{failures++;status.textContent=copy.offline;publish({text:copy.offline,code:'canvas_connection_interrupted',errorCode:response.code,status:response.status,diagnosticRef:response.diagnosticRef,projectId:null,key:'notification-connection',localOnly:true});}
         reading=false;paint();changed();if(catchUp){catchUp=false;void observe();}else schedule();
     }
-    async function acknowledge(){
-        if(acknowledging||panel.hidden)return;const current=epoch,displayed=[...presented].map(id=>items.get(id)).filter(item=>item&&!item.readAt);
-        const remote=displayed.filter(item=>!item.local).slice(0,100);acknowledging=true;updateRead();
+    async function acknowledge(all=false){
+        if(acknowledging||panel.hidden||suspended||document.visibilityState==='hidden')return;
+        if(all){
+            if(![...mutations.values()].some(value=>value.kind==='read')){const requestId=crypto.randomUUID();mutations.set(requestId,{kind:'read',requestId,ids:[],clientRequestIds:[],all:true});}
+            for(const item of items.values())if(item.local)item.readAt=new Date().toISOString();
+            storePending();await flushMutations();if(!mutations.size)void observe();return;
+        }
+        const current=epoch,displayed=[...presented].map(id=>items.get(id)).filter(item=>item&&!item.readAt);
+        const remote=displayed.filter(item=>!item.local).slice(0,100);acknowledging=true;mutationClock++;updateRead();
         if(remote.length){const result=await canvasApi.notificationRead(remote.map(item=>item.id));if(epoch!==current)return;
-            if(!result.ok||result.data?.viewerId!==viewer||!Array.isArray(result.data.readIds)){acknowledging=false;status.textContent=copy.readFailed;if(!result.ok)publish({text:copy.offline,code:'canvas_connection_interrupted',projectId:null,key:'notification-connection',localOnly:true});updateRead();return;}
+            if(!result.ok||result.data?.viewerId!==viewer||!Array.isArray(result.data.readIds)){acknowledging=false;readBlocked=true;status.textContent=copy.readFailed;updateRead();return;}
             const acknowledged=new Set(result.data.readIds);
             for(const item of remote){
                 if(acknowledged.has(item.id)){if(items.has(item.id))items.get(item.id).readAt=new Date().toISOString();}
-                // Successful owner-scoped readback omits sources that no
-                // longer exist (for example a cleared failed conversation).
-                // Remove only requested old identities, never later arrivals.
                 else{items.delete(item.id);presented.delete(item.id);}
             }
-            unread=Number.isSafeInteger(result.data.unreadCount)?result.data.unreadCount:Math.max(0,unread-acknowledged.size);
+            counts(result.data);
         }
-        for(const item of displayed.filter(item=>item.local)){item.readAt=new Date().toISOString();}storePending();acknowledging=false;paint();void observe();
+        for(const item of displayed.filter(item=>item.local))item.readAt=new Date().toISOString();
+        storePending();mutationClock++;acknowledging=false;paint();broadcast();void observe();
     }
+    async function removeItems(selection,all=false){
+        if(acknowledging)return;
+        if(mutations.size>=60){status.textContent=copy.pending;return;}
+        const body={kind:'delete',requestId:crypto.randomUUID(),ids:all?[]:selection.filter(item=>!item.local).map(item=>item.id),
+            clientRequestIds:selection.filter(item=>item.local).map(item=>item.body.requestId),...(all?{all:true}:{})};
+        // Persist the immutable removal before a potentially ambiguous response.
+        // No pending delivery can race its local alias back into the inbox.
+        mutations.set(body.requestId,body);
+        for(const item of selection.filter(item=>item.local)){items.delete(item.id);pending.delete(item.body.requestId);}
+        confirmation.hidden=true;storePending();await flushMutations();paint();if(!panel.hidden&&!panel.contains(document.activeElement))close.focus({preventScroll:true});if(!mutations.size)void observe();else schedule();
+    }
+    async function flushMutations(){
+        if(acknowledging||!viewer)return;
+        acknowledging=true;mutationClock++;updateRead();const current=epoch;
+        for(const [key,body]of mutations){
+            const {kind,...input}=body;const result=await (kind==='read'?canvasApi.notificationRead({requestId:input.requestId,all:true}):canvasApi.notificationDelete(input));if(epoch!==current)return;
+            if(!result.ok||result.data?.viewerId!==viewer||!Array.isArray(result.data[kind==='read'?'readIds':'deletedIds'])){status.textContent=kind==='read'?copy.readFailed:copy.pending;acknowledging=false;updateRead();return;}
+            if(body.all){for(const [id,item]of items)if(!item.local)items.delete(id);cursor=null;}
+            else for(const id of result.data.deletedIds)items.delete(id);
+            mutations.delete(key);counts(result.data);storePending();broadcast();
+        }
+        status.textContent='';mutationClock++;acknowledging=false;paint();
+    }
+    let channel=null;
+    try{channel=new BroadcastChannel('bitbi:canvas-inbox');channel.onmessage=event=>{if(event.data?.viewer===viewer){readBlocked=false;void observe();}};}catch{/* Poll/visibility refresh also reconciles other devices. */}
+    function broadcast(){channel?.postMessage({viewer});}
     function publish({text='',code='canvas_client_notice',projectId=getProject()?.id||null,projectTitle=null,diagnosticRef,errorCode,status,kind='client',key,localOnly=false}={}){
         if(!text&&!safeCode(code))return;
         if(key&&dedup.has(key))return;
@@ -164,10 +220,11 @@ export function createCanvasNotifications({button,panel,german,getProject=()=>nu
     // An acknowledgement can disable its focused button, and WebKit may move
     // focus to the document. Escape still closes the open workspace menu.
     document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!event.defaultPrevented&&!panel.hidden){event.preventDefault();event.stopPropagation();hide();button.focus({preventScroll:true});}});
-    mark.addEventListener('click',()=>void acknowledge());more.addEventListener('click',()=>void observe(true));refresh.addEventListener('click',()=>void observe());
-    document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'){clearTimeout(timer);observer.disconnect();}else{paint();void observe();}});
-    window.addEventListener('online',()=>{failures=0;void observe();});window.addEventListener('offline',()=>{status.textContent=copy.offline;});
-    window.addEventListener('pagehide',()=>{suspended=true;controller?.abort();reading=false;clearTimeout(timer);observer.disconnect();});
+    mark.addEventListener('click',()=>{readBlocked=false;void acknowledge(true);});
+    clear.addEventListener('click',()=>{confirmation.hidden=false;cancel.focus({preventScroll:true});});cancel.addEventListener('click',()=>{confirmation.hidden=true;clear.focus({preventScroll:true});});yes.addEventListener('click',()=>void removeItems([...items.values()],true));more.addEventListener('click',()=>void observe(true));refresh.addEventListener('click',()=>{readBlocked=false;void observe();});
+    document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'){clearTimeout(timer);clearTimeout(readTimer);presented.clear();observer.disconnect();}else{paint();void observe();}});
+    window.addEventListener('online',()=>{failures=0;readBlocked=false;void observe();});window.addEventListener('offline',()=>{status.textContent=copy.offline;});
+    window.addEventListener('pagehide',()=>{suspended=true;controller?.abort();reading=false;clearTimeout(timer);clearTimeout(readTimer);presented.clear();observer.disconnect();});
     window.addEventListener('pageshow',()=>{suspended=false;paint();void observe();});
     document.addEventListener('bitbi:auth-change',event=>{const auth=event.detail||getAuthState();if(auth.sessionConfirmed){const next=auth.loggedIn?auth.user?.id||null:null;if(!next||actor&&actor!==next||viewer&&viewer!==next){reset();active=Boolean(next);}actor=next;if(active)void observe();}});
     hide();paint();center={publish,resolve:key=>dedup.delete(key),refresh:()=>void observe(),

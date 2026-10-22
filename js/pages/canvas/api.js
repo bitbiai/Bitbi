@@ -61,7 +61,8 @@ function id(value) { return encodeURIComponent(String(value || '')); }
 
 export const canvasApi = Object.freeze({
     notifications: (cursor,signal) => request(`/notifications?limit=40${cursor?'&cursor='+id(cursor):''}`,{signal,timeoutMs:15000}),
-    notificationRead: ids => request('/notifications/read',{method:'POST',body:{ids},timeoutMs:15000}),
+    notificationRead: selection => request('/notifications/read',{method:'POST',body:Array.isArray(selection)?{ids:selection}:selection,timeoutMs:15000}),
+    notificationDelete: body => request('/notifications/delete',{method:'POST',body,timeoutMs:15000,idempotencyKey:body.requestId}),
     notificationClient: body => request('/notifications/client',{method:'POST',body,timeoutMs:15000,idempotencyKey:body.requestId}),
     listProjects: () => request('/projects'),
     createProject: (body) => request('/projects', { method: 'POST', body }),

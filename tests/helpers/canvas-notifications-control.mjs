@@ -169,6 +169,65 @@ async function conversationControlNotifications(base){
   check(!nested.items.some(item=>item.id===`conversation-control:${f.project}:control:200`||item.id===`conversation-control:${f.project}:allowance:201`),'An inner service receipt cannot duplicate its proven parent action or decision');
   check(nested.items.some(item=>item.id===`conversation-control:${f.project}:control:202`),'An unproven request-key prefix alone cannot suppress a committed control');
 }
+async function inboxRemovalCase(env){
+  const f=await seed(env,'removal'),db=env.DB,request=transport(env,f.owner);
+  const second=(await sha256Hex('inbox-second-owned')).slice(0,32);
+  await db.prepare("INSERT INTO canvas_projects(id,user_id,title,created_at,updated_at) VALUES(?,?,'Second owned',?,?)").bind(second,f.owner,f.old,f.old).run();
+  const ids=Array.from({length:123},(_,i)=>`bulk-${String(i).padStart(3,'0')}`);
+  await db.prepare(`INSERT INTO canvas_notification_clients(id,user_id,request_key,project_id,code,http_status,created_at)
+    SELECT value,?,value,CASE WHEN CAST(substr(value,6) AS INTEGER)%2=0 THEN ? ELSE ? END,'network_error',0,? FROM json_each(?)`)
+    .bind(f.owner,f.project,second,iso(0),JSON.stringify(ids)).run();
+  const source=async()=>JSON.stringify((await db.prepare('SELECT * FROM canvas_runs WHERE user_id=? ORDER BY id').bind(f.owner).all()).results);
+  const original=await source(),before=await bodyOf(await request());
+  check(before.totalCount>120&&before.nextCursor&&before.unreadCount===124,'Bulk fixture spans projects, pages and unresolved history');
+  const oldest=`run:${f.failed}:failed:canvas_media_invalid`,remove={requestId:'single-remove-identity',ids:[oldest]};
+  const denied=await bodyOf(await request(`${api}/delete`,remove,f.other));
+  check(denied.deletedIds.length===0&&(await bodyOf(await request())).unreadCount===before.unreadCount,'Foreign delete cannot mutate even a known identity');
+  const deleted=await bodyOf(await request(`${api}/delete`,remove));
+  check(deleted.deletedIds.join()===oldest&&deleted.unreadCount===before.unreadCount-1,'Deleting an unresolved item removes its unread contribution');
+  const repeated=await bodyOf(await request(`${api}/delete`,remove));
+  check(repeated.inboxRevision===deleted.inboxRevision&&repeated.unreadCount===deleted.unreadCount,'Repeated delete has one mutation and stable counts');
+  await bodyOf(await request(`${api}/delete`,{...remove,all:true}),400);
+  await bodyOf(await request(`${api}/delete`,{...remove,ids:['client:bulk-000']}),409);
+  const mark={requestId:'read-all-boundary',all:true};
+  const read=await bodyOf(await request(`${api}/read`,mark));
+  check(read.unreadCount===0&&read.totalCount===before.totalCount-1,'Mark all reads every page without deleting history');
+  const report=key=>request(`${api}/client`,{requestId:key,code:'network_error'});
+  const afterRead=await bodyOf(await report('arrived-after-read'),201);
+  check((await bodyOf(await request(`${api}/read`,mark))).unreadCount===1,'Replaying mark-all preserves a genuinely later unread arrival');
+  const bulk={requestId:'delete-all-boundary',all:true};
+  const cleared=await bodyOf(await request(`${api}/delete`,bulk));
+  check(cleared.totalCount===0&&cleared.unreadCount===0&&!(await bodyOf(await request())).items.length,'Delete-all removes all pages, projects, read and unread items');
+  const late=await bodyOf(await report('arrived-after-delete'),201);
+  await bodyOf(await request(`${api}/delete`,bulk));
+  const current=await bodyOf(await request());
+  check(current.totalCount===1&&current.unreadCount===1&&current.items[0].id===late.item.id,'Lost acknowledgement replay cannot swallow a new arrival');
+  check((await bodyOf(await report('arrived-after-read'),201)).deleted===true,'Client redelivery cannot resurrect a deleted canonical notice');
+  const alias=await bodyOf(await request(`${api}/client`,{requestId:'canonical-removed-alias',source:'lifecycle',sourceId:f.project}),201);
+  check(alias.deleted&&alias.item===null,'Canonical aliases honor the same personal tombstone');
+  const pending='late-offline-client-key',pendingRemoval={requestId:'remove-before-delivery',clientRequestIds:[pending]};
+  await Promise.all([request(`${api}/delete`,pendingRemoval),request(`${api}/delete`,pendingRemoval)]).then(async rs=>{for(const response of rs)await bodyOf(response);});
+  check((await bodyOf(await report(pending),201)).deleted===true,'Removal before delivery fences a pending browser alias');
+  check((await bodyOf(await request())).totalCount===1,'Neither duplicate removal nor delayed delivery adds alerts');
+  // Normal 90-day client pruning must not erase the personal removal marker.
+  await db.prepare('DELETE FROM canvas_notification_clients WHERE user_id=? AND id=?').bind(f.owner,afterRead.item.id.slice(7)).run();
+  check((await bodyOf(await report('arrived-after-read'),201)).deleted===true,'Removed client identities stay removed after source retention');
+  check(await source()===original,'Read/delete preserve original generation results, errors and accounting identities');
+  check((await db.prepare('SELECT deleted_at FROM canvas_projects WHERE id=?').bind(f.project).first()).deleted_at===null,'Inbox clear never deletes the project');
+  // A local failure cannot commit only the replay receipt and strand removal.
+  const rollback={requestId:'atomic-removal-rollback',ids:[late.item.id]};
+  await db.exec("CREATE TRIGGER notification_test_abort BEFORE INSERT ON canvas_notification_reads WHEN NEW.notification_id='"+late.item.id+"' BEGIN SELECT RAISE(ABORT,'synthetic_inbox_failure'); END;");
+  await bodyOf(await request(`${api}/delete`,rollback),500);
+  check(!await db.prepare('SELECT id FROM canvas_notification_mutations WHERE user_id=? AND request_key=?').bind(f.owner,rollback.requestId).first(),'Failed atomic removal retains no consumed replay identity');
+  check((await bodyOf(await request())).items.some(item=>item.id===late.item.id),'Failed removal keeps the notification visible');
+  await db.exec('DROP TRIGGER notification_test_abort');
+  await bodyOf(await request(`${api}/delete`,rollback));
+  check((await bodyOf(await request())).totalCount===0,'The original request safely completes after a rolled-back local failure');
+  const raw=await request(`${api}/delete`,{requestId:'bad-forged-user',all:true,userId:f.other});await bodyOf(raw,400);
+  const csrf=await worker.fetch(new Request(`https://bitbi.ai${api}/delete`,{method:'POST',headers:{Origin:'https://foreign.invalid',Cookie:`__Host-bitbi_session=${f.owner}`,'Content-Type':'application/json'},body:JSON.stringify({requestId:'bad-origin-delete',all:true})}),env,{waitUntil(){}});
+  check(csrf.status===403,'Delete retains the normal cross-origin guard');
+}
+
 export async function canvasNotificationsCase(env){
   const f=await seed(env,'api'),db=env.DB,request=transport(env,f.owner),now=iso(0),expires=iso(3600000);
   const id=async label=>(await sha256Hex(`notifications:${label}`)).slice(0,32);
@@ -287,6 +346,7 @@ export async function canvasNotificationsCase(env){
   check(!deleted.items.some(item=>['action','event','run','export','conversation'].includes(item.source)&&item.projectId===f.project),'Deleted creative context is no longer exposed by operational projections');
   check(deleted.items.find(item=>item.id===first.item.id)?.confirmed===false&&deleted.items.find(item=>item.id===first.item.id)?.projectDeleted===true,'Client history keeps its unconfirmed provenance and removed-project context');
   await notificationReadBatchBoundary(env);
+  await inboxRemovalCase(env);
   await conversationControlNotifications(env);
   return{ownerIsolation:true,baseline:true,explicitReadIds:true,arrivalPreserved:true,clientDeduplicated:true,canonicalOnly:true,posterTruth:true,deletedProjectNotice:true};
 }

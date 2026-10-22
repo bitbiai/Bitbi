@@ -46,6 +46,10 @@ for(const locale of ['en','de'])test(`Canvas transition examples ${locale}: isol
 for(const locale of ['en','de'])test(`Canvas export lifecycle ${locale}: observation and submission recovery`,async({page},info)=>{
     await require('./helpers/canvas-export-lifecycle-ui.cjs')({page,expect,locale,info,mockSharedAuth,createCanvasApiMock});
 });
+for(const locale of ['en','de'])test(`Canvas notifications ${locale}: permanent inbox removal and truthful toolbar`,async({page},info)=>{
+    await require('./helpers/canvas-notifications-ui.cjs').inbox({page,expect,locale,info,mockSharedAuth,createCanvasApiMock});
+});
+
 for(const locale of ['en','de'])test(`Canvas notifications ${locale}: displayed acknowledgements and account lifecycle`,async({page},info)=>{
     await require('./helpers/canvas-notifications-ui.cjs')({page,expect,locale,info,mockSharedAuth,createCanvasApiMock});
 });
@@ -119,7 +123,7 @@ async function mockSharedAuth(page, loggedIn = true, role = 'user', userId = 'ca
 
 function createCanvasApiMock(page, { authenticated = true, modelPayload = null } = {}) {
   const projectId = '11111111111111111111111111111111';
-  const state = { projects: [], nodes: [], edges: [], runs: [], notifications: [], notificationReads: [], notificationClients: [], modelRequests: 0, requests: [] };
+  const state = { projects: [], nodes: [], edges: [], runs: [], notifications: [], notificationReads: [], notificationClients: [], notificationRevision:0, notificationTombstones:new Set(), notificationMutations:new Map(), modelRequests: 0, requests: [] };
   const imageModel = {
     id: '@cf/black-forest-labs/flux-1-schnell', label: 'FLUX.1 Schnell', vendor: 'Cloudflare', capability: 'image',
     description: 'Fast image model.', outputType: 'image', canvasEnabled: true, runnable: true, disabledReason: null,
@@ -137,14 +141,20 @@ function createCanvasApiMock(page, { authenticated = true, modelPayload = null }
     if (!authenticated) return fulfill(route, { ok: false, error: 'Authentication required.', code: 'unauthorized' }, 401);
     if(pathname==='/api/account/canvas/notifications'&&method==='GET'){
       const offset=Number(new URL(request.url()).searchParams.get('cursor')||0),items=state.notifications.slice(offset,offset+40);
-      return fulfill(route,{items,nextCursor:offset+40<state.notifications.length?String(offset+40):null,unreadCount:state.notifications.filter(item=>!item.readAt).length,viewerId:'canvas-member',baselineAt:'2026-10-20T00:00:00.000Z'});
+      return fulfill(route,{items,nextCursor:offset+40<state.notifications.length?String(offset+40):null,unreadCount:state.notifications.filter(item=>!item.readAt).length,totalCount:state.notifications.length,inboxRevision:state.notificationRevision,viewerId:'canvas-member',baselineAt:'2026-10-20T00:00:00.000Z'});
     }
-    if(pathname==='/api/account/canvas/notifications/read'&&method==='POST'){
-      const {ids}=request.postDataJSON();state.notificationReads.push(ids);const readIds=[];for(const item of state.notifications)if(ids.includes(item.id)){item.readAt=new Date().toISOString();readIds.push(item.id);}
-      return fulfill(route,{viewerId:'canvas-member',readIds,unreadCount:state.notifications.filter(item=>!item.readAt).length});
+    if(['/api/account/canvas/notifications/read','/api/account/canvas/notifications/delete'].includes(pathname)&&method==='POST'){
+      const body=request.postDataJSON(),deleting=pathname.endsWith('/delete'),requested=body.all?state.notifications.map(item=>item.id):body.ids||[],ids=requested.filter(id=>state.notifications.some(item=>item.id===id));
+      const key=body.requestId||JSON.stringify({pathname,ids}),prior=state.notificationMutations.get(key);
+      if(!prior){
+        state.notificationRevision++;state.notificationMutations.set(key,ids);
+        if(deleting){for(const id of [...ids,...(body.clientRequestIds||[]).map(key=>`client:${key}`)])state.notificationTombstones.add(id);state.notifications=state.notifications.filter(item=>!state.notificationTombstones.has(item.id));}
+        else{state.notificationReads.push(requested);for(const item of state.notifications)if(ids.includes(item.id))item.readAt=new Date().toISOString();}
+      }
+      return fulfill(route,{viewerId:'canvas-member',[deleting?'deletedIds':'readIds']:prior||ids,all:body.all===true,totalCount:state.notifications.length,inboxRevision:state.notificationRevision,unreadCount:state.notifications.filter(item=>!item.readAt).length});
     }
     if(pathname==='/api/account/canvas/notifications/client'&&method==='POST'){
-      const body=request.postDataJSON();state.notificationClients.push(body);let item=state.notifications.find(item=>item.id===`client:${body.requestId}`);
+      const body=request.postDataJSON();state.notificationClients.push(body);if(state.notificationTombstones.has(`client:${body.requestId}`))return fulfill(route,{viewerId:'canvas-member',item:null,deleted:true});let item=state.notifications.find(item=>item.id===`client:${body.requestId}`);
       if(!item){item={id:`client:${body.requestId}`,source:'client',kind:'client',code:body.code,projectId:body.projectId||null,createdAt:new Date().toISOString(),readAt:null,confirmed:false,diagnosticRef:body.diagnosticRef,status:body.status||0,details:{...(body.errorCode?{errorCode:body.errorCode}:{})}};state.notifications.unshift(item);}
       return fulfill(route,{viewerId:'canvas-member',item});
     }
@@ -1173,7 +1183,7 @@ for(const locale of ['en','de']) test(`Canvas full video ordered clips ${locale}
   await expect(block.getByRole('status',{name:de?'Exportstatus':'Export status',exact:true})).toContainText(de?'wartet':'queued');await expect(create).toBeDisabled();expect(posts).toBe(2);
   await open();await openCanvasSettings(page,'merge');await expect(sequence.getByLabel('Clip 1',{exact:true})).toHaveValue(priorId);await expect(sequence.getByLabel('Clip 2',{exact:true})).toHaveValue(runId);
   expect(JSON.stringify([state.nodes,state.edges,state.runs])).toBe(originalState);
-  expect(state.requests.filter(r=>r.method!=='GET')).toEqual([{method:'POST',pathname:'/api/account/canvas/notifications/client'}]);expect(posts).toBe(2);
+  expect(state.requests.filter(r=>r.method!=='GET'&&r.pathname!=='/api/account/canvas/notifications/read')).toEqual([{method:'POST',pathname:'/api/account/canvas/notifications/client'}]);expect(state.notificationReads.flat().every(id=>state.notifications.some(item=>item.id===id))).toBe(true);expect(posts).toBe(2);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await sequence.scrollIntoViewIfNeeded();await page.screenshot({path:testInfo.outputPath(`ordered-clips-${locale}.png`)});
 });
 
