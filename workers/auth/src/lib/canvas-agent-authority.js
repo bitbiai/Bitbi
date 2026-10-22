@@ -1,3 +1,5 @@
+import { canvasMediaActionUsageMetadata } from './canvas-agent-media-action.js';
+import { assertCanvasMediaDispatch } from './canvas-agent-media-policy.js';
 // In-process execution authority only. No browser header, cookie, serialized
 // object or model output can create this WeakMap entry.
 const authorities=new WeakMap();
@@ -31,10 +33,11 @@ export async function canvasAgentSession(request,env) {
     return {sessionId:null,user:{id:row.id,status:'active',role:row.role}};
 }
 export async function canvasAgentUsageMetadata(env,request,{userId,modelId,credits}) {
-    const authority=canvasAgentAuthority(env);if(!authority)return {};
+    const authority=canvasAgentAuthority(env);if(!authority)return canvasMediaActionUsageMetadata(env,request,{userId,modelId,credits});
     const session=await canvasAgentSession(request,env);
     const step=await env.DB.prepare('SELECT * FROM canvas_agent_steps WHERE id=? AND run_id=?').bind(authority.stepId,authority.runId).first();
     const input=JSON.parse(step?.input_json||'null');
     if(session.user.id!==userId||!step||credits>step.allocation_credits||modelId!==input.modelId)fail();
+    await assertCanvasMediaDispatch(env,authority,modelId);
     return {canvas_agent:{run_id:authority.runId,step_id:authority.stepId,project_id:authority.projectId}};
 }

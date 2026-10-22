@@ -1,3 +1,4 @@
+import { canvasMediaResumeStatements } from './canvas-agent-media-policy.js';
 import { canvasStoredMediaProof } from './canvas-agent-media-completion.js';
 import { detectCanvasDirectControl } from '../../../../js/shared/canvas-agent-control-intent.mjs';
 import { stablePricingJson } from '../../../../js/shared/model-tariff.mjs';
@@ -59,10 +60,12 @@ export async function resumeCanvasMedia(env,run,{requestKey=null,expectedProject
   if(!inspected.eligible)fail(inspected.code);
   const available=await canvasAssistantAvailability(env,run.model_id,{providerReadiness:false});
   if(!available.available)fail(available.code);
+  const policyStatements=await canvasMediaResumeStatements(env,run,{authorized:Boolean(requestKey)});
   const now=nowIso(),key=requestKey||`stored-media:${inspected.proofs.map(p=>p.step.id).join(':')}`;
   const prior=await env.DB.prepare('SELECT action FROM canvas_agent_controls WHERE run_id=? AND request_key=?').bind(run.id,key).first();
   if(prior){if(prior.action!=='resume')fail('idempotency_conflict');return {idempotentReplay:true};}
   await env.DB.batch([
+    ...policyStatements,
     env.DB.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM canvas_agent_runs r JOIN canvas_projects p ON p.id=r.project_id
       JOIN users u ON u.id=r.user_id LEFT JOIN canvas_agent_conversations c ON c.project_id=p.id
       WHERE r.id=? AND r.user_id=? AND r.status=? AND r.error_code=? AND r.updated_at=? AND r.cause_json IS ?

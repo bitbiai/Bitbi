@@ -1,3 +1,4 @@
+import { canvasMediaPolicyContext, assertCanvasMediaPlan } from './canvas-agent-media-policy.js';
 import { CANVAS_AGENT_LIMITS } from '../../../../js/shared/canvas-agent-contract.mjs';
 import { assertOmniReady } from './gemini-omni-readiness.js';
 import { H3_MODEL } from '../../../../js/shared/minimax-h3.mjs';
@@ -79,6 +80,7 @@ async function calculateCanvasAgentGraph(env,run,view,inventory,rawPlan,repairNo
         const updated={...old,prompt:u.prompt,config,update:true};
         specs.set(updated.key,updated);return updated;
     })];
+    const mediaPolicy=await canvasMediaPolicyContext(env,run.project_id,run.user_id);
     const steps=[],effectiveInputs=new Map(),now=nowIso();
     for(const node of changes){
         if(node.type==='note')continue;
@@ -86,6 +88,7 @@ async function calculateCanvasAgentGraph(env,run,view,inventory,rawPlan,repairNo
         const available=inventory.models.find(m=>m.id===node.modelId);
         try {
         if(!model||!available||!model.runnable||model.capability!==TYPE_KIND[node.type])agentFail('canvas_agent_model_ineligible');
+        assertCanvasMediaPlan(mediaPolicy,[{modelId:node.modelId,credits:0}]);
         // This video-only field has no effect on ElevenLabs requests, pricing
         // or background-music mixing. Normalize only the exact inert value on
         // a new proposed music node; the raw provider proposal stays intact.
@@ -143,6 +146,7 @@ async function calculateCanvasAgentGraph(env,run,view,inventory,rawPlan,repairNo
             if(issues.length<16)issues.push(canvasAgentValidationIssue(error,node,model));
         }
     }
+    assertCanvasMediaPlan(mediaPolicy,steps);
     const budget=await readCanvasAgentBudget(env,run);
     const generationCredits=steps.reduce((sum,step)=>sum+step.credits,0);
     if(issues.length)return {ok:false,plan,repairs,issues,costs:{complete:false,generationCredits,evaluation:null,totalCredits:generationCredits},budget};

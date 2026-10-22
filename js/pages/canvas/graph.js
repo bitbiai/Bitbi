@@ -37,7 +37,7 @@ function edgePath(source, target) {
     return `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`;
 }
 
-export function createCanvasGraph({ nodesRoot, edgesRoot, emptyState, copy, onSelect, onMoveEnd, onPort, view }) {
+export function createCanvasGraph({ nodesRoot, edgesRoot, emptyState, copy, onSelect, onMoveEnd, onPort, onActions, view }) {
     let data = { nodes: [], edges: [], models: [], selected: null, connectionSourceId: null };
     let dragging = null;
 
@@ -118,29 +118,47 @@ export function createCanvasGraph({ nodesRoot, edgesRoot, emptyState, copy, onSe
         type.append(iconKind ? canvasMediaIcon(iconKind) : element('span', 'canvas-node__mark'), element('span', '', node.title || copy.nodeTypes[node.type] || node.type));
         const latestRun = data.runs?.find((run) => run.node_id === node.id);
         const analysis = data.nodeAnalysis?.get(node.id);
-        let statusLabel = latestRun?.status || (node.output ? copy.completed : copy.noInput);
-        if (!node.output && analysis?.unresolved.length) statusLabel = copy.needsUpstream;
-        else if (!node.output && analysis?.compatible.length) statusLabel = copy.inputConnected;
-        else if (!node.output && analysis?.effectivePrompt) statusLabel = copy.ready;
+        const labels=copy.runStatuses||{};
+        const savePending = ['canvas_image_save_pending', 'canvas_image_save_unavailable', 'image_save_reference_missing', 'image_save_checkpoint_failed'].includes(latestRun?.error_code);
+        let statusLabel = savePending ? copy.awaitingMediaSave : latestRun ? labels[latestRun.status] || copy.runStateUnknown : node.output ? copy.completed : copy.noInput;
+        if (!latestRun && !node.output && analysis?.unresolved.length) statusLabel = copy.needsUpstream;
+        else if (!latestRun && !node.output && analysis?.compatible.length) statusLabel = copy.inputConnected;
+        else if (!latestRun && !node.output && analysis?.effectivePrompt) statusLabel = copy.ready;
         const status = element('span', 'canvas-node__status', statusLabel);
-        status.dataset.status = latestRun?.status || (analysis?.incompatible.length ? 'incompatible' : analysis?.unresolved.length ? 'unresolved' : analysis?.compatible.length ? 'connected' : node.output ? 'completed' : 'empty');
-        head.append(type, status);
+        status.dataset.status = savePending ? 'pending' : latestRun?.status || (analysis?.incompatible.length ? 'incompatible' : analysis?.unresolved.length ? 'unresolved' : analysis?.compatible.length ? 'connected' : node.output ? 'completed' : 'empty');
+        const menu = element('button', 'canvas-node__menu', '⋯');
+        menu.type = 'button';
+        menu.setAttribute('aria-label', `${copy.nodeActions}: ${node.title || copy.nodeTypes[node.type]}`);
+        menu.setAttribute('aria-haspopup', 'menu');
+        menu.setAttribute('aria-expanded', 'false');
+        menu.title = copy.nodeActions;
+        const openActions = event => {
+            event.preventDefault();event.stopPropagation();
+            nodesRoot.querySelectorAll('.canvas-node.is-selected').forEach(item=>item.classList.remove('is-selected'));
+            card.classList.add('is-selected');
+            onActions?.(node.id, menu, event.type === 'contextmenu' ? { clientX:event.clientX, clientY:event.clientY } : {});
+        };
+        menu.addEventListener('pointerdown',event=>event.stopPropagation());
+        menu.addEventListener('click',openActions);
+        card.addEventListener('contextmenu',openActions);
+        head.append(type, menu, status);
         const body = element('div', 'canvas-node__body');
         body.append(element('p', '', nodeSummary(node, data.models, copy)));
         const model = data.models.find((item) => item.id === node.model_id);
         const meta = element('div', 'canvas-node__meta');
         const german=document.documentElement.lang==='de';
-        meta.append(element('span', '', model?.label || ({video:'Video',image:german?'Bild':'Image',audio:german?'Musik':'Music'}[media]) || copy.noModel), element('span', '', `${Math.round(Number(node.x))}, ${Math.round(Number(node.y))}`));
+        meta.append(element('span', '', model?.label || ({video:'Video',image:german?'Bild':'Image',audio:german?'Musik':'Music'}[media]) || copy.nodeTypes[node.type]), element('span', '', model ? copy.nodeTypes[node.type] : ''));
         body.append(meta);
         if(model?.areaEnabled===false)body.append(element('p','canvas-model-disabled',document.documentElement.lang==='de'?'Dieses Modell wurde vorübergehend deaktiviert.':'This model has been temporarily disabled.'));
         card.append(head, body, createPort(node, 'in'), createPort(node, 'out'));
 
         card.addEventListener('click', (event) => {
-            if (event.target.closest?.('[data-port]')) return;
+            if (event.target.closest?.('[data-port], .canvas-node__menu')) return;
             onSelect('node', node.id);
         });
         card.addEventListener('keydown', (event) => {
             if (event.target !== card) return;
+            if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { openActions(event); return; }
             if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect('node', node.id); }
             if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) {
                 event.preventDefault();

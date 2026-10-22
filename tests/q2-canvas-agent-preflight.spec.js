@@ -33,6 +33,7 @@ test('Canvas parameter preflight gives bounded model-specific correction feedbac
         const {preflightCanvasAgentGraph,validateCanvasAgentNodeConfig}=await import('../workers/auth/src/lib/canvas-agent-graph.js');
         const {canvasAgentValidationIssue,canvasAgentParameterError}=await import('../workers/auth/src/lib/canvas-agent-plan-feedback.js');
         const {canvasAgentCapabilities}=await import('../workers/auth/src/lib/canvas-agent-capabilities.js');
+        const {readCanvasMediaPolicy}=await import('../workers/auth/src/lib/canvas-agent-media-policy.js');
         const {quoteCanvasAgentCorrection}=await import('../workers/auth/src/lib/canvas-agent-repair.js');
         const {prepareCanvasAgentModel,validateCanvasAgentPlanInput}=await import('../workers/ai/src/lib/canvas-agent-plan.js');
         const {CANVAS_FABLE_MODEL}=await import('../js/shared/canvas-assistant-models.mjs');
@@ -48,6 +49,15 @@ test('Canvas parameter preflight gives bounded model-specific correction feedbac
             {id:source,type:'video_generation',model_id:'minimax/h3',title:'Retained clip',config_json:'{"duration":4}',content_json:'{}',output_json:'{"duration":4}'}]};
         const run={id:'23456789abcdef0123456789abcdef01',project_id:view.project.id,user_id:'parameter-fixture-owner',model_id:'xai/grok-4.7',
             rounds:0,repair_attempts:0,budget_credits:20000,input_json:'{"brief":"A small dog film."}',target_seconds:4,tolerance_seconds:.5};
+        // Preflight reads the authoritative owned project policy. An in-memory
+        // graph alone cannot authorize the model selection for this diagnostic.
+        const now=new Date().toISOString();
+        await DB.prepare("INSERT INTO users(id,email,password_hash,created_at,role,status,email_verified_at) VALUES(?,?,?,?,'user','active',?)")
+            .bind(run.user_id,'parameter-fixture@example.invalid','synthetic',now,now).run();
+        await DB.prepare('INSERT INTO canvas_projects(id,user_id,title,locale,created_at,updated_at) VALUES(?,?,?,?,?,?)')
+            .bind(view.project.id,run.user_id,view.project.title,'en',now,now).run();
+        expect(await readCanvasMediaPolicy(env,view.project.id,run.user_id)).toEqual({revision:0,mode:'automatic',models:[]});
+        await expect(readCanvasMediaPolicy(env,view.project.id,'different-fixture-owner')).rejects.toMatchObject({code:'project_not_found',status:404});
         const plan={version:1,title:'Dog',continuity:'Same dog.',nodes:[image],updates:[],assembly:{clips:[{key:`existing:${source}`,trim:{start:0,duration:4},transition:{preset:'none'}}],musicKey:null,targetDurationSeconds:4}};
         const inventory=await canvasAgentCapabilities(env),original=JSON.stringify(plan);
         const failed=await preflightCanvasAgentGraph(env,run,view,inventory,plan);

@@ -1,3 +1,4 @@
+import { canvasMediaResumeStatements, restrictCanvasMediaInventory } from './canvas-agent-media-policy.js';
 import { canvasPlanningEvidence } from './canvas-agent-execution-failure.js';
 import { assertCanvasAgentPlanningAllowed } from './canvas-agent-repair.js';
 import { canvasAssistantAvailability } from './canvas-agent-assistant-models.js';
@@ -51,17 +52,20 @@ export async function readmitCanvasPlanning(env,run,{requestKey=null,automatic=f
     if(automatic&&JSON.parse(run.cause_json||'{}').recovery!=='local_retry')fail('canvas_agent_readmission_consent_required');
     const inspected=await inspectCanvasPlanningReadmission(env,run);
     if(!inspected)fail('canvas_agent_readmission_not_safe');
-    if(inspected.kind==='stored_plan')return resumeStoredPlan(env,run,inspected,requestKey);
+    const policyStatements=await canvasMediaResumeStatements(env,run,{authorized:Boolean(requestKey)});
+    if(inspected.kind==='stored_plan')return resumeStoredPlan(env,run,inspected,requestKey,policyStatements);
     const {id,ordinal,step,attempt,input}=inspected;
     const available=await canvasAssistantAvailability(env,run.model_id,{providerReadiness:false});if(!available.available)fail(available.code);
-    const quote=await quoteCanvasAgentPlan(env,input.payload);
-    if(quote.credits!==step.allocation_credits||quote.tariff.revision!==run.tariff_revision)fail('model_pricing_stale');
+    const payload=policyStatements.length?{...input.payload,capabilities:await restrictCanvasMediaInventory(env,run.project_id,input.payload.capabilities,run.user_id)}:input.payload;
+    const quote=await quoteCanvasAgentPlan(env,payload);
+    if((policyStatements.length?quote.credits>step.allocation_credits:quote.credits!==step.allocation_credits)||quote.tariff.revision!==run.tariff_revision)fail('model_pricing_stale');
     if(attempt.billing_status==='reserved')await markMemberAiUsageAttemptProviderFailed(env,attempt.id,{definitelyNotDispatched:true,code:'canvas_agent_local_readmission'});
     const budget=await readCanvasAgentBudget(env,run);if(budget.remainingCredits<step.allocation_credits)fail('canvas_agent_budget_exceeded');
-    const now=nowIso(),sourceDigest=await sha256Hex(step.input_json),newInput=JSON.stringify({...input,
+    const now=nowIso(),sourceDigest=await sha256Hex(step.input_json),newInput=JSON.stringify({...input,payload,
         readmission:{ordinal,sourceStepId:step.id,sourceAttemptId:attempt.id,sourceDigest}});
     const eventKey=`local-readmission:${step.id}`;
     const statements=[
+        ...policyStatements,
         env.DB.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM canvas_agent_runs r JOIN canvas_projects p ON p.id=r.project_id
           JOIN users u ON u.id=r.user_id JOIN canvas_agent_steps s ON s.run_id=r.id JOIN member_ai_usage_attempts_v2 a ON a.id=s.usage_attempt_id
           WHERE r.id=? AND r.user_id=? AND r.project_id=? AND r.status=? AND r.error_code=? AND r.cause_json IS ?
@@ -133,10 +137,11 @@ async function inspectStoredPlan(env,run){
     if(!checked.ok||checked.estimatedCredits>checked.budget.remainingCredits||!checked.repairs.some(r=>r.code==='canvas_agent_seedance_native_settings'))return null;
     return {kind:'stored_plan',step,operation,attempt,current,checked};
 }
-async function resumeStoredPlan(env,run,value,requestKey){
+async function resumeStoredPlan(env,run,value,requestKey,policyStatements=[]){
     const {step,operation,attempt,checked}=value,now=nowIso(),key=`stored-plan-resume:${step.id}`;
     const cause=JSON.stringify({code:'canvas_agent_saved_plan_revalidated',stepId:step.id,operationId:operation.id,recovery:'automatic'});
     try{await env.DB.batch([
+        ...policyStatements,
         env.DB.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM canvas_agent_runs r JOIN canvas_projects p ON p.id=r.project_id
           JOIN users u ON u.id=r.user_id JOIN canvas_agent_steps s ON s.run_id=r.id JOIN canvas_agent_model_operations o ON o.step_id=s.id
           JOIN member_ai_usage_attempts_v2 a ON a.id=s.usage_attempt_id WHERE r.id=? AND r.user_id=? AND r.project_id=?

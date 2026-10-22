@@ -1,3 +1,4 @@
+import { canvasMediaPolicyContext } from './canvas-agent-media-policy.js';
 import { canvasConversationReadIntent } from '../../../../js/shared/canvas-agent-control-intent.mjs';
 export { canvasConversationReadIntent };
 import { nowIso } from './tokens.js';
@@ -41,6 +42,7 @@ export async function canvasConversationExecutionFacts(env,userId,projectId) {
     WHERE p.id=? AND p.user_id=? AND p.deleted_at IS NULL`).bind(run?.id||null,projectId,userId).first();
   return {version:1,observedAt,observedUntil:nowIso(),projectRevision:project.revision,source:'persisted_project_receipts',
     changedDuringObservation:!fresh||fresh.revision!==project.revision||Boolean(run&&fresh.updated_at!==run.updated_at),
+    mediaPolicy:await canvasMediaPolicyContext(env,projectId,userId),
     conversation:conversation?{revision:conversation.revision,briefRevision:conversation.brief_revision,
       selectedModelId:conversation.assistant_model_id,modelRevision:conversation.assistant_model_revision}:null,
     production:run?{id:run.id,status:run.status,phase:run.phase,modelId:run.model_id,expectedProjectRevision:run.expected_revision,

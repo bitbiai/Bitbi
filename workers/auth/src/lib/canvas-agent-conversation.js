@@ -1,3 +1,4 @@
+import { restrictCanvasMediaInventory, readCanvasMediaPolicy } from './canvas-agent-media-policy.js';
 import { resolveCanvasAgentDuration, CANVAS_AGENT_MODEL } from '../../../../js/shared/canvas-agent-contract.mjs';
 import { nowIso,randomTokenHex,sha256Hex } from './tokens.js';
 import { agentFail,agentTransition,wakeCanvasAgent,claimCanvasAgent,publicAgentRun } from './canvas-agent-store.js';
@@ -86,7 +87,7 @@ export async function conversationView(env,projectId,userId) {
     const production=await env.DB.prepare("SELECT * FROM canvas_agent_runs WHERE project_id=? AND user_id=? AND purpose='production' ORDER BY rowid DESC LIMIT 1").bind(projectId,userId).first();
     const models=await (await import('./canvas-agent-assistant-models.js')).canvasAssistantModelInventory(env);
     const selectedModel=row.assistant_model_id||CANVAS_AGENT_MODEL;
-    return {...(production?{run:await publicAgentRun(env,production)}:{}),conversation:{revision:row.revision,explanationRevision:incidents.revision,briefRevision:row.brief_revision,state:row.state,draft:row.draft,
+    return {mediaPolicy:await readCanvasMediaPolicy(env,projectId,userId),...(production?{run:await publicAgentRun(env,production)}:{}),conversation:{revision:row.revision,explanationRevision:incidents.revision,briefRevision:row.brief_revision,state:row.state,draft:row.draft,
         messages,actions,brief:JSON.parse(row.brief_json),pendingTurnId:turns.find(t=>t.state==='pending')?.id||null,
         reasoningModel:{modelId:selectedModel,displayName:models.find(model=>model.modelId===selectedModel)?.displayName||selectedModel,revision:row.assistant_model_revision||0,eligibleModels:models},
         pendingDecision:await (await import('./canvas-agent-conversation-decisions.js')).publicCanvasConversationDecision(env,projectId,userId),
@@ -286,7 +287,7 @@ export async function createConversationTurn(env,view,row,input,key) {
         (input.locale==='de'?'Canvas-Systemauskunft: Eine Modellantwort ist derzeit nicht freigegeben oder nicht verfügbar. Eine Frage oder ein zitiertes Kommando führt keine Aktion aus. Die gespeicherten Fakten sind:\n':'Canvas system information: A model reply is not currently authorized or available. A question or a quoted command does not execute an action. The stored facts are:\n')+
         canvasConversationStatusText(await canvasConversationExecutionFacts(env,row.user_id,row.project_id),input.locale));
     if(!available.available)agentFail(available.code,503);
-    const inventory=await canvasAgentCapabilities(env),costs=await conversationCosts(env,row.project_id);
+    const inventory=await restrictCanvasMediaInventory(env,row.project_id,await canvasAgentCapabilities(env),row.user_id),costs=await conversationCosts(env,row.project_id);
     if(row.state!=='active')agentFail('canvas_agent_conversation_saved');
     if(row.allowance_credits<=costs.committed)agentFail('canvas_agent_briefing_allowance_required',402);
     if(inventory.tariffRevision!==row.allowance_tariff)agentFail('model_pricing_stale');

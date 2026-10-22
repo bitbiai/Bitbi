@@ -1,4 +1,6 @@
+import { canvasMediaConstraintError } from './canvas-agent-media-errors.js';
 import { validateCanvasAgentActions, CANVAS_AGENT_ACTION_TYPES, canvasImmediateStartRequested } from '../../../shared/canvas-agent-actions.mjs';
+import { quoteCanvasMediaAction, canvasMediaActionEnvironment } from './canvas-agent-media-action.js';
 import { canvasAgentProject, plannerProject, controlCanvasAgent, decideCanvasAgentBudget } from '../routes/canvas-agent.js';
 import { writeCanvasAssembly } from './canvas-assembly.js';
 import { originalAudioSettings } from '../../../../js/shared/canvas-audio.mjs';
@@ -21,7 +23,7 @@ const parse=value=>value?JSON.parse(value):null;
 const runControl = new Set(['production_pause','production_resume','production_cancel','production_takeover']);
 const briefControl={brief_save:'save',brief_resume:'resume',brief_cancel:'cancel',skip_questions:'skip_questions',delegate_duration:'delegate_duration',conversation_clear:'clear'};
 const assemblyTypes=new Set(['clip_remove','clip_order','clip_add','clip_replace','clip_trim','transition','transition_strength','music_volume','music_enabled','music_fade_in','music_fade_out','music_source','smooth_joins']);
-const safeCode=error=>/^[a-z][a-z0-9_]{2,100}$/.test(error?.code||'')?error.code:'canvas_agent_action_review_required';
+const safeCode=error=>{const failure=canvasMediaConstraintError(error);return /^[a-z][a-z0-9_]{2,100}$/.test(failure?.code||'')?failure.code:'canvas_agent_action_review_required';};
 const responseData=async response=>{const result=await response.json();if(!response.ok||!result.ok)agentFail(result.code||'canvas_agent_action_failed',response.status);return result.data;};
 const messages={
   completed:['Change saved.','Änderung gespeichert.'],pending:['The request was accepted. Its result is still pending.','Der Auftrag wurde angenommen. Das Ergebnis steht noch aus.'],
@@ -139,7 +141,8 @@ async function regenerationQuote(env,user,view,action){
   if(resolution.errors?.length)agentFail('canvas_input_invalid');
   const input=buildCanvasGenerationBody(node,model,resolution),quote=await quoteModelTariff(env,{modelId:model.id,input});
   if(!Number.isSafeInteger(quote.credits)||quote.credits<1)agentFail('model_pricing_unavailable');
-  return {credits:quote.credits,tariffRevision:(await getModelTariff(env)).revision,inputDigest:await sha256Hex(stablePricingJson(input)),modelId:model.id};
+  return {credits:quote.credits,tariffRevision:(await getModelTariff(env)).revision,inputDigest:await sha256Hex(stablePricingJson(input)),modelId:model.id,
+    ...await quoteCanvasMediaAction(env,user.id,view.project.id,model.id,quote.credits)};
 }
 async function prepareAction(env,row,user,view,expectedRevision){
   const {action,locale}=parse(row.input_json);
@@ -198,7 +201,8 @@ function confirmationFor(row,prepared){
   return {kind,expectedRevision:prepared.expectedRevision,expectedBriefRevision:prepared.expectedBriefRevision,
     ...(prepared.tariffRevision!==undefined?{tariffRevision:prepared.tariffRevision}:{}),
     ...(kind==='allowance'?{capCredits:prepared.body.capCredits}:{}),...(kind==='budget'?{capCredits:prepared.body.proposedCapCredits}:{}),
-    ...(kind==='regenerate'?{credits:prepared.credits,nodeId:action.targetId}: {})};
+    ...(kind==='regenerate'?{credits:prepared.credits,nodeId:action.targetId,
+      ...(prepared.mediaPolicyRevision!==undefined?{mediaPolicyRevision:prepared.mediaPolicyRevision}:{})}: {})};
 }
 async function applyAction(env,row,user,view,prepared,originalRequest=null){
   const {action,locale}=parse(row.input_json),key=`canvas_action_${row.id}`,session={user};
@@ -251,7 +255,9 @@ async function applyAction(env,row,user,view,prepared,originalRequest=null){
   if(action.type==='regenerate'){
     if(!originalRequest)agentFail('canvas_agent_action_confirmation_required');
     const {runCanvasNode}=await import('../routes/canvas.js');
-    const response=await runCanvasNode(ctx(`nodes/${action.targetId}/run`,{},prepared.tariffRevision),session,row.project_id,action.targetId);
+    const actionCtx=ctx(`nodes/${action.targetId}/run`,{},prepared.tariffRevision);
+    actionCtx.env=canvasMediaActionEnvironment(env,row,prepared);
+    const response=await runCanvasNode(actionCtx,session,row.project_id,action.targetId);
     const result=await response.json();
     const run=await env.DB.prepare('SELECT id,status,error_code FROM canvas_runs WHERE project_id=? AND user_id=? AND idempotency_key=?').bind(row.project_id,user.id,key).first();
     if(!run){if(!response.ok||!result.ok)agentFail(result.code||'canvas_agent_action_failed',response.status);agentFail('canvas_agent_action_review_required');}
@@ -361,7 +367,7 @@ async function executeOne(env,row,{request=null,confirmed=false}={}){
   }
   let result;
   try { result=await applyAction(env,row,user,view,prepared,request); }
-  catch(error){if(Number(error.status)>=400&&Number(error.status)<500)return finish(env,row,'failed',summary(row,'failed',{code:safeCode(error)}));throw error;}
+  catch(error){error=canvasMediaConstraintError(error);if(Number(error.status)>=400&&Number(error.status)<500)return finish(env,row,'failed',summary(row,'failed',{code:safeCode(error)}));throw error;}
   const revision=(await canvasAgentProject(env,user.id,row.project_id)).project.revision;
   return finish(env,row,'completed',summary(row,result.pending?'pending':'completed',{...result,revision,controlId:await canvasAgentActionControlId(env,row.project_id)}));
 }
@@ -413,7 +419,7 @@ export async function recoverCanvasAgentActions(env,{projectId=null,userId=null,
   }
 }
 export async function confirmCanvasAgentAction(ctx,session,projectId,id,body){
-  const fields=['decision','expectedRevision','expectedBriefRevision','capCredits','tariffRevision','credits'];
+  const fields=['decision','expectedRevision','expectedBriefRevision','capCredits','tariffRevision','credits','mediaPolicyRevision'];
   if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).some(key=>!fields.includes(key))||!['accept','decline'].includes(body.decision))agentFail('canvas_agent_action_confirmation_invalid',400);
   const row=await ctx.env.DB.prepare('SELECT * FROM canvas_agent_action_receipts WHERE id=? AND project_id=? AND user_id=?').bind(id,projectId,session.user.id).first();
   if(!row)agentFail('canvas_agent_action_not_found',404);
@@ -432,6 +438,7 @@ export async function confirmCanvasAgentAction(ctx,session,projectId,id,body){
   if(body.decision==='decline')return publicAction(await finish(ctx.env,row,'failed',summary(row,'failed',{confirmationInput,code:'canvas_agent_action_declined',text:parse(row.input_json).locale==='de'?'Nicht freigegeben. Es wurde kein neuer Auftrag gestartet.':'Not approved. No new job was started.'})));
   if(confirmation.kind==='regenerate'){
     const current=await regenerationQuote(ctx.env,user,view,parse(row.input_json).action);
+    if(current.mediaPolicyRevision!==stored.prepared.mediaPolicyRevision||current.projectCapRunId!==stored.prepared.projectCapRunId)agentFail('canvas_agent_media_policy_changed');
     if(current.credits!==confirmation.credits||current.tariffRevision!==confirmation.tariffRevision||current.inputDigest!==stored.prepared.inputDigest)agentFail('model_pricing_stale');
   }
   const bound=JSON.stringify({...stored,confirmationInput});

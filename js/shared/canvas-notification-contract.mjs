@@ -13,6 +13,12 @@ export const CANVAS_CLIENT_NOTIFICATION_CODES = Object.freeze([
     'canvas_pricing_stale', 'canvas_project_changed', 'canvas_node_saved', 'canvas_assembly_saved',
 ]);
 const messages = {
+    canvas_agent_media_model_not_allowed: ['This media model is not allowed for the assistant in this project. Choose an allowed model or explicitly change Models & limits; existing media is kept.', 'Dieses Medienmodell ist für den Assistenten in diesem Projekt nicht freigegeben. Wähle ein erlaubtes Modell oder ändere ausdrücklich Modelle & Limits; vorhandene Medien bleiben erhalten.'],
+    canvas_agent_media_limit_exceeded: ['This request would exceed the model’s cumulative project limit, including existing commitments. Review Models & limits or choose an allowed alternative; the limit was not increased.', 'Dieser Auftrag würde das kumulierte Modelllimit im Projekt einschließlich bestehender Bindungen überschreiten. Prüfe Modelle & Limits oder wähle eine erlaubte Alternative; das Limit wurde nicht erhöht.'],
+    canvas_agent_media_limit_below_committed: ['The model limit cannot be lower than credits already used or committed in this project. Those costs and accepted requests remain unchanged.', 'Das Modelllimit darf nicht unter den bereits verbrauchten oder gebundenen Projektcredits liegen. Diese Kosten und angenommene Aufträge bleiben unverändert.'],
+    canvas_agent_media_policy_changed: ['The project’s media-model settings changed. Review the current Models & limits before authorizing more work; the older approval cannot override them.', 'Die Medienmodell-Einstellungen des Projekts wurden geändert. Prüfe die aktuellen Modelle & Limits vor weiterer Freigabe; die ältere Zustimmung kann sie nicht überschreiben.'],
+    canvas_agent_media_policy_resume_required: ['The changed media-model settings require a checked continuation. Review Models & limits and use Resume when available; accepted requests retain their original settings.', 'Die geänderten Medienmodell-Einstellungen erfordern eine geprüfte Fortsetzung. Prüfe Modelle & Limits und nutze Fortsetzen, sobald verfügbar; angenommene Aufträge behalten ihre ursprünglichen Einstellungen.'],
+    canvas_agent_project_budget_required: ['The assistant needs an approved project budget before generating new media. Set the project limit in the conversation and authorize the requested work; model limits alone do not approve spending.', 'Der Assistent benötigt ein freigegebenes Projektbudget, bevor neue Medien erzeugt werden. Lege das Projektlimit im Gespräch fest und bestätige den Auftrag; Modelllimits allein geben keine Ausgaben frei.'],
     canvas_agent_local_execution_failed: ['An internal processing step could not finish. Existing requests and saved media are retained; the diagnostic identifies the affected stage.', 'Ein interner Verarbeitungsschritt konnte nicht abgeschlossen werden. Bestehende Aufträge und gespeicherte Medien bleiben erhalten; die Diagnose nennt den betroffenen Schritt.'],
     canvas_agent_media_recovery_evidence_invalid: ['The original media job cannot yet be reconciled with its storage and billing records. No replacement generation was started.', 'Der ursprüngliche Medienauftrag kann noch nicht mit seinen Speicher- und Abrechnungsbelegen abgeglichen werden. Es wurde keine Ersatzgenerierung gestartet.'],
     canvas_agent_media_recovery_storage_missing: ['The recorded media file could not be verified in private storage. Its original job is retained; generating a replacement is not a safe retry.', 'Die verzeichnete Mediendatei konnte im privaten Speicher nicht bestätigt werden. Der ursprüngliche Auftrag bleibt erhalten; eine Ersatzgenerierung ist keine sichere Wiederholung.'],
@@ -104,6 +110,11 @@ const actionLabels = {
     original_audio_fade_in: ['Original audio fade-in', 'Originalton einblenden'], original_audio_fade_out: ['Original audio fade-out', 'Originalton ausblenden'],
     regenerate: ['Generate new variant', 'Neue Variante erzeugen'], export: ['Export video', 'Video exportieren'], save_result: ['Save output to Assets', 'Ergebnis in Assets speichern'],
 };
+export function canvasMediaPolicyError(code, german = false) {
+    return ['canvas_agent_media_model_not_allowed', 'canvas_agent_media_limit_exceeded', 'canvas_agent_media_limit_below_committed',
+        'canvas_agent_media_policy_changed', 'canvas_agent_media_policy_resume_required', 'canvas_agent_project_budget_required'].includes(code)
+        ? messages[code][german ? 1 : 0] : null;
+}
 export function canvasNotificationText(item, german = false) {
     if(item?.code==='canvas_project_delete_unconfirmed')return messages.canvas_project_delete_unconfirmed[german?1:0];
     const fit=item?.details?.sourceEndFit;

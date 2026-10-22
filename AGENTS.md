@@ -111,6 +111,13 @@ rerun its passed suites on the Mac or GitHub. See the [local validation procedur
 Scheduled Full and Memvid remain independent; do not dispatch Full for each release.
 This entry point grants no additional publication, credential or paid-call authority.
 
+Other bots regularly submit PRs that the owner merges on GitHub. Codex on this Mac
+integrates those merges with local work and owns local release validation; routine
+integration needs no separate approval. Reassess the complete unpublished range by
+actual impact, including merges during validation. Reuse only verifier-accepted
+evidence, validate changed inputs, and publish the final tested combined candidate.
+A merge alone does not require Full; use the current selection and task authority.
+
 ## Git workflow and completion
 
 - Requested implementation tasks normally finish with task-related changes committed and pushed directly to `origin/main`; no separate commit/push approval is needed. Explicit audit-only, read-only, local-only, draft, or no-push instructions override this default.

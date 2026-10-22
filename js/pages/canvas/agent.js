@@ -3,6 +3,7 @@ import { canvasAgentCopy } from './agent-copy.js?v=__ASSET_VERSION__';
 import { createCanvasAgentActivity } from './agent-live.js?v=__ASSET_VERSION__';
 import { createCanvasAgentConversation } from './agent-conversation.js?v=__ASSET_VERSION__';
 import {canvasNotice,refreshCanvasNotifications,resolveCanvasNotice} from './notifications.js?v=__ASSET_VERSION__';
+import {canvasMediaPolicyError} from '../../shared/canvas-notification-contract.mjs?v=__ASSET_VERSION__';
 
 const TERMINAL = new Set(['completed', 'cancelled', 'taken_over', 'manual_takeover']);
 const WAITING = new Set(['clarification_required', 'paused', 'blocked', 'failed', 'review_required', 'budget_required']);
@@ -174,6 +175,8 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
         }
     }
     function error(result) {
+        const policyError=canvasMediaPolicyError(result.code,german);
+        if(policyError){message(policyError,result);return;}
         if (['model_pricing_stale', 'canvas_project_revision_conflict', 'project_revision_conflict', 'canvas_agent_project_changed', 'canvas_agent_tariff_changed','canvas_agent_budget_request_stale','canvas_agent_budget_request_conflict','canvas_agent_budget_request_changed','canvas_agent_budget_decision_conflict'].includes(result.code)) { message(copy.stale,result); }
         else if (result.code==='canvas_agent_budget_exceeded' || result.code==='canvas_agent_budget_required') { message(copy.budgetRequired,result); }
         else if (result.code==='canvas_agent_duration_invalid') message(copy.invalidDuration,result);

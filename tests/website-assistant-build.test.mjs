@@ -12,7 +12,8 @@ test('actual static build executes knowledge and implementation checks before pu
   const copy = file => { mkdirSync(dirname(join(fixture, file)), { recursive: true }); cpSync(join(root, file), join(fixture, file), { recursive: true }); };
   try {
     for (const file of ['config', 'js/shared', 'workers/shared', 'workers/auth/src', 'workers/auth/package.json', 'scripts/lib',
-      'scripts/build-static-site.mjs', 'scripts/check-website-assistant-knowledge.mjs', 'scripts/check-website-assistant-contract.mjs', 'css/components/website-assistant.css']) copy(file);
+      'scripts/build-static-site.mjs', 'scripts/check-website-assistant-knowledge.mjs', 'scripts/check-website-assistant-contract.mjs', 'css/components/website-assistant.css',
+      'pricing.html', 'de/pricing.html']) copy(file);
     const sources = JSON.parse(readFileSync(join(root, 'config/website-assistant-sources.json'), 'utf8')).sources;
     for (const { file } of sources) copy(file);
     const run = entry => spawnSync(process.execPath, [join(fixture, 'scripts', entry)], { cwd: fixture, encoding: 'utf8', timeout: 10000 });
@@ -23,9 +24,16 @@ test('actual static build executes knowledge and implementation checks before pu
     for (const privatePath of ['config/website-assistant-sources.json', 'config/website-assistant.json', 'workers/shared/website-assistant-content.mjs', 'tests/helpers/website-assistant-policy.mjs']) {
       assert.equal(existsSync(join(fixture, '_site', privatePath)), false, 'Source provenance and synthetic activation fixtures are not public artifacts');
     }
+    // The real build also requires both static pricing inputs; an incomplete
+    // isolated fixture must fail before it creates publication bytes.
+    rmSync(join(fixture, 'de/pricing.html'));
+    rmSync(join(fixture, '_site'), { recursive: true });
+    const missingPricing = run('build-static-site.mjs');
+    assert.notEqual(missingPricing.status, 0); assert.match(missingPricing.stderr, /ENOENT.*de\/pricing\.html/);
+    assert.equal(existsSync(join(fixture, '_site')), false);
+    copy('de/pricing.html');
     const canvas = join(fixture, 'canvas/index.html'), original = readFileSync(canvas, 'utf8');
     writeFileSync(canvas, original.replace('Your positions and settings save automatically.', 'test changed product behavior'));
-    rmSync(join(fixture, '_site'), { recursive: true });
     const stale = run('build-static-site.mjs');
     assert.notEqual(stale.status, 0); assert.match(stale.stderr, /reviewed public fact changed/);
     assert.equal(existsSync(join(fixture, '_site')), false, 'Rejected facts must not produce publication bytes');

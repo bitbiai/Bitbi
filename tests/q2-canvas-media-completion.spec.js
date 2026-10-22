@@ -14,7 +14,7 @@ for(const name of ['resume','automatic','lost-ack','missing-storage','edited','a
   }finally{DB.close();}
 });
 
-test('Canvas recovered reference completes a real mixed film and editable re-export',async()=>{
+test('Canvas selected media policy completes a real mixed film and independent editable re-export',async()=>{
   test.setTimeout(90000);
   const os=require('node:os'),{execFileSync}=require('node:child_process');
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'canvas-media-completion-')),DB=new SqliteD1Database();applyAuthMigrations(DB);
@@ -39,8 +39,14 @@ test('Canvas recovered reference completes a real mixed film and editable re-exp
         const body=await response.json();expect(response.ok,JSON.stringify(body)).toBe(true);return body;},
       fetchImpl:(url,init)=>f.request(url.pathname+url.search,'GET',undefined,init.headers)});
     const processor=async f=>{await processCanvasInspections(options(f));await processCanvasExports(options(f));};
+    const mediaPolicy={mode:'selected',models:[
+      {modelId:'xai/grok-imagine-image-2.0',creditLimit:1000},
+      {modelId:'minimax/h3',creditLimit:4000},
+      {modelId:'elevenlabs/music-v2',creditLimit:2000},
+    ]};
+    const policyBeforeResume={mode:'selected',models:mediaPolicy.models.filter(model=>model.modelId!=='xai/grok-imagine-image-2.0')};
     const finished=await canvasMediaCompletionCase({...createAuthTestEnv(),DB},'resume',
-      {...media(),videoBase64:clips[0],videoSourcesBase64:clips,musicBase64:fs.readFileSync(music).toString('base64')},{processor});
+      {...media(),videoBase64:clips[0],videoSourcesBase64:clips,musicBase64:fs.readFileSync(music).toString('base64')},{processor,mediaPolicy,policyBeforeResume});
     const f=finished.fixture,download=async(assetId,name)=>{
       const response=await f.request(`/api/ai/text-assets/${assetId}/file`);expect(response.ok).toBe(true);
       const file=path.join(dir,name+'.mp4');fs.writeFileSync(file,Buffer.from(await response.arrayBuffer()));return file;
@@ -56,6 +62,18 @@ test('Canvas recovered reference completes a real mixed film and editable re-exp
     expect(energy(660)).toBeGreaterThan(.015);expect(energy(660)).toBeGreaterThan(energy(440)*20);
     let before=await f.data(await f.request(f.projectPath)),assembly=before.project.assembly,order=assembly.clips.map(c=>c.nodeId);
     expect(order).toHaveLength(3);expect(before.nodes.filter(n=>n.type==='image_generation')).toHaveLength(1);
+    const policyView=await f.data(await f.request(f.route+'/media-policy'));
+    expect(policyView.policy).toEqual({revision:2,mode:'selected',models:[...policyBeforeResume.models].sort((a,b)=>a.modelId.localeCompare(b.modelId))});
+    for(const model of mediaPolicy.models){
+      const usage=policyView.usage.find(item=>item.modelId===model.modelId);
+      expect(usage.chargedCredits).toBeGreaterThan(0);
+      expect(usage).toMatchObject({reservedCredits:0,pendingOutcomeCredits:0,committedCredits:usage.chargedCredits,remainingCredits:policyBeforeResume.models.some(m=>m.modelId===model.modelId)?model.creditLimit-usage.chargedCredits:null});
+    }
+    // Deselecting a generator affects future assistant submissions. Existing
+    // footage and explicit manual execution retain their ordinary semantics.
+    await f.data(await f.request(f.route+'/media-policy','PUT',{
+      expectedRevision:2,mode:'selected',models:[mediaPolicy.models[0]],
+    },{'Idempotency-Key':'fixture-post-film-model-selection'}));
     // Existing editable assembly, independent of agent availability.
     f.env.CANVAS_AGENT_ENABLED='false';f.env.AI_LAB={fetch(){throw new Error('Manual export cannot invoke the assistant');}};
     const first=before.nodes.find(n=>n.id===order[0]);
@@ -63,6 +81,8 @@ test('Canvas recovered reference completes a real mixed film and editable re-exp
     expect((await f.request(`${f.projectPath}/nodes/${first.id}/run`,'POST',{}, {'Idempotency-Key':'synthetic-manual-media-variant'})).status).toBe(202);
     const newJob=await DB.prepare("SELECT * FROM member_generation_jobs WHERE user_id=? AND status='queued'").bind(f.owner).first();
     await finished.deliverMediaJob(newJob);expect(finished.generationCalls()).toBe(6);
+    const manualPolicy=await f.data(await f.request(f.route+'/media-policy'));
+    expect(manualPolicy.usage.map(({remainingCredits,...costs})=>costs)).toEqual(policyView.usage.map(({remainingCredits,...costs})=>costs));
     before=await f.data(await f.request(f.projectPath));
     const revised={...assembly,clips:[{...assembly.clips[2],transition:{preset:'fade',duration:.5}},assembly.clips[0]],anchorNodeId:assembly.anchorNodeId,backgroundMusic:{...assembly.backgroundMusic,gain:.25}};
     await f.data(await f.request(f.projectPath+'/assembly','PATCH',{revision:before.project.revision,assembly:revised}));

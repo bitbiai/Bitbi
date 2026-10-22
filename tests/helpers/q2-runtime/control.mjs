@@ -1,3 +1,5 @@
+import {CANVAS_MEDIA_ACTION_POLICY_CASES,canvasMediaActionPolicyCase} from '../canvas-agent-media-action-policy-control.mjs';
+import {CANVAS_MEDIA_POLICY_CASES,canvasMediaPolicyCase} from '../canvas-agent-media-policy-control.mjs';
 import {MEDIA_COMPLETION_CASES,canvasMediaCompletionCase} from '../canvas-agent-media-completion-control.mjs';
 import {CANVAS_LOCAL_RECOVERY_CASES,canvasLocalRecoveryCase} from '../canvas-agent-model-operation-cases.mjs';
 import {seedCanvasAssistantMigration,verifyCanvasAssistantMigration} from '../canvas-assistant-migration-control.mjs';
@@ -76,6 +78,8 @@ export default {
     if(path==='/canvas-notifications-migration-seed')return Response.json(await seedCanvasNotificationsMigration(env));
     if(path==='/canvas-notifications-migration-verify')return Response.json(await verifyCanvasNotificationsMigration(env,body));
     if(path==='/canvas-explanation'&&['evidence','quoted','budget-scope'].includes(body.name))return Response.json(await canvasExplanationCase(env,body.name));
+    if(path==='/canvas-media-action-policy'&&CANVAS_MEDIA_ACTION_POLICY_CASES.includes(body.name))return Response.json(await canvasMediaActionPolicyCase(env,body.name));
+    if(path==='/canvas-media-policy'&&CANVAS_MEDIA_POLICY_CASES.includes(body.name))return Response.json(await canvasMediaPolicyCase(env,body.name));
     if(path==='/canvas-local-planning-recovery'&&CANVAS_LOCAL_RECOVERY_CASES.includes(body.name))return Response.json(await canvasLocalRecoveryCase(env,body.name));
     if(path==='/canvas-incident'&&CANVAS_INCIDENT_CASES.includes(body.name))return Response.json(await canvasIncidentCase(env,body.name));
     if(path==='/canvas-agent-plan-interpretation'&&['recover','guards','crash','active','preflight'].includes(body.name))return Response.json(await canvasPlanInterpretationCase(env,body.name));

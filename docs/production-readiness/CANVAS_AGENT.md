@@ -1,5 +1,42 @@
 # Canvas production assistant
 
+## Media models, limits and workspace controls
+
+**Models & limits / Modelle & Limits** in the AI workspace configures assistant
+media generation independently of the conversation model. Automatic mode preserves
+legacy eligibility. Selected mode permits only the explicitly checked image, video
+and music generators; an empty selection permits none. The inventory comes from
+current member Canvas capabilities and tariff availability, not a separate catalog.
+
+Each optional model cap is cumulative across assistant media nodes, variants and
+later productions in this project. “No additional model cap” means the existing project
+ceiling applies; zero allows no new spending. Limits are not wallet balances and need
+not sum to the project ceiling. Displayed estimates depend on generation settings.
+Charged, reserved and uncertain commitments retain their original usage identities;
+deleting a node or changing settings does not reset spending. Manual generation
+retains its existing explicit admission independently of these assistant restrictions.
+
+Migration 0116 stores append-only policy revisions and derives model totals from the
+existing step, action, usage and credit records. Atomic allocation/action claims and
+the original usage dispatch transition enforce model and project ceilings together.
+Planning and correction receive the same filtered inventory and remaining model
+headroom for every supported assistant. A changed policy invalidates unaccepted
+quotes and pauses unstarted production work; explicit Resume checks compatibility.
+Already accepted jobs retain their original evidence and may finish safely.
+
+The graph has project search, contextual node actions (visible ellipsis, right click
+or Shift+F10), zoom-aware node placement and readable localized execution states.
+Workspace dimensions are disclosed on demand. Search, menus, layout preferences and
+the existing AI divider/expanded mode do not modify creative state or start generation.
+The actual run state takes precedence over prompt readiness; known image-save-pending
+states remain distinct from rejected jobs and saved results.
+
+Regression callers: `tests/q2-canvas-media-policy.spec.js`, native Canvas reliability,
+the selected-media complete film/manual re-export case in
+`tests/q2-canvas-media-completion.spec.js`, conversational regenerate acceptance, and
+the EN/DE Chromium/WebKit cases in `tests/canvas.spec.js`. These use synthetic providers;
+they are not evidence of paid live provider acceptance.
+
 ## Notifications and project lifecycle
 
 **Notifications / Meldungen** is a workspace-wide toolbar control, available without

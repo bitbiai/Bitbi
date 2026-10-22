@@ -411,7 +411,7 @@ test('default native runtime plan stages every actual suite and control input', 
     'tests/helpers/q4-subscription-payloads.cjs', 'tests/helpers/canvas-video-control.mjs', 'tests/helpers/canvas-music-control.mjs',
     'tests/helpers/elevenlabs-member-control.mjs', 'tests/helpers/canvas-contributors-control.mjs', 'tests/helpers/canvas-agent-control.mjs', 'tests/fixtures/canvas-agent-profiles.mjs', 'tests/helpers/canvas-assembly-control.mjs', 'workers/ai/src/routes/music.js',
     'tests/helpers/canvas-agent-model-operation-control.mjs', 'tests/helpers/canvas-agent-model-operation-cases.mjs', 'tests/helpers/canvas-agent-settlement-review-control.mjs',
-    'tests/helpers/canvas-image-scheduling-control.mjs', 'tests/helpers/canvas-agent-h3-recovery-control.mjs','tests/helpers/canvas-agent-media-completion-control.mjs','tests/helpers/canvas-assistant-migration-control.mjs','tests/helpers/canvas-assistant-model-control.mjs', 'tests/helpers/canvas-conversation-decisions-control.mjs',
+    'tests/helpers/canvas-image-scheduling-control.mjs', 'tests/helpers/canvas-agent-h3-recovery-control.mjs','tests/helpers/canvas-agent-media-completion-control.mjs','tests/helpers/canvas-agent-media-policy-control.mjs','tests/helpers/canvas-agent-media-action-policy-control.mjs','tests/helpers/canvas-assistant-migration-control.mjs','tests/helpers/canvas-assistant-model-control.mjs', 'tests/helpers/canvas-conversation-decisions-control.mjs',
     'tests/helpers/canvas-agent-preflight-control.mjs', 'tests/helpers/canvas-agent-autonomy-control.mjs', 'tests/helpers/canvas-agent-conversation-control.mjs', 'tests/helpers/canvas-agent-conversation-recovery-control.mjs', 'tests/helpers/canvas-agent-natural-control.mjs', 'tests/helpers/canvas-agent-action-recovery-control.mjs',
     'tests/helpers/canvas-project-lifecycle-control.mjs','tests/helpers/canvas-notifications-control.mjs','tests/helpers/canvas-agent-explanation-control.mjs',
     'tests/helpers/canvas-incident-control.mjs','tests/helpers/canvas-agent-plan-interpretation-control.mjs','tests/helpers/canvas-agent-plan-correction-review-control.mjs',
@@ -1190,6 +1190,8 @@ test('Canvas reliability runs additive native callers with the complete staged h
     ...['resume','automatic','lost-ack','missing-storage','edited','adopt-current','unknown','cancelled','expired','foreign','completion-window','proof-recheck'].map(name=>`canvas_reliability_media_completion_${name}`),
     'canvas_reliability_local_planning_fresh','canvas_reliability_local_planning_resume','canvas_reliability_local_planning_transient','canvas_reliability_local_planning_bounded','canvas_reliability_local_planning_unknown','canvas_reliability_local_planning_guards','canvas_reliability_local_planning_diagnostics','canvas_reliability_local_planning_stored',
     'canvas_reliability_plan_correction_review_recover','canvas_reliability_plan_correction_review_guards','canvas_reliability_plan_correction_review_race','canvas_reliability_plan_correction_review_format',
+    ...['api','parallel','dispatch','cumulative','context','resume','accepted-resume'].map(name=>`canvas_reliability_media_policy_${name}`),
+    ...['parallel','historical','unknown','text','resume-outer','resume-model'].map(name=>`canvas_reliability_media_action_policy_${name}`),
   ]);
   assert.equal(parseRuntimeArgs(['--suite','canvas-reliability'],{}).suite,'canvas-reliability');
   assert.throws(()=>parseRuntimeArgs(['--suite','canvas-reliability','--suite','canvas'],{}));
@@ -1198,7 +1200,7 @@ test('Canvas reliability runs additive native callers with the complete staged h
   assert.equal(runtimeSuites.find(([name])=>name==='canvas-reliability')[1],runCanvasReliabilityTests,'Full also discovers the new native callers');
   assert.match(read('tests/helpers/q2-runtime/linux-bootstrap.py'),/\+ \["canvas-reliability"\]/);
   const required=['tests/helpers/canvas-project-lifecycle-control.mjs','tests/helpers/canvas-notifications-control.mjs','tests/helpers/canvas-agent-explanation-control.mjs',
-    'tests/helpers/canvas-incident-control.mjs','tests/helpers/canvas-agent-plan-interpretation-control.mjs','tests/helpers/canvas-agent-plan-correction-review-control.mjs'];
+    'tests/helpers/canvas-incident-control.mjs','tests/helpers/canvas-agent-plan-interpretation-control.mjs','tests/helpers/canvas-agent-plan-correction-review-control.mjs','tests/helpers/canvas-agent-media-policy-control.mjs','tests/helpers/canvas-agent-media-action-policy-control.mjs'];
   const validate=plan=>{for(const file of required)assert(plan.includes(file),'Missing reliability helper in staged runtime');};
   validate(stageInputPlan());for(const missing of required)assert.throws(()=>validate(stageInputPlan().filter(file=>file!==missing)),/Missing reliability helper/);
   // Calibrate the real entrypoint: all required callbacks and the populated forward

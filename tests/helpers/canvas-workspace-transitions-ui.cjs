@@ -11,6 +11,7 @@ exports.workspace=async({page,expect,locale,mockSharedAuth,createCanvasApiMock,i
   await page.route(`**/api/account/canvas/projects/${other.id}`,route=>route.fulfill({json:{ok:true,data:{project:other,nodes:[],edges:[],runs:[]}}}));
   await page.goto(de?'/de/canvas/':'/canvas/');
   const controls=page.locator('.canvas-view-controls'),width=controls.getByRole('spinbutton',{name:de?'Breite':'Width',exact:true}),height=controls.getByRole('spinbutton',{name:de?'Höhe':'Height',exact:true});
+  const showSize=()=>controls.locator('.canvas-workspace-size > summary').click();await showSize();
   const fit=controls.getByRole('button',{name:de?'Gesamten Graph einpassen':'Fit the whole graph',exact:true});
   const near=page.locator(`[data-node-id="${id(2)}"]`),far=page.locator(`[data-node-id="${id(3)}"]`);
   await expect(width).toHaveValue('2400');await expect.poll(()=>height.inputValue().then(Number)).toBeGreaterThan(1750);
@@ -29,7 +30,7 @@ exports.workspace=async({page,expect,locale,mockSharedAuth,createCanvasApiMock,i
   await width.fill('2076');await width.press('Enter');await expect(width).toHaveValue('4000');await expect(controls.locator('.canvas-workspace-minimum')).toContainText('2319');
   const minH=await height.getAttribute('min');expect(Number(minH)).toBeGreaterThan(1750);expect(Number(minH)).toBeLessThan(2300);
   await height.fill('1750');await height.press('Enter');await expect(height).toHaveValue('3000');expect(state.projects[0].workspace_height).toBe(3000);
-  await page.reload();await expect(width).toHaveValue('4000');await expect(height).toHaveValue('3000');await fit.click();
+  await page.reload();await showSize();await expect(width).toHaveValue('4000');await expect(height).toHaveValue('3000');await fit.click();
   page.once('dialog',dialog=>dialog.accept());await far.press('Enter');await far.press('Delete');
   await expect(far).toHaveCount(0);await expect.poll(async()=>Number(await width.getAttribute('min'))).toBeLessThan(500);
   await width.fill('500');await width.press('Enter');await expect.poll(()=>state.projects[0].workspace_width).toBe(500);
@@ -41,7 +42,7 @@ exports.workspace=async({page,expect,locale,mockSharedAuth,createCanvasApiMock,i
   await page.locator('.canvas-project-item__open').filter({hasText:'Workspace bounds'}).click();if(de)await page.locator('#canvasGraphToggle').click();await expect(width).toHaveValue('500');await expect(height).toHaveValue('400');
   let rejectSave=true;await page.route(`**/api/account/canvas/projects/${id(1)}`,route=>route.request().method()==='PATCH'&&rejectSave?route.fulfill({status:503,json:{ok:false,error:'Controlled save failure'}}):route.fallback());
   await width.fill('600');await width.press('Enter');await expect(controls.locator('.canvas-workspace-minimum')).toContainText(de?'nicht gespeichert':'not saved');await expect(width).toHaveValue('500');expect(state.projects[0].workspace_width).toBe(500);rejectSave=false;
-  await page.reload();await expect(width).toHaveValue('500');await expect(height).toHaveValue('400');
+  await page.reload();await showSize();await expect(width).toHaveValue('500');await expect(height).toHaveValue('400');
   await page.locator('#canvasNodeType').selectOption('note');await page.locator('#canvasAddNode').click();await expect.poll(()=>state.nodes.length).toBe(2);
   const added=state.nodes.at(-1);expect(added.x).toBeGreaterThanOrEqual(13);expect(added.x).toBeLessThanOrEqual(257);expect(added.y).toBeLessThanOrEqual(274);
   expect(await controls.locator('input').evaluateAll(inputs=>inputs.every(i=>i.labels.length))).toBe(true);

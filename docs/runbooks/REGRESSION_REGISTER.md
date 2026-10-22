@@ -2041,6 +2041,19 @@ request-count and reload checks. Evidence: local cache
 `diagnostics/{viewport,p13-geometry}-f2d89d96`; source/run/attempt as above. Final
 committed-source acceptance remains required.
 
+2026-10-22 follow-up, candidate `ed3c2a0c`, local attempt 1: the workspace
+redesign renders the P13 note card at 230×142.046875 CSSpx; 126px remains a
+minimum, not a fixed height. Four Chromium cases stopped at the old geometry
+assertion before exercising edits. Measure the rendered rectangle at verified
+unit scale, independently of PATCH data, and require its rounded dimensions in
+the exact movement payload. Missing dimensions, a one-pixel error, the obsolete
+126px height, stale coordinates and lost content remain rejected. All eight
+EN/DE Chromium/WebKit rapid-edit and pointer-capture cases passed in 15.6s
+against the unchanged candidate build. Caller: `test:static` with
+`tests/oma2-q1-canvas.spec.js --grep 'rapid same/different nodes|real pointer drag survives'`.
+Evidence: local cache `bitbi-canvas-model-policy/p13-geometry-focused.json` and
+the failed release checkpoint; final committed-source acceptance is separate.
+
 A transition recipe increment must not bypass the existing audio-fit correction:
 processor v6 retains fit-policy validation, source windows and exactly-once source
 envelopes. Pair preview checks the same overlap with frame-rounded windows and

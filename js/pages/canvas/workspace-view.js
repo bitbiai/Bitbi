@@ -9,12 +9,17 @@ export function createWorkspaceView({viewport,surface,nodesRoot,edgesRoot,toolba
     const percent=document.createElement('output');percent.setAttribute('aria-label','Zoom');wrap.append(percent);
     const plus=button('+',german?'Vergrößern':'Zoom in',()=>scale(zoom*1.2));
     button(german?'Inhalt einpassen':'Fit contents',german?'Gesamten Graph einpassen':'Fit the whole graph',fit);
+    const dimensions=document.createElement('details'),summary=document.createElement('summary'),fields=document.createElement('div'),explanation=document.createElement('p');
+    dimensions.className='canvas-workspace-size';fields.className='canvas-workspace-size__fields';summary.textContent=german?'Arbeitsfläche':'Workspace size';
+    explanation.textContent=german?'Die Arbeitsfläche wächst mit deinen Nodes. Eine feste Größe ist optional.':'The workspace grows with your nodes. A fixed size is optional.';
+    fields.append(explanation);dimensions.append(summary,fields);wrap.append(dimensions);
+    dimensions.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();dimensions.open=false;summary.focus();}});
     const inputs={};
     for(const [key,label] of [['width',german?'Breite':'Width'],['height',german?'Höhe':'Height']]) {
-        const field=document.createElement('label'),input=document.createElement('input');field.textContent=label;input.type='number';input.step='1';input.max=String(WORKSPACE_LIMIT);input.className='canvas-input';input.setAttribute('aria-label',label);field.append(input);wrap.append(field);inputs[key]=input;
+        const field=document.createElement('label'),input=document.createElement('input');field.textContent=label;input.type='number';input.step='1';input.max=String(WORKSPACE_LIMIT);input.className='canvas-input';input.setAttribute('aria-label',label);field.append(input);fields.append(field);inputs[key]=input;
         input.addEventListener('change',()=>void resize());input.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();void resize();}if(event.key==='Escape'){input.value=String(size[key]);input.blur();}});
     }
-    const note=document.createElement('span');note.className='canvas-workspace-minimum';note.setAttribute('role','status');wrap.append(note);toolbar.querySelector('.canvas-graph-actions').before(wrap);
+    const note=document.createElement('span');note.className='canvas-workspace-minimum';note.setAttribute('role','status');fields.append(note);toolbar.querySelector('.canvas-graph-actions').before(wrap);
     const measured=()=>getState().nodes.map(node=>{const card=[...nodesRoot.children].find(c=>c.dataset.nodeId===node.id);return {...node,width:card?.offsetWidth||node.width,height:card?.offsetHeight||node.height};});
     function paint() {
         const state=getState(),nodes=measured(),bounds=workspaceBounds(nodes);size=workspaceSize(state.project,nodes);
@@ -33,6 +38,19 @@ export function createWorkspaceView({viewport,surface,nodesRoot,edgesRoot,toolba
     function remember(){if(projectId)preferences.set(projectId,{zoom,x:viewport.scrollLeft,y:viewport.scrollTop});}
     viewport.addEventListener('scroll',remember,{passive:true});
     function fit(){paint();const b=workspaceBounds(measured()),margin=40;zoom=Math.min(2,Math.max(.001,Math.min(viewport.clientWidth/(b.width+margin*2),viewport.clientHeight/(b.height+margin*2))));paint();viewport.scrollTo(Math.max(0,(b.left-size.left-margin)*zoom),Math.max(0,(b.top-size.top-margin)*zoom));remember();}
+    function focusNode(id){const node=measured().find(item=>item.id===id);if(!node)return;paint();viewport.scrollTo(Math.max(0,(Number(node.x)-size.left+(node.width||230)/2)*zoom-viewport.clientWidth/2),Math.max(0,(Number(node.y)-size.top+(node.height||126)/2)*zoom-viewport.clientHeight/2));remember();}
+    function centerPlacement(){
+        const width=230,height=126,gap=24,visible={left:Math.max(size.left+NODE_HANDLE,size.left+viewport.scrollLeft/zoom+NODE_HANDLE),top:Math.max(size.top,size.top+viewport.scrollTop/zoom),right:Math.min(size.left+size.width-width-NODE_HANDLE,size.left+(viewport.scrollLeft+viewport.clientWidth)/zoom-width-NODE_HANDLE),bottom:Math.min(size.top+size.height-height,size.top+(viewport.scrollTop+viewport.clientHeight)/zoom-height)};
+        const x=Math.max(visible.left,Math.min(visible.right,size.left+(viewport.scrollLeft+viewport.clientWidth/2)/zoom-width/2)),y=Math.max(visible.top,Math.min(visible.bottom,size.top+(viewport.scrollTop+viewport.clientHeight/2)/zoom-height/2));
+        const nodes=measured(),xs=[x,x+width+gap,x-width-gap,visible.left,visible.right],ys=[y,y+height+gap,y-height-gap,visible.top,visible.bottom];
+        for(const candidateY of ys)for(const candidateX of xs){
+            if(candidateX<visible.left||candidateX>visible.right||candidateY<visible.top||candidateY>visible.bottom)continue;
+            if(!nodes.some(node=>candidateX<Number(node.x)+(node.width||width)+gap&&candidateX+width+gap>Number(node.x)&&candidateY<Number(node.y)+(node.height||height)+gap&&candidateY+height+gap>Number(node.y)))return {x:candidateX,y:candidateY};
+        }
+        // A crowded/small view still receives the node in view; it never uses
+        // the global node count to place new work beyond the current viewport.
+        return {x,y};
+    }
     async function resize(){
         if(busy||!getState().project)return;const width=Number(inputs.width.value),height=Number(inputs.height.value),nodes=measured(),bounds=workspaceBounds(nodes);
         if(!validWorkspaceSize(width,height,bounds)){inputs.width.value=String(size.width);inputs.height.value=String(size.height);note.textContent=feedback=(german?'Nicht gespeichert. Minimum: ':'Not saved. Minimum: ')+`${bounds.width} × ${bounds.height}; Maximum: ${WORKSPACE_LIMIT}.`;return;}
@@ -44,5 +62,5 @@ export function createWorkspaceView({viewport,surface,nodesRoot,edgesRoot,toolba
         if(getState().project===project){paint();inputs.width.value=String(size.width);inputs.height.value=String(size.height);}
     }
     const observer=new ResizeObserver(()=>paint());
-    return {refresh(){observer.disconnect();observer.observe(viewport);for(const card of nodesRoot.children)observer.observe(card);const id=getState().project?.id;if(id!==projectId){projectId=id;feedback='';const pref=preferences.get(id);zoom=pref?.zoom||1;paint();viewport.scrollTo(pref?.x||0,pref?.y||0);}else paint();},get zoom(){return zoom;},placement(offsetX=70,offsetY=70){return {x:size.left+(viewport.scrollLeft+offsetX)/zoom,y:size.top+(viewport.scrollTop+offsetY)/zoom};},limits(card){return {minX:size.left+NODE_HANDLE,minY:size.top,maxX:size.left+size.width-(card?.offsetWidth||230)-NODE_HANDLE,maxY:size.top+size.height-(card?.offsetHeight||126)};}};
+    return {refresh(){observer.disconnect();observer.observe(viewport);for(const card of nodesRoot.children)observer.observe(card);const id=getState().project?.id;if(id!==projectId){projectId=id;feedback='';const pref=preferences.get(id);zoom=pref?.zoom||1;paint();viewport.scrollTo(pref?.x||0,pref?.y||0);}else paint();},get zoom(){return zoom;},focusNode,centerPlacement,placement(offsetX=70,offsetY=70){return {x:size.left+(viewport.scrollLeft+offsetX)/zoom,y:size.top+(viewport.scrollTop+offsetY)/zoom};},limits(card){return {minX:size.left+NODE_HANDLE,minY:size.top,maxX:size.left+size.width-(card?.offsetWidth||230)-NODE_HANDLE,maxY:size.top+size.height-(card?.offsetHeight||126)};}};
 }

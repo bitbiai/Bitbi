@@ -11,6 +11,8 @@ export const canvasReliabilityInventory=Object.freeze([
   ...['resume','automatic','lost-ack','missing-storage','edited','adopt-current','unknown','cancelled','expired','foreign','completion-window','proof-recheck'].map(name=>`canvas_reliability_media_completion_${name}`),
   ...['fresh','resume','transient','bounded','unknown','guards','diagnostics','stored'].map(name=>`canvas_reliability_local_planning_${name}`),
   ...['recover','guards','race','format'].map(name=>`canvas_reliability_plan_correction_review_${name}`),
+  ...['api','parallel','dispatch','cumulative','context','resume','accepted-resume'].map(name=>`canvas_reliability_media_policy_${name}`),
+  ...['parallel','historical','unknown','text','resume-outer','resume-model'].map(name=>`canvas_reliability_media_action_policy_${name}`),
 ]);
 // This additive suite is also part of Full. It does not relabel or rerun the
 // previous Canvas/media evidence, and uses the same native Worker/D1 bindings.
@@ -81,6 +83,14 @@ export async function runCanvasReliabilityTests(f){
   for(const name of ['recover','guards','race','format'])await f.test(`canvas_reliability_plan_correction_review_${name}`,async()=>{
     const response=await f.control('/canvas-agent-plan-correction-review',{name});assert.equal(response.status,200,await response.clone().text());
     const result=await response.json();assert.equal(result.case,name);assert.equal(result.newPlanningCalls,name==='recover'?1:0);f.metrics.push(result);
+  });
+  for(const name of ['api','parallel','dispatch','cumulative','context','resume','accepted-resume'])await f.test(`canvas_reliability_media_policy_${name}`,async()=>{
+    const response=await f.control('/canvas-media-policy',{name});assert.equal(response.status,200,await response.clone().text());
+    const result=await response.json();assert.deepEqual(result,{case:name,paidProviderCalls:0});f.metrics.push(result);
+  });
+  for(const name of ['parallel','historical','unknown','text','resume-outer','resume-model'])await f.test(`canvas_reliability_media_action_policy_${name}`,async()=>{
+    const response=await f.control('/canvas-media-action-policy',{name});assert.equal(response.status,200,await response.clone().text());
+    const result=await response.json();assert.deepEqual(result,{case:name,paidProviderCalls:0});f.metrics.push(result);
   });
   assert.deepEqual(await f.rows('PRAGMA foreign_key_check'),[]);
 }

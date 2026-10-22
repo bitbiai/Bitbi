@@ -1,7 +1,9 @@
+import { canvasMediaConstraintError } from '../lib/canvas-agent-media-errors.js';
 import { canvasGenerationSettings } from '../../../../js/shared/canvas-generation-settings.mjs';
 import { updateWorkspace } from '../lib/canvas-workspace.js';
 import { handleCanvasAssembly } from '../lib/canvas-assembly.js';
 import { canvasAgentAuthority } from '../lib/canvas-agent-authority.js';
+import { canvasMediaActionAuthority } from '../lib/canvas-agent-media-action.js';
 import { handleCanvasMediaInspection } from './canvas-media-inspections.js';
 import { SEEDANCE_25_MODEL, seedance25References, seedance25Settings } from '../../../../js/shared/seedance-25-contract.mjs';
 import { areaCatalog, modelAreaEnvironment, assertModelArea, publicModelAvailability } from '../lib/model-availability.js';
@@ -1092,7 +1094,7 @@ async function runNode(ctx, session, projectId, nodeId) {
   if (!node) return respond(ctx, { ok: false, error: "Canvas node not found.", code: "node_not_found" }, { status: 404 });
   const capability = GENERATION_NODE_CAPABILITY[node.type];
   if (!capability) return respond(ctx, { ok: false, error: "Select a generation node to run.", code: "node_not_runnable" }, { status: 400 });
-  const executionRole = canvasAgentAuthority(ctx.env) ? 'member' : session.user.role;
+  const executionRole = canvasAgentAuthority(ctx.env)||canvasMediaActionAuthority(ctx.env) ? 'member' : session.user.role;
   const model = node.model_id ? getCanvasModelForRole(node.model_id, executionRole) : defaultModelForCapability(capability, executionRole);
   if (!model || model.capability !== capability) return respond(ctx, { ok: false, error: "Choose a model for this node.", code: "model_required" }, { status: 400 });
   if (!model.runnable) return respond(ctx, { ok: false, error: model.disabledReason || "Model is not runnable in Canvas.", code: "model_not_runnable" }, { status: 409 });
@@ -1478,6 +1480,7 @@ export async function handleCanvas(ctx) {
     const runsMatch = pathname.match(/^\/api\/account\/canvas\/projects\/([a-f0-9]{32})\/runs$/);
     if (runsMatch && method === "GET") return await listRuns(ctx, userId, runsMatch[1]);
   } catch (error) {
+    error = canvasMediaConstraintError(error);
     const status = Number(error.status || 500);
     if (status >= 500) {
       logDiagnostic({

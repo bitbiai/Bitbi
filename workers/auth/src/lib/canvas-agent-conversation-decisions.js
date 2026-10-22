@@ -48,13 +48,14 @@ async function boundScope(env,row,view){
   const source=await env.DB.prepare("SELECT user_text FROM canvas_agent_turns WHERE id=? AND project_id=? AND state!='deleted'").bind(brief.fields.story.sourceMessageId,row.project_id).first();
   if(source?.user_text)completeBrief+='\nOriginal user brief: '+source.user_text;
  }
- return {questionConversationRevision:row.revision+1,projectRevision:view.project.revision,briefRevision:row.brief_revision,...selection(row),tariffRevision:tariff.revision,
+ return {questionConversationRevision:row.revision+1,projectRevision:view.project.revision,mediaPolicyRevision:view.project.media_policy_revision||0,briefRevision:row.brief_revision,...selection(row),tariffRevision:tariff.revision,
   brief:completeBrief,story:brief.fields.story?.value||'',targetDurationSeconds:brief.duration.targetDurationSeconds,durationChoice:brief.duration.choice,locale:view.project.locale==='de'?'de':'en'};
 }
 async function assertCurrent(env,row,view,decision){
  const scope=parse(decision.scope_json);
  if(decision.user_id!==row.user_id||decision.project_id!==row.project_id)agentFail('canvas_agent_decision_not_found',404);
  if(decision.state!=='pending'||decision.expires_at<=nowIso())agentFail('canvas_agent_decision_expired');
+ if((scope.mediaPolicyRevision??0)!==(view.project.media_policy_revision||0))agentFail('canvas_agent_media_policy_changed');
  if(scope.questionConversationRevision!==row.revision||scope.projectRevision!==view.project.revision||scope.briefRevision!==row.brief_revision||scope.modelId!==selection(row).modelId||scope.modelRevision!==selection(row).modelRevision)agentFail('canvas_agent_decision_changed');
  if(scope.quote&&!validCanvasAssistantQuoteAdmission(scope.quote))agentFail('model_pricing_stale');
  if(scope.tariffRevision!==(await getModelTariff(env)).revision)agentFail('model_pricing_stale');
@@ -67,7 +68,7 @@ export async function publicCanvasConversationDecision(env,projectId,userId){
  let code=null;try{await assertCurrent(env,row,view,decision);}catch(error){code=error.code||'canvas_agent_decision_changed';}
  return {id:decision.id,revision:decision.revision,kind:decision.kind,state:code?'stale':'pending',code,expiresAt:decision.expires_at,
   scope:{story:scope.story,targetDurationSeconds:scope.targetDurationSeconds,durationChoice:scope.durationChoice,capCredits:scope.capCredits??null,
-   modelId:scope.modelId,modelRevision:scope.modelRevision,tariffRevision:scope.tariffRevision,expectedRevision:scope.projectRevision,expectedBriefRevision:scope.briefRevision},quote:scope.quote||null};
+   modelId:scope.modelId,modelRevision:scope.modelRevision,mediaPolicyRevision:scope.mediaPolicyRevision??0,tariffRevision:scope.tariffRevision,expectedRevision:scope.projectRevision,expectedBriefRevision:scope.briefRevision},quote:scope.quote||null};
 }
 export async function ensureCanvasConversationBudgetQuestion(env,projectId,userId){
  const row=await ensureConversation(env,projectId,userId),brief=parse(row.brief_json);
@@ -133,7 +134,7 @@ export async function confirmCanvasConversationDecision(ctx,session,projectId,in
  if(await canvasConversationBlocker(ctx.env,projectId))agentFail('canvas_agent_conversation_pending');
  const held=await ctx.env.DB.prepare("SELECT o.id FROM canvas_agent_model_operations o JOIN canvas_agent_runs r ON r.id=o.run_id WHERE r.project_id=? AND o.state IN ('dispatching','pending','unknown','received') LIMIT 1").bind(projectId).first();
  if(held)agentFail('canvas_agent_provider_review_required');
- const body={brief:scope.brief,targetDurationSeconds:scope.targetDurationSeconds,durationChoice:scope.durationChoice,budgetCredits:scope.capCredits,
+ const body={brief:scope.brief,targetDurationSeconds:scope.targetDurationSeconds,durationChoice:scope.durationChoice,budgetCredits:scope.capCredits,mediaPolicyRevision:scope.mediaPolicyRevision??0,
   expectedRevision:scope.projectRevision,locale:scope.locale};
  const request=new Request(ctx.request,{body:JSON.stringify(body),headers:{'Content-Type':'application/json','Idempotency-Key':'decision:'+decision.id,[TARIFF_HEADER]:String(scope.tariffRevision)}});
  const result=await startCanvasAgent({...ctx,request},session,projectId,{briefRevision:scope.briefRevision,assistantModelId:scope.modelId,assistantModelRevision:scope.modelRevision,guard:[conversationGuard(ctx.env,row),decisionGuard(ctx.env,decision,scope)],afterStart:runId=>[

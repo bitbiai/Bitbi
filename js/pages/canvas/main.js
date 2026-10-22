@@ -1,5 +1,7 @@
 import { transitionControls } from './transition-controls.js?v=__ASSET_VERSION__';
 import { createWorkspaceView } from './workspace-view.js?v=__ASSET_VERSION__';
+import { createCanvasGraphActions } from './graph-actions.js?v=__ASSET_VERSION__';
+import { createCanvasProjectFilter } from './project-filter.js?v=__ASSET_VERSION__';
 import { createCanvasAgentWorkspace } from './agent-workspace.js?v=__ASSET_VERSION__';
 import { canvasMergeStrand } from '../../shared/canvas-export.mjs?v=__ASSET_VERSION__';
 import { SEEDANCE_25_MODEL, SEEDANCE_25_ROLES } from '../../shared/seedance-25-contract.mjs';
@@ -53,7 +55,7 @@ const copy = isGerman ? {
     run: 'Ausführen', running: 'Wird ausgeführt', failed: 'Fehlgeschlagen', output: 'Ausgabe', outputEmpty: 'Deine Ausgabe erscheint hier', estimated: 'Geschätzte Credits', disabled: 'Nicht ausführbar', selectAsset: 'Asset auswählen', loadingAssets: 'Assets werden geladen…', noAssets: 'Keine Assets gefunden.',
     projectCreated: 'Canvas erstellt.', projectDeleted: 'Canvas gelöscht.', nodeAdded: 'Node hinzugefügt.', runComplete: 'Ausführung abgeschlossen.', projectsEmpty: 'Noch keine Canvas. Erstelle dein erstes Projekt.',
     credits: 'Credits', recentRunsEmpty: 'Dein Verlauf erscheint hier.', networkError: 'Canvas konnte nicht geladen werden.', runInProgress: 'Diese Ausführung läuft bereits.',
-    noInput: 'Kein Input', inputConnected: 'Input verbunden', needsUpstream: 'Upstream ausführen', runUpstream: 'Führe zuerst den Upstream-Node aus.', edgeCompatible: 'Kompatibler Input.',
+    noInput: 'Kein Input', inputConnected: 'Input verbunden', needsUpstream: 'Eingabe zuerst erstellen', runUpstream: 'Erstelle zuerst das Ergebnis im verbundenen Quell-Node.', edgeCompatible: 'Kompatibler Input.',
     inputHandle: 'Input-Anschluss', outputHandle: 'Output-Anschluss', inputFrom: 'Input von', connectedInput: 'Verbundener Input', effectivePrompt: 'Effektiver Prompt', directOverride: 'Der direkte Prompt überschreibt verbundenen Text.',
     moveNode: 'Node ziehen oder mit den Pfeiltasten verschieben; Umschalt für größere Schritte.',
     mediaRoleChanged: 'Die gespeicherte Eingaberolle passt nicht zum Medientyp. Bitte eine passende Rolle auswählen.',
@@ -72,7 +74,7 @@ const copy = isGerman ? {
     run: 'Run', running: 'Running', failed: 'Failed', output: 'Output', outputEmpty: 'Your output will appear here', estimated: 'Estimated credits', disabled: 'Not runnable', selectAsset: 'Select asset', loadingAssets: 'Loading assets…', noAssets: 'No assets found.',
     projectCreated: 'Canvas created.', projectDeleted: 'Canvas deleted.', nodeAdded: 'Node added.', runComplete: 'Run completed.', projectsEmpty: 'No Canvas projects yet. Create your first project.',
     credits: 'Credits', recentRunsEmpty: 'Your run history will appear here.', networkError: 'Canvas could not be loaded.', runInProgress: 'This run is already in progress.',
-    noInput: 'No input', inputConnected: 'Input connected', needsUpstream: 'Needs upstream', runUpstream: 'Run the upstream node first.', edgeCompatible: 'Compatible input.',
+    noInput: 'No input', inputConnected: 'Input connected', needsUpstream: 'Create input first', runUpstream: 'Create the result in the connected source node first.', edgeCompatible: 'Compatible input.',
     inputHandle: 'Input handle', outputHandle: 'Output handle', inputFrom: 'Input from', connectedInput: 'Connected input', effectivePrompt: 'Effective prompt', directOverride: 'The direct prompt overrides connected text.',
     moveNode: 'Drag the node or use arrow keys to move it; hold Shift for larger steps.',
     mediaRoleChanged: 'The saved input role does not match this media type. Choose a compatible role.',
@@ -82,6 +84,12 @@ const copy = isGerman ? {
 
 let workspaceView;
 const videoCopy = videoInputCopy(isGerman);
+copy.nodeActions = isGerman ? 'Node-Aktionen' : 'Node actions';
+copy.runStateUnknown = isGerman ? 'Status wird geprüft' : 'Checking status';
+copy.awaitingMediaSave = isGerman ? 'Speicherung ausstehend' : 'Awaiting save';
+copy.runStatuses = isGerman
+    ? { queued:'Wartet', pending:'Wartet', running:'Wird erstellt', processing:'Wird verarbeitet', completed:'Abgeschlossen', failed:'Fehlgeschlagen', cancelled:'Abgebrochen', canceled:'Abgebrochen', blocked:'Benötigt Aufmerksamkeit' }
+    : { queued:'Queued', pending:'Waiting', running:'Generating', processing:'Processing', completed:'Completed', failed:'Failed', cancelled:'Cancelled', canceled:'Cancelled', blocked:'Needs attention' };
 Object.assign(copy, { videoAmbiguous: videoCopy.ambiguous, videoMethodRequired: videoCopy.required, videoPreparing: videoCopy.preparing });
 let videoObservation = new AbortController();
 window.addEventListener('pagehide', event => {
@@ -114,6 +122,15 @@ const pendingRunKeys = new Map();
 let workflowAnalysis = { byNode: new Map(), edgeStates: new Map() };
 let agentPanel = null;
 let agentVisible = null;
+const projectFilter = createCanvasProjectFilter({ list: dom.projects, german: isGerman });
+const graphActions = createCanvasGraphActions({ viewport: dom.viewport, german: isGerman, run(action, id) {
+    if (!store.state.project || projectTransition || !store.state.nodes.some(node => node.id === id) || dom.viewport.closest('[inert], [hidden]')) return;
+    store.state.selected = { kind: 'node', id };
+    if (action === 'inspect') { renderGraph(); renderInspector(); showPanel('inspector'); dom.inspectorTitle.focus({ preventScroll: true }); }
+    else if (action === 'focus') workspaceView.focusNode(id);
+    else if (action === 'connect') { store.state.connecting = true; store.state.connectionSourceId = id; renderGraph(); dom.hint.textContent = copy.connectTarget; }
+    else if (action === 'delete') void deleteSelection();
+} });
 
 // Panel state is presentation-only: retain mounted inputs, media and graph scroll.
 const compactWorkspace = window.matchMedia('(max-width: 900px)');
@@ -125,6 +142,7 @@ const panels = Object.fromEntries(['projects', 'graph', 'inspector', 'history', 
 const agentWorkspace = createCanvasAgentWorkspace({ app: dom.app, panels, compact: compactWorkspace, german: isGerman, onChange: syncPanels });
 
 function syncPanels() {
+    graphActions.close();
     const compact = compactWorkspace.matches;
     const active = document.activeElement;
     dom.app.dataset.projects = panelState.projects ? 'open' : 'closed';
@@ -317,13 +335,16 @@ function renderProjects() {
     dom.projects.replaceChildren();
     if (!store.state.projects.length) {
         dom.projects.append(el('p', 'canvas-muted', copy.projectsEmpty));
+        projectFilter.refresh();
         return;
     }
     for (const project of store.state.projects) {
         const item = el('div', 'canvas-project-item');
+        item.dataset.title = project.title;
         if (project.id === store.state.project?.id) item.classList.add('is-active');
         const open = el('button', 'canvas-project-item__open');
         open.type = 'button';
+        if (project.id === store.state.project?.id) open.setAttribute('aria-current', 'true');
         open.append(el('strong', '', project.title), el('small', '', new Date(project.updated_at).toLocaleString(isGerman ? 'de-DE' : 'en-US', { dateStyle: 'medium' })));
         open.addEventListener('click', () => void openProject(project.id));
         const actions = el('span', 'canvas-project-item__actions');
@@ -346,9 +367,11 @@ function renderProjects() {
         item.append(open, actions);
         dom.projects.append(item);
     }
+    projectFilter.refresh();
 }
 
 function renderGraph() {
+    graphActions.close();
     workflowAnalysis = analyzeWorkflow(store.state.nodes, store.state.edges, store.state.models, copy);
     graph.render({ ...store.state, copy, nodeAnalysis: workflowAnalysis.byNode, edgeStates: workflowAnalysis.edgeStates });
     store.state.nodes.forEach(renderVideoStatus);
@@ -859,6 +882,13 @@ function renderAll() { renderNewNodeChoices(); renderProjects(); renderGraph(); 
 const graph = createCanvasGraph({
     nodesRoot: dom.nodes, edgesRoot: dom.edges, emptyState: dom.empty, copy,
     view: () => workspaceView,
+    onActions(id, anchor, point) {
+        store.state.selected = { kind: 'node', id };
+        dom.deleteSelection.disabled = false;
+        dom.hint.textContent = copy.selectedNode;
+        renderInspector();updateContributors();
+        graphActions.open({ id, anchor, ...point });
+    },
     onSelect(kind, id, options = {}) {
         if (store.state.connecting && kind === 'node' && store.state.connectionSourceId && id !== store.state.connectionSourceId) void connectNodes(store.state.connectionSourceId, id);
         else {
@@ -967,10 +997,9 @@ async function addNode() {
     const capability = ({ text_generation: 'text', image_generation: 'image', video_generation: 'video', music_generation: 'music' })[type];
     const model = store.state.models.find((item) => item.capability === capability && item.runnable && item.areaEnabled!==false);
     if(capability&&!model)return;
-    const count = store.state.nodes.length;
-    const position=workspaceView.placement(),bounds=workspaceView.limits();
-    const visibleX = Math.min(bounds.maxX, Math.max(bounds.minX,position.x+(count%3)*270));
-    const visibleY = Math.min(bounds.maxY, Math.max(bounds.minY,position.y+Math.floor(count/3)*180));
+    const position=workspaceView.centerPlacement(),bounds=workspaceView.limits();
+    const visibleX = Math.min(bounds.maxX, Math.max(bounds.minX,position.x));
+    const visibleY = Math.min(bounds.maxY, Math.max(bounds.minY,position.y));
     const body = {
         type, title: copy.nodeTypes[type], x: visibleX, y: visibleY,
         model_id: model?.id || null,
@@ -1239,7 +1268,7 @@ function bindEvents() {
     document.addEventListener('keydown', (event) => {
         if (assetPicker.isOpen()) return;
         if (!['Delete', 'Backspace'].includes(event.key)) return;
-        if (event.target.closest?.('input, textarea, select, [contenteditable="true"], #canvasNotificationsPanel')) return;
+        if (event.target.closest?.('input, textarea, select, [contenteditable="true"], #canvasNotificationsPanel, .canvas-node-menu')) return;
         if (panels.graph.panel.inert) { event.preventDefault(); return; }
         if (!store.state.selected) return;
         event.preventDefault(); void deleteSelection();
@@ -1250,6 +1279,7 @@ function bindEvents() {
         event.preventDefault(); event.returnValue = '';
     });
     document.addEventListener('bitbi:auth-change',event=>{
+        graphActions.close();
         const auth=event.detail||getAuthState();
         if(!auth.sessionConfirmed){suspendCanvasSession(true);document.querySelector('.canvas-layout').inert=true;dom.title.disabled=true;dom.organization.disabled=true;return;}
         const actor=auth.loggedIn&&typeof auth.user?.id==='string'?auth.user.id:null;

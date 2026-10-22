@@ -1,3 +1,4 @@
+import { restrictCanvasMediaInventory } from './canvas-agent-media-policy.js';
 import { canvasExecutionDiagnostic } from './canvas-agent-execution-failure.js';
 import { CANVAS_AGENT_DIALOGUE_VERSION } from '../../../shared/canvas-agent-dialogue.mjs';
 import { dialoguePriceInput } from '../../../shared/canvas-agent-dialogue.mjs';
@@ -89,6 +90,8 @@ export function evaluationPriceInput(modelId=CANVAS_AGENT_MODEL) {
 export const quoteCanvasAgentPlan=(env,payload)=>quoteModelTariff(env,{modelId:canvasAssistantModelId(payload.model),input:plannerPriceInput(payload)});
 export async function budgetCanvasAgentPlan(env,run,payload) {
     const budget=await readCanvasAgentBudget(env,run);
+    const capabilities=await restrictCanvasMediaInventory(env,run.project_id,payload.capabilities);
+    payload={...payload,capabilities,capabilityRevision:capabilities.revision};
     // Pin the exact release-controlled instruction composition before quoting
     // or saving the step. A later deployment cannot silently replace it.
     payload={...payload,model:canvasAssistantModelId(run.model_id),policy:await canvasAgentPolicyIdentity(payload.repair?'correction':'planning',JSON.parse(run.policy_json||'null')?.version)};

@@ -68,6 +68,11 @@ export async function verifyCanvasNaturalChatMigration(env,seed){
     for(const table of ['canvas_agent_incidents','canvas_agent_incident_explanations'])
       check((await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first()).n===0,'Forward migration cannot invent an incident or explanatory conversation');
   }
+  if(Object.hasOwn(snapshot.project,'media_policy_revision')){
+    Object.assign(expected.project,{media_policy_revision:0});
+    Object.assign(expected.run,{media_policy_revision:0});
+    check((await env.DB.prepare('SELECT COUNT(*) AS n FROM canvas_agent_media_policies').first()).n===0,'Legacy projects retain automatic eligibility without invented model authorization');
+  }
   check(JSON.stringify(snapshot)===JSON.stringify(expected),'Forward migration preserves exact paid identities, original ledger, transcript, brief and graph bytes');
   const debit=(await env.DB.prepare('SELECT COALESCE(SUM(-amount),0) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(seed.owner).first()).n;
   check(debit===78,'The original actual debit is preserved');
@@ -354,6 +359,12 @@ export async function canvasActionCase(base,{name,...media}){
    const shown=await perform('Show that editable node and the current project.',[await action('focus_node',{targetId:f.nodes[0]}),await action('show_project')]);requireCompleted(shown);
    check(shown[0].effect.targetId===f.nodes[0]&&shown[1].effect.kind==='show_project','Navigation is bounded to owned targets');
   }else if(name==='regenerate'){
+   const direct=await f.request(f.projectPath+'/agent','POST',{brief:'A 16 second film about the same factory.',targetDurationSeconds:16,expectedRevision:await revision(),budgetCredits:5000,locale:'en'},
+    {'Idempotency-Key':'actions-variant-project-cap','X-Bitbi-Tariff-Revision':String((await getModelTariff(f.env)).revision)});
+   const run=(await expected(direct,202)).run;
+   await expected(await f.request(`${f.projectPath}/agent/${run.id}/control`,'POST',{action:'pause'},{'Idempotency-Key':'actions-pause-before-variant'}),200);
+   // The explicitly approved variant is subject to the same outer project cap.
+   // Pausing unstarted automatic work does not spend on a replacement film.
    const rows=await perform('Generate a new version of only the first clip.',[await action('regenerate',{targetId:f.nodes[0]})]),proposal=rows[0];
    check(proposal.state==='confirmation_required'&&proposal.confirmation.credits>0&&f.calls.length===0,'A new variant requires its exact monetary confirmation');
    await expected(await confirm(proposal,{credits:proposal.confirmation.credits+1}),409,'canvas_agent_action_confirmation_changed');

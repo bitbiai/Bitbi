@@ -1,3 +1,4 @@
+import { readCanvasMediaPolicy, restrictCanvasMediaInventory, canvasMediaResumeStatements } from '../lib/canvas-agent-media-policy.js';
 import { normalizeCanvasAgentStart, CANVAS_AGENT_MODEL, CANVAS_AGENT_LIMITS } from '../../../../js/shared/canvas-agent-contract.mjs';
 import { canvasAssistantModelId } from '../../../../js/shared/canvas-assistant-models.mjs';
 import { stablePricingJson,TARIFF_HEADER } from '../../../../js/shared/model-tariff.mjs';
@@ -36,6 +37,8 @@ export async function startCanvasAgent(ctx,session,projectId,{briefRevision=null
     const view=await canvasAgentProject(env,userId,projectId);
     const input=normalizeCanvasAgentStart(parsed.body);
     if(input.expectedRevision!==view.project.revision)agentFail('canvas_agent_project_changed');
+    const mediaPolicy=await readCanvasMediaPolicy(env,projectId,userId);
+    if(input.mediaPolicyRevision!==mediaPolicy.revision)agentFail('canvas_agent_media_policy_changed');
     const conversation=await env.DB.prepare('SELECT assistant_model_id,assistant_model_revision FROM canvas_agent_conversations WHERE project_id=? AND user_id=?').bind(projectId,userId).first();
     const modelId=canvasAssistantModelId(assistantModelId??conversation?.assistant_model_id);
     const modelRevision=assistantModelRevision??conversation?.assistant_model_revision??0;
@@ -49,7 +52,7 @@ export async function startCanvasAgent(ctx,session,projectId,{briefRevision=null
     let inventory=null,planStep=null;
     if(input.duration){
         if(!availability.available)agentFail(availability.code,503);
-        inventory=await canvasAgentCapabilities(env);
+        inventory=await restrictCanvasMediaInventory(env,projectId,await canvasAgentCapabilities(env),userId);
         // A refreshed tariff is a new user decision, never a hidden higher cap.
         if(inventory.tariffRevision>0&&request.headers.get(TARIFF_HEADER)!==String(inventory.tariffRevision))agentFail('model_pricing_stale');
         const payload={version:1,model:modelId,requestId:id,brief:input.brief,...input.duration,
@@ -62,9 +65,9 @@ export async function startCanvasAgent(ctx,session,projectId,{briefRevision=null
         planStep={id:randomTokenHex(16),input:{modelId,payload:quote.payload},credits:quote.credits};
     }
     const insertIndex=statements.length;
-    statements.push(env.DB.prepare(`INSERT INTO canvas_agent_runs(id,project_id,user_id,request_key,input_json,status,expected_revision,target_seconds,budget_credits,tariff_revision,capability_revision,next_attempt_at,created_at,updated_at,expires_at,brief_revision,policy_json,model_id,model_revision)
-        SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM canvas_projects WHERE id=? AND user_id=? AND revision=? AND deleted_at IS NULL)`)
-        .bind(id,projectId,userId,key,stablePricingJson(parsed.body),input.duration?'queued':'clarification_required',view.project.revision,input.duration?.targetDurationSeconds??null,input.budgetCredits,inventory?.tariffRevision??null,inventory?.revision??null,now,now,now,expires,briefRevision,planStep?JSON.stringify(planStep.input.payload.policy):null,modelId,modelRevision,projectId,userId,view.project.revision));
+    statements.push(env.DB.prepare(`INSERT INTO canvas_agent_runs(id,project_id,user_id,request_key,input_json,status,expected_revision,target_seconds,budget_credits,tariff_revision,capability_revision,next_attempt_at,created_at,updated_at,expires_at,brief_revision,policy_json,model_id,model_revision,media_policy_revision)
+        SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM canvas_projects WHERE id=? AND user_id=? AND revision=? AND deleted_at IS NULL)`)
+        .bind(id,projectId,userId,key,stablePricingJson(parsed.body),input.duration?'queued':'clarification_required',view.project.revision,input.duration?.targetDurationSeconds??null,input.budgetCredits,inventory?.tariffRevision??null,inventory?.revision??null,now,now,now,expires,briefRevision,planStep?JSON.stringify(planStep.input.payload.policy):null,modelId,modelRevision,mediaPolicy.revision,projectId,userId,view.project.revision));
     if(planStep)statements.push(env.DB.prepare(`INSERT INTO canvas_agent_steps(id,run_id,step_key,kind,input_json,allocation_credits,created_at,updated_at) VALUES(?,?,'plan','plan',?,?,?,?)`).bind(planStep.id,id,JSON.stringify(planStep.input),planStep.credits,now,now));
     statements.push(...afterStart(id));
     statements.push(env.DB.prepare("UPDATE canvas_agent_conversation_decisions SET state='cancelled',revision=revision+1,updated_at=? WHERE project_id=? AND state='pending'").bind(now,projectId));
@@ -111,8 +114,10 @@ async function control(ctx,session,projectId,id) {
         const available=await canvasAgentAvailability(env,{modelId:run.model_id});if(!available.available)agentFail(available.code);
         if((await canvasAgentCapabilities(env)).tariffRevision!==run.tariff_revision)agentFail('model_pricing_stale');
     }
+    const mediaPolicyGuards=action==='resume'?await canvasMediaResumeStatements(env,run):[];
     const now=nowIso();
     await env.DB.batch([
+        ...mediaPolicyGuards,
         env.DB.prepare('INSERT INTO canvas_agent_controls(run_id,request_key,action,created_at) VALUES(?,?,?,?)').bind(id,key,action,now),
         env.DB.prepare('UPDATE canvas_agent_runs SET status=?,lease_token=NULL,lease_until=NULL,next_attempt_at=?,updated_at=? WHERE id=? AND user_id=? AND status=?')
             .bind(status,now,now,id,session.user.id,run.status),
@@ -168,6 +173,10 @@ async function budgetDecision(ctx,session,projectId,id) {
     return respond({run:await publicAgentRun(env,await env.DB.prepare('SELECT * FROM canvas_agent_runs WHERE id=?').bind(id).first())});
 }
 export async function handleCanvasAgent(ctx,session) {
+    if(ctx.pathname.endsWith('/agent/media-policy')) {
+        const {handleCanvasMediaPolicy}=await import('./canvas-agent-media-policy.js');
+        return handleCanvasMediaPolicy(ctx,session);
+    }
     if(ctx.pathname.includes('/agent/conversation')){
         const {handleCanvasAgentConversation}=await import('./canvas-agent-conversation.js');
         return handleCanvasAgentConversation(ctx,session);

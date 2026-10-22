@@ -67,6 +67,8 @@ export function canvasAgentModelConstraints(model) {
 }
 
 const MESSAGES={
+    canvas_agent_media_model_not_allowed:['modelId','This generator is not selected in the project media policy. Preserve the creative brief and choose an allowed suitable model; never expand the selection.'],
+    canvas_agent_media_limit_exceeded:['modelId','This cumulative model limit has insufficient headroom. Use an allowed suitable model within its remaining limit, or ask for a scoped user decision; do not reduce the requested story or raise limits.'],
     omni_capability_disabled:['dependencies','This Omni operation or resolution is disabled for members. Choose an enabled combination from its current readiness flags or another eligible model while preserving the required creative references.'],
     canvas_agent_h3_reference_modes_mixed:['dependencies','H3 cannot combine first/last frames (including extracted video last frames) with image, video or audio reference mode. Replan this shot using one mode; preserve required creative references through a compatible model or reference design.'],
     canvas_agent_h3_frame_ratio_required:['config.aspectRatio','H3 first/last-frame generation requires adaptive aspect ratio. Preserve the requested framing by choosing a suitable source frame, or use reference mode for an explicit output ratio.'],

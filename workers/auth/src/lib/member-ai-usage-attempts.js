@@ -1,3 +1,4 @@
+import { canvasMediaConstraintError } from './canvas-agent-media-errors.js';
 import { classifyDispatchAttempt, claimAiDispatch, failAiDispatch, markAiDispatchUnknown, confirmAiDispatchSuccess, recordAiLateOutcome, releaseExpiredAiDispatch, reconcileAiDispatchDebit } from "./ai-dispatch-state.js";
 import { BillingError } from "./billing.js";
 import { nowIso, randomTokenHex } from "./tokens.js";
@@ -171,6 +172,8 @@ async function getReplayObjectMetadata(env, key) {
 }
 
 function unavailableAttemptsError(error) {
+  const constraint = canvasMediaConstraintError(error);
+  if (constraint !== error) return new BillingError(constraint.code, { status: 409, code: constraint.code });
   if(String(error?.message || error).includes('model_area_disabled')) return new BillingError('This model has been temporarily disabled.',{status:409,code:'model_area_disabled'});
   if (String(error?.message || error).includes('model_pricing_stale')) {
     return new BillingError('Prices changed. Review the refreshed estimate before generating.', { status:409, code:'model_pricing_stale' });
@@ -475,7 +478,8 @@ export async function beginMemberAiUsageAttempt({
 }
 
 export async function markMemberAiUsageAttemptProviderRunning(env, attemptIdValue, options = {}) {
-  return claimAiDispatch(env, "member_ai_usage_attempts_v2", attemptIdValue, options);
+  try { return await claimAiDispatch(env, "member_ai_usage_attempts_v2", attemptIdValue, options); }
+  catch (error) { throw canvasMediaConstraintError(error); }
 }
 
 export async function markMemberAiUsageAttemptProviderFailed(env, attemptIdValue, options = {}) {
@@ -548,8 +552,10 @@ export async function markMemberAiUsageAttemptSucceeded(env, attemptIdValue, {
            result_steps = ?,
            result_seed = ?,
            balance_after = ?,
-           metadata_json = json_patch(?,CASE WHEN json_type(metadata_json,'$.canvas_agent')='object'
+           metadata_json = json_patch(json_patch(?,CASE WHEN json_type(metadata_json,'$.canvas_agent')='object'
              THEN json_object('canvas_agent',json_extract(metadata_json,'$.canvas_agent')) ELSE '{}' END),
+             CASE WHEN json_type(metadata_json,'$.canvas_media_action')='object'
+             THEN json_object('canvas_media_action',json_extract(metadata_json,'$.canvas_media_action')) ELSE '{}' END),
            error_code = NULL,
            error_message = NULL,
            updated_at = ?,

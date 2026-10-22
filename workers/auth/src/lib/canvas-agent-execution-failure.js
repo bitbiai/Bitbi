@@ -1,9 +1,10 @@
+import { CANVAS_MEDIA_CONSTRAINT_CODES } from './canvas-agent-media-errors.js';
 import { logDiagnostic } from '../../../../js/shared/worker-observability.mjs';
 import { sha256Hex } from './tokens.js';
 
 const safeCode=value=>typeof value==='string'&&/^[a-z][a-z0-9_]{0,89}$/.test(value)?value:null;
 const stages=new Set(['authority','input','policy','readiness','reservation','reservation_link','admission','prepare','dispatch_claim','dispatch','receipt','planning','repairing','generating','media_completion','media_lookup','media_projection','media_reference','media_admission','media_acceptance','waiting_limit','evaluating','exporting','execution']);
-const causes=new Set(['canvas_agent_authority_revoked','canvas_agent_recovery_brief_changed','canvas_agent_diagnostic_authority_required',
+const causes=new Set([...CANVAS_MEDIA_CONSTRAINT_CODES,'canvas_agent_authority_revoked','canvas_agent_recovery_brief_changed','canvas_agent_diagnostic_authority_required',
     'canvas_agent_step_immutable','model_pricing_stale','model_area_disabled','canvas_agent_budget_exceeded']);
 export async function canvasExecutionDiagnostic(error,{stage='planning',stepId=null}={}) {
     const chain=[];for(let e=error;e&&chain.length<3;e=e.cause)chain.push(e);
@@ -72,6 +73,6 @@ export async function canvasProductionFailure(env,run,error) {
         'canvas_agent_provider_outcome_unknown','canvas_agent_provider_timeout','canvas_agent_claim_lost','canvas_agent_quality_review_required','generation_result_requires_credit_review']).has(code);
     const retry=diagnostic.transient&&evidence?.step?.kind==='plan'&&certainty==='not_dispatched'&&Number(JSON.parse(evidence.step.input_json).readmission?.ordinal||0)<2;
     return {code,status:retry?'planning':['unknown','accepted_or_dispatching'].includes(certainty)||certainty==='response_stored'&&code==='canvas_agent_local_execution_failed'||knownReview?'review_required':'blocked',
-        cause:{code,step:run.phase,recovery:retry?'local_retry':certainty==='not_dispatched'?'readmission':code==='canvas_agent_provider_review_required'||['response_stored','accepted_or_dispatching','unknown'].includes(certainty)?'receipt':'support',
+        cause:{code,step:run.phase,recovery:retry?'local_retry':code==='canvas_agent_provider_review_required'||['response_stored','accepted_or_dispatching','unknown'].includes(certainty)?'receipt':CANVAS_MEDIA_CONSTRAINT_CODES.includes(code)?'decision':certainty==='not_dispatched'?'readmission':'support',
             dispatchState:certainty,stepId:evidence?.step?.id||diagnostic.stepId,operationId:evidence?.operation?.id||null,canvasRunId:evidence?.media?.canvas_run_id||null,jobId:evidence?.media?.job_id||null,execution:diagnostic},evidence};
 }

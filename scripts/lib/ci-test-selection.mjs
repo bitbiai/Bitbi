@@ -518,6 +518,7 @@ const AUTH_SHARED_PATTERNS = [
 ];
 
 const HOMEPAGE_CORE_TEST_FILES = new Set([
+  "tests/helpers/canvas-media-policy-ui.cjs", "tests/helpers/canvas-workspace-ux-ui.cjs",
   "tests/helpers/canvas-notifications-ui.cjs", "tests/helpers/canvas-export-lifecycle-ui.cjs", "tests/helpers/canvas-inspector-ui.cjs",
   "tests/helpers/canvas-completion-ui.cjs", "tests/helpers/canvas-smooth-ui.cjs", "tests/helpers/canvas-workspace-transitions-ui.cjs",
   "tests/helpers/canvas-audio-ui.cjs", "tests/helpers/canvas-transition-examples-ui.cjs",
@@ -597,6 +598,8 @@ const AUTH_TEST_FILES = new Set([
 // the other via tests/release-transition/workers.spec.js. Keep these identities
 // exact; an unreviewed neighboring fixture must retain full selection.
 const EXACT_WORKER_TEST_FILES = new Set([
+  'tests/q2-canvas-media-policy.spec.js', 'tests/helpers/canvas-agent-media-policy-control.mjs',
+  'tests/q2-canvas-media-action-policy.spec.js', 'tests/helpers/canvas-agent-media-action-policy-control.mjs',
   'tests/q2-canvas-reliability.spec.js', 'tests/helpers/canvas-notifications-control.mjs',
   'tests/helpers/canvas-project-lifecycle-control.mjs', 'tests/helpers/canvas-agent-explanation-control.mjs',
   'tests/helpers/canvas-incident-control.mjs',

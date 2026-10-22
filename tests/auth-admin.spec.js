@@ -8368,16 +8368,7 @@ test.describe('Pricing credit-pack rollout', () => {
     await expect(page.locator('main')).not.toContainText('Choose credits');
     await expect(page.locator('main')).not.toContainText('Compare options');
     await expect(page.locator('body')).not.toContainText(/Test ?mode/i);
-    await expect(page.locator('.pricing-card')).toHaveCount(4);
-    await expect(page.locator('.pricing-card__title')).toHaveText(['Free Account', 'BITBI Pro', 'Starter Credits', 'Creator Credits']);
-    await expect(page.locator('.pricing-card').nth(0)).toContainText('0 €');
-    await expect(page.locator('.pricing-card').nth(0)).toContainText('No paid credits included');
-    await expect(page.locator('.pricing-card').nth(0)).toContainText('Verified accounts are topped up to 10 free credits each day, and those daily credits do not accumulate.');
-    await expect(page.locator('.pricing-card').nth(1)).toContainText('9,99 €');
-    await expect(page.locator('.pricing-card').nth(1)).toContainText('/ month');
-    await expect(page.locator('.pricing-card').nth(2)).toContainText('9.99 €');
-    await expect(page.locator('.pricing-card').nth(3)).toContainText('19.99 €');
-    await expect(page.locator('.pricing-card').nth(3)).toContainText('Best value');
+    await require('./helpers/pricing-cards.cjs').assertEnglishPricingCards(page, expect);
     await expect(page.locator('.pricing-legal')).toContainText('I accept the BITBI Terms.');
     await expect(page.locator('.pricing-legal')).toContainText('immediate provision of the credits');
     await expect(page.locator('.pricing-legal a[href="/legal/terms.html"]')).toHaveAttribute('rel', /noopener/);

@@ -5,6 +5,8 @@ import { canvasConversationCopy } from './agent-conversation-copy.js?v=__ASSET_V
 import { CANVAS_AGENT_LIMITS } from '../../shared/canvas-agent-contract.mjs?v=__ASSET_VERSION__';
 import { detectCanvasDirectControl, canvasImmediateStartRequested,canvasConversationReadIntent } from '../../shared/canvas-agent-control-intent.mjs?v=__ASSET_VERSION__';
 import {canvasConversationDecisionIntent} from '../../shared/canvas-conversation-decision-intent.mjs?v=__ASSET_VERSION__';
+import {createCanvasMediaPolicy} from './agent-media-policy.js?v=__ASSET_VERSION__';
+import {canvasMediaPolicyError} from '../../shared/canvas-notification-contract.mjs?v=__ASSET_VERSION__';
 import {canvasNotice,refreshCanvasNotifications,canvasLocalErrorNotices,observeCanvasLocalNotices,retireCanvasLocalExplanations} from './notifications.js?v=__ASSET_VERSION__';
 
 const create = (tag, className = '', text = '') => { const node = document.createElement(tag); node.className = className; node.textContent = text; return node; };
@@ -29,6 +31,7 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
     const modelHeader=create('div','canvas-agent__model-header'),modelSelect=create('select','canvas-input'),modelHint=create('p','canvas-muted',copy.modelHint);
     modelSelect.name='assistantModel';modelHint.id='canvasAssistantModelHint';modelSelect.setAttribute('aria-describedby',modelHint.id);
     modelSelect.addEventListener('change',()=>void chooseModel());modelHeader.append(field(copy.assistantModel,modelSelect),modelHint);
+    const mediaPolicy=createCanvasMediaPolicy({german,header:modelHeader,onSaved:()=>{approval.checked=false;void observe(true);}});
     const tabs = create('div', 'canvas-agent__tabs'); tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', copy.workspace);
     const chatTab = button(copy.chatTab, () => selectTab('chat')), projectTab = button(copy.projectTab, () => selectTab('project'));
     const chatPane = create('div', 'canvas-agent__chat-pane'), projectPane = create('div', 'canvas-agent__project-pane');
@@ -105,6 +108,7 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
     const decisionCard=create('section','canvas-agent__decision');decisionCard.setAttribute('aria-label',copy.decisionTitle);decisionCard.hidden=true;
     const decisionText=create('p'),decisionAmount=create('p','canvas-agent__decision-amount'),decisionApprove=button(copy.decisionApprove,()=>void decide('accept'),true),decisionDecline=button(copy.decisionDecline,()=>void decide('decline'));
     decisionCard.append(create('h4','',copy.decisionTitle),decisionText,decisionAmount,decisionApprove,decisionDecline);decisions.append(decisionCard);
+    mediaPolicy.summary(immediateCard,approveImmediate);const decisionMediaSummary=mediaPolicy.summary(decisionCard,decisionApprove);mediaPolicy.summary(production,approvalField);
     content.append(welcome,transcript,decisions);viewport.append(content);chatPane.append(viewport,newest,footer);
     const productionArea=create('div','canvas-agent__production-area'),manualProduction=create('details','canvas-disclosure canvas-agent__manual-production');manualProduction.append(create('summary','',copy.productionOptions),production);
     const advanced=create('details','canvas-disclosure canvas-agent__advanced'),finance=create('details','canvas-disclosure canvas-agent__finance'),allowanceSettings=button(copy.allowanceSettings,()=>showAllowance());finance.append(create('summary','',copy.briefingFinance),allowance,allowanceLedger,allowanceSettings,diagnosticsRevoke);
@@ -138,6 +142,7 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
         if(!snapshot||snapshot.revision!==next.revision)refreshCanvasNotifications();
         if(!snapshot||snapshot.allowance?.diagnosticsAuthorized!==next.allowance?.diagnosticsAuthorized)diagnostics.checked=next.allowance?.diagnosticsAuthorized===true;
         snapshot = next;
+        mediaPolicy.sync(data.mediaPolicy);
         if(data?.run?.projectId===projectId&&/^[a-f0-9]{32}$/.test(data.run.id||''))onRun(data.run);
         if (!draftDirty && !pending) { input.value = string(snapshot.draft); sizeComposer(); }
         const suggested = snapshot.allowance?.suggestedAllowanceCredits || snapshot.suggestedAllowanceCredits || data.suggestedAllowanceCredits;
@@ -241,6 +246,7 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
         if(selection?.modelId)modelSelect.value=selection.modelId;
         modelSelect.disabled=busy||Boolean(pending)||!selection;modelHeader.hidden=!selection;
         const decision=snapshot?.pendingDecision;
+        decisionMediaSummary.hidden=decision?.kind!=='production_start';
         decisionCard.hidden=!decision||!['production_start','briefing_allowance'].includes(decision.kind);
         if(!decisionCard.hidden){decisionCard.dataset.state=decision.state;decisionText.textContent=decision.state==='stale'?copy.decisionStale:copy.decisionHint;
             decisionCard.querySelector('h4').textContent=decision.kind==='briefing_allowance'?copy.allowanceTitle:copy.decisionTitle;
@@ -268,6 +274,8 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
     }
     function showAllowance(){editingAllowance=true;if(snapshot?.allowance?.capCredits>0)allowanceCap.value=String(snapshot.allowance.capCredits);selectTab('chat');decisions.prepend(allowance);allowance.hidden=false;transcriptView.bottom();allowanceCap.focus({preventScroll:true});}
     function failure(response) {
+        const policyError=canvasMediaPolicyError(response.code,german);
+        if(policyError){approval.checked=false;notify(policyError,response);return;}
         const stage=response.data?.delivery?.stage;
         if(copy.delivery[stage])notify(copy.delivery[stage],response);
         else if (response.code === 'model_pricing_stale') { approval.checked = false; notify(copy.allowanceStale,response); }
@@ -446,10 +454,11 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
         focus() { selectTab('chat');input.focus({preventScroll:true}); },
         appendProduction(...nodes){productionArea.append(...nodes);},
         appendDetails(...nodes) { advanced.append(...nodes); },
-        setVisible(value) { const changed = visible !== value; visible = value; if (visible && changed) { observationIdentity=null;transcriptView.show();void observe(true); } else if (!visible) { clearTimeout(timer); controller?.abort(); }render(); },
+        setVisible(value) { const changed = visible !== value; visible = value; mediaPolicy.setVisible(value); if (visible && changed) { observationIdentity=null;transcriptView.show();void observe(true); } else if (!visible) { clearTimeout(timer); controller?.abort(); }render(); },
         projectChanged(id) {
             if (id === projectId) return;
             epoch++; projectId = id; snapshot = null; availability = null; pending = null; busy = false; briefKey = '';immediateKey='';actionView.reset();finance.insertBefore(allowance,allowanceLedger); observationIdentity=null;observationStarted=0;observationCount=0;observationFailures=0;disconnected=false;transcriptView.reset();selectTab('chat'); draftDirty = false;
+            mediaPolicy.projectChanged(id);
             controller?.abort(); clearTimeout(timer); input.value = ''; allowanceCap.value = ''; editingAllowance=false; diagnostics.checked=false; cap.value = ''; approval.checked = false; confirmation.hidden = true;
             try { const saved = JSON.parse(sessionStorage.getItem(storageKey()) || 'null'); if (saved && (['/messages','/allowance','/control','/start','/immediate','/immediate/approve','/immediate/control'].includes(saved.suffix)||/^\/actions\/[a-f0-9]{32}\/confirm$/.test(saved.suffix)) && saved.body && typeof saved.key === 'string' && typeof saved.fingerprint === 'string') pending = saved; } catch { /* The server remains authoritative. */ }
             notify(pending ? copy.unsent : copy.loading); render(); if (visible) void observe(true);

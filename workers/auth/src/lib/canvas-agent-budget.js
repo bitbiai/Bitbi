@@ -5,7 +5,8 @@ const fail=code=>{throw Object.assign(new Error(code),{code,status:409});};
 export async function readCanvasAgentBudget(env,run) {
     const costs=await env.DB.prepare(`SELECT COALESCE(SUM(charged),0) AS charged,COALESCE(SUM(reserved),0) AS reserved,
         COALESCE(SUM(pending),0) AS pending,COALESCE(SUM(committed),0) AS committed,
-        COALESCE(SUM(allocation_credits),0) AS allocated FROM canvas_agent_step_costs WHERE project_id=?`).bind(run.project_id).first();
+        COALESCE(SUM(allocation_credits),0) AS allocated FROM (SELECT charged,reserved,pending,committed,allocation_credits FROM canvas_agent_step_costs WHERE project_id=?
+        UNION ALL SELECT charged,reserved,pending,committed,allocation_credits FROM canvas_agent_media_action_costs WHERE project_id=?)`).bind(run.project_id,run.project_id).first();
     const values=[run.budget_credits,...['charged','reserved','pending','committed','allocated'].map(k=>costs?.[k])];
     if(values.some(v=>!Number.isSafeInteger(v)||v<0))fail('canvas_agent_budget_state_invalid');
     return {capCredits:run.budget_credits,chargedCredits:costs.charged,reservedCredits:costs.reserved,

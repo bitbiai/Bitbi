@@ -55,11 +55,12 @@ export function resolveCanvasAgentDuration({brief='',targetDurationSeconds,durat
     return durationChoice==='delegated'?{targetDurationSeconds:null,durationChoice:'delegated'}:null;
 }
 export function normalizeCanvasAgentStart(input,{durationAsked=false}={}) {
-    if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(k=>!['brief','targetDurationSeconds','durationChoice','budgetCredits','expectedRevision','locale'].includes(k)))fail('canvas_agent_input_invalid');
+    if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(k=>!['brief','targetDurationSeconds','durationChoice','budgetCredits','expectedRevision','mediaPolicyRevision','locale'].includes(k)))fail('canvas_agent_input_invalid');
+    if(input.mediaPolicyRevision!==undefined&&(!Number.isSafeInteger(input.mediaPolicyRevision)||input.mediaPolicyRevision<0))fail('canvas_agent_media_policy_invalid');
     const brief=String(input.brief||'').trim();
     if(!brief||brief.length>12000||/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(brief))fail('canvas_agent_brief_invalid');
     const duration=resolveCanvasAgentDuration({...input,brief,durationAsked});
     if(!Number.isSafeInteger(input.expectedRevision)||input.expectedRevision<0)fail('canvas_agent_revision_required');
     if(!Number.isSafeInteger(input.budgetCredits)||input.budgetCredits<1||input.budgetCredits>CANVAS_AGENT_LIMITS.maxBudgetCredits)fail('canvas_agent_budget_required');
-    return {brief,locale:input.locale==='de'?'de':'en',expectedRevision:input.expectedRevision,duration,budgetCredits:input.budgetCredits};
+    return {brief,locale:input.locale==='de'?'de':'en',expectedRevision:input.expectedRevision,duration,budgetCredits:input.budgetCredits,mediaPolicyRevision:input.mediaPolicyRevision??0};
 }

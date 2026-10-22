@@ -10,7 +10,7 @@ const check=(value,message)=>{if(!value)throw new Error(message);};
 // Shared browser/Worker/native fixture: real signed adapters, routes, D1,
 // accounting and queue; only the external background provider is synthetic.
 // No filesystem, paid call, browser-driven production or custom response model.
-export async function canvasAgentModelOperationFixture(base,{scope='model-operation',kind='plan',providerResponse=null}={}) {
+export async function canvasAgentModelOperationFixture(base,{scope='model-operation',kind='plan',providerResponse=null,mediaPolicy=null}={}) {
     check(kind==='plan','This fixture starts an ordinary planning operation');
     const db=base.DB,owner=`canvas-agent-${scope}`,project=(await sha256Hex(owner)).slice(0,32);
     const calls=[],messages=[],serviceCalls=[],waits=[],RealDate=globalThis.Date;
@@ -67,6 +67,11 @@ export async function canvasAgentModelOperationFixture(base,{scope='model-operat
     });
     const data=async response=>{const value=await response.json();check(response.ok,`Actual Canvas API returned ${response.status}/${value.code||'unknown'}`);return value.data;};
     const input={brief:'Create a 12 second film with three editable shots of the same house and duck pool.',targetDurationSeconds:12,expectedRevision:0,budgetCredits:10000,locale:'en'};
+    if(mediaPolicy){
+        const saved=await data(await request(route+'/media-policy','PUT',{expectedRevision:0,...mediaPolicy},{'Idempotency-Key':'fixture-media-policy-'+scope}));
+        check(saved.policy.revision===1,'The policy is persisted before the original production is authorized');
+        input.mediaPolicyRevision=saved.policy.revision;
+    }
     const started=await data(await request(route,'POST',input,{'Idempotency-Key':'model-operation-start-'+scope}));runId=started.run.id;
     async function deliver({duplicates=2}={}) {
         const run=await db.prepare('SELECT next_attempt_at FROM canvas_agent_runs WHERE id=?').bind(runId).first();

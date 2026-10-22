@@ -1,7 +1,16 @@
 const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
+for (const locale of ['en', 'de']) test(`Canvas workspace clarity ${locale}: project search and contextual graph actions`, async ({page}, info) => {
+  await require('./helpers/canvas-workspace-ux-ui.cjs').workspace({page, expect, locale, info, mockSharedAuth, createCanvasApiMock});
+});
 const {openCanvasSettings} = require('./helpers/canvas-inspector-actions.cjs');
+for(const locale of ['en','de'])test(`Canvas media models ${locale}: persisted limits and safe configuration`,async({page},info)=>{
+    await require('./helpers/canvas-media-policy-ui.cjs')({page,expect,locale,info,mockSharedAuth,createCanvasApiMock});
+});
+for(const locale of ['en','de'])test(`Canvas media models ${locale}: approval summaries resist stale catalog replies`,async({page},info)=>{
+    await require('./helpers/canvas-media-policy-ui.cjs').approval({page,expect,locale,info,mockSharedAuth,createCanvasApiMock});
+});
 for(const locale of ['en','de'])for(const scenario of ['layout','responsive'])test(`Canvas AI workspace ${locale}: ${scenario}`,async({page},info)=>{
     await require('./helpers/canvas-agent-ui.cjs').workspace({page,expect,locale,info,mockSharedAuth,createCanvasApiMock,scenario});
 });
@@ -751,7 +760,7 @@ test.describe('BITBI Canvas static and protected workspace', () => {
       [state.nodes[1].id, state.nodes[2].id],
     ]);
     await page.locator(`[data-node-id="${state.nodes[1].id}"]`).click();
-    await expect(page.locator('.canvas-input-context')).toContainText('Run the upstream node first');
+    await expect(page.locator('.canvas-input-context')).toContainText('Create the result in the connected source node first.');
     await expect(page.locator('#canvasInspectorBody').getByRole('button', { name: 'Run', exact: true })).toBeDisabled();
   });
 

@@ -28,7 +28,7 @@ export async function publicAgentRun(env,row) {
         AND (?=0 OR json_extract(payload_json,'$.code')=?) ORDER BY id DESC LIMIT 1`).bind(row.id,held?1:0,row.status).first();
     const input=JSON.parse(row.input_json);
     const {version,revision,global,user,project:projectLimit,providers,verified,reason}=imageGenerationCapacity(env);
-    return {id:row.id,projectId:row.project_id,requestKey:row.request_key,brief:input.brief,modelId:row.model_id||'xai/grok-4.7',modelRevision:row.model_revision||0,status:row.status,phase:row.phase,
+    return {id:row.id,projectId:row.project_id,requestKey:row.request_key,brief:input.brief,modelId:row.model_id||'xai/grok-4.7',modelRevision:row.model_revision||0,mediaPolicyRevision:row.media_policy_revision||0,status:row.status,phase:row.phase,
         completed:steps.filter(s=>s.kind==='node'&&s.status==='completed').length,total:steps.filter(s=>s.kind==='node').length,mediaProgress,
         imageConcurrency:{version,revision,global,user,project:projectLimit,providers,verified,reason},
         targetDurationSeconds:row.target_seconds,toleranceSeconds:row.tolerance_seconds,budgetCredits:row.budget_credits,

@@ -65,6 +65,7 @@ const SHARED_WORKER_FILE_MAP = Object.freeze({
   "js/shared/canvas-assistant-models.mjs": ["auth", "ai"],
   "js/shared/canvas-conversation-decision-intent.mjs": ["auth"],
   "js/shared/canvas-notification-contract.mjs": ["auth"],
+  "js/shared/canvas-agent-media-policy.mjs": ["auth"],
   "js/shared/canvas-grok-admission.mjs": ["auth", "ai"],
   "workers/shared/canvas-agent-dialogue.mjs": ["auth", "ai"],
   "workers/shared/canvas-agent-actions.mjs": ["auth", "ai"],

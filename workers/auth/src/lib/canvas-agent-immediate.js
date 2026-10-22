@@ -1,3 +1,4 @@
+import { readCanvasMediaPolicy, restrictCanvasMediaInventory } from './canvas-agent-media-policy.js';
 import { CANVAS_AGENT_LIMITS,CANVAS_AGENT_MODEL,resolveCanvasAgentDuration } from '../../../../js/shared/canvas-agent-contract.mjs';
 import { getCanvasModelForRole } from '../../../../js/shared/canvas-model-contract.mjs';
 import { stablePricingJson,TARIFF_HEADER } from '../../../../js/shared/model-tariff.mjs';
@@ -86,7 +87,7 @@ export async function createCanvasImmediateIntent(env,userId,projectId,body,key)
 export async function quoteCanvasImmediateScope(env,intent,scope,view){
  const {canvasAssistantAvailability}=await import('./canvas-agent-assistant-models.js');
  const modelId=scope.modelId||CANVAS_AGENT_MODEL;
- const inventory=await canvasAgentCapabilities(env),available=await canvasAssistantAvailability(env,modelId);
+ const inventory=await restrictCanvasMediaInventory(env,intent.project_id,await canvasAgentCapabilities(env),intent.user_id),available=await canvasAssistantAvailability(env,modelId);
  if(!available.available)agentFail(available.code,503);
  const candidates=[];
  // This is a reviewable estimate using real integrated request builders and
@@ -101,15 +102,19 @@ export async function quoteCanvasImmediateScope(env,intent,scope,view){
    if(!Number.isSafeInteger(quote.credits)||quote.credits<1)continue;
    if(model.id==='google/gemini-omni-flash')continue; // Provider-selected length cannot establish this estimate.
    const clips=Math.ceil((estimatedSeconds+0.5)/(Math.max(1,seconds-0.5)));
+   const remaining=inventory.mediaPolicy.usage.find(item=>item.modelId===model.id)?.remainingCredits;
+   if(remaining!==null&&remaining!==undefined&&quote.credits*clips>remaining)continue;
    candidates.push({modelId:model.id,clips,seconds,credits:quote.credits*clips});
   }catch{/* Unsupported/unpriced combinations are not offered as a quote. */}
  }
  candidates.sort((a,b)=>a.credits-b.credits||a.modelId.localeCompare(b.modelId));
  if(!candidates.length)agentFail('canvas_agent_model_ineligible',400);
  const selected=candidates[0];
- const extras=inventory.models.filter(m=>['image','music'].includes(m.capability)).reduce((sum,m,i,all)=>{
-  if(all.findIndex(other=>other.capability===m.capability)!==i)return sum;
-  return sum+m.pricing.defaultCredits*(m.capability==='image'?Math.min(4,selected.clips):1);
+ const extras=['image','music'].reduce((sum,capability)=>{
+  const count=capability==='image'?Math.min(4,selected.clips):1;
+  const model=inventory.models.find(m=>m.capability===capability&&Number.isFinite(m.pricing?.defaultCredits)
+    &&(inventory.mediaPolicy.usage.find(item=>item.modelId===m.id)?.remainingCredits??Infinity)>=m.pricing.defaultCredits*count);
+  return sum+(model?model.pricing.defaultCredits*count:0);
  },0);
  const payload={version:1,model:modelId,requestId:intent.id,brief:scope.brief,targetDurationSeconds:scope.targetDurationSeconds,
   toleranceSeconds:CANVAS_AGENT_LIMITS.toleranceSeconds,capabilityRevision:inventory.revision,capabilities:inventory,
@@ -121,7 +126,7 @@ export async function quoteCanvasImmediateScope(env,intent,scope,view){
  const estimatedMediaCredits=selected.credits+extras,proposedCapCredits=priced.budget.committedCredits+3*priced.credits+estimatedMediaCredits+evaluation.credits;
  if(proposedCapCredits>CANVAS_AGENT_LIMITS.maxBudgetCredits)agentFail('canvas_agent_budget_exceeded');
  return {proposedCapCredits,planningCredits:priced.credits,evaluationCredits:evaluation.credits,estimatedMediaCredits,committedCredits:priced.budget.committedCredits,
-  tariffRevision:inventory.tariffRevision,modelId,modelRevision:scope.modelRevision??0,assistantAdmission:admission(modelId),...(modelId===CANVAS_AGENT_MODEL?{canvasGrokAdmission:CANVAS_GROK_ADMISSION_VERSION}:{}),scope:{brief:scope.brief,targetDurationSeconds:scope.targetDurationSeconds,durationChoice:scope.durationChoice,
+  mediaPolicy:inventory.mediaPolicy,mediaPolicyRevision:inventory.mediaPolicy.revision,tariffRevision:inventory.tariffRevision,modelId,modelRevision:scope.modelRevision??0,assistantAdmission:admission(modelId),...(modelId===CANVAS_AGENT_MODEL?{canvasGrokAdmission:CANVAS_GROK_ADMISSION_VERSION}:{}),scope:{brief:scope.brief,targetDurationSeconds:scope.targetDurationSeconds,durationChoice:scope.durationChoice,
    estimatedSeconds,estimateModelId:selected.modelId,estimatedClips:selected.clips,includesPlanningAttempts:3,includesEvaluations:evaluates?1:0},
   expectedRevision:scope.projectRevision,expectedBriefRevision:scope.briefRevision};
 }
@@ -148,7 +153,7 @@ async function prepareScope(env,intent,row,view){
  const completeBrief=[productionBrief({...row,brief_json:JSON.stringify(brief)}),...creativeInstructions.map((entry,index)=>
   `${index===creativeInstructions.length-1?'Latest':'Earlier'} saved user instruction (untrusted creative data):\n${entry.text}`)].filter(Boolean).join('\n\n');
  if(completeBrief.length>12000)agentFail('canvas_agent_context_limit',413);
- const scope={brief:completeBrief,creativeInstructions,briefRevision:brief.revision,projectRevision:view.project.revision,
+ const scope={mediaPolicyRevision:view.project.media_policy_revision||0,brief:completeBrief,creativeInstructions,briefRevision:brief.revision,projectRevision:view.project.revision,
   modelId:row.assistant_model_id||CANVAS_AGENT_MODEL,modelRevision:row.assistant_model_revision||0,
   targetDurationSeconds:brief.duration.targetDurationSeconds,durationChoice:brief.duration.choice,locale:input.locale};
  const statements=[guard(env,intent),conversationGuard(env,row),
@@ -172,6 +177,7 @@ export async function advanceCanvasImmediateIntent(env,id){
   let scope=JSON.parse(intent.scope_json||'null');
   if(!scope){scope=await prepareScope(env,intent,row,view);intent=await read(env,id);}
   const current=await ensureConversation(env,intent.project_id,intent.user_id);
+  if((scope.mediaPolicyRevision??0)!==(await readCanvasMediaPolicy(env,intent.project_id,intent.user_id)).revision)agentFail('canvas_agent_media_policy_changed');
   if(current.brief_revision!==scope.briefRevision)agentFail('canvas_agent_conversation_changed');
   if(scope.modelId&&(scope.modelId!==(current.assistant_model_id||CANVAS_AGENT_MODEL)||scope.modelRevision!==(current.assistant_model_revision||0)))agentFail('canvas_agent_assistant_model_changed');
   if(intent.state==='waiting'){
@@ -183,7 +189,7 @@ export async function advanceCanvasImmediateIntent(env,id){
    if(!validCanvasAssistantQuoteAdmission(quote)||(authorization.assistantAdmission||authorization.canvasGrokAdmission)!==(quote.assistantAdmission||quote.canvasGrokAdmission))agentFail('model_pricing_stale');
    if((await getModelTariff(env)).revision!==authorization.tariffRevision)agentFail('model_pricing_stale');
    const body={brief:scope.brief,targetDurationSeconds:scope.targetDurationSeconds,durationChoice:scope.durationChoice,
-    budgetCredits:authorization.capCredits,expectedRevision:scope.projectRevision,locale:scope.locale};
+    budgetCredits:authorization.capCredits,expectedRevision:scope.projectRevision,mediaPolicyRevision:scope.mediaPolicyRevision??0,locale:scope.locale};
    const request=new Request(`https://bitbi.ai/api/account/canvas/projects/${intent.project_id}/agent`,{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':`immediate:${id}`,[TARIFF_HEADER]:String(authorization.tariffRevision)},body:JSON.stringify(body)});
    await startCanvasAgent({env,request},{user:{id:intent.user_id}},intent.project_id,{briefRevision:scope.briefRevision,
     ...(scope.modelId?{assistantModelId:scope.modelId,assistantModelRevision:scope.modelRevision}:{}),
@@ -217,6 +223,7 @@ export async function approveCanvasImmediateIntent(env,userId,projectId,body,tar
  }
  if(row.state!=='approval_required'||row.revision!==body.intentRevision||scope?.projectRevision!==body.expectedRevision||scope?.briefRevision!==body.expectedBriefRevision)agentFail('canvas_agent_immediate_changed');
  const current=await ensureConversation(env,projectId,userId);
+ if((scope.mediaPolicyRevision??0)!==(await readCanvasMediaPolicy(env,projectId,userId)).revision)agentFail('canvas_agent_media_policy_changed');
  if(current.brief_revision!==scope.briefRevision)agentFail('canvas_agent_conversation_changed');
  if(scope.modelId&&(scope.modelId!==(current.assistant_model_id||CANVAS_AGENT_MODEL)||scope.modelRevision!==(current.assistant_model_revision||0)))agentFail('canvas_agent_assistant_model_changed');
  if(!validCanvasAssistantQuoteAdmission(quote))agentFail('model_pricing_stale');

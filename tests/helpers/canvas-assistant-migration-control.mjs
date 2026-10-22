@@ -1,10 +1,59 @@
 import {canvasAgentBudgetFixture} from './canvas-agent-autonomy-control.mjs';
 import {seedCanvasPlanningSettlement} from './canvas-agent-settlement-review-control.mjs';
+import {calculateCanvasPlanningSettlementReview} from '../../workers/auth/src/lib/model-tariffs.js';
+import {settleStoredReceipt} from '../../workers/auth/src/lib/canvas-agent-planning.js';
+import {sha256Hex} from '../../workers/auth/src/lib/tokens.js';
+import {stablePricingJson} from '../../js/shared/model-tariff.mjs';
 const check=(condition,message)=>{if(!condition)throw new Error(message);};
+
+// This fixture describes persisted 0111 data before the 0112 table rebuild.
+// Today's operator preview reads later budget views, so it cannot be used to
+// create historical data on this deliberately old schema. Keep the historical
+// review envelope, but exercise the actual receipt settlement/debit below.
+async function seedReviewedSettlement(c){
+ const {db,env}=c.f,run=await c.run(),operation=await c.operation();
+ const step=await db.prepare('SELECT * FROM canvas_agent_steps WHERE id=?').bind(c.ids.stepId).first();
+ const usage=await db.prepare('SELECT * FROM member_ai_usage_attempts_v2 WHERE id=?').bind(c.ids.usageAttemptId).first();
+ const receipt=JSON.parse(operation.receipt_json),metadata=JSON.parse(usage.metadata_json);
+ const calculation=calculateCanvasPlanningSettlementReview(metadata.model_tariff,usage.credit_cost,receipt.usage);
+ check(operation.reconcile_attempts===5&&operation.error_code==='generation_result_requires_credit_review','Original failed settlement history is populated');
+ check(usage.billing_status==='reserved'&&usage.credit_cost===146&&(await c.ledger()).length===0,'Historical reservation has not been charged');
+ check(calculation.credits===94&&calculation.units.outputToken===17333,'Original tariff and actual reasoning usage calculate 94 credits');
+ const approval={version:1,...c.ids,receiptDigest:await sha256Hex(operation.receipt_json),responseDigest:await sha256Hex(operation.response_json),
+  tariffDigest:await sha256Hex(JSON.stringify(metadata.model_tariff)),inputDigest:operation.input_digest,requestId:operation.request_id,
+  units:calculation.units,diagnostics:calculation.diagnostics,reservationCredits:usage.credit_cost,settlementCredits:calculation.credits,
+  projectCapCredits:run.budget_credits,budgetRevision:run.budget_revision,projectRevision:run.expected_revision,
+  briefRevision:run.brief_revision,originalReconcileAttempts:operation.reconcile_attempts};
+ const id=await sha256Hex(stablePricingJson(approval)),now=new Date().toISOString(),token=await sha256Hex('synthetic-historical-review-lease');
+ await db.prepare(`INSERT INTO canvas_agent_settlement_reviews(id,operation_id,project_id,run_id,step_id,usage_attempt_id,user_id,
+  request_id,input_digest,receipt_digest,response_digest,tariff_digest,review_digest,units_json,diagnostics_json,
+  reservation_credits,settlement_credits,project_cap_credits,budget_revision,project_revision,brief_revision,
+  original_reconcile_attempts,authorization_ref,actor,state,attempts,lease_token,lease_until,created_at,updated_at)
+  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'approved',1,?,?,?,?)`)
+  .bind(id,operation.id,run.project_id,run.id,step.id,usage.id,run.user_id,operation.request_id,operation.input_digest,
+   approval.receiptDigest,approval.responseDigest,approval.tariffDigest,id,JSON.stringify(calculation.units),JSON.stringify(calculation.diagnostics),
+   usage.credit_cost,calculation.credits,run.budget_credits,run.budget_revision,run.expected_revision,run.brief_revision,
+   operation.reconcile_attempts,'synthetic-owner-approval','synthetic-operator',token,new Date(Date.now()+300000).toISOString(),now,now).run();
+ await settleStoredReceipt(env,run,step,{...receipt,request:JSON.parse(step.receipt_json).request,operationId:operation.id},operation,
+  {settlementReviewId:id,settlementReviewLeaseToken:token});
+ const debit=await c.ledger(),settled=await db.prepare('SELECT billing_status,provider_outcome FROM member_ai_usage_attempts_v2 WHERE id=?').bind(usage.id).first();
+ check(debit.length===1&&debit[0].amount===-94&&debit[0].ai_dispatch_token===usage.dispatch_token
+  &&settled.billing_status==='finalized'&&settled.provider_outcome==='succeeded','Stored receipt creates the actual original debit exactly once');
+ // Populate only the historical continuation outcome; no current production
+ // scheduler or newer-schema admission code runs before the migration.
+ await db.batch([
+  db.prepare("UPDATE canvas_agent_settlement_reviews SET state='completed',settled_at=?,continued_at=?,lease_token=NULL,lease_until=NULL,updated_at=? WHERE id=?")
+   .bind(now,now,now,id),
+  db.prepare("UPDATE canvas_agent_runs SET status='planning',phase='planning',error_code=NULL,cause_json=NULL,next_attempt_at=?,updated_at=? WHERE id=?")
+   .bind(now,now,run.id),
+ ]);
+}
 export async function seedCanvasAssistantMigration(env){
+ const later=await env.DB.prepare("SELECT name FROM sqlite_schema WHERE name='canvas_agent_media_action_costs'").first();
+ check(!later,'Historical assistant migration starts before the 0116 budget view');
  const f=await canvasAgentBudgetFixture(env,'assistant-model-migration');
  const c=await seedCanvasPlanningSettlement(f,{scope:'assistant-model-migration'});
- await c.apply();
+ await seedReviewedSettlement(c);
  const rows={};
  for(const [key,sql,id] of [
   ['operation','SELECT * FROM canvas_agent_model_operations WHERE id=?',c.ids.operationId],

@@ -6,9 +6,9 @@ import {recoverCanvasStoredMedia} from '../../workers/auth/src/lib/canvas-agent-
 const check=(value,message)=>{if(!value)throw new Error(message);};
 export const MEDIA_COMPLETION_CASES=['resume','automatic','lost-ack','missing-storage','edited','adopt-current','unknown','cancelled','expired','foreign','completion-window','proof-recheck'];
 
-export async function canvasMediaCompletionCase(base,name,media,{processor=null}={}){
+export async function canvasMediaCompletionCase(base,name,media,{processor=null,mediaPolicy=null,policyBeforeResume=null}={}){
   check(MEDIA_COMPLETION_CASES.includes(name),'Known media completion case');
-  const f=await canvasAgentModelOperationFixture(base,{scope:'media-completion-'+name}),calls=[],callbacks=[];
+  const f=await canvasAgentModelOperationFixture(base,{scope:'media-completion-'+name,mediaPolicy}),calls=[],callbacks=[];
   const plan={version:1,title:'Reference to editable mixed film',continuity:'The same red dog and pool across both scenes.',
     nodes:[
       {key:'reference',type:'image_generation',title:'Dog reference',modelId:'xai/grok-imagine-image-2.0',prompt:'A red dog at a pool.',config:{resolution:'1k',aspectRatio:'16:9'},dependencies:[]},
@@ -106,6 +106,11 @@ export async function canvasMediaCompletionCase(base,name,media,{processor=null}
   const ledgerBefore=JSON.stringify((await f.db.prepare('SELECT * FROM member_credit_ledger WHERE user_id=? ORDER BY id').bind(f.owner).all()).results);
   let expectedRevision;
   const resume=()=>f.request(`${f.route}/${f.runId}/control`,'POST',{action:'resume',...(expectedRevision!==undefined?{expectedRevision}: {})},{'Idempotency-Key':'synthetic-media-resume'});
+  if(policyBeforeResume){
+    const changed=await f.data(await f.request(f.route+'/media-policy','PUT',{expectedRevision:1,...policyBeforeResume},{'Idempotency-Key':'fixture-policy-before-resume'}));
+    check(changed.policy.revision===2,'The owner changes policy while the original stored-media result awaits projection');
+    check((await current()).status===held.status,'Saving policy does not silently resume the blocked production');
+  }
   if(name==='missing-storage'){const image=await f.db.prepare('SELECT r2_key FROM ai_images WHERE id=?').bind(saved.asset_id).first();await f.env.USER_IMAGES.delete(image.r2_key);}
   if(name==='edited')await f.data(await f.request(`${f.projectPath}/nodes/${accepted.nodeId}`,'PATCH',{title:'A genuinely newer manual decision'}));
   if(name==='cancelled')await f.data(await f.request(`${f.route}/${f.runId}/control`,'POST',{action:'cancel'},{'Idempotency-Key':'synthetic-stop'}));
@@ -150,6 +155,7 @@ export async function canvasMediaCompletionCase(base,name,media,{processor=null}
     check(conflict.status===409,'Same identity cannot adopt different inputs');
   }
   check((await current()).status==='running','Evidence-based normal resume retains the original run');
+  if(policyBeforeResume)check((await current()).media_policy_revision===2,'The same guarded Resume adopts the current policy without regenerating the deselected image');
   await deliverJob(first);await f.deliver();
   check(calls.length===1,'Reconciliation never repeats image inference');
   check(JSON.stringify((await f.db.prepare('SELECT * FROM member_credit_ledger WHERE user_id=? ORDER BY id').bind(f.owner).all()).results)===ledgerBefore,'No second debit during completion');
