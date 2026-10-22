@@ -538,6 +538,54 @@ test.describe('Bilingual locale pages', () => {
     expect(componentCss).not.toMatch(/\.help-menu[\s\S]{0,9000}backdrop-filter/);
   });
 
+  test('English and German homepages link to the localized pricing page from the footer', () => {
+    const enHome = repoFile('index.html');
+    const deHome = repoFile('de/index.html');
+    const enFooter = enHome.match(/<div class="site-footer__links">[\s\S]*?<\/div>/)?.[0] || '';
+    const deFooter = deHome.match(/<div class="site-footer__links">[\s\S]*?<\/div>/)?.[0] || '';
+
+    expect(enFooter).toContain('<a href="pricing.html" class="site-footer__link">Pricing</a>');
+    expect(deFooter).toContain('<a href="/de/pricing.html" class="site-footer__link">Preise</a>');
+    expect(enFooter).not.toContain('/de/pricing.html');
+    expect(deFooter).not.toContain('>Pricing<');
+    expect(enHome.match(/<div class="site-nav__links">[\s\S]*?<\/div>/)?.[0] || '').not.toContain('Pricing');
+    expect(deHome.match(/<div class="site-nav__links">[\s\S]*?<\/div>/)?.[0] || '').not.toContain('Preise');
+  });
+
+  test('homepage footer pricing links stay visible on desktop and mobile', async ({ page }) => {
+    await seedCookieConsent(page);
+    for (const { path, label, href } of [
+      { path: '/', label: 'Pricing', href: 'pricing.html' },
+      { path: '/de/', label: 'Preise', href: '/de/pricing.html' },
+    ]) {
+      await page.goto(path, { waitUntil: 'domcontentloaded' });
+      const link = page.locator('.site-footer__links').getByRole('link', { name: label, exact: true });
+      for (const viewport of [
+        { width: 1440, height: 900 },
+        { width: 390, height: 844 },
+      ]) {
+        await page.setViewportSize(viewport);
+        await link.scrollIntoViewIfNeeded();
+        await expect(link).toBeVisible();
+        await expect(link).toHaveAttribute('href', href);
+        const box = await link.boundingBox();
+        expect(box?.width || 0).toBeGreaterThan(0);
+        const layout = await link.evaluate((element) => {
+          const rect = element.getBoundingClientRect();
+          return {
+            left: rect.left,
+            right: rect.right,
+            clientWidth: document.documentElement.clientWidth,
+            scrollWidth: document.documentElement.scrollWidth,
+          };
+        });
+        expect(layout.left).toBeGreaterThanOrEqual(0);
+        expect(layout.right).toBeLessThanOrEqual(layout.clientWidth + 1);
+        expect(layout.scrollWidth).toBeLessThanOrEqual(layout.clientWidth + 1);
+      }
+    }
+  });
+
   test('pricing pages render English and German copy', async ({ page }) => {
     await page.goto('/pricing.html');
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
