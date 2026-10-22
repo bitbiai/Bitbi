@@ -1,8 +1,11 @@
 {
-    "name": "BITBI | My Digital Playground",
+    "id": "/",
+    "name": "BITBI | AI Image, Video & Music Generator",
     "short_name": "BITBI",
-    "description": "Experimental websites, AI art, YouTube journeys, VR worlds, and live markets.",
+    "description": "Create AI images, videos and music in one place. Use Generate Lab and Canvas, explore the AI gallery and Sound Lab, and pick from top AI models.",
+    "lang": "en",
     "start_url": "/",
+    "scope": "/",
     "display": "standalone",
     "background_color": "#0A0A0A",
     "theme_color": "#0A0A0A",
