@@ -169,3 +169,28 @@ test('terms include the withdrawal instruction, model form, and output-rights cl
   assert.doesNotMatch(english, /credits expire|Credits verfallen/);
   assert.doesNotMatch(german, /Credits verfallen|verfallen die Credits/);
 });
+
+test('checkout terms version matches the October 22, 2026 terms date', () => {
+  assert.match(read('js/pages/pricing/main.js'), /const TERMS_VERSION = '2026-10-22';/);
+  assert.match(read('js/pages/credits/main.js'), /const TERMS_VERSION = '2026-10-22';/);
+  assert.match(read('workers/auth/src/lib/stripe-billing.js'), /export const BITBI_TERMS_VERSION = "2026-10-22";/);
+});
+
+test('the privacy recipient file is registered on CI node:test commands', () => {
+  const scripts = JSON.parse(read('package.json')).scripts;
+  for (const name of ['test:asset-version', 'test:website-assistant']) {
+    assert.match(scripts[name], /node --test\b/);
+    assert.match(scripts[name], /tests\/privacy-ai-recipients\.test\.mjs/);
+  }
+  assert.match(scripts['test:workers'], /npm run test:website-assistant/);
+});
+
+test('recipient table wrappers are keyboard-focusable and named', () => {
+  const english = '<div class="policy-table-wrap" tabindex="0" role="region" aria-label="AI models and the companies that receive generation content">';
+  const german = '<div class="policy-table-wrap" tabindex="0" role="region" aria-label="KI-Modelle und die Unternehmen, die Generierungsinhalte erhalten">';
+  assert.ok(pages['legal/privacy.html'].includes(english));
+  for (const file of ['de/legal/datenschutz.html', 'de/legal/privacy.html', 'legal/datenschutz.html']) {
+    assert.ok(pages[file].includes(german), file);
+  }
+  assert.match(read('css/pages/legal.css'), /\.policy-table-wrap:focus-visible\s*\{[^}]*outline:/);
+});

@@ -8885,7 +8885,7 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
   const STRIPE_LIVE_WEBHOOK_SECRET = 'whsec_phase2l_secret_1234567890';
   const LIVE_TERMS_ACCEPTANCE = Object.freeze({
     terms_accepted: true,
-    terms_version: '2026-05-05',
+    terms_version: '2026-10-22',
     immediate_delivery_accepted: true,
     accepted_at: '2026-05-05T12:00:00.000Z',
   });
@@ -9166,14 +9166,14 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     expect(calls[0].form['metadata[source]']).toBe('pricing_page');
     expect(calls[0].form['metadata[pack_id]']).toBe('live_credits_5000');
     expect(calls[0].form['metadata[terms_accepted]']).toBe('true');
-    expect(calls[0].form['metadata[terms_version]']).toBe('2026-05-05');
+    expect(calls[0].form['metadata[terms_version]']).toBe('2026-10-22');
     expect(calls[0].form['metadata[immediate_delivery_accepted]']).toBe('true');
     expect(JSON.stringify(ownerBody)).not.toContain(STRIPE_LIVE_SECRET);
     expect(env.DB.state.creditLedger).toHaveLength(0);
     expect(JSON.parse(env.DB.state.billingCheckoutSessions[0].metadata_json)).toEqual(expect.objectContaining({
       source: 'pricing_page',
       termsAccepted: true,
-      termsVersion: '2026-05-05',
+      termsVersion: '2026-10-22',
       immediateDeliveryAccepted: true,
     }));
 
@@ -9266,7 +9266,7 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     expect(calls).toHaveLength(0);
 
     const missingTerms = await worker.fetch(
-      authJsonRequest('/api/account/billing/checkout/live-credit-pack', 'POST', { pack_id: 'live_credits_5000', immediate_delivery_accepted: true, terms_version: '2026-05-05' }, {
+      authJsonRequest('/api/account/billing/checkout/live-credit-pack', 'POST', { pack_id: 'live_credits_5000', immediate_delivery_accepted: true, terms_version: '2026-10-22' }, {
         Origin: 'https://bitbi.ai',
         Cookie: `bitbi_session=${memberToken}`,
         'Idempotency-Key': 'phase2m-member-missing-terms',
@@ -9320,7 +9320,7 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     expect(calls[0].form['metadata[source]']).toBe('pricing_page');
     expect(calls[0].form['metadata[mode]']).toBe('live');
     expect(calls[0].form['metadata[terms_accepted]']).toBe('true');
-    expect(calls[0].form['metadata[terms_version]']).toBe('2026-05-05');
+    expect(calls[0].form['metadata[terms_version]']).toBe('2026-10-22');
     expect(calls[0].form['metadata[immediate_delivery_accepted]']).toBe('true');
     expect(env.DB.state.billingMemberCheckoutSessions).toHaveLength(1);
     expect(env.DB.state.billingMemberCheckoutSessions[0]).toEqual(expect.objectContaining({
@@ -9415,7 +9415,7 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     const defaultSubscription = await worker.fetch(
       authJsonRequest('/api/account/billing/checkout/subscription', 'POST', {
         terms_accepted: true,
-        terms_version: '2026-05-05',
+        terms_version: '2026-10-22',
         immediate_delivery_accepted: true,
       }, {
         Origin: 'https://bitbi.ai',
@@ -9451,7 +9451,7 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     const enabledSubscription = await worker.fetch(
       authJsonRequest('/api/account/billing/checkout/subscription', 'POST', {
         terms_accepted: true,
-        terms_version: '2026-05-05',
+        terms_version: '2026-10-22',
         immediate_delivery_accepted: true,
       }, {
         Origin: 'https://bitbi.ai',
