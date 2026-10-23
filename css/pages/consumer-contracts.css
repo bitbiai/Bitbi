@@ -2,9 +2,6 @@
     .consumer-contract-page .site-footer__link { color: var(--theme-ink); font-size: .875rem; min-block-size: 44px; display: inline-flex; align-items: center; }
     .consumer-contract-page .site-footer__link:focus-visible { outline: 3px solid var(--theme-focus); outline-offset: 3px; }
 
-    .consumer-contract-entry { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: .25rem 1.25rem; position: relative; margin-block-start: .75rem; padding-inline: .5rem; z-index: 2; }
-    .consumer-contract-entry a { display: inline-flex; align-items: center; min-block-size: 44px; color: var(--theme-ink); font-size: .85rem; text-decoration: underline; text-underline-offset: .2em; }
-    .consumer-contract-entry a:focus-visible { outline: 3px solid var(--theme-focus); outline-offset: 3px; border-radius: .25rem; }
     .consumer-contracts { max-inline-size: 52rem; margin: 0 auto; padding: 8rem max(1.25rem, env(safe-area-inset-right)) 4rem max(1.25rem, env(safe-area-inset-left)); color: var(--theme-ink); }
     .consumer-contracts__intro { margin-block-end: 2rem; }
     .consumer-contracts h1 { font-family: var(--font-display); font-size: clamp(2rem, 4vw, 3rem); line-height: 1.2; margin-block-end: 1rem; }

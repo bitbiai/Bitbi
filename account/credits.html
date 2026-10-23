@@ -93,10 +93,6 @@
     <div class="section-divider" aria-hidden="true"></div>
     <section class="section credits-dashboard-section" aria-label="Credits dashboard">
     <div class="section__inner credits-shell">
-        <nav class="credits-toolbar" aria-label="Manage contracts – also without signing in">
-            <a class="link-cyan" href="/legal/withdrawal.html">Withdraw from a contract</a>
-            <a class="link-cyan" href="/legal/cancellation.html">Cancel a contract</a>
-        </nav>
         <div id="creditsLoading" class="credits-state glass glass-card">Loading credits dashboard...</div>
         <div id="creditsDenied" class="credits-state glass glass-card" hidden>
             <div class="auth-recovery" aria-labelledby="creditsDeniedTitle">
@@ -209,6 +205,10 @@
                 <a class="credits-back-link" href="/account/profile.html">Back to Profile</a>
             </nav>
         </div>
+        <nav id="creditsContractActions" class="credits-contract-actions" aria-label="Manage contracts – also without signing in">
+            <a class="btn btn-secondary" href="/legal/withdrawal.html">Withdraw from a contract</a>
+            <a class="btn btn-secondary" href="/legal/cancellation.html">Cancel a contract</a>
+        </nav>
     </div>
     </section>
 

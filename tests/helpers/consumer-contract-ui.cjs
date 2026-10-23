@@ -183,16 +183,14 @@ async function unavailable({ page, expect, locale }) {
     await expect(page.locator('form button[type=submit]')).toBeDisabled();
     await expect(page.locator('a[href="mailto:bit@bitbi.ai"]').first()).toBeVisible();
     expect(state.calls).toEqual([]); expect(state.unexpected).toEqual([]);
-    await page.goto(locale === 'de' ? '/de/pricing.html' : '/pricing.html');
-    await expect(page.locator(`footer a[href="${url(locale, 'withdrawal')}"]`)).toBeVisible();
-    await expect(page.locator(`footer a[href="${url(locale, 'cancellation')}"]`)).toBeVisible();
-    const entry=page.locator('.consumer-contract-entry');
-    await expect(entry.getByRole('link')).toHaveCount(2);
-    for(const pagePath of [locale==='de'?'/de/':'/',locale==='de'?'/de/account/profile.html':'/account/profile.html']) {
+    for(const pagePath of [locale==='de'?'/de/':'/',locale==='de'?'/de/pricing.html':'/pricing.html',locale==='de'?'/de/account/profile.html':'/account/profile.html']) {
         await page.goto(pagePath);
-        await expect(page.locator(`.consumer-contract-entry a[href="${url(locale,'withdrawal')}"]`)).toBeVisible();
-        await expect(page.locator(`.consumer-contract-entry a[href="${url(locale,'cancellation')}"]`)).toBeVisible();
+        await expect(page.locator(`a[href="${url(locale,'withdrawal')}"], a[href="${url(locale,'cancellation')}"]`)).toHaveCount(0);
     }
+    await page.goto(locale==='de'?'/de/account/credits.html':'/account/credits.html');
+    await expect(page.locator('#creditsDenied')).toBeVisible();
+    for(const kind of ['withdrawal','cancellation'])await expect(page.locator(`#creditsContractActions a[href="${url(locale,kind)}"]`)).toBeVisible();
+    expect(state.calls).toEqual([]);expect(state.unexpected).toEqual([]);
 }
 module.exports = { withdrawal, lostReceipt, cancellation, unavailable };
 
@@ -243,20 +241,63 @@ module.exports.checkoutConsent=checkoutConsent;
 async function contractDocuments({page,expect,locale,mockCreditsAccount}) {
       await mockCreditsAccount(page,{organizations:[]});
       const mutations=[];let pages=0;
+      page.on('request',request=>{if(request.method()!=='GET'&&/\/api\/(?:account\/(?:billing|checkout)|orgs\/[^/]+\/billing|consumer\/declarations)/.test(new URL(request.url()).pathname))mutations.push(`${request.method()} ${new URL(request.url()).pathname}`);});
+      await page.route('**/api/consumer/declarations/config',route=>route.fulfill({json:{requireTurnstile:false}}));
       await page.route('**/api/account/billing/contracts**',route=>{
         if(route.request().method()!=='GET'){mutations.push(route.request().method());return route.abort();}
         const url=new URL(route.request().url());
         if(url.pathname.endsWith('/checkout_document_1'))return route.fulfill({json:{ok:true,document:{text:'Original terms 2026-10-23\nSynthetic purchased offer, EUR 9.99\nExplicit early-start; no automatic extinction.'}}});
         pages++;return route.fulfill({json:{ok:true,items:[{checkoutId:'checkout_document_1',offerName:'Creator <script>',createdAt:'2026-10-23T11:00:00.000Z'}],nextCursor:pages===1?'older-page':null}});
       });
-      await page.goto(locale==='de'?'/de/account/credits.html?scope=member':'/account/credits.html?scope=member');
+      const creditsPath=locale==='de'?'/de/account/credits.html':'/account/credits.html',memberPath=creditsPath+'?scope=member';
+      const nav=page.locator('#creditsContractActions');
+      const actions=async host=>{
+        await expect(nav).toHaveCount(1);await expect(page.locator(host).locator('#creditsContractActions')).toBeVisible();
+        await expect(nav.getByRole('link')).toHaveCount(2);
+        for(const kind of ['withdrawal','cancellation']){
+          const link=nav.locator(`a[href="${url(locale,kind)}"]`);
+          await expect(link).toBeVisible();await expect(link).toHaveClass(/\bbtn-secondary\b/);
+        }
+      };
+      const membership=async state=>{
+        await actions('.credits-subscription-actions');
+        expect(await page.locator('.credits-subscription-actions').evaluate(node=>getComputedStyle(node).justifyContent)).toBe('flex-start');
+        for(const width of [1440,390,320]){
+          await page.setViewportSize({width,height:900});await nav.scrollIntoViewIfNeeded();
+          for(const link of await nav.getByRole('link').all())await expect(link).toBeInViewport();
+          expect(await page.evaluate(()=>document.documentElement.scrollWidth-innerWidth)).toBeLessThanOrEqual(1);
+          if(width!==320)await page.screenshot({path:require('@playwright/test').test.info().outputPath(`credits-contract-${locale}-${state}-${width}.png`)});
+        }
+      };
+      await page.goto(memberPath);
       const mount=page.locator('#creditsContractDocuments');await expect(mount).toBeVisible();
       const buttons=mount.locator('[data-contract-list] button');await expect(buttons).toHaveCount(1);await expect(buttons.first()).toContainText('Creator <script>');
       expect(await mount.locator('script').count()).toBe(0);
       await mount.locator('[data-contract-more]').click();await expect(mount.locator('[data-contract-more]')).toBeHidden();await expect(buttons).toHaveCount(1);
       const saved=page.waitForEvent('download');await buttons.first().click();const doc=await saved;
       expect(await fs.readFile(await doc.path(),'utf8')).toContain('Original terms 2026-10-23');
+      await membership('no-subscription');await expect(page.locator('.credits-subscription-actions').getByRole('link',{name:locale==='de'?'Pläne ansehen':'View plans',exact:true})).toBeVisible();
+      for(const kind of ['withdrawal','cancellation']){
+        const link=nav.locator(`a[href="${url(locale,kind)}"]`);await link.focus();await expect(link).toBeFocused();await link.press('Enter');
+        const destination=new URL(url(locale,kind),page.url());
+        // The existing local serve handler canonicalizes .html to clean URLs.
+        await expect(page).toHaveURL(value=>value.origin===destination.origin&&[destination.pathname,destination.pathname.replace(/\.html$/,'')].includes(value.pathname)&&!value.search&&!value.hash);
+        await expect(page.locator(`[data-consumer-declaration="${kind}"]`)).toBeVisible();
+        await page.goto(memberPath);await actions('.credits-subscription-actions');
+      }
+      await page.evaluate(()=>{window.consumerNavBeforeAccountChange=document.getElementById('creditsContractActions');});
       await page.evaluate(()=>document.dispatchEvent(new CustomEvent('bitbi:auth-change',{detail:{loggedIn:true,user:{id:'different-owner'}}})));
-      await expect(mount).toBeHidden();await expect(buttons).toHaveCount(0);expect(mutations).toEqual([]);
+      await expect(mount).toBeHidden();await expect(buttons).toHaveCount(0);await actions('#creditsDenied');
+      expect(await page.evaluate(()=>window.consumerNavBeforeAccountChange===document.getElementById('creditsContractActions'))).toBe(true);
+      const expired=route=>route.fulfill({status:401,json:{ok:false,error:'Session expired.'}});
+      await page.route('**/api/account/credits-dashboard*',expired);await page.goto(memberPath);await actions('#creditsDenied');await page.unroute('**/api/account/credits-dashboard*',expired);
+      const anonymous=route=>route.fulfill({json:{loggedIn:false,user:null}});
+      await page.route('**/api/me',anonymous);await page.reload();await actions('#creditsDenied');await page.unroute('**/api/me',anonymous);
+      await mockCreditsAccount(page,{organizations:[],memberDashboard:{account:{userId:'user-credits-user',role:'user',status:'active'},balance:{totalCredits:6000,subscriptionCredits:6000,purchasedCredits:0},hasActiveSubscription:true,subscriptionStatus:'active',planName:'BITBI Pro',storageLimitBytes:5*1024**3,subscriptionPeriodEnd:'2026-11-23T00:00:00Z',liveCheckout:{enabled:true,configured:true},packs:[],purchaseHistory:[],transactions:[]}});
+      await page.goto(memberPath);await membership('active');await expect(page.locator('[data-subscription-action="cancel"]')).toBeVisible();
+      const unavailable=route=>route.fulfill({status:503,json:{ok:false,error:'Synthetic credits outage.'}});
+      await page.route('**/api/account/credits-dashboard*',unavailable);await page.reload();await actions('#creditsError');await expect(mount).toBeHidden();await page.unroute('**/api/account/credits-dashboard*',unavailable);
+      await mockCreditsAccount(page);await page.goto(creditsPath);await actions('#creditsPacksSection');await expect(page.locator('#creditsSubscriptionSection')).toBeHidden();
+      expect(mutations).toEqual([]);
 }
 module.exports.contractDocuments=contractDocuments;

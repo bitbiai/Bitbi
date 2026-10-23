@@ -9189,7 +9189,7 @@ consentVersion:'consumer-v1',locale:'en',earlyStartRequested:true,withdrawalKnow
     await page.goto('/account/credits.html?scope=member');
     await expect(page.locator('#creditsSubscriptionSection')).toContainText('No active subscription');
     await expect(page.locator('[data-subscription-action]')).toHaveCount(0);
-    await expect(page.locator('#creditsSubscriptionSection .btn')).toContainText('View plans');
+    await expect(page.getByRole('link', {name:'View plans'})).toBeVisible();
 
     await page.unroute('**/api/account/credits-dashboard*');
     await page.route('**/api/account/credits-dashboard*', async (route) => {

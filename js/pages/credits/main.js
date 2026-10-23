@@ -40,6 +40,7 @@ const $summaryGrid = document.getElementById('creditsSummaryGrid');
 const $workGrid = document.getElementById('creditsWorkGrid');
 const $subscriptionSection = document.getElementById('creditsSubscriptionSection');
 const $subscriptionBody = document.getElementById('creditsSubscriptionBody');
+const $contractActions = document.getElementById('creditsContractActions');
 const $subscriptionFeedback = document.getElementById('creditsSubscriptionFeedback');
 const $membershipGrid = document.querySelector('.credits-membership-grid');
 const $packsSection = document.getElementById('creditsPacksSection');
@@ -113,6 +114,7 @@ function setError(message) {
     hide($denied);
     if ($error) {
         $error.textContent = message || localeText('credits.unavailable');
+        if ($contractActions) $error.appendChild($contractActions);
         show($error);
     }
 }
@@ -139,6 +141,7 @@ function setDenied({ sessionExpired = false } = {}) {
         if (copy) copy.textContent = localeText('authRecovery.sessionExpiredCreditsCopy');
         if (primary) primary.textContent = localeText('authRecovery.sessionSignInAgain');
     }
+    if ($contractActions) $denied?.querySelector('.auth-recovery__actions')?.appendChild($contractActions);
     show($denied);
 }
 
@@ -173,6 +176,7 @@ function placePurchasesInMembership() {
 }
 
 function placePurchasesInCheckout() {
+    if ($contractActions) $packsSection?.appendChild($contractActions);
     if ($packsSection && $purchasesSection && $purchasesSection.parentElement !== $packsSection) {
         $packsSection.appendChild($purchasesSection);
     }
@@ -813,6 +817,7 @@ function renderSubscriptionSection(dashboard = {}) {
         actions.appendChild(link);
     }
 
+    if ($contractActions) actions.appendChild($contractActions);
     panel.append(header, facts, actions);
     $subscriptionBody.appendChild(panel);
     renderSubscriptionFeedback();

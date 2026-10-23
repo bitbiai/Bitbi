@@ -93,10 +93,6 @@
     <div class="section-divider" aria-hidden="true"></div>
     <section class="section credits-dashboard-section" aria-label="Credits-Dashboard">
     <div class="section__inner credits-shell">
-        <nav class="credits-toolbar" aria-label="Verträge verwalten – auch ohne Anmeldung">
-            <a class="link-cyan" href="/de/legal/widerruf.html">Vertrag widerrufen</a>
-            <a class="link-cyan" href="/de/legal/kuendigung.html">Verträge hier kündigen</a>
-        </nav>
         <div id="creditsLoading" class="credits-state glass glass-card">Credits-Dashboard wird geladen...</div>
         <div id="creditsDenied" class="credits-state glass glass-card" hidden>
             <div class="auth-recovery" aria-labelledby="creditsDeniedTitle">
@@ -209,6 +205,10 @@
                 <a class="credits-back-link" href="/de/account/profile.html">Zurück zum Profil</a>
             </nav>
         </div>
+        <nav id="creditsContractActions" class="credits-contract-actions" aria-label="Verträge verwalten – auch ohne Anmeldung">
+            <a class="btn btn-secondary" href="/de/legal/widerruf.html">Vertrag widerrufen</a>
+            <a class="btn btn-secondary" href="/de/legal/kuendigung.html">Verträge hier kündigen</a>
+        </nav>
     </div>
     </section>
 

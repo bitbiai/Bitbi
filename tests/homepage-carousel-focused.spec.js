@@ -1929,7 +1929,6 @@ async function withNewsLayout(page,info,locale,scenario) {
       .filter(e=>e.getBoundingClientRect().width>0).map(e=>({name:e.className,...e.getBoundingClientRect().toJSON()}));
     const active=feed.querySelector('.is-active .news-pulse__link');
     const canvas=document.querySelector('.hero__canvas-teaser').getBoundingClientRect();
-    const rights=document.querySelector('.hero__content .consumer-contract-entry').getBoundingClientRect();
     // Published layout's lower edge: preserve it while relaxing only the top.
     const hero=feed.closest('.hero--homepage').getBoundingClientRect();
     const hint=document.querySelector('.hero__scroll-hint');
@@ -1938,7 +1937,7 @@ async function withNewsLayout(page,info,locale,scenario) {
     const oldTop=Math.max(hero.top,...neighbours.map(n=>n.bottom))+1.5*rem;
     const previousBottom=lower-Math.max(0,(lower-oldTop-17*rem)/2);
     return{fits:feed.dataset.newsPulseFits,inert:feed.inert,rect:r.toJSON(),gap,neighbours,previousBottom,
-      canvas:canvas.toJSON(),rights:rights.toJSON(),centralBottom:Math.max(canvas.bottom,rights.bottom),
+      canvas:canvas.toJSON(),centralBottom:canvas.bottom,
       safe:neighbours.every(n=>r.right+gap<=n.left+1||r.left-gap>=n.right-1||r.top-gap>=n.bottom-1||r.bottom+gap<=n.top+1),
       contentsFit:!active||[...active.children].every(e=>e.getBoundingClientRect().bottom<=active.getBoundingClientRect().bottom+1),
       viewport:{width:innerWidth,height:innerHeight,scrollWidth:document.documentElement.scrollWidth},
@@ -1987,12 +1986,8 @@ test.describe('homepage news layout', () => {
   for (const locale of ['en','de']) {
     test(`homepage news free-space geometry and boundary (${locale})`, async ({page},info)=>withNewsLayout(page,info,locale,async ({feed,geometry,assertVisible,resize,settled,samples,releaseImage,requests})=>{
   const before=await geometry();assertVisible(before);
-  // Contract rights are now the final central controls, after Canvas. Keep
-  // their real bounds separate from the News placement implementation.
-  expect(before.rights.bottom).toBeGreaterThan(before.canvas.bottom);
-  for (const link of await page.locator('.hero__content .consumer-contract-entry a').all()) {
-    await expect(link).toBeVisible();expect((await link.boundingBox()).height).toBeGreaterThanOrEqual(44);
-  }
+  // Canvas is the final central action; contract actions belong in Credits.
+  await expect(page.locator('.hero__content .consumer-contract-entry')).toHaveCount(0);
   expect(before.rect.top-before.centralBottom).toBeLessThan(9);
   // Calibrate the safety measurement against an actual overlapping panel.
   await feed.evaluate(e=>e.style.transform='translateY(-32px)');
@@ -2006,26 +2001,9 @@ test.describe('homepage news layout', () => {
     await resize({width:1920,height});
     const normal=await geometry();
     samples.push({phase:'normal-desktop',...normal});
-    if(height===950) {
-      // The additional 44px rights links leave only 160px, below the
-      // established 176px readable minimum. Keep the links, hide News.
-      expect(normal.previousBottom-normal.centralBottom-normal.gap).toBeLessThan(176);
-      expect(normal.fits).toBe('false');expect(normal.inert).toBe(true);
-      await expect(feed).not.toBeVisible();
-    } else {
-      expect(normal.fits).toBe('true');assertVisible(normal);
-      expect(normal.rect.top-normal.centralBottom).toBeLessThan(9);
-    }
-    // Retain the independent published-layout anchor check with its original
-    // content, then restore the newly required controls and their safe bounds.
-    const rights=page.locator('.hero__content .consumer-contract-entry');
-    await rights.evaluate(e=>e.style.display='none');
-    await expect(feed).toHaveAttribute('data-news-pulse-fits','true');
-    const original=await settled();assertVisible(original);
-    expect(original.rect.bottom).toBeCloseTo(height===950?868.21875:990.15625,1);
-    await rights.evaluate(e=>e.style.removeProperty('display'));
-    await expect(feed).toHaveAttribute('data-news-pulse-fits',normal.fits);
-    await settled();
+    expect(normal.fits).toBe('true');assertVisible(normal);
+    expect(normal.rect.top-normal.centralBottom).toBeLessThan(9);
+    expect(normal.rect.bottom).toBeCloseTo(height===950?868.21875:990.15625,1);
   }
   await page.setViewportSize({width:1300,height:1117});
   await expect.poll(async()=> (await geometry()).rect.width).toBeLessThan(before.rect.width);
