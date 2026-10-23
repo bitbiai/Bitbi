@@ -1,3 +1,4 @@
+import { CONSUMER_TERMS_VERSION, CONSUMER_CONSENT_VERSION, consumerConsentText } from '../../shared/consumer-contract.mjs?v=__ASSET_VERSION__';
 /* ============================================================
    BITBI — Public Pricing / Live Credit Packs
    ============================================================ */
@@ -15,7 +16,7 @@ import { getCurrentLocale, localizedHref } from '../../shared/locale.js?v=__ASSE
 import { getPublicPricingCards } from '../../shared/pricing-public-offers.mjs?v=__ASSET_VERSION__';
 import { BITBI_MEMBER_SUBSCRIPTION } from '../../shared/member-subscription.mjs?v=__ASSET_VERSION__';
 
-const TERMS_VERSION = '2026-10-22';
+const TERMS_VERSION = CONSUMER_TERMS_VERSION;
 const PENDING_PACK_KEY = 'bitbi_pending_credit_pack';
 const PENDING_OFFER_KEY = 'bitbi_pending_pricing_offer';
 const LOCALE = getCurrentLocale();
@@ -668,7 +669,7 @@ function createLegalCheckout(auth) {
         renderPricingExperience();
     });
     const termsText = document.createElement('span');
-    termsText.appendChild(document.createTextNode(t('acceptTermsPrefix')));
+    termsText.appendChild(document.createTextNode(consumerConsentText(LOCALE).terms + ' '));
     const termsLink = document.createElement('a');
     termsLink.href = localizedHref('/legal/terms.html');
     termsLink.target = '_blank';
@@ -689,10 +690,10 @@ function createLegalCheckout(auth) {
     });
     deliveryLabel.append(
         deliveryInput,
-        createTextElement('span', '', t('deliveryText')),
+        createTextElement('span', '', consumerConsentText(LOCALE).earlyStart),
     );
 
-    checks.append(termsLabel, deliveryLabel);
+    checks.append(termsLabel, deliveryLabel, createTextElement('p', 'pricing-legal__host-note', consumerConsentText(LOCALE).rights));
     section.appendChild(checks);
 
     if (inlineMessage) {
@@ -744,6 +745,7 @@ async function handleCheckout(auth) {
             idempotencyKey: idempotencyKey('subscription', BITBI_MEMBER_SUBSCRIPTION.id),
             termsAccepted: true,
             termsVersion: TERMS_VERSION,
+        consentVersion: CONSUMER_CONSENT_VERSION, locale: LOCALE, earlyStartRequested: true,
             immediateDeliveryAccepted: true,
             acceptedAt,
         })
@@ -752,6 +754,7 @@ async function handleCheckout(auth) {
             idempotencyKey: idempotencyKey('credit-pack', pack.id),
             termsAccepted: true,
             termsVersion: TERMS_VERSION,
+        consentVersion: CONSUMER_CONSENT_VERSION, locale: LOCALE, earlyStartRequested: true,
             immediateDeliveryAccepted: true,
             acceptedAt,
         });

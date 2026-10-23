@@ -89,6 +89,13 @@ const adminJsonWrite = (id, method, path, owner, bodyMaxBytesName, rateLimitId, 
 });
 
 export const ROUTE_POLICIES = Object.freeze([
+  safeRead('consumer.declarations.config','GET','/api/consumer/declarations/config','consumer-declarations',{auth:'anonymous'}),
+  policy({id:'consumer.declarations.create',method:'POST',path:'/api/consumer/declarations',auth:'optional-user',owner:'consumer-declarations',csrf:'same-origin-required',body:{kind:'json',maxBytesName:'smallJson',contentType:'application/json'},rateLimit:{id:'consumer-declaration-ip-and-contact',failClosed:true},config:REQUIRED_CONFIG.authPublicLimiter,audit:{event:'consumer.declaration.received'},sensitivity:'high'}),
+  safeRead('account.billing.contracts.read','GET','/api/account/billing/contracts/:checkoutId','consumer-declarations'),
+  safeRead('account.billing.contracts.list','GET','/api/account/billing/contracts','consumer-declarations'),
+  adminRead('admin.consumer.declarations.list','/api/admin/billing/consumer-declarations','consumer-declarations'),
+  adminJsonWrite('admin.consumer.declarations.review','POST','/api/admin/billing/consumer-declarations/:declarationId/review','consumer-declarations','smallJson','admin-consumer-declarations'),
+  adminJsonWrite('admin.consumer.declarations.subscription','POST','/api/admin/billing/consumer-declarations/:declarationId/subscription','consumer-declarations','smallJson','admin-consumer-declarations'),
   safeRead('account.canvas.notifications.list','GET','/api/account/canvas/notifications','canvas'),
   userJsonWrite('account.canvas.notifications.read-markers','POST','/api/account/canvas/notifications/read','canvas','smallJson','canvas-notifications-write-user'),
   userJsonWrite('account.canvas.notifications.delete','POST','/api/account/canvas/notifications/delete','canvas','smallJson','canvas-notifications-write-user'),

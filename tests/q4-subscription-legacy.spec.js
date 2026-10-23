@@ -28,7 +28,13 @@ async function seedNativeBuckets(f, subscriptionCredits) {
 }
 
 test.describe('BITBI Pro member subscriptions', () => {
-  const PERIOD_START_DATE = new Date();
+  // These neighbor cases deliberately exercise the admitted historical checkout
+  // contract. Pin its rolling-release time; current/expired consent has separate controls.
+  const NativeDate=globalThis.Date,legacyNow=NativeDate.parse('2026-10-23T12:00:00.000Z');
+  test.beforeEach(()=>{globalThis.Date=class extends NativeDate {constructor(...args){super(...(args.length?args:[legacyNow]));}static now(){return legacyNow;}};});
+  test.afterEach(()=>{globalThis.Date=NativeDate;});
+
+  const PERIOD_START_DATE = new Date('2026-10-23T12:00:00.000Z');
   PERIOD_START_DATE.setUTCDate(1);
   PERIOD_START_DATE.setUTCHours(0, 0, 0, 0);
   const PERIOD_END_DATE = new Date(PERIOD_START_DATE);
@@ -648,71 +654,27 @@ test.describe('BITBI Pro member subscriptions', () => {
     await expect(getMemberCreditBucketBalances(f.env,MEMBER)).resolves.toMatchObject({subscriptionCredits:6000,legacyOrBonusCredits:300,purchasedCredits:4000,totalCredits:10300});
   }));
 
-  test('member can schedule active subscription cancellation at period end and keep access', async () => {
-    const worker = await loadWorker('workers/auth/src/index.js');
-    const env = seedBucketedMember({
-      userId: 'member-subscription-manage-cancel',
-      subscriptionCredits: 6000,
-      purchasedCredits: 1200,
-    });
-    env.STRIPE_LIVE_SECRET_KEY = 'sk_live_subscription_manage_secret_123456';
-    env.STRIPE_LIVE_SUBSCRIPTION_PRICE_ID = 'price_member_pro_123456';
-    const calls = [];
-    env.__TEST_FETCH = async (url, init = {}) => {
-      calls.push({ url: String(url), form: Object.fromEntries(new URLSearchParams(String(init.body || ''))) });
-      return new Response(JSON.stringify({
-        id: 'sub_member_pro_123456',
-        object: 'subscription',
-        livemode: true,
-        customer: 'cus_member_pro_123456',
-        status: 'active',
-        cancel_at_period_end: true,
-        canceled_at: PERIOD_START_SECONDS,
-        current_period_start: PERIOD_START_SECONDS,
-        current_period_end: PERIOD_END_SECONDS,
-        items: { data: [{ price: { id: 'price_member_pro_123456' } }] },
-      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-    };
-    const token = await seedSession(env, 'member-subscription-manage-cancel');
-    const response = await worker.fetch(
-      authJsonRequest('/api/account/billing/subscription/cancel', 'POST', { confirmed: true }, {
-        Origin: 'https://bitbi.ai',
-        Cookie: `bitbi_session=${token}`,
-        'Idempotency-Key': 'member-subscription-cancel-1',
-      }),
-      env,
-      createExecutionContext().execCtx
-    );
-    const body = await response.json();
-    expect(response.status).toBe(200);
-    expect(body.subscription).toEqual(expect.objectContaining({
-      userId: 'member-subscription-manage-cancel',
-      providerSubscriptionId: 'sub_member_pro_123456',
-      status: 'active',
-      cancelAtPeriodEnd: true,
-    }));
-    expect(calls).toHaveLength(1);
-    expect(calls[0].url).toContain('/v1/subscriptions/sub_member_pro_123456');
-    expect(calls[0].form.cancel_at_period_end).toBe('true');
-    expect(env.DB.state.billingMemberSubscriptions[0].cancel_at_period_end).toBe(1);
-
-    const dashboardResponse = await worker.fetch(
-      authJsonRequest('/api/account/credits-dashboard', 'GET', undefined, {
-        Cookie: `bitbi_session=${token}`,
-      }),
-      env,
-      createExecutionContext().execCtx
-    );
-    const dashboardBody = await dashboardResponse.json();
-    expect(dashboardResponse.status).toBe(200);
-    expect(dashboardBody.dashboard).toEqual(expect.objectContaining({
-      hasActiveSubscription: true,
-      cancelAtPeriodEnd: true,
-      canCancelSubscription: false,
-      canReactivateSubscription: true,
-      activeUntil: PERIOD_END,
-    }));
-  });
+  test('member can schedule active subscription cancellation at period end and keep access', async () => withSubscription(async f => {
+    f.db.exec(fs.readFileSync(path.join(process.cwd(),'workers/auth/migrations/0117_consumer_contracts.sql'),'utf8'));
+    await f.deliver(invoiceEvent('evt_q4_cancel_paid'));
+    const {grantMemberCredits}=await loadBillingModule();
+    await grantMemberCredits({env:f.env,userId:MEMBER,amount:1200,createdByUserId:MEMBER,idempotencyKey:'q4-cancel-purchased',source:'synthetic_legacy_fixture',creditBucketType:'purchased'});
+    f.env.STRIPE_LIVE_SECRET_KEY='sk_live_subscription_manage_secret_123456';
+    const calls=[];
+    f.env.__TEST_FETCH=async(url,init={})=>{calls.push({url:String(url),form:Object.fromEntries(new URLSearchParams(String(init.body||'')))});
+      return Response.json({id:checkout.subscription,livemode:true,customer:checkout.customer,status:'active',cancel_at_period_end:true,
+        current_period_start:START,current_period_end:END,items:{data:[{price:{id:PRICE}}]}});};
+    const session=await f.session.createSession(f.env,MEMBER),cookie=`${f.cookies.SECURE_SESSION_COOKIE_NAME}=${session.sessionToken}`;
+    const response=await f.http.request('/api/account/billing/subscription/cancel',{method:'POST',headers:{'Content-Type':'application/json',Origin:'https://bitbi.ai',Cookie:cookie,'Idempotency-Key':'member-subscription-cancel-1'},body:JSON.stringify({confirmed:true,locale:'de'})});
+    const body=await response.json();expect(response.status).toBe(200);
+    expect(body.subscription).toMatchObject({userId:MEMBER,providerSubscriptionId:checkout.subscription,status:'active',cancelAtPeriodEnd:true});
+    expect(calls).toHaveLength(1);expect(calls[0].url).toContain(`/v1/subscriptions/${checkout.subscription}`);expect(calls[0].form.cancel_at_period_end).toBe('true');
+    expect(nativeState(f).subscriptions[0].cancel_at_period_end).toBe(1);
+    const dashboard=await f.http.request('/api/account/credits-dashboard',{headers:{Cookie:cookie}});
+    expect(dashboard.status).toBe(200);expect((await dashboard.json()).dashboard).toMatchObject({hasActiveSubscription:true,cancelAtPeriodEnd:true,canCancelSubscription:false,canReactivateSubscription:true,activeUntil:new Date(END*1000).toISOString()});
+    expect(f.db.database.prepare("SELECT COUNT(*) AS n FROM transactional_messages WHERE kind='cancellation_confirmation'").get().n).toBe(1);
+    expect(nativeState(f).buckets.find(row=>row.bucket_type==='purchased').balance).toBe(1200);
+  }));
 
   test('member can reactivate a scheduled subscription without creating a duplicate subscription', async () => {
     const worker = await loadWorker('workers/auth/src/index.js');

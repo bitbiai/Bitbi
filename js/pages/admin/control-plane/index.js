@@ -111,7 +111,7 @@ export function createAdminControlPlane({ showToast, formatDate }) {
             {
                 title: 'Billing Events / Stripe',
                 badge: { label: probes[3].status, variant: probes[3].variant },
-                copy: 'Inspect sanitized provider events, operator-only live Stripe review records, and read-only local reconciliation signals. Automated remediation, credit clawback, and Stripe actions remain disabled.',
+                copy: 'Review payment evidence, consumer declarations and email issues. A verified subscription change requires its separate guarded action; refunds and credit clawbacks are not performed here.',
                 href: '#billing-events',
             },
             {

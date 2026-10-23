@@ -1,3 +1,5 @@
+import { initContractDocuments } from './contracts.js?v=__ASSET_VERSION__';
+import { CONSUMER_TERMS_VERSION, CONSUMER_CONSENT_VERSION, consumerConsentText } from '../../shared/consumer-contract.mjs?v=__ASSET_VERSION__';
 import { initSiteHeader } from '../../shared/site-header.js?v=__ASSET_VERSION__';
 import { initParticles } from '../../shared/particles.js';
 import { initBinaryRain } from '../../shared/binary-rain.js';
@@ -54,7 +56,7 @@ const $subscriptionDialogBody = document.getElementById('creditsSubscriptionDial
 const $subscriptionDialogCancel = document.getElementById('creditsSubscriptionDialogCancel');
 const $subscriptionDialogConfirm = document.getElementById('creditsSubscriptionDialogConfirm');
 
-const TERMS_VERSION = '2026-10-22';
+const TERMS_VERSION = CONSUMER_TERMS_VERSION;
 const LEDGER_VISIBLE_LIMIT = 5;
 const CHECKOUT_RETURN_POLL_LIMIT = 5;
 const CHECKOUT_RETURN_POLL_MS = 3000;
@@ -90,6 +92,12 @@ let dashboardGeneration = 0;
 let confirmedOrganizationId = null;
 let checkoutContextGeneration = 0;
 let pendingCheckout = null;
+const contractDocuments = initContractDocuments({ locale: LOCALE, currentActor: () => activeMode === 'member' ? currentUser?.id : null });
+document.addEventListener('bitbi:auth-change', event => {
+    if (currentUser?.id && (!event.detail?.loggedIn || event.detail.user?.id !== currentUser.id)) {
+        currentUser = null; dashboardGeneration++; setDenied({ sessionExpired: true });
+    }
+});
 
 function show(node) {
     if (node) node.hidden = false;
@@ -114,6 +122,7 @@ function isAuthFailure(result) {
 }
 
 function setDenied({ sessionExpired = false } = {}) {
+    contractDocuments.reset();
     checkoutContextGeneration += 1;
     pendingCheckout = null;
     currentDashboard = null;
@@ -135,6 +144,7 @@ function setDenied({ sessionExpired = false } = {}) {
 
 function setMode(mode) {
     activeMode = mode === 'member' ? 'member' : 'organization';
+    if (activeMode !== 'member') contractDocuments.reset();
     $workGrid?.classList.toggle('credits-work-grid--member', activeMode === 'member');
     if ($scopeLabel) $scopeLabel.textContent = activeMode === 'member' ? localeText('credits.memberAccount') : localeText('credits.organization');
     if ($subtitle) {
@@ -438,7 +448,7 @@ function renderLegalBlock(visible) {
         renderLegalBlock(true);
     });
     const termsText = document.createElement('span');
-    termsText.appendChild(document.createTextNode(localeText('credits.acceptTermsPrefix')));
+    termsText.appendChild(document.createTextNode(consumerConsentText(LOCALE).terms + ' '));
     const termsLink = document.createElement('a');
     termsLink.href = localizedHref('/legal/terms.html');
     termsLink.target = '_blank';
@@ -461,10 +471,13 @@ function renderLegalBlock(visible) {
     });
     deliveryLabel.append(
         deliveryInput,
-        document.createTextNode(localeText('credits.immediateDelivery')),
+        document.createTextNode(consumerConsentText(LOCALE).earlyStart),
     );
 
-    $legalBlock.append(title, termsLabel, deliveryLabel);
+    const rightsNote = document.createElement('p');
+    rightsNote.className = 'credits-legal__host-note';
+    rightsNote.textContent = consumerConsentText(LOCALE).rights;
+    $legalBlock.append(title, termsLabel, deliveryLabel, rightsNote);
     const hostNote = document.createElement('p');
     hostNote.className = 'credits-legal__host-note';
     hostNote.textContent = localeText('credits.securePayment');
@@ -830,6 +843,7 @@ function renderMemberDashboard(dashboard) {
     renderSubscriptionSection(dashboard);
     renderPacks(dashboard.packs || [], checkoutEnabled);
     renderPurchases(purchaseHistory);
+    void contractDocuments.load();
     renderLedger(dashboard.transactions);
     schedulePendingReturnedPurchaseRefresh(purchaseHistory);
 }
@@ -1041,6 +1055,7 @@ async function startCheckout(packId, button) {
         idempotencyKey: idempotencyKey(packId, organizationId),
         termsAccepted: true,
         termsVersion: TERMS_VERSION,
+        consentVersion: CONSUMER_CONSENT_VERSION, locale: LOCALE, earlyStartRequested: true,
         immediateDeliveryAccepted: true,
         acceptedAt: new Date().toISOString(),
     };

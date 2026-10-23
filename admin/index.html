@@ -400,6 +400,18 @@
                  BILLING EVENTS / STRIPE REVIEW QUEUE
                  ═══════════════════════════════════════ -->
             <div id="sectionBillingEvents" class="admin-section" style="display:none">
+                <section class="admin-control-subsection" aria-labelledby="consumerDeclarationsTitle">
+                    <h3 id="consumerDeclarationsTitle" class="admin-section-title">Consumer declarations &amp; confirmations</h3>
+                    <p class="admin-shell__desc">Review withdrawals and cancellations promptly. The internal review target is 24 hours; it does not replace statutory deadlines. Receipt, legal assessment, refund and subscription change are separate decisions.</p>
+                    <div class="admin-control-filter">
+                        <label>Review state <select id="consumerDeclarationsFilter" class="admin-ai__input"><option value="open">Open declarations</option><option value="closed">Closed reviews</option></select></label>
+                        <button type="button" id="consumerDeclarationsRefresh" class="btn-action">Refresh declarations</button>
+                    </div>
+                    <p id="consumerDeclarationsState" class="admin-state" role="status">Open this panel to load declarations.</p>
+                    <div id="consumerDeclarationsList"></div>
+                    <button type="button" id="consumerDeclarationsMore" class="btn-action btn-action--secondary" hidden>Older declarations</button>
+                    <h4>Transactional email requiring review</h4><div id="consumerMailFailures"></div>
+                </section>
                 <div class="admin-control-toolbar glass glass-card reveal visible">
                     <div>
                         <p class="admin-shell__desc">Sanitized billing-provider inspection and operator-only review workflow. Resolving or dismissing review items does not adjust credits, call Stripe, cancel subscriptions, or prove production readiness.</p>

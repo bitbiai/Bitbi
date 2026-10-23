@@ -13,6 +13,8 @@ const CURRENT_AUTH_MIGRATION = RELEASE_COMPAT.release.schemaCheckpoints.auth.lat
 const MOBILE_CHROME_USER_AGENT =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/126.0.0.0 Mobile/15E148 Safari/604.1';
 
+test('@consumer-contract operator queue keeps declaration receipt separate from verified cancellation and review',({page})=>require('./helpers/consumer-contract-ui.cjs').operatorQueue({page,expect,mockAdminControlPlane,seedCookieConsent,mockAdminAiLab}));
+
 function createSvgUpload(width, height) {
   return {
     name: `ref-${width}x${height}.svg`,
@@ -8369,8 +8371,8 @@ test.describe('Pricing credit-pack rollout', () => {
     await expect(page.locator('main')).not.toContainText('Compare options');
     await expect(page.locator('body')).not.toContainText(/Test ?mode/i);
     await require('./helpers/pricing-cards.cjs').assertEnglishPricingCards(page, expect);
-    await expect(page.locator('.pricing-legal')).toContainText('I accept the BITBI Terms.');
-    await expect(page.locator('.pricing-legal')).toContainText('immediate provision of the credits');
+    await expect(page.locator('.pricing-legal')).toContainText('I accept the BITBI Terms of Service dated 23 October 2026.');
+    await expect(page.locator('.pricing-legal')).toContainText('begins performance before the withdrawal period ends');
     await expect(page.locator('.pricing-legal a[href="/legal/terms.html"]')).toHaveAttribute('rel', /noopener/);
     const pricingTitles = await page.locator('.pricing-card__title').evaluateAll((nodes) =>
       nodes.map((node) => node.textContent.trim()),
@@ -8439,6 +8441,8 @@ test.describe('Pricing credit-pack rollout', () => {
     expect(mobileOverflow).toBeLessThanOrEqual(1);
   });
 
+  require('./helpers/consumer-contract-ui.cjs').registerAccountCases({test,expect,mockPricingAccount,mockCreditsAccount});
+
   test('logged-in Pricing checkout requires both legal confirmations before live checkout', async ({ page }) => {
     await page.route('https://pay.bitbi.ai/**', async (route) => {
       await route.fulfill({
@@ -8470,7 +8474,8 @@ test.describe('Pricing credit-pack rollout', () => {
     expect(checkoutRequests[0].body).toEqual(expect.objectContaining({
       pack_id: 'live_credits_12000',
       terms_accepted: true,
-      terms_version: '2026-10-22',
+      terms_version: '2026-10-23',
+      consentVersion: 'consumer-v1', locale: 'en', earlyStartRequested: true, withdrawalKnowledgeAccepted: false,
       immediate_delivery_accepted: true,
     }));
     expect(checkoutRequests[0].url).toContain('/api/account/billing/checkout/live-credit-pack');
@@ -8677,7 +8682,8 @@ test.describe('Credits dashboard live credit packs', () => {
     expect(checkoutRequests[0].body).toEqual(expect.objectContaining({
       pack_id: 'live_credits_5000',
       terms_accepted: true,
-      terms_version: '2026-10-22',
+      terms_version: '2026-10-23',
+      consentVersion: 'consumer-v1', locale: 'en', earlyStartRequested: true, withdrawalKnowledgeAccepted: false,
       immediate_delivery_accepted: true,
     }));
     expect(checkoutRequests[0].body.accepted_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);

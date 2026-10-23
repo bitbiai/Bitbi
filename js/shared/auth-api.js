@@ -258,6 +258,13 @@ function notifyAssetStorageChanged() {
     window.dispatchEvent(new CustomEvent('bitbi:assets-storage-changed'));
 }
 
+export function apiListContractConfirmations(cursor = null) {
+    return request('GET', `/account/billing/contracts${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`);
+}
+export function apiContractConfirmation(checkoutId) {
+    return request('GET', `/account/billing/contracts/${encodeURIComponent(checkoutId)}`);
+}
+
 export function apiRegister(email, password) {
     return request('POST', '/register', { email, password });
 }
@@ -2128,6 +2135,7 @@ export function apiCreateLiveCreditPackCheckout(orgId, {
     idempotencyKey,
     termsAccepted,
     termsVersion,
+    consentVersion, locale, earlyStartRequested,
     immediateDeliveryAccepted,
     acceptedAt,
 } = {}) {
@@ -2135,6 +2143,7 @@ export function apiCreateLiveCreditPackCheckout(orgId, {
         pack_id: packId,
         terms_accepted: termsAccepted === true,
         terms_version: termsVersion,
+        ...(consentVersion ? { consentVersion, locale, earlyStartRequested: earlyStartRequested === true, withdrawalKnowledgeAccepted: false } : {}),
         immediate_delivery_accepted: immediateDeliveryAccepted === true,
         accepted_at: acceptedAt || null,
     }, {
@@ -2147,6 +2156,7 @@ export function apiCreateMemberLiveCreditPackCheckout({
     idempotencyKey,
     termsAccepted,
     termsVersion,
+    consentVersion, locale, earlyStartRequested,
     immediateDeliveryAccepted,
     acceptedAt,
 } = {}) {
@@ -2154,6 +2164,7 @@ export function apiCreateMemberLiveCreditPackCheckout({
         pack_id: packId,
         terms_accepted: termsAccepted === true,
         terms_version: termsVersion,
+        ...(consentVersion ? { consentVersion, locale, earlyStartRequested: earlyStartRequested === true, withdrawalKnowledgeAccepted: false } : {}),
         immediate_delivery_accepted: immediateDeliveryAccepted === true,
         accepted_at: acceptedAt || null,
     }, {
@@ -2165,12 +2176,14 @@ export function apiCreateMemberSubscriptionCheckout({
     idempotencyKey,
     termsAccepted,
     termsVersion,
+    consentVersion, locale, earlyStartRequested,
     immediateDeliveryAccepted,
     acceptedAt,
 } = {}) {
     return request('POST', '/account/billing/checkout/subscription', {
         terms_accepted: termsAccepted === true,
         terms_version: termsVersion,
+        ...(consentVersion ? { consentVersion, locale, earlyStartRequested: earlyStartRequested === true, withdrawalKnowledgeAccepted: false } : {}),
         immediate_delivery_accepted: immediateDeliveryAccepted === true,
         accepted_at: acceptedAt || null,
     }, {
@@ -2217,3 +2230,12 @@ export function apiAiUploadReferenceVideo(file) {
 
 export const apiAdminModelAvailability = options => request('GET','/admin/ai/model-availability',undefined,options);
 export const apiAdminModelAvailabilityChange = (body,options) => request('PATCH','/admin/ai/model-availability',body,options);
+
+export const apiAdminConsumerDeclarations = (query = {}, options) => {
+    const params = new URLSearchParams();
+    if (query.state) params.set('state', query.state);
+    if (query.cursor) params.set('cursor', query.cursor);
+    return request('GET', `/admin/billing/consumer-declarations?${params}`, undefined, options);
+};
+export const apiAdminConsumerDeclarationReview = (id, body, options) => request('POST', `/admin/billing/consumer-declarations/${encodeURIComponent(id)}/review`, body, options);
+export const apiAdminConsumerCancellation = (id, body, options) => request('POST', `/admin/billing/consumer-declarations/${encodeURIComponent(id)}/subscription`, body, options);

@@ -33,6 +33,8 @@ import { handlePublicNewsPulse, handlePublicNewsPulseThumb } from "./routes/publ
 import { handleOpenClawNewsPulseIngest } from "./routes/openclaw-news-pulse.js";
 import { handleGetProfile, handleUpdateProfile } from "./routes/profile.js";
 import { handleAccountCredits } from "./routes/account-credits.js";
+import { handleConsumerDeclarations, handleAdminConsumerDeclarations } from "./routes/consumer-declarations.js";
+import { processTransactionalMessages } from "./lib/transactional-messages.js";
 import { handleCanvas } from "./routes/canvas.js";
 import { CANVAS_AGENT_MESSAGE,requeueCanvasAgents } from './lib/canvas-agent-store.js';
 import { processCanvasAgent } from './lib/canvas-agent-execution.js';
@@ -426,6 +428,17 @@ export default {
     // route-policy: wallet.unlink
     if (pathname === "/api/wallet/unlink" && method === "POST") return handleWalletUnlink(ctx);
 
+    // route-policy: consumer.declarations.create
+    if (pathname === '/api/consumer/declarations' && method === 'POST') return handleConsumerDeclarations(ctx);
+    if (pathname.startsWith('/api/consumer/declarations') || pathname === '/api/account/billing/contracts' || pathname.startsWith('/api/account/billing/contracts/')) {
+      const result = await handleConsumerDeclarations(ctx);
+      if (result) return result;
+    }
+    if (pathname.startsWith('/api/admin/billing/consumer-declarations')) {
+      const result = await handleAdminConsumerDeclarations(ctx);
+      if (result) return result;
+    }
+
     // Profile
     if (pathname === "/api/profile" && method === "GET") return handleGetProfile(ctx);
     // route-policy: profile.update
@@ -570,6 +583,9 @@ export default {
 
   async scheduled(event, env, ctx) {
     if (event?.cron === '*/5 * * * *') {
+      ctx.waitUntil(processTransactionalMessages(env, {limit:10}).catch(() => {
+        logDiagnostic({service:'bitbi-auth',component:'consumer-mail',event:'consumer_mail_recovery_unavailable',level:'error',code:'consumer_mail_recovery_unavailable'});
+      }));
       await requeueMemberGenerations(env);
       await requeueCanvasAgents(env);
       return;

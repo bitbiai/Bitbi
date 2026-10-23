@@ -30,6 +30,7 @@ const MUTATING_DISPATCH_FILES = [
   "workers/auth/src/index.js",
   "workers/auth/src/routes/admin.js",
   "workers/auth/src/routes/admin-billing.js",
+  "workers/auth/src/routes/consumer-declarations.js",
   "workers/auth/src/routes/admin-orgs.js",
   "workers/auth/src/routes/admin-r2-explorer.js",
   "workers/auth/src/routes/admin-storage.js",
@@ -58,6 +59,13 @@ const MUTATING_DISPATCH_FILES = [
 ];
 
 const REQUIRED_LOOKUPS = [
+  ["POST", "/api/admin/billing/consumer-declarations/cd_01234567890123456789012345678901/subscription", "admin.consumer.declarations.subscription"],
+  ["POST", "/api/consumer/declarations", "consumer.declarations.create"],
+  ["GET", "/api/consumer/declarations/config", "consumer.declarations.config"],
+  ["GET", "/api/account/billing/contracts/bcs_sample", "account.billing.contracts.read"],
+  ["GET", "/api/account/billing/contracts", "account.billing.contracts.list"],
+  ["GET", "/api/admin/billing/consumer-declarations", "admin.consumer.declarations.list"],
+  ["POST", "/api/admin/billing/consumer-declarations/cd_01234567890123456789012345678901/review", "admin.consumer.declarations.review"],
   ["GET", "/api/admin/fable-chat/conversations", "admin.fable-chat.conversations.list"],
   ["POST", "/api/admin/fable-chat/conversations", "admin.fable-chat.conversations.create"],
   ["GET", "/api/admin/fable-chat/conversations/fbc_0123456789abcdef0123456789abcdef", "admin.fable-chat.conversations.read"],

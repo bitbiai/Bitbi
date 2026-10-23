@@ -738,6 +738,11 @@ test('focused native scopes dispatch through the actual child and preserve bound
   assert.equal(selectedRuntimeSuites('canvas-retention')[0][1],(await import('../tests/helpers/q2-runtime/canvas.mjs')).runCanvasRetentionTests);
   assert.deepEqual(selectedRuntimeSuites('q4-stream').map(([name])=>name),['q4-stream']);
   assert.equal(parseRuntimeArgs(['--suite','q4-stream'],{}).suite,'q4-stream');
+  assert.deepEqual(selectedRuntimeSuites('q4-subscription').map(([name])=>name),['q4-subscription']);
+  assert.equal(parseRuntimeArgs(['--suite','q4-subscription'],{}).suite,'q4-subscription');
+  assert.equal(selectedRuntimeSuites('q4-subscription')[0],runtimeSuites.find(([name])=>name==='q4-subscription'));
+  assert.throws(()=>parseRuntimeArgs(['--suite','q4-consumer-unknown'],{}));
+  assert.match(read('tests/helpers/q2-runtime/linux-bootstrap.py'),/\+ \["q4-subscription"\]/);
   assert.deepEqual(selectedRuntimeSuites('website-assistant').map(([name])=>name),['website-assistant']);
   assert.equal(parseRuntimeArgs(['--suite','website-assistant'],{}).suite,'website-assistant');
   assert.throws(()=>selectedRuntimeSuites('unknown'));
@@ -751,7 +756,7 @@ test('focused native scopes dispatch through the actual child and preserve bound
     import {readFileSync} from 'node:fs';
     import {SourceTextModule,SyntheticModule,createContext} from 'node:vm';
     const source=readFileSync('tests/helpers/q2-runtime/linux-runtime-child.mjs','utf8');
-    for(const suite of [undefined,'member-generation','model-status','model-pricing','appearance','canvas','canvas-completion','canvas-audio','canvas-audio-fit','canvas-transitions','canvas-retention','q4-stream','website-assistant','unknown','',null,false]) {
+    for(const suite of [undefined,'member-generation','model-status','model-pricing','appearance','canvas','canvas-completion','canvas-audio','canvas-audio-fit','canvas-transitions','canvas-retention','q4-stream','q4-subscription','website-assistant','unknown','',null,false]) {
       for(const fault of [null,'platform','uid','gid']) {
         const calls=[], context=createContext({process:{platform:fault==='platform'?'darwin':'linux',
           getuid:()=>fault==='uid'?0:65534,getgid:()=>fault==='gid'?0:65534}});
@@ -764,7 +769,7 @@ test('focused native scopes dispatch through the actual child and preserve bound
           const m=new SyntheticModule(Object.keys(modules[name]),function(){for(const [k,v]of Object.entries(modules[name]))this.setExport(k,v);},{context});
           await m.link(()=>{});await m.evaluate();return m;};
         const m=new SourceTextModule(source,{context,importModuleDynamically:load});await m.link(load);
-        if(!fault && [undefined,null,'member-generation','model-status','model-pricing','appearance','canvas','canvas-completion','canvas-audio','canvas-audio-fit','canvas-transitions','canvas-retention','q4-stream','website-assistant'].includes(suite)) {
+        if(!fault && [undefined,null,'member-generation','model-status','model-pricing','appearance','canvas','canvas-completion','canvas-audio','canvas-audio-fit','canvas-transitions','canvas-retention','q4-stream','q4-subscription','website-assistant'].includes(suite)) {
           await m.evaluate();assert.deepEqual(calls,['node:assert/strict','node:fs','boundary','./runner.mjs','run']);
         } else {
           await assert.rejects(m.evaluate());assert.ok(!calls.includes('./runner.mjs'));

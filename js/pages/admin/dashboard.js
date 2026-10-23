@@ -1,4 +1,4 @@
-import { apiAdminStats, apiAdminBillingEvents, apiAdminAiUsageAttempts, apiAdminDataLifecycleRequests } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
+import { apiAdminStats, apiAdminConsumerDeclarations, apiAdminBillingEvents, apiAdminAiUsageAttempts, apiAdminDataLifecycleRequests } from '../../shared/auth-api.js?v=__ASSET_VERSION__';
 
 import { renderAdminWorkbench } from './control-plane/guidance.js?v=__ASSET_VERSION__';
 
@@ -132,7 +132,7 @@ export function createAdminDashboard({ showToast, loadCapabilities }) {
             { title:'AI jobs', section:'ai-usage', key:'attempts', load:() => apiAdminAiUsageAttempts({ limit:5 }), id:'attemptId' },
             { title:'Lifecycle requests', section:'lifecycle', key:'requests', load:() => apiAdminDataLifecycleRequests({ limit:5 }) },
         ];
-        const rows = await Promise.all(sources.map(async source => ({ source, response:await source.load() })));
+        const [rows, declarations] = await Promise.all([Promise.all(sources.map(async source => ({ source, response:await source.load() }))), apiAdminConsumerDeclarations({state:'open'})]);
         if (token !== attentionVersion || !holder.isConnected) return;
         holder.replaceChildren();
         for (const { source, response } of rows) {
@@ -147,6 +147,12 @@ export function createAdminDashboard({ showToast, loadCapabilities }) {
                 : !records ? 'The response did not include a usable record list.'
                     : item ? `A sampled record needs review: ${label}.`
                         : `No review state found in this sample of ${records.length} records. This does not establish overall readiness.`;
+            if (source.section === 'billing-events') {
+                const summary = declarations.ok ? declarations.data?.summary : null;
+                const known = Number.isSafeInteger(summary?.openCount) && Number.isSafeInteger(summary?.overdueCount);
+                const message = known ? `${summary.openCount} open consumer declarations; ${summary.overdueCount} past the internal 24-hour review target.` : 'Consumer declaration count could not be confirmed.';
+                copy.textContent = `${message} ${copy.textContent}`;
+            }
             const link = document.createElement('a'); link.href = '#' + source.section; link.className = 'btn-action'; link.textContent = 'Review ' + source.title.toLowerCase();
             const id = source.id && (item?.[source.id] || item?.id);
             if (typeof id === 'string' && id) link.addEventListener('click', event => {

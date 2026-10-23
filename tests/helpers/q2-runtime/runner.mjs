@@ -62,7 +62,7 @@ export function selectedRuntimeSuites(suite) {
   if (suite === 'canvas-audio-fit') return [['canvas-audio-fit', runCanvasAudioFitTests, {}]];
   if (suite === 'canvas-audio') return [['canvas-audio', runCanvasAudioTests, {}]];
   if (suite === 'canvas-completion') return [['canvas-completion', runCanvasCompletionTests, {}]];
-  if (suite && !['member-generation','model-status','model-pricing','appearance','canvas','canvas-reliability','q4-stream','website-assistant'].includes(suite)) throw new Error('Unsupported native suite');
+  if (suite && !['member-generation','model-status','model-pricing','appearance','canvas','canvas-reliability','q4-stream','q4-subscription','website-assistant'].includes(suite)) throw new Error('Unsupported native suite');
   return suite ? runtimeSuites.filter(([name]) => name === suite) : runtimeSuites;
 }
 

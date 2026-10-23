@@ -27,7 +27,7 @@ module.exports = defineConfig({
     {
       name: 'webkit-canvas',
       testMatch: ['**/canvas.spec.js', '**/oma2-q1-canvas.spec.js', '**/auth-admin.spec.js', '**/smoke.spec.js', '**/oma2-q1-member.spec.js'],
-      grep: /Canvas|P13|@canvas-model-ui/,
+      grep: /Canvas|P13|@canvas-model-ui|@consumer-contract/,
       use: { browserName: 'webkit' },
     },
   ],

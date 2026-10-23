@@ -53,9 +53,9 @@ export function parseRuntimeArgs(args, env = {}) {
     if (args[i] === '--preflight' && !result.preflight) result.preflight = true;
     else if (args[i] === '--artifacts' && !explicitArtifacts && args[i + 1] && !args[i + 1].startsWith('--')) {
       result.artifacts = args[++i]; explicitArtifacts = true;
-    } else if (args[i] === '--suite' && !result.suite && ['member-generation','model-status','model-pricing','appearance','canvas','canvas-settlement-continuation','canvas-settlement-recovery','canvas-assistant-continuation','canvas-assistant-tail','canvas-assistant-rate-tail','canvas-export-delivery','canvas-notification-migration','canvas-notification-controls','canvas-reliability','canvas-readiness-recovery','canvas-policy-tail','canvas-actions-tail','canvas-completion','canvas-audio','canvas-audio-fit','canvas-transitions','canvas-retention','q4-stream','website-assistant'].includes(args[i+1])) {
+    } else if (args[i] === '--suite' && !result.suite && ['member-generation','model-status','model-pricing','appearance','canvas','canvas-settlement-continuation','canvas-settlement-recovery','canvas-assistant-continuation','canvas-assistant-tail','canvas-assistant-rate-tail','canvas-export-delivery','canvas-notification-migration','canvas-notification-controls','canvas-reliability','canvas-readiness-recovery','canvas-policy-tail','canvas-actions-tail','canvas-completion','canvas-audio','canvas-audio-fit','canvas-transitions','canvas-retention','q4-stream','q4-subscription','website-assistant'].includes(args[i+1])) {
       result.suite = args[++i];
-    } else throw new Error('Usage: test-q2-runtime [--preflight] [--suite member-generation|model-status|model-pricing|appearance|canvas|canvas-settlement-continuation|canvas-settlement-recovery|canvas-assistant-continuation|canvas-assistant-tail|canvas-assistant-rate-tail|canvas-export-delivery|canvas-notification-migration|canvas-notification-controls|canvas-reliability|canvas-readiness-recovery|canvas-policy-tail|canvas-actions-tail|canvas-completion|canvas-audio|canvas-audio-fit|canvas-transitions|canvas-retention|q4-stream|website-assistant] [--artifacts <outside-repository-directory>]');
+    } else throw new Error('Usage: test-q2-runtime [--preflight] [--suite member-generation|model-status|model-pricing|appearance|canvas|canvas-settlement-continuation|canvas-settlement-recovery|canvas-assistant-continuation|canvas-assistant-tail|canvas-assistant-rate-tail|canvas-export-delivery|canvas-notification-migration|canvas-notification-controls|canvas-reliability|canvas-readiness-recovery|canvas-policy-tail|canvas-actions-tail|canvas-completion|canvas-audio|canvas-audio-fit|canvas-transitions|canvas-retention|q4-stream|q4-subscription|website-assistant] [--artifacts <outside-repository-directory>]');
   }
   return result;
 }
@@ -117,7 +117,7 @@ export function stageInputPlan() {
     'scripts/lib/canvas-export-readiness.mjs',
     'tests/helpers/q2-runtime', 'tests/helpers/canvas-video-control.mjs', 'tests/helpers/canvas-music-control.mjs', 'tests/helpers/canvas-processing-control.mjs', 'tests/helpers/canvas-completion-control.mjs', 'tests/helpers/canvas-audio-control.mjs', 'tests/helpers/canvas-smooth-control.mjs', 'tests/helpers/canvas-workspace-transition-control.mjs', 'tests/helpers/private-media-control.mjs', 'tests/q2-runtime-native.mjs',
     'tests/q2-runtime-references.mjs', 'tests/q2-runtime-recovery.mjs',
-    'tests/q4-runtime-public-video.mjs', 'tests/q4-runtime-stream.mjs', 'tests/q4-runtime-memory.mjs', 'tests/q4-runtime-video.mjs', 'tests/q4-runtime-subscription.mjs',
+    'tests/q4-runtime-public-video.mjs', 'tests/q4-runtime-stream.mjs', 'tests/q4-runtime-memory.mjs', 'tests/q4-runtime-video.mjs', 'tests/q4-runtime-subscription.mjs', 'tests/q4-runtime-consumer-billing.mjs', 'tests/q4-runtime-consumer-declarations.mjs',
     'tests/helpers/q4-stream-fixture.mjs', 'tests/helpers/q4-memory-control.mjs', 'tests/helpers/q4-memory-fixture.mjs',
     'tests/fixtures/media/h3-overrun.mp4','tests/fixtures/media/h3-prepared.mp4',
     'tests/fixtures/media/h3-reference.mp4', 'tests/fixtures/media/h3-frame.png',

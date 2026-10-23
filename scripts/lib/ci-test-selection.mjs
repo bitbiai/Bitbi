@@ -31,6 +31,7 @@ const STATIC_BUILD_RELATED_FILES = new Set([
 // Keep this aligned with the shared Worker impact map in release-plan.mjs.
 const SHARED_WORKER_FILE_MAP = new Map([
   ['config/website-assistant.json', ['auth']],
+  ['js/shared/consumer-contract.mjs', ['auth']],
   ['workers/shared/website-assistant-knowledge.mjs', ['auth']],
   ['workers/shared/website-assistant-content.mjs', ['auth']],
   ['workers/shared/website-assistant-version.mjs', ['auth']],
@@ -598,6 +599,7 @@ const AUTH_TEST_FILES = new Set([
 // the other via tests/release-transition/workers.spec.js. Keep these identities
 // exact; an unreviewed neighboring fixture must retain full selection.
 const EXACT_WORKER_TEST_FILES = new Set([
+  'tests/q2-billing-pack.spec.js',
   'tests/q2-canvas-media-policy.spec.js', 'tests/helpers/canvas-agent-media-policy-control.mjs',
   'tests/q2-canvas-media-action-policy.spec.js', 'tests/helpers/canvas-agent-media-action-policy-control.mjs',
   'tests/q2-canvas-reliability.spec.js', 'tests/helpers/canvas-notifications-control.mjs',
@@ -1291,6 +1293,15 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     if (file === 'config/static-hosting.json') {
       addReason(selection,'static',file,'changes frontend hosting runtime or authority');
       selectFullRegression(selection,file,'changes frontend hosting and requires native routing plus full candidate acceptance');
+      continue;
+    }
+    if (['tests/privacy-ai-recipients.test.mjs','config/privacy-provider-routes.json'].includes(file)) {
+      addReason(selection,'static',file,'executes the provider inventory guard through test:asset-version in protected local validation');
+      continue;
+    }
+    if (file==='tests/helpers/consumer-contract-ui.cjs') {
+      addReason(selection,'homepage',file,'executes EN/DE withdrawal and cancellation through smoke.spec.js in Chromium and WebKit');
+      addReason(selection,'auth',file,'retains authenticated checkout and account behavior');
       continue;
     }
     if (isDocumentation(file)) {

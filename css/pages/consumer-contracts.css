@@ -1,0 +1,47 @@
+@layer pages {
+    .consumer-contract-page .site-footer__link { color: var(--theme-ink); font-size: .875rem; min-block-size: 44px; display: inline-flex; align-items: center; }
+    .consumer-contract-page .site-footer__link:focus-visible { outline: 3px solid var(--theme-focus); outline-offset: 3px; }
+
+    .consumer-contract-entry { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: .25rem 1.25rem; position: relative; margin-block-start: .75rem; padding-inline: .5rem; z-index: 2; }
+    .consumer-contract-entry a { display: inline-flex; align-items: center; min-block-size: 44px; color: var(--theme-ink); font-size: .85rem; text-decoration: underline; text-underline-offset: .2em; }
+    .consumer-contract-entry a:focus-visible { outline: 3px solid var(--theme-focus); outline-offset: 3px; border-radius: .25rem; }
+    .consumer-contracts { max-inline-size: 52rem; margin: 0 auto; padding: 8rem max(1.25rem, env(safe-area-inset-right)) 4rem max(1.25rem, env(safe-area-inset-left)); color: var(--theme-ink); }
+    .consumer-contracts__intro { margin-block-end: 2rem; }
+    .consumer-contracts h1 { font-family: var(--font-display); font-size: clamp(2rem, 4vw, 3rem); line-height: 1.2; margin-block-end: 1rem; }
+    .consumer-contracts h2 { font-size: 1.35rem; margin-block-end: 1rem; }
+    .consumer-contracts p { line-height: 1.65; margin-block-end: 1rem; }
+    .consumer-contracts a { color: var(--theme-accent); text-decoration: underline; text-underline-offset: .2em; }
+    .consumer-contracts__switch { display: flex; gap: 1rem 1.5rem; flex-wrap: wrap; margin-block: 1.5rem; }
+    .consumer-contracts__panel { padding: clamp(1.25rem, 4vw, 2rem); border: 1px solid var(--theme-line-strong); border-radius: 1rem; background: var(--theme-surface); }
+    .consumer-contracts__fields { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; border: 0; margin: 0; padding: 0; }
+    .consumer-contracts label { display: grid; gap: .5rem; align-content: start; font-weight: 600; }
+    .consumer-contracts__wide { grid-column: 1 / -1; }
+    .consumer-contracts input, .consumer-contracts textarea, .consumer-contracts select { box-sizing: border-box; inline-size: 100%; min-inline-size: 0; border: 1px solid var(--theme-line-strong); border-radius: .5rem; background: var(--theme-inset); color: var(--theme-ink); padding: .8rem; font: inherit; font-weight: 400; }
+    .consumer-contracts textarea { resize: vertical; min-block-size: 6rem; }
+    .consumer-contracts__hint { color: var(--theme-muted); font-size: .9rem; font-weight: 400; line-height: 1.55; }
+    .consumer-contracts__actions { display: flex; flex-wrap: wrap; gap: .75rem; margin-block-start: 1.5rem; }
+    .consumer-contracts button { min-block-size: 44px; padding: .75rem 1rem; border-radius: .5rem; background: var(--theme-raised); color: var(--theme-ink); border: 1px solid var(--theme-line-strong); font: inherit; font-weight: 600; cursor: pointer; }
+    .consumer-contracts button[data-primary] { background: var(--theme-accent); color: var(--theme-on-accent); border-color: var(--theme-accent); }
+    .consumer-contracts button:disabled { opacity: .65; cursor: wait; }
+    .consumer-contracts :focus-visible { outline: 3px solid var(--theme-focus); outline-offset: 4px; }
+    .consumer-contracts [tabindex="-1"]:focus { outline: none; }
+    .consumer-contracts__notice { border-inline-start: 3px solid var(--theme-accent); padding: 1rem; margin-block: 1rem; background: var(--theme-accent-soft); overflow-wrap: anywhere; }
+    .consumer-contracts__notice--error { border-color: var(--theme-warning); background: var(--theme-warning-soft); }
+    .consumer-contracts dl { display: grid; grid-template-columns: minmax(8rem, 1fr) minmax(0, 2fr); gap: .75rem 1.5rem; margin-block: 1.5rem; }
+    .consumer-contracts dt { color: var(--theme-muted); }
+    .consumer-contracts dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .consumer-contracts__contact { margin-block-start: 2rem; color: var(--theme-muted); }
+    .consumer-contracts [hidden] { display: none !important; }
+    @media (max-width: 540px) {
+        .consumer-contracts { padding-block-start: 6.5rem; }
+        .consumer-contracts__fields, .consumer-contracts dl { grid-template-columns: 1fr; }
+        .consumer-contracts dd { margin-block-end: .6rem; }
+        .consumer-contracts__actions button { inline-size: 100%; }
+    }
+    @media print {
+        body:has(.consumer-contracts) header, body:has(.consumer-contracts) footer, .consumer-contracts__intro, .consumer-contracts__contact, .consumer-contracts__actions, .consumer-contracts__notice { display: none !important; }
+        .consumer-contracts { padding: 0; max-inline-size: none; color: #000; }
+        .consumer-contracts__panel { background: #fff; border-color: #888; }
+        .consumer-contracts dt { color: #222; }
+    }
+}

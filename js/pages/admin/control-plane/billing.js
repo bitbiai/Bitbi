@@ -1,3 +1,4 @@
+import { createConsumerDeclarationReview } from './consumer-declarations.js?v=__ASSET_VERSION__';
 /* ============================================================
    BITBI — Admin Control Plane / Billing + Organizations Domain
    Frontend-only rendering and event binding for billing/operator evidence.
@@ -52,6 +53,7 @@ import {
 } from './core.js?v=__ASSET_VERSION__';
 
 export function createBillingDomain({ notify, formatDate }) {
+    const consumerDeclarations = createConsumerDeclarationReview({formatDate});
     const billingTargets = {
         orgLookup: null,
         userLookup: null,
@@ -2284,10 +2286,11 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
 
     async function loadBillingEventsPanel() {
         billingDirty = false;
-        await Promise.all([loadBillingEvidenceStatus(), loadBillingReconciliation(), loadBillingReviews(), loadBillingEvents(), loadOperatorBillingArchive()]);
+        await Promise.all([loadBillingEvidenceStatus(), loadBillingReconciliation(), loadBillingReviews(), loadBillingEvents(), loadOperatorBillingArchive(), consumerDeclarations.load()]);
     }
 
     function bind() {
+        consumerDeclarations.bind();
         for (const [inputId, key, panelKey, detailId] of [
             ['orgBillingSearch', 'orgLookup', 'orgBilling', 'orgBillingDetail'],
             ['userBillingSearch', 'userLookup', 'userBilling', 'userBillingDetail'],
@@ -2371,7 +2374,7 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
         if (userId) return loadUserBilling(userId);
     }
 
-    function hide() { billingActive = false; for (const key of readGenerations.keys()) invalidateRead(key); }
+    function hide() { consumerDeclarations.hide(); billingActive = false; for (const key of readGenerations.keys()) invalidateRead(key); }
 
     return {
         bind, activateContext, hide, setActive: value => { billingActive = value; },

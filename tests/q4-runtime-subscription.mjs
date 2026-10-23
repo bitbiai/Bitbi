@@ -1,3 +1,5 @@
+import {runConsumerContractBillingTests} from './q4-runtime-consumer-billing.mjs';
+import {runConsumerDeclarationTests} from './q4-runtime-consumer-declarations.mjs';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import payloads from './helpers/q4-subscription-payloads.cjs';
@@ -109,5 +111,8 @@ export async function runSubscriptionTests(f) {
     assert.deepEqual(await Promise.all(tables.map(table=>rows(`SELECT * FROM ${table} ORDER BY rowid`))),before);
     assert.deepEqual(await rows('PRAGMA foreign_key_check'),[]);
   });
+
+  await runConsumerContractBillingTests(f,{seed,worker});
+  await runConsumerDeclarationTests(f);
 
 }

@@ -270,6 +270,10 @@ async function handleCreateLiveCreditPackCheckout(ctx, session, organizationId) 
       legalAcceptance: {
         termsAccepted: parsed.body?.terms_accepted === true || parsed.body?.termsAccepted === true,
         termsVersion: parsed.body?.terms_version || parsed.body?.termsVersion,
+        consentVersion: parsed.body?.consentVersion, locale: parsed.body?.locale,
+        earlyStartRequested: parsed.body?.earlyStartRequested === true,
+        withdrawalKnowledgeAccepted: parsed.body?.withdrawalKnowledgeAccepted,
+        extinction: parsed.body?.extinction,
         immediateDeliveryAccepted: parsed.body?.immediate_delivery_accepted === true || parsed.body?.immediateDeliveryAccepted === true,
         acceptedAt: parsed.body?.accepted_at || parsed.body?.acceptedAt || null,
       },

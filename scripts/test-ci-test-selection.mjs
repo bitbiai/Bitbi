@@ -39,6 +39,30 @@ const repoRoot = path.resolve(__dirname, "..");
  assert(auditionMixed.homepage&&auditionMixed.workers&&auditionMixed.auth&&!auditionMixed.full,'The audio mapping cannot drop Worker or Auth callers');
 }
 
+{
+ const privacy=['tests/privacy-ai-recipients.test.mjs','config/privacy-provider-routes.json'];
+ for(const file of privacy){const result=selectCiTests([file]);assert(result.static&&!result.docsOnly&&!result.full,'Privacy guard executes without orphan-test Full fallback');}
+ for(const file of privacy)assert(selectCiTests([file+'.unreviewed']).full,'Unknown neighboring files must not inherit this mapping');
+ const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));
+ const verifyCaller=(scripts,source)=>{assert(scripts['test:asset-version'].includes('node --test tests/privacy-ai-recipients.test.mjs'));assert(source.includes('run: npm run test:asset-version'));};
+ verifyCaller(pkg.scripts,releaseValidationSource());
+ assert.throws(()=>verifyCaller({...pkg.scripts,'test:asset-version':'node scripts/test-asset-version.mjs'},releaseValidationSource()));
+ assert.throws(()=>verifyCaller(pkg.scripts,releaseValidationSource().replace('run: npm run test:asset-version','run: no-op')));
+ for(const file of ['tests/q2-billing-pack.spec.js','tests/q4-runtime-consumer-billing.mjs','tests/q4-runtime-consumer-declarations.mjs']) {
+  assert(selectCiTests([file]).workers&&!selectCiTests([file]).full,'Existing protected Worker/native entrypoint');
+  if(file==='tests/q2-billing-pack.spec.js')assert(selectCiTests([file+'.unknown']).full,'Unknown test remains unmapped');
+ }
+ assert(selectCiTests(['tests/unreviewed-consumer-billing.mjs']).full,'Unmapped billing fixture remains broad');
+ assert(fs.readFileSync('playwright.workers.config.js','utf8').includes('**/q2-*.spec.js'));
+ const helper='tests/helpers/consumer-contract-ui.cjs';const ui=selectCiTests([helper]);assert(ui.homepage&&ui.auth&&!ui.full);
+ assert(fs.readFileSync('tests/smoke.spec.js','utf8').includes('./helpers/consumer-contract-ui.cjs'));
+ assert(pkg.scripts['test:homepage-core'].includes('tests/smoke.spec.js'));
+ assert(fs.readFileSync('playwright.config.js','utf8').includes('@consumer-contract'));
+ const mixed=selectCiTests([...privacy,helper,'workers/auth/src/lib/stripe-billing.js','css/base/appearance.css','js/shared/consumer-contract.mjs']);
+ assert(mixed.workers&&mixed.auth&&mixed.homepage&&mixed.static&&!mixed.full,'Billing/shared CSS remain genuine runtime coverage');
+ console.log('Consumer privacy guard: real protected caller, missing-caller counterchecks and unknown-neighbour mapping retained.');
+}
+
 if(process.argv.includes('--canvas-export-delivery-only')) {
   assert.deepEqual(process.argv.slice(2),['--canvas-export-delivery-only']);
   await testExportDeliverySelection();process.exit(0);

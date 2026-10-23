@@ -1,3 +1,4 @@
+import {processTransactionalMessages} from '../../../workers/auth/src/lib/transactional-messages.js';
 import {CANVAS_MEDIA_ACTION_POLICY_CASES,canvasMediaActionPolicyCase} from '../canvas-agent-media-action-policy-control.mjs';
 import {CANVAS_MEDIA_POLICY_CASES,canvasMediaPolicyCase} from '../canvas-agent-media-policy-control.mjs';
 import {MEDIA_COMPLETION_CASES,canvasMediaCompletionCase} from '../canvas-agent-media-completion-control.mjs';
@@ -73,6 +74,7 @@ export default {
     if (request.method !== 'POST' || request.headers.get('x-q2-control') !== env.Q2_CONTROL_TOKEN) return new Response(null,{status:403});
     const path=new URL(request.url).pathname;
     const body=await request.json();
+    if(path==='/consumer-mail')return Response.json(await processTransactionalMessages(env));
     if(path==='/canvas-project-lifecycle')return Response.json(await canvasProjectLifecycleCase(env));
     if(path==='/canvas-notifications')return Response.json(await canvasNotificationsCase(env));
     if(path==='/canvas-notifications-migration-seed')return Response.json(await seedCanvasNotificationsMigration(env));

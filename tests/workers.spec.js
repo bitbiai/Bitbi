@@ -8881,6 +8881,11 @@ test.describe('Phase 2-J Stripe Testmode credit-pack checkout foundation', () =>
 });
 
 test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => {
+  // Fixed historical consent window; current/expired consent has separate controls.
+  const NativeDate=globalThis.Date,legacyNow=NativeDate.parse('2026-10-23T12:00:00.000Z');
+  test.beforeEach(()=>{globalThis.Date=class extends NativeDate {constructor(...args){super(...(args.length?args:[legacyNow]));}static now(){return legacyNow;}};});
+  test.afterEach(()=>{globalThis.Date=NativeDate;});
+
   const STRIPE_LIVE_SECRET = 'sk_live_phase2l_secret_1234567890';
   const STRIPE_LIVE_WEBHOOK_SECRET = 'whsec_phase2l_secret_1234567890';
   const LIVE_TERMS_ACCEPTANCE = Object.freeze({

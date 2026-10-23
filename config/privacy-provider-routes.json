@@ -1,0 +1,170 @@
+{
+  "version": 1,
+  "reviewedAt": "2026-10-23",
+  "purpose": "Route disclosure inventory; not model access, account acceptance or legal authorization.",
+  "routes": [
+    {
+      "id": "xai-gateway",
+      "models": [
+        "xai/grok-4.6",
+        "xai/grok-4.20-multi-agent-0309",
+        "xai/grok-imagine-image-2.0",
+        "xai/grok-imagine-image",
+        "xai/grok-imagine-video",
+        "xai/grok-imagine-video-1.5-preview",
+        "xai/grok-4.7"
+      ],
+      "recipient": "xAI / SpaceXAI; actual gateway entity unverified",
+      "transport": "gateway",
+      "source": "workers/ai/src/lib/grok-chat.js",
+      "additionalSources": [
+        "workers/auth/src/lib/canvas-agent-model-operations.js",
+        "workers/ai/src/lib/canvas-agent-plan.js"
+      ]
+    },
+    {
+      "id": "cloudflare-hosted",
+      "models": [
+        "@cf/meta/llama-3.1-8b-instruct-fast",
+        "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+        "@cf/google/gemma-4-26b-a4b-it",
+        "@cf/qwen/qwen3-30b-a3b-fp8",
+        "@cf/openai/gpt-oss-20b",
+        "@cf/openai/gpt-oss-120b",
+        "@cf/black-forest-labs/flux-1-schnell",
+        "@cf/black-forest-labs/flux-2-klein-9b",
+        "@cf/black-forest-labs/flux-2-dev",
+        "@cf/baai/bge-m3",
+        "@cf/google/embeddinggemma-300m",
+        "@cf/swiss-ai/apertus-v1.5-8b",
+        "@cf/utter-project/eurollm-9b-it"
+      ],
+      "recipient": "Cloudflare, Inc.",
+      "transport": "hosted",
+      "source": "workers/ai/src/lib/invoke-ai.js"
+    },
+    {
+      "id": "anthropic-gateway",
+      "models": [
+        "anthropic/claude-fable-5"
+      ],
+      "recipient": "Anthropic; actual gateway entity unverified",
+      "transport": "gateway",
+      "source": "workers/ai/src/lib/canvas-agent-plan.js",
+      "additionalSources": [
+        "workers/auth/src/lib/canvas-agent-model-operations.js",
+        "workers/shared/canvas-assistant-fable.mjs"
+      ]
+    },
+    {
+      "id": "openai-gateway",
+      "models": [
+        "openai/gpt-image-2",
+        "openai/gpt-image-2.5-sunburst",
+        "openai/gpt-image-2.5-flare"
+      ],
+      "recipient": "OpenAI; actual gateway entity unverified",
+      "transport": "gateway",
+      "source": "workers/auth/src/routes/ai/images-write.js"
+    },
+    {
+      "id": "black-forest-labs-gateway",
+      "models": [
+        "black-forest-labs/flux-2-max"
+      ],
+      "recipient": "Black Forest Labs; actual gateway entity unverified",
+      "transport": "gateway",
+      "source": "workers/auth/src/routes/ai/images-write.js"
+    },
+    {
+      "id": "minimax-gateway",
+      "models": [
+        "minimax/music-2.6",
+        "minimax/h3"
+      ],
+      "recipient": "MiniMax; published API terms name Nanonoble Pte. Ltd.; actual gateway entity unverified",
+      "transport": "gateway",
+      "source": "workers/auth/src/routes/ai/video-generate.js"
+    },
+    {
+      "id": "elevenlabs-gateway",
+      "models": [
+        "elevenlabs/music-v2"
+      ],
+      "recipient": "Eleven Labs Inc.; gateway contract coverage unverified",
+      "transport": "gateway",
+      "source": "workers/auth/src/routes/ai/music-generate.js"
+    },
+    {
+      "id": "bytedance-gateway",
+      "models": [
+        "bytedance/seedance-2.5",
+        "bytedance/seedance-2.0-fast",
+        "bytedance/seedance-2.0"
+      ],
+      "recipient": "ByteDance; actual gateway entity unverified",
+      "transport": "gateway",
+      "source": "workers/auth/src/routes/ai/video-generate.js"
+    },
+    {
+      "id": "google-gateway",
+      "models": [
+        "google/gemini-omni-flash"
+      ],
+      "recipient": "Google; actual gateway contract coverage unverified",
+      "transport": "gateway",
+      "source": "workers/auth/src/routes/ai/video-generate.js"
+    },
+    {
+      "id": "pixverse-gateway",
+      "models": [
+        "pixverse/v6"
+      ],
+      "recipient": "PixVerse; API terms name MOTIVAI PRIVATE LIMITED and possible affiliate AIVORA PTE. LTD.; actual route entity unverified",
+      "transport": "gateway",
+      "source": "workers/ai/src/lib/invoke-ai-video.js"
+    },
+    {
+      "id": "vidu-gateway",
+      "models": [
+        "vidu/q3-pro"
+      ],
+      "recipient": "Vidu; policy names ShengShu AI HK Limited; API chain unverified",
+      "transport": "gateway",
+      "source": "workers/ai/src/lib/invoke-ai-video.js"
+    },
+    {
+      "id": "alibaba-gateway",
+      "models": [
+        "alibaba/hh1-t2v"
+      ],
+      "recipient": "Alibaba; actual gateway entity unverified",
+      "transport": "gateway",
+      "source": "workers/auth/src/routes/ai/video-generate.js"
+    },
+    {
+      "id": "vidu-admin-direct",
+      "models": [
+        "vidu/q3-pro"
+      ],
+      "recipient": "Vidu; API account entity unverified",
+      "transport": "direct-fallback",
+      "source": "workers/ai/src/lib/invoke-ai-video.js",
+      "host": "api.vidu.com",
+      "condition": "configured VIDU_API_KEY, gateway on, no gateway log, trusted not_dispatched validation failure; never timeout/unknown",
+      "runtimeActivation": "unverified"
+    },
+    {
+      "id": "pixverse-admin-extend",
+      "models": [
+        "pixverse/v6"
+      ],
+      "recipient": "PixVerse; API terms name MOTIVAI PRIVATE LIMITED and possible affiliate AIVORA PTE. LTD.; actual route entity unverified",
+      "transport": "direct",
+      "source": "workers/auth/src/lib/pixverse-extend.js",
+      "host": "app-api.pixverse.ai",
+      "condition": "admin extend with configured PIXVERSE_API_KEY and accepted source",
+      "runtimeActivation": "unverified"
+    }
+  ]
+}

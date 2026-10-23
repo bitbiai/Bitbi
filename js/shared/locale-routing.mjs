@@ -60,6 +60,8 @@ const SPECIAL_DE_PATHS = new Map([
   ["/legal/datenschutz.html", "/de/legal/datenschutz.html"],
   ["/legal/imprint.html", "/de/legal/imprint.html"],
   ["/legal/terms.html", "/de/legal/terms.html"],
+  ["/legal/withdrawal.html", "/de/legal/widerruf.html"],
+  ["/legal/cancellation.html", "/de/legal/kuendigung.html"],
 ]);
 
 const SPECIAL_EN_PATHS = new Map([
@@ -75,6 +77,8 @@ const SPECIAL_EN_PATHS = new Map([
   ["/de/legal/privacy.html", "/legal/privacy.html"],
   ["/de/legal/imprint.html", "/legal/imprint.html"],
   ["/de/legal/terms.html", "/legal/terms.html"],
+  ["/de/legal/widerruf.html", "/legal/withdrawal.html"],
+  ["/de/legal/kuendigung.html", "/legal/cancellation.html"],
 ]);
 
 function extensionFor(pathname) {

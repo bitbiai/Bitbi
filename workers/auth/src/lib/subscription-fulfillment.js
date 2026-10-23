@@ -1,3 +1,4 @@
+import { prepareConsumerConfirmation } from './consumer-contracts.js';
 import { BillingError, prepareAtomicSubscriptionPeriod, getMemberCreditBucketBalances, serializeMemberSubscriptionRow } from './billing.js';
 import { getBillingProviderEvent } from './billing-events.js';
 import { nowIso, randomTokenHex } from './tokens.js';
@@ -151,6 +152,9 @@ export async function applyMemberSubscriptionEvent({ env, stored, payload, input
       checkout.id,userId,input.subscriptionId,input.customer,input.priceId,BITBI_MEMBER_SUBSCRIPTION.amountCents,BITBI_MEMBER_SUBSCRIPTION.currency,...own);
   }
   if (kind === 'invoice') statements.push(...await prepareAtomicSubscriptionPeriod({ env, userId, input, eventId: stored.event.id, token, now }));
+  if (checkout && (kind === 'checkout' && input.paymentStatus === 'paid' || kind === 'invoice')) {
+    statements.push(...await prepareConsumerConfirmation(env,{checkout,payload,providerEventId:stored.event.providerEventId,now}));
+  }
   const outcome = { kind, fulfillmentStatus: 'completed', providerSubscriptionId: input.subscriptionId, stripeInvoiceId: input.invoiceId || null };
   add(`UPDATE billing_provider_events SET processing_status='planned', user_id=?, billing_customer_id=NULL,
     member_billing_customer_id=(SELECT id FROM billing_member_customers WHERE provider='stripe' AND provider_mode='live' AND provider_customer_ref=? AND user_id=?),

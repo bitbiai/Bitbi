@@ -1,3 +1,5 @@
+import { CONSUMER_TERMS_VERSION, CONSUMER_CONSENT_VERSION, LEGACY_CONSUMER_TERMS_VERSION } from '../../../../js/shared/consumer-contract.mjs';
+import { prepareConsumerContractSnapshot, prepareConsumerConfirmation, queueCancellationConfirmation } from './consumer-contracts.js';
 import { applyMemberSubscriptionEvent, markMemberSubscriptionEventFailed } from "./subscription-fulfillment.js";
 import {
   BillingError,
@@ -7,6 +9,7 @@ import {
   prepareAtomicCreditPackGrant,
   normalizeBillingIdempotencyKey,
   upsertMemberSubscriptionFromProvider,
+  serializeMemberSubscriptionRow,
 } from "./billing.js";
 import { BITBI_LIVE_CREDIT_PACKS } from "../../../../js/shared/live-credit-packs.mjs";
 import { BITBI_MEMBER_SUBSCRIPTION } from "../../../../js/shared/member-subscription.mjs";
@@ -54,7 +57,10 @@ const LIVE_MEMBER_SUBSCRIPTION_CHECKOUT_SCOPE = "member_subscription";
 const LIVE_MEMBER_CREDIT_PACK_REPAIR_CONFIRMATION = "repair_paid_member_credit_pack_checkout";
 const LIVE_MEMBER_CREDIT_PACK_REPAIR_EVIDENCE_MODE = "operator_attested_paid_stripe_checkout";
 const SAFE_OPERATOR_REASON_PATTERN = /(?:sk_live_|sk_test_|whsec_|stripe-signature|authorization|bearer|cookie|session=|pm_[A-Za-z0-9]|card\s*[:=]|payload\s*[:=])/i;
-export const BITBI_TERMS_VERSION = "2026-10-22";
+export const BITBI_TERMS_VERSION = CONSUMER_TERMS_VERSION;
+// Bounded rolling browser compatibility for the 2026-10-23 release only.
+// Webhook fulfillment uses stored terms and is never subject to this cutoff.
+export const LEGACY_CHECKOUT_ACCEPT_UNTIL = "2026-10-25T23:59:59.999Z";
 
 const LIVE_OPERATOR_REVIEW_POLICIES = Object.freeze({
   "invoice.payment_failed": Object.freeze({
@@ -789,6 +795,7 @@ async function liveCheckoutRequestFingerprint({ organizationId, userId, pack, au
     termsAccepted: legalAcceptance.termsAccepted,
     termsVersion: legalAcceptance.termsVersion,
     immediateDeliveryAccepted: legalAcceptance.immediateDeliveryAccepted,
+    ...(legalAcceptance.consentVersion ? {consentVersion:legalAcceptance.consentVersion,locale:legalAcceptance.locale,earlyStartRequested:true,withdrawalKnowledgeAccepted:false} : {}),
   });
 }
 
@@ -807,6 +814,7 @@ async function liveMemberCheckoutRequestFingerprint({ userId, pack, legalAccepta
     termsAccepted: legalAcceptance.termsAccepted,
     termsVersion: legalAcceptance.termsVersion,
     immediateDeliveryAccepted: legalAcceptance.immediateDeliveryAccepted,
+    ...(legalAcceptance.consentVersion ? {consentVersion:legalAcceptance.consentVersion,locale:legalAcceptance.locale,earlyStartRequested:true,withdrawalKnowledgeAccepted:false} : {}),
   });
 }
 
@@ -828,6 +836,7 @@ async function liveMemberSubscriptionCheckoutRequestFingerprint({ userId, plan, 
     termsAccepted: legalAcceptance.termsAccepted,
     termsVersion: legalAcceptance.termsVersion,
     immediateDeliveryAccepted: legalAcceptance.immediateDeliveryAccepted,
+    ...(legalAcceptance.consentVersion ? {consentVersion:legalAcceptance.consentVersion,locale:legalAcceptance.locale,earlyStartRequested:true,withdrawalKnowledgeAccepted:false} : {}),
   });
 }
 
@@ -1198,6 +1207,7 @@ function normalizeStripeSubscriptionResponse(value, { expectedSubscriptionId, ex
     currentPeriodEnd: stripeTimestampToIso(getSubscriptionPeriodEnd(value)),
     cancelAtPeriodEnd: value.cancel_at_period_end === true,
     canceledAt: stripeTimestampToIso(value.canceled_at),
+    endedAt: stripeTimestampToIso(value.ended_at),
     metadata: metadataObject(value.metadata),
   };
 }
@@ -1484,42 +1494,29 @@ function normalizeLiveAuthorizationScope(value) {
 function normalizeLiveLegalAcceptance(value) {
   const data = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   if (data.termsAccepted !== true && data.terms_accepted !== true) {
-    throw new StripeBillingError("BITBI terms must be accepted before checkout.", {
-      status: 400,
-      code: "terms_acceptance_required",
-    });
+    throw new StripeBillingError("BITBI terms must be accepted before checkout.", {status:400,code:"terms_acceptance_required"});
   }
   const termsVersion = safeString(data.termsVersion || data.terms_version, 32);
-  if (termsVersion !== BITBI_TERMS_VERSION) {
-    throw new StripeBillingError("The current BITBI terms version must be accepted before checkout.", {
-      status: 400,
-      code: "terms_version_required",
-    });
+  if (![CONSUMER_TERMS_VERSION, LEGACY_CONSUMER_TERMS_VERSION].includes(termsVersion)) {
+    throw new StripeBillingError("The current BITBI terms version must be accepted before checkout.", {status:400,code:"terms_version_required"});
   }
-  if (data.immediateDeliveryAccepted !== true && data.immediate_delivery_accepted !== true) {
-    throw new StripeBillingError("Immediate digital-credit delivery consent is required before checkout.", {
-      status: 400,
-      code: "immediate_delivery_acceptance_required",
-    });
+  const current = termsVersion === CONSUMER_TERMS_VERSION;
+  if (!current && Date.now() > Date.parse(LEGACY_CHECKOUT_ACCEPT_UNTIL)) {
+    throw new StripeBillingError("Reload the checkout to review the current terms before purchasing.", {status:409,code:"terms_version_outdated"});
   }
-  const acceptedAtText = safeString(data.acceptedAt || data.accepted_at, 64);
-  let acceptedAt = null;
-  if (acceptedAtText) {
-    const parsed = new Date(acceptedAtText);
-    if (!Number.isFinite(parsed.getTime())) {
-      throw new StripeBillingError("Terms acceptance timestamp is invalid.", {
-        status: 400,
-        code: "terms_acceptance_timestamp_invalid",
-      });
-    }
-    acceptedAt = parsed.toISOString();
+  const early = current ? data.earlyStartRequested === true : data.immediateDeliveryAccepted === true || data.immediate_delivery_accepted === true;
+  if (!early) throw new StripeBillingError("An express request for early performance is required before checkout.", {status:400,code:"immediate_delivery_acceptance_required"});
+  if (current && (data.consentVersion !== CONSUMER_CONSENT_VERSION || !['en','de'].includes(data.locale)
+    || data.withdrawalKnowledgeAccepted === true || data.extinction != null)) {
+    throw new StripeBillingError("The current checkout consent must be confirmed.", {status:400,code:"checkout_consent_invalid"});
   }
-  return {
-    termsAccepted: true,
-    termsVersion,
-    immediateDeliveryAccepted: true,
-    acceptedAt,
-  };
+  const clientAcceptedAt = safeString(data.acceptedAt || data.accepted_at, 64);
+  if (clientAcceptedAt && !Number.isFinite(Date.parse(clientAcceptedAt))) {
+    throw new StripeBillingError("Terms acceptance timestamp is invalid.", {status:400,code:"terms_acceptance_timestamp_invalid"});
+  }
+  return {termsAccepted:true,termsVersion,immediateDeliveryAccepted:true,earlyStartRequested:true,
+    withdrawalKnowledgeAccepted:false,consentVersion:current ? CONSUMER_CONSENT_VERSION : null,
+    locale:current ? data.locale : null,acceptedAt:nowIso(),clientAcceptedAt};
 }
 
 async function updateCheckoutSessionAfterStripeCreate(env, {
@@ -1628,7 +1625,7 @@ export async function createStripeLiveCreditPackCheckout({
 
   const id = checkoutSessionId();
   const now = nowIso();
-  await env.DB.prepare(
+  const checkoutStatement=env.DB.prepare(
     `INSERT INTO billing_checkout_sessions (
        id, provider, provider_mode, provider_checkout_session_id,
        provider_payment_intent_id, organization_id, user_id, credit_pack_id,
@@ -1666,10 +1663,14 @@ export async function createStripeLiveCreditPackCheckout({
       termsVersion: acceptance.termsVersion,
       immediateDeliveryAccepted: true,
       acceptedAt: acceptance.acceptedAt,
+      clientAcceptedAt: acceptance.clientAcceptedAt,
+      ...(acceptance.consentVersion ? {consentVersion:acceptance.consentVersion,locale:acceptance.locale,earlyStartRequested:true,withdrawalKnowledgeAccepted:false,extinction:"not_determined"} : {}),
     }),
     now,
     now
-  ).run();
+  );
+  const contract=await prepareConsumerContractSnapshot(env, {checkoutId:id,userId:normalizedUserId,organizationId:orgId,scope:LIVE_ORGANIZATION_CHECKOUT_SCOPE,offer:pack,acceptance,now});
+  await env.DB.batch([checkoutStatement,...(contract?[contract.statement]:[])]);
 
   try {
     const stripeSession = await postStripeCheckoutSession({
@@ -1858,7 +1859,7 @@ export async function createStripeLiveMemberCreditPackCheckout({
 
   const id = checkoutSessionId();
   const now = nowIso();
-  await env.DB.prepare(
+  const checkoutStatement=env.DB.prepare(
     `INSERT INTO billing_member_checkout_sessions (
        id, provider, provider_mode, provider_checkout_session_id,
        provider_payment_intent_id, user_id, credit_pack_id,
@@ -1895,10 +1896,14 @@ export async function createStripeLiveMemberCreditPackCheckout({
       termsVersion: acceptance.termsVersion,
       immediateDeliveryAccepted: true,
       acceptedAt: acceptance.acceptedAt,
+      clientAcceptedAt: acceptance.clientAcceptedAt,
+      ...(acceptance.consentVersion ? {consentVersion:acceptance.consentVersion,locale:acceptance.locale,earlyStartRequested:true,withdrawalKnowledgeAccepted:false,extinction:"not_determined"} : {}),
     }),
     now,
     now
-  ).run();
+  );
+  const contract=await prepareConsumerContractSnapshot(env, {checkoutId:id,userId:normalizedUserId,organizationId:null,scope:LIVE_MEMBER_CHECKOUT_SCOPE,offer:pack,acceptance,now});
+  await env.DB.batch([checkoutStatement,...(contract?[contract.statement]:[])]);
 
   try {
     const stripeSession = await postStripeCheckoutSession({
@@ -1979,7 +1984,7 @@ export async function createStripeLiveMemberSubscriptionCheckout({
 
   const id = checkoutSessionId();
   const now = nowIso();
-  await env.DB.prepare(
+  const checkoutStatement=env.DB.prepare(
     `INSERT INTO billing_member_subscription_checkout_sessions (
        id, provider, provider_mode, provider_checkout_session_id,
        provider_subscription_id, user_id, plan_id, provider_price_id,
@@ -2014,10 +2019,14 @@ export async function createStripeLiveMemberSubscriptionCheckout({
       termsVersion: acceptance.termsVersion,
       immediateDeliveryAccepted: true,
       acceptedAt: acceptance.acceptedAt,
+      clientAcceptedAt: acceptance.clientAcceptedAt,
+      ...(acceptance.consentVersion ? {consentVersion:acceptance.consentVersion,locale:acceptance.locale,earlyStartRequested:true,withdrawalKnowledgeAccepted:false,extinction:"not_determined"} : {}),
     }),
     now,
     now
-  ).run();
+  );
+  const contract=await prepareConsumerContractSnapshot(env, {checkoutId:id,userId:normalizedUserId,organizationId:null,scope:LIVE_MEMBER_SUBSCRIPTION_CHECKOUT_SCOPE,offer:plan,acceptance,now});
+  await env.DB.batch([checkoutStatement,...(contract?[contract.statement]:[])]);
 
   try {
     const stripeSession = await postStripeCheckoutSession({
@@ -2098,17 +2107,22 @@ async function updateStripeLiveMemberSubscriptionCancelAtPeriodEnd({
   userId,
   cancelAtPeriodEnd,
   idempotencyKey,
+  expectedProviderSubscriptionId=null,
+  locale,
 }) {
   const normalizedUserId = normalizeUserId(userId);
   const normalizedKey = normalizeBillingIdempotencyKey(idempotencyKey);
   const config = getStripeLiveSubscriptionManagementConfig(env);
   const subscription = await getActiveMemberSubscription(env, normalizedUserId);
+  if(expectedProviderSubscriptionId && subscription?.providerSubscriptionId!==expectedProviderSubscriptionId)
+    throw new StripeBillingError("The subscription changed before cancellation.",{status:409,code:"subscription_identity_changed"});
   const requestedAction = cancelAtPeriodEnd ? "cancel" : "reactivate";
   const manageability = assertLiveMemberSubscriptionManageable(subscription, {
     expectedPriceId: config.priceId,
     action: requestedAction,
   });
   if (manageability.alreadyInRequestedState) {
+    if(cancelAtPeriodEnd)await queueCancellationConfirmation(env,{userId:normalizedUserId,subscription,idempotencyKey:normalizedKey,locale});
     return {
       subscription,
       reused: true,
@@ -2122,6 +2136,8 @@ async function updateStripeLiveMemberSubscriptionCancelAtPeriodEnd({
     cancelAtPeriodEnd,
     idempotencyKey: `bitbi-live-subscription-${requestedAction}-${normalizedKey.slice(0, 80)}`,
   });
+  if (subscription.providerCustomerId && stripeSubscription.customer !== subscription.providerCustomerId)
+    throw new StripeBillingError("Stripe returned a different subscription customer.", {status:409,code:"stripe_subscription_customer_mismatch"});
   const updated = await upsertMemberSubscriptionFromProvider({
     env,
     userId: normalizedUserId,
@@ -2138,19 +2154,55 @@ async function updateStripeLiveMemberSubscriptionCancelAtPeriodEnd({
       source: `account_subscription_${requestedAction}`,
     },
   });
+  if(cancelAtPeriodEnd)await queueCancellationConfirmation(env,{userId:normalizedUserId,subscription:updated,idempotencyKey:normalizedKey,locale});
   return {
     subscription: updated,
     reused: false,
   };
 }
 
-export function cancelStripeLiveMemberSubscriptionAtPeriodEnd({ env, userId, idempotencyKey }) {
+export function cancelStripeLiveMemberSubscriptionAtPeriodEnd({ env, userId, idempotencyKey, expectedProviderSubscriptionId=null, locale }) {
   return updateStripeLiveMemberSubscriptionCancelAtPeriodEnd({
     env,
     userId,
     cancelAtPeriodEnd: true,
-    idempotencyKey,
+    idempotencyKey, expectedProviderSubscriptionId, locale,
   });
+}
+
+// A recorded ambiguous cancellation observes the exact original subscription.
+// This path never submits a second mutation or changes a different subscription.
+export async function reconcileStripeLiveMemberSubscriptionCancellation({env,userId,expectedProviderSubscriptionId,idempotencyKey,locale}) {
+  const owner=normalizeUserId(userId),target=safeString(expectedProviderSubscriptionId,128);
+  if(!target||!LIVE_SUBSCRIPTION_ID_PATTERN.test(target))throw new StripeBillingError("Subscription identity is required.",{status:400,code:"stripe_subscription_invalid"});
+  const row=await env.DB.prepare("SELECT * FROM billing_member_subscriptions WHERE user_id=? AND provider='stripe' AND provider_mode='live' AND provider_subscription_id=?").bind(owner,target).first();
+  if(!row)throw new StripeBillingError("The original subscription is unavailable.",{status:409,code:"subscription_identity_changed"});
+  const original=serializeMemberSubscriptionRow(row),config=getStripeLiveSubscriptionManagementConfig(env);
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),STRIPE_CHECKOUT_TIMEOUT_MS);
+  let observed;
+  try {
+    const response=await (env.__TEST_FETCH||globalThis.fetch)(`${STRIPE_SUBSCRIPTIONS_API_URL}/${encodeURIComponent(target)}`,{
+      method:'GET',headers:{Authorization:`Bearer ${config.secretKey}`},signal:controller.signal,redirect:'error'});
+    if(!response.ok)throw new Error('stripe_subscription_observation_failed');
+    const reader=response.body?.getReader();if(!reader)throw new Error('stripe_subscription_observation_invalid');
+    const decoder=new TextDecoder();let text='',bytes=0;
+    try {for(;;){const chunk=await reader.read();if(chunk.done)break;bytes+=chunk.value.byteLength;
+      if(bytes>200_000)throw new Error('stripe_subscription_observation_invalid');text+=decoder.decode(chunk.value,{stream:true});}
+      text+=decoder.decode();} finally {await reader.cancel();}
+    observed=normalizeStripeSubscriptionResponse(JSON.parse(text),{expectedSubscriptionId:target,expectedPriceId:original.providerPriceId||config.priceId});
+    if(!observed.customer||observed.customer!==original.providerCustomerId)throw new Error('stripe_subscription_observation_owner_mismatch');
+  } catch {
+    throw new StripeBillingError("The original cancellation outcome is not yet verified.",{status:503,code:"subscription_cancellation_outcome_unknown"});
+  } finally {clearTimeout(timeout);}
+  // An observation which does not prove cancellation cannot authorize another POST.
+  if(!observed.cancelAtPeriodEnd&&observed.status!=='canceled')return {subscription:original,reconciled:true,cancellationConfirmed:false};
+  const subscription=await upsertMemberSubscriptionFromProvider({env,userId:owner,providerSubscriptionId:target,
+    providerCustomerId:observed.customer,providerPriceId:observed.priceId,status:observed.status,
+    currentPeriodStart:observed.currentPeriodStart||original.currentPeriodStart,currentPeriodEnd:observed.currentPeriodEnd||original.currentPeriodEnd,
+    cancelAtPeriodEnd:observed.cancelAtPeriodEnd,canceledAt:observed.canceledAt||original.canceledAt,
+    metadata:{...observed.metadata,source:'subscription_cancellation_observation'}});
+  await queueCancellationConfirmation(env,{userId:owner,subscription,idempotencyKey:normalizeBillingIdempotencyKey(idempotencyKey),locale,providerEndedAt:observed.endedAt});
+  return {subscription,reconciled:true,cancellationConfirmed:true,effectiveEnd:observed.status==='canceled'?observed.endedAt:subscription.currentPeriodEnd};
 }
 
 export function reactivateStripeLiveMemberSubscription({ env, userId, idempotencyKey }) {
@@ -2496,6 +2548,7 @@ function normalizeLiveCheckoutCompletion(payload) {
     userId,
     pack,
     internalCheckoutSessionId: safeString(metadata.internal_checkout_session_id, 64),
+    contractPayload: payload,
   };
 }
 
@@ -3731,6 +3784,9 @@ async function fulfillStripeCreditPack({ env, completion, checkout, scope, store
     ON CONFLICT(event_id, action_type) DO UPDATE SET status = 'planned', dry_run = 0,
       summary_json = excluded.summary_json, updated_at = excluded.updated_at`,
     JSON.stringify(summary), plan.newLedgerId, plan.now, plan.now, ...eventBindings);
+  if (mode === STRIPE_MODE_LIVE && stored) {
+    plan.statements.push(...await prepareConsumerConfirmation(env,{checkout,payload:completion.contractPayload,providerEventId:stored.event.providerEventId,now:plan.now}));
+  }
   try {
     await env.DB.batch(plan.statements);
   } catch (error) {

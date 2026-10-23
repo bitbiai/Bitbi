@@ -16,6 +16,19 @@ import { isUndiciToolingPatch, isSharpToolingPatch, toolingOnlyWorkerPackages, w
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 
+{
+ const migration='0117_consumer_contracts.sql';
+ const {assertSupportedBackendMigrations}=await import('./lib/backend-publication.mjs');
+ const {backendContinuationSupported}=await import('./lib/backend-continuation.mjs');
+ assertSupportedBackendMigrations([migration]);
+ const plan=createReleasePlanFromRepo(repoRoot,{files:[`workers/auth/migrations/${migration}`,'js/shared/consumer-contract.mjs','workers/auth/src/lib/stripe-billing.js','legal/withdrawal.html','de/legal/widerruf.html']});
+ assert.deepEqual(plan.workerDeploys.map(step=>step.worker),['auth']);
+ assert.equal(plan.schemaApplies[0].latestMigration,migration);
+ assert.equal(plan.deploySteps[0].type,'schema-checkpoint');assert.equal(plan.deploySteps.at(-1).type,'static');
+ assert(backendContinuationSupported(plan));assert.deepEqual(Object.keys(plan.impacts.services),[]);
+ assert.throws(()=>assertSupportedBackendMigrations(['0117_unreviewed.sql']));
+}
+
 function createContext() {
   const context = loadReleaseCompatibilityContext(repoRoot);
   context.repoRoot = repoRoot;
@@ -40,7 +53,7 @@ function createContext() {
  assertSupportedBackendMigrations([migration]);
  const plan=createReleasePlanFromRepo(repoRoot,{files:[`workers/auth/migrations/${migration}`,'js/shared/canvas-agent-media-policy.mjs','canvas/index.html','de/canvas/index.html']});
  assert.deepEqual(plan.workerDeploys.map(step=>step.worker),['auth']);
- assert.equal(plan.schemaApplies[0].latestMigration,migration);
+ assert.equal(plan.schemaApplies[0].latestMigration,JSON.parse(fs.readFileSync('config/release-compat.json')).release.schemaCheckpoints.auth.latest);
  assert.equal(plan.deploySteps[0].type,'schema-checkpoint');assert.equal(plan.deploySteps.at(-1).type,'static');
  assert(backendContinuationSupported(plan));
  assert.deepEqual(Object.keys(plan.impacts.services),[],'Model policy does not deploy a media processor');

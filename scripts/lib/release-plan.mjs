@@ -49,6 +49,7 @@ const AGENT_INSTRUCTION_FILES = new Set([
 
 const SHARED_WORKER_FILE_MAP = Object.freeze({
   'config/website-assistant.json': ['auth'],
+  'js/shared/consumer-contract.mjs': ['auth'],
   'workers/shared/website-assistant-knowledge.mjs': ['auth'],
   'workers/shared/website-assistant-content.mjs': ['auth'],
   'workers/shared/website-assistant-version.mjs': ['auth'],

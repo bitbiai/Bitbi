@@ -684,3 +684,233 @@ test('Q2 B03 organization grant requires actual mutation metadata and recovers a
     expect(state(f).ledger.at(-1).balance_after).toBe(300);
   }, 'organization');
 });
+
+test('Q2 consumer contract: signed paid checkout atomically saves immutable full terms and one confirmation without changing historical consent', async () => {
+  await withPack(async f => {
+    const fs = require('node:fs'), path = require('node:path');
+    f.db.exec(fs.readFileSync(path.join(__dirname,'../workers/auth/migrations/0117_consumer_contracts.sql'),'utf8'));
+    const contracts=await load('workers/auth/src/lib/consumer-contracts.js');
+    const acceptance={termsVersion:'2026-10-23',locale:'de',termsAccepted:true,earlyStartRequested:true,consentVersion:'consumer-v1'};
+    await f.db.prepare("UPDATE billing_member_checkout_sessions SET metadata_json=? WHERE id=?").bind(JSON.stringify(acceptance),f.checkout.id).run();
+    await contracts.persistConsumerContractSnapshot(f.env,{checkoutId:f.checkout.id,userId:MEMBER,scope:'member',
+      offer:{id:f.checkout.pack,name:'Starter',credits:5000,amountCents:999,currency:'eur'},acceptance});
+    const event=payload(f.checkout); event.data.object.customer_details={name:'Synthetic buyer',address:{country:'DE',city:'Test city'}};
+    event.data.object.total_details={amount_tax:159};
+    expect((await deliver(f,event)).response.status).toBe(202);
+    expect((await deliver(f,event)).response.status).toBe(200);
+    const doc=await contracts.readOwnedContractConfirmation(f.env,{checkoutId:f.checkout.id,userId:MEMBER});
+    expect(doc.document.snapshot.consent.withdrawalKnowledgeAccepted).toBe(false);
+    expect(doc.document.snapshot.consent.extinction).toBe('not_determined');
+    expect(doc.document.payment.taxAmount).toBe(159);
+    expect(doc.document.text).toContain('Widerruf');
+    expect(doc.document.text).toContain('23.10.2026');
+    expect(doc.document.text.length).toBeGreaterThan(6000);
+    expect(await contracts.readOwnedContractConfirmation(f.env,{checkoutId:f.checkout.id,userId:'someone-else'})).toBe(null);
+    expect(f.db.database.prepare('SELECT COUNT(*) AS n FROM transactional_messages').get().n).toBe(1);
+    expect(f.db.database.prepare('SELECT COUNT(*) AS n FROM consumer_contract_confirmations').get().n).toBe(1);
+    expect(state(f).ledger).toHaveLength(1);
+    expect(()=>f.db.exec("UPDATE consumer_contract_confirmations SET document_json='{}'")).toThrow(/immutable/);
+  });
+});
+
+test('Q2 consumer contract: ordinary checkout pins server consent and locale before Stripe, rejecting forged waiver and changed replay', async () => {
+  await withPack(async f => {
+    const fs=require('node:fs'),path=require('node:path');
+    f.db.exec(fs.readFileSync(path.join(__dirname,'../workers/auth/migrations/0117_consumer_contracts.sql'),'utf8'));
+    Object.assign(f.env,{ENABLE_LIVE_STRIPE_CREDIT_PACKS:'true',STRIPE_LIVE_SECRET_KEY:'sk_live_synthetic_contract_only',
+      STRIPE_LIVE_CHECKOUT_SUCCESS_URL:'https://bitbi.ai/pricing.html?checkout=success',STRIPE_LIVE_CHECKOUT_CANCEL_URL:'https://bitbi.ai/pricing.html?checkout=cancel'});
+    const body={pack_id:'live_credits_5000',termsAccepted:true,termsVersion:'2026-10-23',consentVersion:'consumer-v1',locale:'de',earlyStartRequested:true,
+      acceptedAt:'2000-01-01T00:00:00.000Z'};
+    const calls=[],prior=globalThis.fetch;
+    globalThis.fetch=async (url,init)=>{calls.push({url,init});return Response.json({id:'cs_live_q2_contract_new_checkout',url:'https://checkout.stripe.com/c/pay/cs_live_q2_contract_new_checkout',mode:'payment',status:'open',payment_status:'unpaid',livemode:true});};
+    f.env.__TEST_FETCH=globalThis.fetch;
+    const request=async value=>f.http.request('/api/account/billing/checkout/live-credit-pack',{method:'POST',headers:{
+      'Content-Type':'application/json',Origin:'https://bitbi.ai',Cookie:f.memberCookie,'Idempotency-Key':'q2-new-consumer-contract','CF-Connecting-IP':'192.0.2.55'},body:JSON.stringify(value)});
+    try {
+      expect((await request({...body,earlyStartRequested:false})).status).toBe(400);
+      expect((await request({...body,withdrawalKnowledgeAccepted:true})).status).toBe(400);
+      expect(calls).toHaveLength(0);
+      const first=await request(body);expect(first.status).toBe(201);
+      expect((await request(body)).status).toBe(200);
+      expect((await request({...body,locale:'en'})).status).toBe(409);
+      expect(calls).toHaveLength(1);
+      const row=f.db.database.prepare('SELECT * FROM consumer_contract_snapshots').get();
+      expect(row.accepted_at).toBe(new Date().toISOString());expect(row.locale).toBe('de');
+      const snapshot=JSON.parse(row.snapshot_json);expect(snapshot.consent.earlyStartRequested).toBe(true);
+      expect(snapshot.consent.withdrawalKnowledgeAccepted).toBe(false);
+      expect(snapshot.customer.accountEmail).toBe('pack-member@example.invalid');
+      expect(new URLSearchParams(calls[0].init.body).get('metadata[accepted_at]')).toBe(row.accepted_at);
+      expect(state(f).ledger).toHaveLength(0);
+    } finally {globalThis.fetch=prior;}
+  });
+});
+
+test('Q2 consumer contract: mail timeout reuses the exact provider key, acceptance is not delivery and bounce stays visible', async () => {
+  await withPack(async f => {
+    const fs=require('node:fs'),path=require('node:path');
+    f.db.exec(fs.readFileSync(path.join(__dirname,'../workers/auth/migrations/0117_consumer_contracts.sql'),'utf8'));
+    const mail=await load('workers/auth/src/lib/transactional-messages.js');
+    Object.assign(f.env,{RESEND_FROM_EMAIL:'BITBI <test@example.invalid>',RESEND_API_KEY:'synthetic-mail-key'});
+    const prepared=await mail.prepareTransactionalMessage(f.env,{id:'contract:q2-synthetic',sourceId:'q2-synthetic',kind:'contract_confirmation',
+      recipientEmail:'buyer@example.invalid',subject:'Synthetic contract',text:'Owned contract <script> must be text.'});
+    await prepared.statement.run();
+    const calls=[];let attempt=0;const prior=globalThis.fetch;
+    globalThis.fetch=async (url,init={})=>{calls.push({url,init}); if(init.method==='POST') {
+      if(++attempt===1)throw new Error('ambiguous timeout');return Response.json({id:'synthetic-provider-0001'});
+    } return Response.json({id:'synthetic-provider-0001',last_event:'bounced'});};
+    try {
+      await mail.processTransactionalMessages(f.env);
+      expect(f.db.database.prepare('SELECT state,error_code FROM transactional_messages').get()).toEqual({state:'queued',error_code:'mail_acceptance_unknown'});
+      f.advance(3*60_000);await mail.processTransactionalMessages(f.env);
+      expect(f.db.database.prepare('SELECT state,delivered_at FROM transactional_messages').get()).toEqual({state:'accepted',delivered_at:null});
+      expect(calls[0].init.headers['Idempotency-Key']).toBe(calls[1].init.headers['Idempotency-Key']);
+      expect(calls[0].init.body).toBe(calls[1].init.body);
+      expect(JSON.parse(calls[0].init.body).html).not.toContain('<script>');
+      f.advance(6*60_000);await mail.processTransactionalMessages(f.env);
+      expect(f.db.database.prepare('SELECT state,error_code FROM transactional_messages').get()).toEqual({state:'bounced',error_code:'mail_delivery_failed'});
+      await mail.processTransactionalMessages(f.env);expect(calls).toHaveLength(3);
+    } finally {globalThis.fetch=prior;}
+    expect(state(f).ledger).toHaveLength(0);
+  });
+});
+
+test('Q2 consumer contract: unknown mail after idempotency window and missing sender fail safely without sending', async () => {
+  await withPack(async f => {
+    const fs=require('node:fs'),path=require('node:path');
+    f.db.exec(fs.readFileSync(path.join(__dirname,'../workers/auth/migrations/0117_consumer_contracts.sql'),'utf8'));
+    const mail=await load('workers/auth/src/lib/transactional-messages.js');
+    const input={id:'withdrawal:q2-synthetic',sourceId:'q2-synthetic',kind:'withdrawal_acknowledgement',recipientEmail:'buyer@example.invalid',subject:'Receipt',text:'Received once.'};
+    await (await mail.prepareTransactionalMessage(f.env,input)).statement.run();
+    await mail.processTransactionalMessages(f.env);
+    expect(f.db.database.prepare('SELECT state,error_code FROM transactional_messages').get()).toEqual({state:'review_required',error_code:'mail_config_unavailable'});
+    await f.db.prepare("UPDATE transactional_messages SET state='sending',attempt_count=5,first_attempt_at=?,lease_expires_at=? WHERE id=?")
+      .bind(new Date(f.now()-24*60*60_000).toISOString(),new Date(f.now()-60_000).toISOString(),input.id).run();
+    await mail.processTransactionalMessages(f.env);
+    expect(f.db.database.prepare('SELECT state,attempt_count,error_code FROM transactional_messages').get()).toEqual({state:'review_required',attempt_count:5,error_code:'mail_outcome_requires_review'});
+  });
+});
+
+test('Q2 consumer contract: missing new acceptance evidence cannot grant, while failed snapshot creation never dispatches', async () => {
+  await withPack(async f=>{
+    const fs=require('node:fs'),path=require('node:path');
+    f.db.exec(fs.readFileSync(path.join(__dirname,'../workers/auth/migrations/0117_consumer_contracts.sql'),'utf8'));
+    await f.db.prepare('UPDATE billing_member_checkout_sessions SET metadata_json=? WHERE id=?').bind(JSON.stringify({termsVersion:'2026-10-23'}),f.checkout.id).run();
+    expect((await deliver(f,payload(f.checkout))).response.status).toBeGreaterThanOrEqual(500);
+    expect(state(f).ledger).toHaveLength(0);
+    Object.assign(f.env,{ENABLE_LIVE_STRIPE_CREDIT_PACKS:'true',STRIPE_LIVE_SECRET_KEY:'sk_live_synthetic_contract_only',
+      STRIPE_LIVE_CHECKOUT_SUCCESS_URL:'https://bitbi.ai/pricing.html?checkout=success',STRIPE_LIVE_CHECKOUT_CANCEL_URL:'https://bitbi.ai/pricing.html?checkout=cancel'});
+    f.db.exec("CREATE TRIGGER contract_snapshot_fault BEFORE INSERT ON consumer_contract_snapshots BEGIN SELECT RAISE(ABORT,'snapshot fixture fault'); END");
+    const response=await f.http.request('/api/account/billing/checkout/live-credit-pack',{method:'POST',headers:{'Content-Type':'application/json',Origin:'https://bitbi.ai',Cookie:f.memberCookie,'Idempotency-Key':'consumer-snapshot-fault','CF-Connecting-IP':'192.0.2.56'},
+      body:JSON.stringify({pack_id:'live_credits_5000',termsAccepted:true,termsVersion:'2026-10-23',consentVersion:'consumer-v1',locale:'en',earlyStartRequested:true})});
+    expect(response.status).toBeGreaterThanOrEqual(500);
+    expect(f.db.database.prepare('SELECT COUNT(*) AS n FROM billing_member_checkout_sessions').get().n).toBe(1);
+    expect(f.db.database.prepare('SELECT COUNT(*) AS n FROM consumer_contract_snapshots').get().n).toBe(0);
+  });
+});
+
+test('Q2 consumer contract: unknown cancellation observes exact owner by GET and confirms once without another provider mutation', async () => {
+  await withPack(async f=>{
+    const fs=require('node:fs'),path=require('node:path');
+    f.db.exec(fs.readFileSync(path.join(__dirname,'../workers/auth/migrations/0117_consumer_contracts.sql'),'utf8'));
+    const stripe=await load('workers/auth/src/lib/stripe-billing.js');
+    Object.assign(f.env,{STRIPE_LIVE_SECRET_KEY:'sk_live_synthetic_contract_only',STRIPE_LIVE_SUBSCRIPTION_PRICE_ID:'price_q2_consumer_pro'});
+    const subscriptionId='sub_q2_consumer_original',customerId='cus_q2_consumer_original',start=new Date().toISOString(),end=new Date(Date.now()+30*86400_000).toISOString();
+    await billing.upsertMemberSubscriptionFromProvider({env:f.env,userId:MEMBER,providerSubscriptionId:subscriptionId,providerCustomerId:customerId,providerPriceId:f.env.STRIPE_LIVE_SUBSCRIPTION_PRICE_ID,status:'active',currentPeriodStart:start,currentPeriodEnd:end});
+    const calls=[];
+    f.env.__TEST_FETCH=async(url,init)=>{calls.push({url,init});if(init.method==='POST')throw new Error('response lost after provider acceptance');return Response.json({id:subscriptionId,livemode:true,customer:customerId,status:'active',cancel_at_period_end:true,current_period_start:Date.parse(start)/1000,current_period_end:Date.parse(end)/1000,items:{data:[{price:{id:f.env.STRIPE_LIVE_SUBSCRIPTION_PRICE_ID}}]}});};
+    const args={env:f.env,userId:MEMBER,expectedProviderSubscriptionId:subscriptionId,idempotencyKey:'q2-consumer-original-cancel',locale:'de'};
+    await expect(stripe.cancelStripeLiveMemberSubscriptionAtPeriodEnd({...args,expectedProviderSubscriptionId:'sub_q2_consumer_changed'})).rejects.toMatchObject({code:'subscription_identity_changed'});
+    expect(calls).toHaveLength(0);
+    await expect(stripe.cancelStripeLiveMemberSubscriptionAtPeriodEnd(args)).rejects.toMatchObject({code:'stripe_subscription_update_failed'});
+    expect(f.db.database.prepare('SELECT COUNT(*) AS n FROM transactional_messages').get().n).toBe(0);
+    expect((await stripe.reconcileStripeLiveMemberSubscriptionCancellation(args)).cancellationConfirmed).toBe(true);
+    expect((await stripe.reconcileStripeLiveMemberSubscriptionCancellation(args)).cancellationConfirmed).toBe(true);
+    await expect(stripe.reconcileStripeLiveMemberSubscriptionCancellation({...args,userId:f.user.id})).rejects.toMatchObject({code:'subscription_identity_changed'});
+    expect(calls.map(c=>c.init.method)).toEqual(['POST','GET','GET']);
+    const messages=f.db.database.prepare('SELECT * FROM transactional_messages').all();expect(messages).toHaveLength(1);
+    expect(messages[0].kind).toBe('cancellation_confirmation');expect(messages[0].state).toBe('queued');
+    expect(JSON.parse(messages[0].payload_json).text).toContain('Kündigungsbestätigung');expect(state(f).ledger).toHaveLength(0);
+    expect((await billing.getMemberSubscriptionState(f.env,MEMBER)).hasActiveSubscription).toBe(true);
+  });
+});
+
+test('Q2 consumer contract: rolling old-browser admission expires while late signed historical payment still fulfills',async()=>{
+  await withPack(async f=>{
+    const stripe=await load('workers/auth/src/lib/stripe-billing.js'),cutoff=Date.parse(stripe.LEGACY_CHECKOUT_ACCEPT_UNTIL);
+    Object.assign(f.env,{ENABLE_LIVE_STRIPE_CREDIT_PACKS:'true',STRIPE_LIVE_SECRET_KEY:'sk_live_synthetic_contract_only',
+      STRIPE_LIVE_CHECKOUT_SUCCESS_URL:'https://bitbi.ai/pricing.html?checkout=success',STRIPE_LIVE_CHECKOUT_CANCEL_URL:'https://bitbi.ai/pricing.html?checkout=cancel'});
+    const requests=[];f.env.__TEST_FETCH=async(url,init)=>{requests.push({url,init});return Response.json({id:'cs_live_q2_old_browser_window',url:'https://checkout.stripe.com/c/pay/cs_live_q2_old_browser_window',mode:'payment',status:'open',payment_status:'unpaid',livemode:true});};
+    const args={env:f.env,userId:MEMBER,packId:'live_credits_5000',idempotencyKey:'q2-old-browser-before-cutoff',
+      legalAcceptance:{termsAccepted:true,termsVersion:'2026-10-22',immediateDeliveryAccepted:true}};
+    f.advance(cutoff-f.now()-1000);
+    expect((await stripe.createStripeLiveMemberCreditPackCheckout(args)).reused).toBe(false);expect(requests).toHaveLength(1);
+    f.advance(2000);
+    await expect(stripe.createStripeLiveMemberCreditPackCheckout({...args,idempotencyKey:'q2-old-browser-after-cutoff'})).rejects.toMatchObject({code:'terms_version_outdated'});
+    expect(requests).toHaveLength(1);
+    const historical=payload(f.checkout,'evt_q2_contract_historical_after_cutoff');
+    expect((await deliver(f,historical)).response.status).toBe(202);expect(state(f).ledger).toHaveLength(1);
+  });
+});
+
+test('Q2 consumer contract: cancellation observation uses actual ended_at and does not turn an unconfirmed GET into a cancellation',async()=>{
+  await withPack(async f=>{
+    const fs=require('node:fs'),path=require('node:path');f.db.exec(fs.readFileSync(path.join(__dirname,'../workers/auth/migrations/0117_consumer_contracts.sql'),'utf8'));
+    const stripe=await load('workers/auth/src/lib/stripe-billing.js');Object.assign(f.env,{STRIPE_LIVE_SECRET_KEY:'sk_live_synthetic_contract_only',STRIPE_LIVE_SUBSCRIPTION_PRICE_ID:'price_q2_consumer_pro'});
+    const start=Date.now()/1000,end=start+30*86400,ended=start+10*86400;
+    const subscriptionId='sub_q2_consumer_ended',customerId='cus_q2_consumer_ended';
+    await billing.upsertMemberSubscriptionFromProvider({env:f.env,userId:MEMBER,providerSubscriptionId:subscriptionId,providerCustomerId:customerId,providerPriceId:f.env.STRIPE_LIVE_SUBSCRIPTION_PRICE_ID,status:'active',currentPeriodStart:new Date(start*1000).toISOString(),currentPeriodEnd:new Date(end*1000).toISOString()});
+    let providerState='active',calls=0;
+    f.env.__TEST_FETCH=async(url,init)=>{expect(init.method).toBe('GET');calls++;return Response.json({id:subscriptionId,livemode:true,customer:customerId,status:providerState,cancel_at_period_end:false,canceled_at:start,ended_at:providerState==='canceled'?ended:null,current_period_start:start,current_period_end:end,items:{data:[{price:{id:f.env.STRIPE_LIVE_SUBSCRIPTION_PRICE_ID}}]}});};
+    const args={env:f.env,userId:MEMBER,expectedProviderSubscriptionId:subscriptionId,idempotencyKey:'q2-consumer-ended-cancel',locale:'de'};
+    expect((await stripe.reconcileStripeLiveMemberSubscriptionCancellation(args)).cancellationConfirmed).toBe(false);
+    expect(f.db.database.prepare('SELECT COUNT(*) AS n FROM transactional_messages').get().n).toBe(0);
+    providerState='canceled';const result=await stripe.reconcileStripeLiveMemberSubscriptionCancellation(args);
+    expect(result.cancellationConfirmed).toBe(true);expect(result.effectiveEnd).toBe(new Date(ended*1000).toISOString());
+    const message=JSON.parse(f.db.database.prepare('SELECT payload_json FROM transactional_messages').get().payload_json);
+    expect(message.text).toContain(`Vertragsende (UTC): ${new Date(ended*1000).toISOString()}`);
+    expect(message.text).not.toContain(`Vertragsende (UTC): ${new Date(start*1000).toISOString()}`);
+    expect(calls).toBe(2);expect(state(f).ledger).toHaveLength(0);
+  });
+});
+
+test('Q2 consumer contract: real declaration operator route retains unknown cancellation and reconciles without a second POST',async()=>{
+  await withPack(async f=>{
+    const fs=require('node:fs'),path=require('node:path'),{randomUUID}=require('node:crypto');
+    f.db.exec(fs.readFileSync(path.join(__dirname,'../workers/auth/migrations/0117_consumer_contracts.sql'),'utf8'));
+    Object.assign(f.env,{STRIPE_LIVE_SECRET_KEY:'sk_live_synthetic_contract_only',STRIPE_LIVE_SUBSCRIPTION_PRICE_ID:'price_q2_consumer_pro'});
+    const subscriptionId='sub_q2_declaration_original',customerId='cus_q2_declaration_original',start=new Date().toISOString(),end=new Date(Date.now()+30*86400_000).toISOString();
+    await billing.upsertMemberSubscriptionFromProvider({env:f.env,userId:MEMBER,providerSubscriptionId:subscriptionId,providerCustomerId:customerId,providerPriceId:f.env.STRIPE_LIVE_SUBSCRIPTION_PRICE_ID,status:'active',currentPeriodStart:start,currentPeriodEnd:end});
+    const post=async(path,body,cookie=f.adminCookie)=>{const r=await f.http.request(path,{method:'POST',headers:{Origin:'https://bitbi.ai','Content-Type':'application/json',Cookie:cookie,'CF-Connecting-IP':'192.0.2.92'},body:JSON.stringify(body)});return {status:r.status,body:await r.json()};};
+    const received=await post('/api/consumer/declarations',{requestId:randomUUID(),kind:'cancellation',locale:'de',name:'Synthetic Consumer',email:'consumer@example.invalid',contractReference:'Synthetic Pro contract',cancellationType:'ordinary',endRequest:'earliest'},f.memberCookie);
+    expect(received.status).toBe(201);const id=received.body.id,receivedAt=received.body.receivedAt;
+    const api=`/api/admin/billing/consumer-declarations/${id}/subscription`,body={requestId:randomUUID(),expectedRevision:0,userId:MEMBER,providerSubscriptionId:subscriptionId,identityVerified:true,note:'Synthetic verified contract association'};
+    let confirmed=false;const calls=[];
+    f.env.__TEST_FETCH=async(url,init)=>{calls.push(init.method);if(init.method==='POST')throw new Error('Synthetic lost provider response');return Response.json({id:subscriptionId,livemode:true,customer:customerId,status:'active',cancel_at_period_end:confirmed,current_period_start:Date.parse(start)/1000,current_period_end:Date.parse(end)/1000,items:{data:[{price:{id:f.env.STRIPE_LIVE_SUBSCRIPTION_PRICE_ID}}]}});};
+    expect((await post(api,body)).body.state).toBe('unknown');
+    let row=f.db.database.prepare('SELECT * FROM consumer_declarations WHERE id=?').get(id);expect(row.provider_state).toBe('unknown');expect(row.revision).toBe(1);expect(row.received_at).toBe(receivedAt);
+    expect((await post(api,body)).body.state).toBe('not_applied');
+    confirmed=true;const applied=await post(api,body);expect(applied.body.state).toBe('applied');expect(applied.body.result.effectiveEnd).toBe(end);
+    expect((await post(api,body)).body.reused).toBe(true);expect(calls).toEqual(['POST','GET','GET']);
+    expect((await post(api,{...body,note:'Changed meaning for an existing request'})).body.code).toBe('consumer_request_conflict');
+    expect(f.db.database.prepare('SELECT COUNT(*) AS n FROM consumer_declaration_reviews WHERE declaration_id=?').get(id).n).toBe(1);
+    expect(f.db.database.prepare("SELECT COUNT(*) AS n FROM transactional_messages WHERE kind='cancellation_confirmation'").get().n).toBe(1);
+    expect(f.db.database.prepare("SELECT COUNT(*) AS n FROM transactional_messages WHERE kind='cancellation_acknowledgement'").get().n).toBe(1);
+    expect(state(f).ledger).toHaveLength(0);row=f.db.database.prepare('SELECT * FROM consumer_declarations WHERE id=?').get(id);expect(row.received_at).toBe(receivedAt);
+  });
+});
+
+test('Q2 consumer contract: a different Stripe customer rejects cancellation projection and confirmation',async()=>{
+  await withPack(async f=>{
+    const fs=require('node:fs'),path=require('node:path');f.db.exec(fs.readFileSync(path.join(__dirname,'../workers/auth/migrations/0117_consumer_contracts.sql'),'utf8'));
+    Object.assign(f.env,{STRIPE_LIVE_SECRET_KEY:'sk_live_synthetic_contract_only',STRIPE_LIVE_SUBSCRIPTION_PRICE_ID:'price_q2_consumer_pro'});
+    const subscriptionId='sub_q2_consumer_customer_guard',customerId='cus_q2_consumer_expected',start=Date.now()/1000,end=start+30*86400;
+    await billing.upsertMemberSubscriptionFromProvider({env:f.env,userId:MEMBER,providerSubscriptionId:subscriptionId,providerCustomerId:customerId,providerPriceId:f.env.STRIPE_LIVE_SUBSCRIPTION_PRICE_ID,status:'active',currentPeriodStart:new Date(start*1000).toISOString(),currentPeriodEnd:new Date(end*1000).toISOString()});
+    const before=f.db.database.prepare('SELECT * FROM billing_member_subscriptions WHERE user_id=?').get(MEMBER),calls=[];
+    f.env.__TEST_FETCH=async(url,init)=>{calls.push({url,method:init.method});return Response.json({id:subscriptionId,livemode:true,customer:'cus_q2_consumer_unrelated',status:'active',cancel_at_period_end:true,current_period_start:start,current_period_end:end,items:{data:[{price:{id:f.env.STRIPE_LIVE_SUBSCRIPTION_PRICE_ID}}]}});};
+    const response=await f.http.request('/api/account/billing/subscription/cancel',{method:'POST',headers:{'Content-Type':'application/json',Origin:'https://bitbi.ai',Cookie:f.memberCookie,'Idempotency-Key':'q2-customer-guard-cancel'},body:JSON.stringify({confirmed:true,locale:'de'})});
+    expect(response.status).toBe(409);expect((await response.json()).code).toBe('stripe_subscription_customer_mismatch');
+    expect(calls).toHaveLength(1);expect(calls[0].method).toBe('POST');expect(calls[0].url).toContain(`/subscriptions/${subscriptionId}`);
+    expect(f.db.database.prepare('SELECT * FROM billing_member_subscriptions WHERE user_id=?').get(MEMBER)).toEqual(before);
+    expect(f.db.database.prepare('SELECT COUNT(*) AS n FROM transactional_messages').get().n).toBe(0);expect(state(f).ledger).toHaveLength(0);
+  });
+});
