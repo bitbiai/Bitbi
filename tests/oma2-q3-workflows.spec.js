@@ -39,6 +39,7 @@ async function fixture(page, baseURL, { storageError = false } = {}) {
       if (path === '/api/admin/ai/budget-switches/' + budget.switchKey && req.method() === 'PATCH') { budget.appSwitchEnabled = input.enabled; budget.appSwitchStatus = input.enabled ? 'enabled' : 'disabled'; budget.effectiveEnabled = input.enabled && budget.masterEnabled; return reply(route, { switch: budget, event: { id: 'q3-switch-event', replayed: false, createdAt: DATE } }); }
       observed.unexpected.push(req.method() + ':' + path); return reply(route, { error: 'Unexpected synthetic mutation' }, 503);
     }
+    if (req.method() === 'GET' && path === '/api/admin/billing/consumer-declarations' && url.search === '?state=open') return reply(route, { items: [], nextCursor: null, summary: { openCount: 0, overdueCount: 0 }, mailFailures: [], observedAt: DATE });
     if (path === '/api/admin/me') return reply(route, { user: ADMIN });
     if (path === '/api/me') return reply(route, { loggedIn: true, user: ADMIN });
     if (path === '/api/wallet/status') return reply(route, { authenticated: true, linked_wallet: null });
@@ -382,3 +383,22 @@ for (const condition of [{ width: 320, scale: 1 }, { width: 390, scale: 1 }, { w
     expect(seen.writes).toEqual([]); expect(seen.unexpected).toEqual([]);
   });
 }
+
+
+test('consumer declaration fixture admits only its exact read and preserves unknown-request guards', async ({ page, baseURL }) => {
+  const seen = await fixture(page, baseURL);
+  await open(page, 'billing-events');
+  await expect(page.locator('#consumerDeclarationsState')).toContainText('0 declarations shown.');
+  await expect(page.locator('#consumerDeclarationsList > *')).toHaveCount(0);
+  expect(seen.unexpected).toEqual([]); expect(seen.writes).toEqual([]);
+  const statuses = await page.evaluate(async () => {
+    const target = '/api/admin/billing/consumer-declarations';
+    return Promise.all([
+      fetch(target + '?state=closed'), fetch(target + '-unknown?state=open'),
+      fetch(target + '?state=open', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }),
+    ].map(async response => (await response).status));
+  });
+  expect(statuses).toEqual([503, 503, 503]);
+  expect(seen.unexpected.sort()).toEqual(['GET:/api/admin/billing/consumer-declarations', 'GET:/api/admin/billing/consumer-declarations-unknown', 'POST:/api/admin/billing/consumer-declarations']);
+  expect(seen.writes).toHaveLength(1);
+});
