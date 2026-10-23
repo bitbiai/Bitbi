@@ -1,3 +1,5 @@
+import {testLinearReuse} from './test-local-release-linear.mjs';
+import {testLinearPublicationHistory} from './test-local-release-history.mjs';
 import {SMOOTH_BROWSER_POLICY,SMOOTH_BROWSER_CONTINUATION, WORKSPACE_CONTINUATION,AUDIO_FIT_CONTINUATION, INSPECTOR_CONTINUATION,EXPORT_BROWSER_CONTINUATION,smoothProfile,smoothRetained,isSmoothContinuation,assertSmoothContinuationTree,verifySmoothBrowserReport,verifySmoothImageReuse,verifyImportedSmoothImage,restoreSmoothBrowserProof,passedBrowserCase} from './lib/local-release-browser.mjs';
 import {browserRows} from './lib/browser-fixture-repair.mjs';
 import assert from 'node:assert/strict';
@@ -20,6 +22,8 @@ import { acquireLocalReleaseLock, prepareCandidateRestore, copyEvidenceToolInput
 import { LOCAL_IMPORT_REPAIR, assertImportRepairWorkflow, localRepairCommand, verifyImportRepairEvidence } from './lib/local-release-evidence.mjs';
 import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,assertPermissionContinuationTree,permissionContinuationPrefix,CANVAS_STAGE_CASES,canvasStageContinuation} from './lib/local-release-evidence.mjs';
 import {testLocalMediaProcess} from './test-local-media-process.mjs';
+
+if(process.argv.length===2){testLinearPublicationHistory();await testLinearReuse();}
 
 if(process.argv.includes('--media-window-only')) {
   assert.deepEqual(process.argv.slice(2),['--media-window-only']);

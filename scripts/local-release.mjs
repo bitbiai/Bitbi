@@ -1,3 +1,5 @@
+import {LINEAR_REUSE,assertLinearTree,prepareLinearReuse} from './lib/local-release-linear.mjs';
+import {assertLinearPublicationHistory} from './lib/local-release-history.mjs';
 import {MEDIA_WINDOW_PREFLIGHT,MEDIA_COMPLETION_PREFLIGHT,mediaCompletionGuard,mediaCompletionContinuation,verifyMediaCompletionRepair} from './lib/local-release-evidence.mjs';
 import {INCIDENT_BROWSER_PREFLIGHT,incidentBrowserGuard,incidentBrowserContinuation,verifyIncidentBrowserOrigin,verifyIncidentBrowserReports} from './lib/local-release-evidence.mjs';
 import {INCIDENT_NATIVE_PREFLIGHT,incidentNativeGuard,incidentNativeContinuation,verifyIncidentNativeRepair} from './lib/local-release-evidence.mjs';
@@ -166,6 +168,9 @@ async function verifiedLocalBase() {
 }
 
 async function prepareRelease({ base, resume } = {}) {
+  // Fail cheaply before selected acceptance; a later remote advance is checked again.
+  git(['fetch','origin','main']);
+  assertLinearPublicationHistory(git(['rev-parse','HEAD']),git(['rev-parse','origin/main']));
   const published=await verifiedLocalBase();
   if(base)git(['merge-base','--is-ancestor',base,published]);else base=published;
   const head=git(['rev-parse','HEAD']);
@@ -194,6 +199,9 @@ export async function releaseLocal(options = {}) {
   // evidence exists before push; a normal push never races an unfinished test.
   assert.equal(git(['rev-parse','HEAD']),sha,'Source moved during evidence upload');
   const remote=git(['ls-remote','origin','refs/heads/main']).split(/\s/)[0];
+  git(['fetch','origin','main']);
+  assert.equal(git(['rev-parse','origin/main']),remote,'Remote moved during publication preflight; integrate and recheck the candidate');
+  assertLinearPublicationHistory(sha,remote);
   if(remote!==sha)execFileSync('git',['push','origin',`${sha}:refs/heads/main`],{stdio:'inherit'});
   else {
     const runs=JSON.parse(execFileSync('gh',['run','list','--repo',REPOSITORY,'--workflow','static.yml','--commit',sha,'--limit','10','--json','databaseId,status,conclusion'],{encoding:'utf8'}));
@@ -221,6 +229,7 @@ async function runLocalRelease({ base, resume }) {
   const progressProfile=resume&&[RELIABILITY_BROWSER_PREFLIGHT.proposalProgress,RELIABILITY_BROWSER_PREFLIGHT.browserProgress,RELIABILITY_BROWSER_PREFLIGHT.workerProgress,RELIABILITY_BROWSER_PREFLIGHT.progress,CANVAS_POLICY_NATIVE_PROGRESS,AUTONOMY_BROWSER_WORKER_PROGRESS,AUTONOMY_BROWSER_DOC_PROGRESS,AUTONOMY_BROWSER_PROGRESS].find(p=>json(path.join(resume,'checkpoint.json')).sha===p.source&&sha!==p.source);
   const progressDirectory=progressProfile?path.resolve(resume):null;
   const originalDirectory=progressDirectory?path.join(path.dirname(progressDirectory),[RELIABILITY_BROWSER_PREFLIGHT.progress,RELIABILITY_BROWSER_PREFLIGHT.workerProgress,RELIABILITY_BROWSER_PREFLIGHT.browserProgress,RELIABILITY_BROWSER_PREFLIGHT.proposalProgress].includes(progressProfile)?RELIABILITY_BROWSER_PREFLIGHT.run:progressProfile===CANVAS_POLICY_NATIVE_PROGRESS?CANVAS_POLICY_NATIVE_PROGRESS.baseRun:AUTONOMY_BROWSER_PREFLIGHT.run):resume&&json(path.join(resume,'checkpoint.json')).sha!==sha?path.resolve(resume):null;
+  const linearContinuation=originalDirectory&&json(path.join(originalDirectory,'checkpoint.json')).sha===LINEAR_REUSE.source;
   const readinessWorkerProgress=originalDirectory&&json(path.join(originalDirectory,'checkpoint.json')).sha===READINESS_CONTINUATION.worker.source;
   const readinessProgress=readinessWorkerProgress||originalDirectory&&json(path.join(originalDirectory,'checkpoint.json')).sha===READINESS_CONTINUATION.progress.source;
   const readinessContinuation=readinessProgress||originalDirectory&&json(path.join(originalDirectory,'checkpoint.json')).sha===READINESS_CONTINUATION.source;
@@ -232,7 +241,7 @@ async function runLocalRelease({ base, resume }) {
   const storedPlanContinuation=storedPlanWorkerProgress||storedPlanPlacement||originalDirectory&&json(path.join(originalDirectory,'checkpoint.json')).sha===STORED_PLAN_CONTINUATION.source;
   const preflightContinuation=originalDirectory&&canvasPreflightProfile(json(path.join(originalDirectory,'checkpoint.json')).sha);
   const permissionContinuation=originalDirectory&&[EXAMPLE_CACHE_CONTINUATION.source,PERMISSION_CONTINUATION.source,PERMISSION_CONTINUATION.tail,EXPORT_BROWSER_CONTINUATION.source,WORKSPACE_CONTINUATION.source,INSPECTOR_CONTINUATION.source,AUDIO_FIT_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.source,SMOOTH_BROWSER_CONTINUATION.progress,SMOOTH_BROWSER_CONTINUATION.accepted,SMOOTH_BROWSER_CONTINUATION.completed].includes(json(path.join(originalDirectory,'checkpoint.json')).sha);
-  if(originalDirectory){if(readinessContinuation)assertReadinessTree(sha);else if(storedPlanContinuation)assertStoredPlanTree(sha);else if(preflightContinuation)assertCanvasPreflightTree(sha,undefined,preflightContinuation);else if(permissionContinuation)assertPermissionContinuationTree(sha,undefined,{smooth:isSmoothContinuation(json(path.join(originalDirectory,'checkpoint.json')).sha),source:json(path.join(originalDirectory,'checkpoint.json')).sha});else assertLocalRepairTree(sha);}
+  if(originalDirectory){if(linearContinuation)assertLinearTree(sha);else if(readinessContinuation)assertReadinessTree(sha);else if(storedPlanContinuation)assertStoredPlanTree(sha);else if(preflightContinuation)assertCanvasPreflightTree(sha,undefined,preflightContinuation);else if(permissionContinuation)assertPermissionContinuationTree(sha,undefined,{smooth:isSmoothContinuation(json(path.join(originalDirectory,'checkpoint.json')).sha),source:json(path.join(originalDirectory,'checkpoint.json')).sha});else assertLocalRepairTree(sha);}
   const directory = resume&&!originalDirectory ? path.resolve(resume) : path.join(cacheRoot(), 'runs', `${sha}-${randomUUID()}`);
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const work = path.join(directory, 'source'), bundle = path.join(directory, 'bundle'), checkpoint = path.join(directory, 'checkpoint.json');
@@ -240,7 +249,8 @@ async function runLocalRelease({ base, resume }) {
   let state = fs.existsSync(checkpoint) ? json(checkpoint) : { policy: LOCAL_POLICY, repository: REPOSITORY,
     id, sha, base, sourceTree: git(['rev-parse',`${sha}^{tree}`]), planHash: validationPlan().digest,
     selection, environment, ...(nativeEvidence?{nativeBrowsers:nativeEvidence}:{}), origin: 'development-mac', ci: true, startedAt: new Date().toISOString(), status: 'running', commands: [] };
-  if(readinessContinuation) {
+  if(linearContinuation)state=prepareLinearReuse(originalDirectory,bundle,state,commands);
+  else if(readinessContinuation) {
     const source=path.join(originalDirectory,readinessProgress?'bundle/reuse/test-results/readiness-origin':'bundle'),bytes=fs.readFileSync(path.join(source,'evidence.json'));
     const prior=readinessPrefix(bytes,{...state,commands});
     const origin=path.join(bundle,'reuse/test-results/readiness-origin');fs.mkdirSync(path.dirname(origin),{recursive:true});fs.cpSync(source,origin,{recursive:true});
@@ -788,9 +798,9 @@ async function runLocalRelease({ base, resume }) {
     execFileSync('git', ['clone','--local','--no-hardlinks','--no-checkout','.',work], { stdio: 'pipe' });
     git(['checkout','--detach',sha], work);
     git(['remote','set-url','origin','https://github.com/bitbiai/Bitbi.git'], work);
-    if(state.readinessContinuation||state.storedPlanContinuation||[INCIDENT_BROWSER_PREFLIGHT.source,RELIABILITY_BROWSER_PREFLIGHT.source,EXPORT_DELIVERY_SDK_PREFLIGHT.source,EXPORT_DELIVERY_BROWSER_PREFLIGHT.source,ASSISTANT_BROWSER_PREFLIGHT.source,SETTLEMENT_BROWSER_PREFLIGHT.source,SETTLEMENT_NATIVE_PROGRESS.source,SETTLEMENT_NATIVE_PREFLIGHT.source,CANVAS_POLICY_NATIVE_PREFLIGHT.source,CANVAS_POLICY_WORKER_PREFLIGHT.source,AUTONOMY_BROWSER_PREFLIGHT.source,AUTONOMY_NATIVE_PREFLIGHT.source,EXAMPLE_BROWSER_PREFLIGHT.source,MODEL_BROWSER_PREFLIGHT.source].includes(state.preflightContinuation?.source)||state.permissionContinuation&&state.permissionContinuation.source!==PERMISSION_CONTINUATION.source)fs.cpSync(path.join(bundle,'test-results'),path.join(work,'test-results'),{recursive:true});
-    if(originalDirectory&&!readinessContinuation&&!storedPlanContinuation&&!permissionContinuation&&!preflightContinuation)for(const name of ['candidate','_site','test-results'])fs.cpSync(path.join(originalDirectory,'source',name),path.join(work,name),{recursive:true});
-    if(originalDirectory&&!readinessContinuation&&!storedPlanContinuation&&!permissionContinuation&&!preflightContinuation)for(const report of LOCAL_HOMEPAGE_REPORTS)fs.copyFileSync(path.join(bundle,'test-results',report),path.join(work,'test-results',report));
+    if(state.linearContinuation||state.readinessContinuation||state.storedPlanContinuation||[INCIDENT_BROWSER_PREFLIGHT.source,RELIABILITY_BROWSER_PREFLIGHT.source,EXPORT_DELIVERY_SDK_PREFLIGHT.source,EXPORT_DELIVERY_BROWSER_PREFLIGHT.source,ASSISTANT_BROWSER_PREFLIGHT.source,SETTLEMENT_BROWSER_PREFLIGHT.source,SETTLEMENT_NATIVE_PROGRESS.source,SETTLEMENT_NATIVE_PREFLIGHT.source,CANVAS_POLICY_NATIVE_PREFLIGHT.source,CANVAS_POLICY_WORKER_PREFLIGHT.source,AUTONOMY_BROWSER_PREFLIGHT.source,AUTONOMY_NATIVE_PREFLIGHT.source,EXAMPLE_BROWSER_PREFLIGHT.source,MODEL_BROWSER_PREFLIGHT.source].includes(state.preflightContinuation?.source)||state.permissionContinuation&&state.permissionContinuation.source!==PERMISSION_CONTINUATION.source)fs.cpSync(path.join(bundle,'test-results'),path.join(work,'test-results'),{recursive:true});
+    if(originalDirectory&&!linearContinuation&&!readinessContinuation&&!storedPlanContinuation&&!permissionContinuation&&!preflightContinuation)for(const name of ['candidate','_site','test-results'])fs.cpSync(path.join(originalDirectory,'source',name),path.join(work,name),{recursive:true});
+    if(originalDirectory&&!linearContinuation&&!readinessContinuation&&!storedPlanContinuation&&!permissionContinuation&&!preflightContinuation)for(const report of LOCAL_HOMEPAGE_REPORTS)fs.copyFileSync(path.join(bundle,'test-results',report),path.join(work,'test-results',report));
     // Exact committed source; unrelated owner's worktree edits are never copied.
   }
   fs.mkdirSync(path.join(bundle, 'logs'), { recursive: true });
@@ -848,11 +858,18 @@ async function runLocalRelease({ base, resume }) {
     docker([...unprivileged,'bash','-euc',TOOL_PREFLIGHT]);
     docker([...unprivileged,'node','scripts/check-media-tools.mjs']);
     docker([...unprivileged,'node','scripts/check-homepage-runtime.mjs']);
+    const restoreLinearReports=()=>{
+      const reports=path.join(bundle,'reuse/linear-origin/test-results');
+      for(const file of fs.readdirSync(reports).filter(file=>/^candidate-.*\.json$/.test(file)||file==='admin-discovery.json'))
+        docker(['cp',path.join(reports,file),`${name}:/workspace/test-results/${file}`]);
+      docker(['exec',name,'chown','-R','1001:1001','/workspace/test-results']);
+    };
     for (let index = 0; index < commands.length; index++) {
       const command = commands[index], prior = state.commands[index];
       if (prior?.exitCode === 0) {
         assert.deepEqual(prior.command, command);
         assert.equal(sha256(fs.readFileSync(path.join(bundle, prior.log))), prior.logHash);
+        if(state.linearContinuation&&command.name==='Restore exact candidate static site')restoreLinearReports();
         if(state.readinessContinuation&&['Record candidate build','Restore exact candidate static site'].includes(command.name))docker([...unprivileged,'node','--input-type=module','-e',"import fs from 'node:fs';import{restoreReadinessProofs}from'./scripts/lib/local-release-evidence.mjs';fs.cpSync('.local-release/reuse','reuse',{recursive:true});restoreReadinessProofs('.',process.env.GITHUB_SHA,{browser:"+(command.name==='Restore exact candidate static site')+"});fs.rmSync('reuse',{recursive:true});"]);
         if(state.storedPlanContinuation&&['Record candidate build','Restore exact candidate static site'].includes(command.name))docker([...unprivileged,'node','--input-type=module','-e',"import fs from 'node:fs';import{restoreStoredPlanProofs}from'./scripts/lib/local-release-evidence.mjs';fs.cpSync('.local-release/reuse','reuse',{recursive:true});restoreStoredPlanProofs('.',process.env.GITHUB_SHA,{browser:"+(command.name==='Restore exact candidate static site')+"});fs.rmSync('reuse',{recursive:true});"]);
         continue; // Resume exact unchanged source only; no repeated passed command.
@@ -1004,6 +1021,7 @@ async function runLocalRelease({ base, resume }) {
       if(state.permissionContinuation?.source===PERMISSION_CONTINUATION.tail&&index===41)record.continuation=canvasStageContinuation(command.run);
       state.commands[index] = record; state.status = record.exitCode === 0 ? 'running' : 'failed'; save(checkpoint, state);
       assert.equal(record.exitCode, 0, `Local check failed: ${command.name}. Evidence: ${logFile}. Resume this exact source with --resume ${directory}`);
+      if(state.linearContinuation&&command.name==='Restore exact candidate static site')restoreLinearReports();
       if(state.readinessContinuation&&['Record candidate build','Restore exact candidate static site'].includes(command.name))docker([...unprivileged,'node','--input-type=module','-e',"import fs from 'node:fs';import{restoreReadinessProofs}from'./scripts/lib/local-release-evidence.mjs';fs.cpSync('.local-release/reuse','reuse',{recursive:true});restoreReadinessProofs('.',process.env.GITHUB_SHA,{browser:"+(command.name==='Restore exact candidate static site')+"});fs.rmSync('reuse',{recursive:true});"]);
       if(state.storedPlanContinuation&&['Record candidate build','Restore exact candidate static site'].includes(command.name))docker([...unprivileged,'node','--input-type=module','-e',"import fs from 'node:fs';import{restoreStoredPlanProofs}from'./scripts/lib/local-release-evidence.mjs';fs.cpSync('.local-release/reuse','reuse',{recursive:true});restoreStoredPlanProofs('.',process.env.GITHUB_SHA,{browser:"+(command.name==='Restore exact candidate static site')+"});fs.rmSync('reuse',{recursive:true});"]);
       if(([INCIDENT_BROWSER_PREFLIGHT.source,ASSISTANT_BROWSER_PREFLIGHT.source,ASSISTANT_NATIVE_RATE.source,ASSISTANT_NATIVE_TAIL.source,ASSISTANT_NATIVE_PROGRESS.source,ASSISTANT_NATIVE_PREFLIGHT.source,SETTLEMENT_BROWSER_PREFLIGHT.source,SETTLEMENT_NATIVE_PROGRESS.source,SETTLEMENT_NATIVE_PREFLIGHT.source,CANVAS_POLICY_NATIVE_PREFLIGHT.source,CANVAS_POLICY_WORKER_PREFLIGHT.source,AUTONOMY_BROWSER_PREFLIGHT.source,AUTONOMY_NATIVE_PREFLIGHT.source,EXAMPLE_BROWSER_PREFLIGHT.source,MODEL_BROWSER_PREFLIGHT.source].includes(state.preflightContinuation?.source)||state.permissionContinuation&&state.permissionContinuation.source!==PERMISSION_CONTINUATION.source)&&index===34)docker([...unprivileged,'node','--input-type=module','-e',"import fs from 'node:fs';import{restoreCanvasHostingProof}from'./scripts/lib/local-release-evidence.mjs';fs.cpSync('.local-release/reuse','reuse',{recursive:true});restoreCanvasHostingProof('.');fs.rmSync('reuse',{recursive:true});"]);

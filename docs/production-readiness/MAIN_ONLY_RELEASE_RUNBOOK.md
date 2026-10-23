@@ -166,6 +166,18 @@ hosted execution. Missing access/evidence, stale source, failed or incomplete co
 changed reports/candidate bytes and unsupported setup all block release. Retain the
 local checkpoint and transport IDs for reconciliation; never overwrite unknown uploads.
 
+The owner-authorized linearization of `0f0bae56` through `b36082f4` is a closed
+exception, not general same-tree equivalence. `local-release-linear.mjs` pins the
+original successful evidence and Git objects, proves the identical linear anchor,
+and permits only its named release-tool/test/documentation delta. The ordinary
+`release:local -- --resume <original-directory>` path preserves all original logs,
+reports and identities under `reuse/linear-origin`, reruns affected release/history
+checks, rebuilds commit-versioned assets and verifies their exact normalized bytes.
+Runtime/dependency/selection changes reject reuse. Fresh frontend HTTP checks and
+proof envelopes bind publication to the final candidate; GitHub import independently
+verifies the same chain. A cheap fast-forward/linear-history guard runs before
+acceptance and again before push; concurrent remote changes still require integration.
+
 Focused controls live in `test:local-release`, existing candidate/workflow/selection
 and launcher guards. They exercise real Git/file/report boundaries, invalid transport,
 missing prerequisites, failed/skipped commands, legacy wrapper rejection and synthetic

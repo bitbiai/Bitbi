@@ -1,3 +1,4 @@
+import {verifyLinearReuse} from './local-release-linear.mjs';
 import {requiresPrivateMediaImage} from './ci-test-selection.mjs';
 import {EXPORT_DELIVERY_BROWSER_POLICY,verifyExportDeliveryBrowserReport} from './canvas-export-browser.mjs';
 import {EXPORT_DELIVERY_PREFLIGHT,EXPORT_DELIVERY_SELECTION_PREFLIGHT,EXPORT_DELIVERY_DISCOVERY_PREFLIGHT,EXPORT_DELIVERY_HOSTING_PREFLIGHT,EXPORT_DELIVERY_SDK_PREFLIGHT,EXPORT_DELIVERY_BROWSER_PREFLIGHT,exportDeliveryCorrectionProfile,assertExportDeliveryTree,assertExportDeliverySelectionTree,exportDeliveryPrefix,exportDeliverySelectionPrefix,verifyExportDeliveryReuse} from './canvas-export-release.mjs';
@@ -509,7 +510,8 @@ export function verifyLocalEvidence(directory, expected, { now = Date.now(), sel
   assert.equal(evidence.ci, true); assert.equal(evidence.origin, 'development-mac');
   const env = { GITHUB_SHA: expected.sha, CANDIDATE_BASE: expected.base };
   const commands = selectedCommands(selection, env);
-  if(evidence.readinessContinuation)verifyReadinessContinuation(directory,evidence,commands);
+  if(evidence.linearContinuation)verifyLinearReuse(directory,evidence,commands);
+  else if(evidence.readinessContinuation)verifyReadinessContinuation(directory,evidence,commands);
   else if(evidence.storedPlanContinuation)verifyStoredPlanContinuation(directory,evidence,commands);
   else if(evidence.preflightContinuation)verifyCanvasPreflight(directory,evidence,commands);
   else if(evidence.permissionContinuation)verifyPermissionContinuation(directory,evidence,commands);
