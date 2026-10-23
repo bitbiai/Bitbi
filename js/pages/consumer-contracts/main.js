@@ -16,6 +16,7 @@ function initDeclaration(root) {
     const notice = root.querySelector('[data-notice]');
     const confirm = root.querySelector('[data-confirm]');
     const edit = root.querySelector('[data-edit]');
+    const newDeclaration = root.querySelector('[data-new-declaration]');
     const next = form.querySelector('[type=submit]');
     const storageKey = `bitbi:consumer-declaration:${kind}:v1`;
     let pending = null;
@@ -87,6 +88,8 @@ function initDeclaration(root) {
         form.hidden = true;
         review.hidden = true;
         receiptSection.hidden = false;
+        newDeclaration.hidden = false;
+        newDeclaration.textContent = text.newDeclaration;
         status('');
         renderRows(receiptSection.querySelector('dl'), receiptRows());
         const state = response.acknowledgement?.state;
@@ -186,6 +189,30 @@ function initDeclaration(root) {
         setTimeout(() => URL.revokeObjectURL(url), 1000);
     });
     receiptSection.querySelector('[data-print-receipt]').addEventListener('click', () => { if (response) window.print(); });
+    newDeclaration.addEventListener('click', () => {
+        // Only a confirmed receipt permits a new identity. An uncertain request
+        // must continue through its original replay path, even for a synthetic click.
+        if (submitting || !validResponse(response)) return;
+        pending = null;
+        response = null;
+        uncertain = false;
+        try { sessionStorage.removeItem(storageKey); } catch { /* The current form still resets without storage. */ }
+        form.reset();
+        syncFields();
+        review.querySelector('dl').replaceChildren();
+        receiptSection.querySelector('dl').replaceChildren();
+        root.querySelector('[data-request-reference]').textContent = '';
+        receiptSection.querySelector('[data-mail-state]').textContent = '';
+        review.hidden = true;
+        receiptSection.hidden = true;
+        newDeclaration.hidden = true;
+        form.hidden = false;
+        confirm.textContent = confirmationText;
+        edit.hidden = false;
+        next.disabled = !ready;
+        status('');
+        form.elements.name.focus();
+    });
     try {
         const saved = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
         if (saved?.expires > Date.now() && saved.pending?.kind === kind && saved.pending?.locale === locale && /^[0-9a-f-]{36}$/i.test(saved.pending?.requestId || '')) {

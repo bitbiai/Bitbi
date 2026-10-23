@@ -26,11 +26,13 @@ export async function applyConsumerCancellation(env,{declarationId,actorId,input
   if(existing&&(existing.subscriptionId!==input.providerSubscriptionId||existing.userId!==input.userId))error('consumer_cancellation_target_conflict');
   if(row.provider_state==='applied')return {state:'applied',reused:true,result:existing};
   if(row.state==='closed')error('consumer_declaration_review_closed');
-  const subscription=await getActiveMemberSubscription(env,input.userId);
-  if(subscription?.providerSubscriptionId!==input.providerSubscriptionId)error('consumer_cancellation_subscription_changed');
-  if(declaration.endRequest==='date'&&declaration.requestedEndDate!==subscription.currentPeriodEnd?.slice(0,10))error('consumer_cancellation_date_requires_review');
   let operation=existing;
   if(row.provider_state==='not_requested') {
+    // New mutations need a currently eligible contract. Previously accepted
+    // operations reconcile their original identity even after a terminal webhook.
+    const subscription=await getActiveMemberSubscription(env,input.userId);
+    if(subscription?.providerSubscriptionId!==input.providerSubscriptionId)error('consumer_cancellation_subscription_changed');
+    if(declaration.endRequest==='date'&&declaration.requestedEndDate!==subscription.currentPeriodEnd?.slice(0,10))error('consumer_cancellation_date_requires_review');
     if(row.revision!==input.expectedRevision)error('consumer_review_conflict');
     const now=nowIso();
     operation={requestId:input.requestId,subscriptionId:input.providerSubscriptionId,userId:input.userId,requestedAt:now};

@@ -3,7 +3,7 @@ const { mockPublicAppearance } = require('./appearance.js');
 
 async function setup(page, { signedIn = false, configFailure = false } = {}) {
     const { validateConsumerDeclaration, declarationReceipt } = await import('../../workers/auth/src/lib/consumer-declarations.js');
-    const unexpected = [], calls = [], stored = new Map();
+    const unexpected = [], calls = [], stored = new Map(), inputs = new Map();
     let lost = false, invalid = false;
     await page.addInitScript(() => localStorage.setItem('bitbi_cookie_consent', JSON.stringify({ v: '1', ts: Date.now(), necessary: true, analytics: false, marketing: false })));
     await page.route('**/api/**', route => {
@@ -21,8 +21,10 @@ async function setup(page, { signedIn = false, configFailure = false } = {}) {
         const body = request.postDataJSON(); calls.push(body);
         let value;
         try { value = validateConsumerDeclaration(body); } catch (error) { return route.fulfill({ status: 400, json: { code: error.code } }); }
+        if (inputs.has(body.requestId) && inputs.get(body.requestId) !== JSON.stringify(value)) return route.fulfill({ status: 409, json: { code: 'consumer_request_conflict' } });
         if (!stored.has(body.requestId)) {
-            const id = 'declaration-fixture-123', receivedAt = '2026-10-23T10:30:15.123Z';
+            const id = `declaration-fixture-${stored.size + 1}`, receivedAt = new Date(Date.parse('2026-10-23T10:30:15.123Z') + stored.size * 1000).toISOString();
+            inputs.set(body.requestId, JSON.stringify(value));
             stored.set(body.requestId, { id, status: 'received', receivedAt, acknowledgement: { state: 'review_required' }, receipt: { ...value, id, receivedAt, text: declarationReceipt(value, id, receivedAt) } });
         }
         if (lost) { lost = false; return route.abort('connectionreset'); }
@@ -36,6 +38,49 @@ async function fill(page) {
     await page.locator('input[name=name]').fill('Ada Example');
     await page.locator('input[name=email]').fill('ada@example.test');
     await page.locator('textarea[name=contractReference]').fill('Creator purchase on 1 October; no order number available.');
+}
+async function anotherDeclaration({ page, expect, locale, kind, state }) {
+    const original = structuredClone(state.stored.get(state.calls[0].requestId));
+    const button = page.getByRole('button', { name: locale === 'de' ? 'Weitere Erklärung einreichen' : 'Submit another declaration', exact: true });
+    await expect(button).toBeVisible();
+    await button.focus(); await page.keyboard.press('Enter');
+    await expect(page.locator('input[name=name]')).toBeFocused();
+    await expect(page.locator('input[name=name]')).toHaveValue('');
+    await expect(page.locator('input[name=email]')).toHaveValue('');
+    await expect(page.locator('textarea[name=contractReference]')).toHaveValue('');
+    await expect(page.locator('[data-new-declaration]')).toBeHidden();
+    expect(await page.evaluate(key => sessionStorage.getItem(key), `bitbi:consumer-declaration:${kind}:v1`)).toBeNull();
+    expect(state.calls).toHaveLength(1);
+    await page.reload();
+    await expect(page.locator('form')).toBeVisible();
+    await expect(page.locator('[data-receipt]')).toBeHidden();
+    await expect(page.locator('form button[type=submit]')).toBeEnabled();
+    await fill(page);
+    await page.locator('textarea[name=contractReference]').fill('A second, distinct contract.');
+    if (kind === 'cancellation') {
+        await expect(page.locator('select[name=cancellationType]')).toHaveValue('ordinary');
+        await expect(page.locator('select[name=endRequest]')).toHaveValue('earliest');
+        await expect(page.locator('input[name=requestedEndDate]')).toBeDisabled();
+    }
+    await page.locator('form button[type=submit]').click();
+    if (kind === 'withdrawal') {
+        expect(state.calls).toHaveLength(1);
+        await expect(page.locator('[data-review]')).toBeVisible();
+        await page.locator('[data-confirm]').click();
+    }
+    await expect(page.locator('[data-receipt]')).toBeVisible();
+    expect(state.calls).toHaveLength(2);
+    expect(state.calls[1].requestId).not.toBe(state.calls[0].requestId);
+    expect(state.calls[1].contractReference).toBe('A second, distinct contract.');
+    expect(state.stored.size).toBe(2);
+    expect(state.stored.get(state.calls[0].requestId)).toEqual(original);
+    const second = state.stored.get(state.calls[1].requestId);
+    expect(second.id).not.toBe(original.id);
+    await expect(page.locator('[data-receipt] dl')).toContainText(second.id);
+    await expect(page.locator('[data-receipt] dl')).not.toContainText(original.id);
+    await page.reload();
+    await expect(page.locator('[data-receipt] dl')).toContainText(second.id);
+    expect(state.calls).toHaveLength(2); expect(state.unexpected).toEqual([]);
 }
 async function withdrawal({ page, expect, locale, testInfo }) {
     const state = await setup(page, { signedIn: locale === 'de' });
@@ -71,7 +116,7 @@ async function withdrawal({ page, expect, locale, testInfo }) {
     const document = await fs.readFile(await download.path(), 'utf8');
     expect(document).toEqual(state.stored.get(state.calls[0].requestId).receipt.text);
     expect(document).toContain('2026-10-23T10:30:15.123Z');
-    expect(document).toContain('declaration-fixture-123');
+    expect(document).toContain(state.stored.get(state.calls[0].requestId).id);
     expect(document).toContain('Creator purchase on 1 October');
     expect(document).toContain(locale === 'de' ? 'weder eine Erstattung' : 'does not confirm a refund');
     await page.reload();
@@ -79,6 +124,7 @@ async function withdrawal({ page, expect, locale, testInfo }) {
     expect(state.calls).toHaveLength(1);
     expect(state.unexpected).toEqual([]);
     await page.screenshot({ path: testInfo.outputPath(`consumer-withdrawal-${locale}.png`), fullPage: true });
+    await anotherDeclaration({ page, expect, locale, kind: 'withdrawal', state });
 }
 async function lostReceipt({ page, expect, locale }) {
     const state = await setup(page);
@@ -89,6 +135,11 @@ async function lostReceipt({ page, expect, locale }) {
     await expect(page.locator('[data-notice]')).toContainText(locale === 'de' ? 'nicht bestätigt' : 'could not confirm');
     await expect(page.locator('[data-receipt]')).toBeHidden();
     await expect(page.locator('[data-edit]')).toBeHidden();
+    await expect(page.locator('[data-new-declaration]')).toBeHidden();
+    // A hidden control cannot discard the unknown request even if invoked directly.
+    await page.locator('[data-new-declaration]').evaluate(button => button.click());
+    await expect(page.locator('form')).toBeHidden();
+    expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem('bitbi:consumer-declaration:withdrawal:v1')).pending.requestId)).toBe(state.calls[0].requestId);
     expect(state.stored.size).toBe(1);
     await page.reload();
     await expect(page.locator('[data-review]')).toBeVisible();
@@ -123,6 +174,7 @@ async function cancellation({ page, expect, locale, testInfo }) {
     expect(state.calls[0]).not.toHaveProperty('reason');
     expect(state.unexpected).toEqual([]);
     await page.screenshot({ path: testInfo.outputPath(`consumer-cancellation-${locale}.png`), fullPage: true });
+    await anotherDeclaration({ page, expect, locale, kind: 'cancellation', state });
 }
 async function unavailable({ page, expect, locale }) {
     const state = await setup(page, { configFailure: true });

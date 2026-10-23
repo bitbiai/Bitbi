@@ -873,7 +873,7 @@ test('Q2 consumer contract: cancellation observation uses actual ended_at and do
   });
 });
 
-test('Q2 consumer contract: real declaration operator route retains unknown cancellation and reconciles without a second POST',async()=>{
+for (const localState of ['active','canceled','expired']) test(`Q2 consumer contract: real declaration operator route reconciles ${localState} original without a second POST`,async()=>{
   await withPack(async f=>{
     const fs=require('node:fs'),path=require('node:path'),{randomUUID}=require('node:crypto');
     f.db.exec(fs.readFileSync(path.join(__dirname,'../workers/auth/migrations/0117_consumer_contracts.sql'),'utf8'));
@@ -885,9 +885,16 @@ test('Q2 consumer contract: real declaration operator route retains unknown canc
     expect(received.status).toBe(201);const id=received.body.id,receivedAt=received.body.receivedAt;
     const api=`/api/admin/billing/consumer-declarations/${id}/subscription`,body={requestId:randomUUID(),expectedRevision:0,userId:MEMBER,providerSubscriptionId:subscriptionId,identityVerified:true,note:'Synthetic verified contract association'};
     let confirmed=false;const calls=[];
-    f.env.__TEST_FETCH=async(url,init)=>{calls.push(init.method);if(init.method==='POST')throw new Error('Synthetic lost provider response');return Response.json({id:subscriptionId,livemode:true,customer:customerId,status:'active',cancel_at_period_end:confirmed,current_period_start:Date.parse(start)/1000,current_period_end:Date.parse(end)/1000,items:{data:[{price:{id:f.env.STRIPE_LIVE_SUBSCRIPTION_PRICE_ID}}]}});};
+    f.env.__TEST_FETCH=async(url,init)=>{expect(url).toContain(`/subscriptions/${subscriptionId}`);calls.push(init.method);if(init.method==='POST')throw new Error('Synthetic lost provider response');return Response.json({id:subscriptionId,livemode:true,customer:customerId,status:'active',cancel_at_period_end:confirmed,current_period_start:Date.parse(start)/1000,current_period_end:Date.parse(end)/1000,items:{data:[{price:{id:f.env.STRIPE_LIVE_SUBSCRIPTION_PRICE_ID}}]}});};
     expect((await post(api,body)).body.state).toBe('unknown');
     let row=f.db.database.prepare('SELECT * FROM consumer_declarations WHERE id=?').get(id);expect(row.provider_state).toBe('unknown');expect(row.revision).toBe(1);expect(row.received_at).toBe(receivedAt);
+    if(localState!=='active') {
+      // A real webhook projection may arrive before the lost POST is reconciled.
+      await billing.upsertMemberSubscriptionFromProvider({env:f.env,userId:MEMBER,providerSubscriptionId:subscriptionId,providerCustomerId:customerId,providerPriceId:f.env.STRIPE_LIVE_SUBSCRIPTION_PRICE_ID,status:localState==='canceled'?'canceled':'active',currentPeriodStart:start,currentPeriodEnd:localState==='expired'?new Date(Date.now()-1000).toISOString():end});
+      await billing.upsertMemberSubscriptionFromProvider({env:f.env,userId:MEMBER,providerSubscriptionId:'sub_q2_later_contract',providerCustomerId:customerId,providerPriceId:f.env.STRIPE_LIVE_SUBSCRIPTION_PRICE_ID,status:'active',currentPeriodStart:start,currentPeriodEnd:new Date(Date.now()+60*86400_000).toISOString()});
+    }
+    expect((await post(api,{...body,providerSubscriptionId:'sub_q2_later_contract'})).body.code).toBe('consumer_request_conflict');
+    expect(calls).toEqual(['POST']);
     expect((await post(api,body)).body.state).toBe('not_applied');
     confirmed=true;const applied=await post(api,body);expect(applied.body.state).toBe('applied');expect(applied.body.result.effectiveEnd).toBe(end);
     expect((await post(api,body)).body.reused).toBe(true);expect(calls).toEqual(['POST','GET','GET']);

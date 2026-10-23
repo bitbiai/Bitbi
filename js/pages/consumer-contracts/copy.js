@@ -1,5 +1,6 @@
 export const copy = {
     en: {
+        newDeclaration: 'Submit another declaration',
         name: 'Your full name', email: 'Email for the acknowledgement', contractReference: 'Contract or purchase', scope: 'Part of the contract', cancellationType: 'Type of cancellation', endRequest: 'Requested end', requestedEndDate: 'Requested date', reason: 'Reason', ordinary: 'Ordinary cancellation', extraordinary: 'Extraordinary cancellation', earliest: 'Earliest possible date', date: 'Specific date', empty: 'Not specified',
         reviewWithdrawal: 'Review your withdrawal', reviewCancellation: 'Review your cancellation', confirmWithdrawal: 'Confirm withdrawal', confirmCancellation: 'Cancel now', sending: 'Submitting your declaration…', received: 'Declaration received', receivedAt: 'Received by BITBI', reference: 'Receipt reference',
         receivedCopy: 'Your declaration has been recorded. Contract association and its consequences are reviewed separately. This receipt does not confirm a refund or an effective subscription end date. Your account and media have not been deleted.',
@@ -8,6 +9,7 @@ export const copy = {
         restored: 'A previously submitted declaration is awaiting confirmation. Use the same request to check its receipt.', save: 'Save receipt', print: 'Print receipt', edit: 'Edit details', request: 'Request reference', documentTitle: 'BITBI — declaration receipt', declarationWithdrawal: 'I hereby withdraw from the contract or part identified below.', declarationCancellation: 'I hereby cancel the contract identified below on the requested terms.',
     },
     de: {
+        newDeclaration: 'Weitere Erklärung einreichen',
         name: 'Vor- und Nachname', email: 'E-Mail für die Eingangsbestätigung', contractReference: 'Vertrag oder Kauf', scope: 'Teil des Vertrags', cancellationType: 'Art der Kündigung', endRequest: 'Gewünschter Zeitpunkt', requestedEndDate: 'Gewünschtes Datum', reason: 'Grund', ordinary: 'Ordentliche Kündigung', extraordinary: 'Außerordentliche Kündigung', earliest: 'Zum nächstmöglichen Zeitpunkt', date: 'Zu einem bestimmten Datum', empty: 'Nicht angegeben',
         reviewWithdrawal: 'Widerruf prüfen', reviewCancellation: 'Kündigung prüfen', confirmWithdrawal: 'Widerruf bestätigen', confirmCancellation: 'jetzt kündigen', sending: 'Deine Erklärung wird übermittelt…', received: 'Erklärung eingegangen', receivedAt: 'Bei BITBI eingegangen', reference: 'Eingangsreferenz',
         receivedCopy: 'Deine Erklärung wurde gespeichert. Die Zuordnung zum Vertrag und ihre Folgen werden gesondert geprüft. Dieser Nachweis bestätigt weder eine Erstattung noch einen wirksamen Beendigungszeitpunkt. Dein Konto und deine Medien wurden nicht gelöscht.',
