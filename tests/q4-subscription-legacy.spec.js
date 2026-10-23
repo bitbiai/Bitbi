@@ -338,7 +338,7 @@ test.describe('BITBI Pro member subscriptions', () => {
     const missingIdempotency = await worker.fetch(
       authJsonRequest('/api/account/billing/checkout/subscription', 'POST', {
         terms_accepted: true,
-        terms_version: '2026-05-05',
+        terms_version: '2026-10-22',
         immediate_delivery_accepted: true,
       }, {
         Origin: 'https://bitbi.ai',
@@ -356,7 +356,7 @@ test.describe('BITBI Pro member subscriptions', () => {
     const response = await worker.fetch(
       authJsonRequest('/api/account/billing/checkout/subscription', 'POST', {
         terms_accepted: true,
-        terms_version: '2026-05-05',
+        terms_version: '2026-10-22',
         immediate_delivery_accepted: true,
       }, {
         Origin: 'https://bitbi.ai',
@@ -383,7 +383,7 @@ test.describe('BITBI Pro member subscriptions', () => {
     const replay = await worker.fetch(
       authJsonRequest('/api/account/billing/checkout/subscription', 'POST', {
         terms_accepted: true,
-        terms_version: '2026-05-05',
+        terms_version: '2026-10-22',
         immediate_delivery_accepted: true,
       }, {
         Origin: 'https://bitbi.ai',
@@ -406,7 +406,7 @@ test.describe('BITBI Pro member subscriptions', () => {
     const conflict = await worker.fetch(
       authJsonRequest('/api/account/billing/checkout/subscription', 'POST', {
         terms_accepted: true,
-        terms_version: '2026-05-05',
+        terms_version: '2026-10-22',
         immediate_delivery_accepted: true,
       }, {
         Origin: 'https://bitbi.ai',
@@ -965,7 +965,7 @@ test.describe('BITBI Pro member subscriptions', () => {
       authJsonRequest('/api/account/billing/checkout/live-credit-pack', 'POST', {
         pack_id: 'live_credits_5000',
         terms_accepted: true,
-        terms_version: '2026-05-05',
+        terms_version: '2026-10-22',
         immediate_delivery_accepted: true,
       }, {
         Origin: 'https://bitbi.ai',
@@ -1047,7 +1047,7 @@ test.describe('BITBI Pro member subscriptions', () => {
       authJsonRequest('/api/account/billing/checkout/live-credit-pack', 'POST', {
         pack_id: 'live_credits_12000',
         terms_accepted: true,
-        terms_version: '2026-05-05',
+        terms_version: '2026-10-22',
         immediate_delivery_accepted: true,
       }, {
         Origin: 'https://bitbi.ai',

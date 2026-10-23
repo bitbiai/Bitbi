@@ -43,7 +43,7 @@
     "test:cloudflare-resource-model": "node scripts/test-cloudflare-resource-model.mjs",
     "test:homepage-ffmpeg-processor": "node scripts/test-homepage-ffmpeg-processor.mjs",
     "test:live-canary": "node scripts/test-live-runtime-canary.mjs",
-    "test:asset-version": "node scripts/test-asset-version.mjs",
+    "test:asset-version": "node scripts/test-asset-version.mjs && node --test tests/privacy-ai-recipients.test.mjs",
     "test:quality-gates": "node scripts/check-secrets.mjs && node scripts/test-quality-gates.mjs && node scripts/test-pre-push.mjs",
     "test:pre-push": "node scripts/test-pre-push.mjs",
     "hooks:install": "node scripts/install-pre-push.mjs",
@@ -112,7 +112,7 @@
     "release:preflight": "node scripts/release-preflight.mjs",
     "release:apply": "node scripts/release-apply.mjs",
     "test:frontend-hosting": "node scripts/test-frontend-hosting.mjs",
-    "test:website-assistant": "node scripts/check-website-assistant-knowledge.mjs && node scripts/check-website-assistant-contract.mjs && node --test tests/website-assistant*.test.mjs",
+    "test:website-assistant": "node scripts/check-website-assistant-knowledge.mjs && node scripts/check-website-assistant-contract.mjs && node --test tests/website-assistant*.test.mjs tests/privacy-ai-recipients.test.mjs",
     "release:local": "node scripts/local-release.mjs release",
     "release:local:prepare": "node scripts/local-release.mjs prepare",
     "test:local-release": "node scripts/test-local-release.mjs"

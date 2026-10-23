@@ -54,7 +54,7 @@ const LIVE_MEMBER_SUBSCRIPTION_CHECKOUT_SCOPE = "member_subscription";
 const LIVE_MEMBER_CREDIT_PACK_REPAIR_CONFIRMATION = "repair_paid_member_credit_pack_checkout";
 const LIVE_MEMBER_CREDIT_PACK_REPAIR_EVIDENCE_MODE = "operator_attested_paid_stripe_checkout";
 const SAFE_OPERATOR_REASON_PATTERN = /(?:sk_live_|sk_test_|whsec_|stripe-signature|authorization|bearer|cookie|session=|pm_[A-Za-z0-9]|card\s*[:=]|payload\s*[:=])/i;
-export const BITBI_TERMS_VERSION = "2026-05-05";
+export const BITBI_TERMS_VERSION = "2026-10-22";
 
 const LIVE_OPERATOR_REVIEW_POLICIES = Object.freeze({
   "invoice.payment_failed": Object.freeze({

@@ -8470,7 +8470,7 @@ test.describe('Pricing credit-pack rollout', () => {
     expect(checkoutRequests[0].body).toEqual(expect.objectContaining({
       pack_id: 'live_credits_12000',
       terms_accepted: true,
-      terms_version: '2026-05-05',
+      terms_version: '2026-10-22',
       immediate_delivery_accepted: true,
     }));
     expect(checkoutRequests[0].url).toContain('/api/account/billing/checkout/live-credit-pack');
@@ -8677,7 +8677,7 @@ test.describe('Credits dashboard live credit packs', () => {
     expect(checkoutRequests[0].body).toEqual(expect.objectContaining({
       pack_id: 'live_credits_5000',
       terms_accepted: true,
-      terms_version: '2026-05-05',
+      terms_version: '2026-10-22',
       immediate_delivery_accepted: true,
     }));
     expect(checkoutRequests[0].body.accepted_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);

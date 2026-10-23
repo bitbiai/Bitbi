@@ -54,7 +54,7 @@ const $subscriptionDialogBody = document.getElementById('creditsSubscriptionDial
 const $subscriptionDialogCancel = document.getElementById('creditsSubscriptionDialogCancel');
 const $subscriptionDialogConfirm = document.getElementById('creditsSubscriptionDialogConfirm');
 
-const TERMS_VERSION = '2026-05-05';
+const TERMS_VERSION = '2026-10-22';
 const LEDGER_VISIBLE_LIMIT = 5;
 const CHECKOUT_RETURN_POLL_LIMIT = 5;
 const CHECKOUT_RETURN_POLL_MS = 3000;

@@ -131,7 +131,7 @@
             <div class="glass-card__body policy-section">
                 <p>This Privacy Policy explains how personal data is processed when you use <strong class="text-strong">bitbi.ai</strong>, including public browsing, account features, AI generation, saved assets, public galleries, credits, payments, contact forms, and administrative support features.</p>
                 <p>The controller is <strong class="text-strong">Stefan van Ark</strong>, Schwarzwaldstra&szlig;e 20, 78647 Trossingen, Germany. Contact: <a href="mailto:bit@bitbi.ai">bit@bitbi.ai</a>. Further legal information is available in the <a href="/legal/imprint.html">Imprint</a>.</p>
-                <p>Effective date: <strong class="text-strong">3 May 2026</strong>.</p>
+                <p>Effective date: <strong class="text-strong">October 22, 2026</strong>.</p>
             </div>
         </div>
 
@@ -178,7 +178,270 @@
             </div>
             <div class="glass-card__body policy-section">
                 <p>When you use AI features, we process the inputs and settings needed to provide the requested generation. Depending on the feature, this may include prompts, negative prompts, style descriptions, lyrics, reference images or uploaded files, model choices, duration, quality, aspect ratio, seed, generation options, and generated outputs such as images, videos, audio/music, text, posters, and thumbnails.</p>
-                <p>AI requests are processed through Cloudflare Workers and may be sent to Cloudflare Workers AI, Cloudflare AI Gateway, Cloudflare Images, the separate AI Worker used by admin/internal flows, and model providers used by selected features, such as PixVerse, Vidu, MiniMax, Black Forest Labs/FLUX through Cloudflare Workers AI, and other configured model providers. The exact provider depends on the model and feature you choose.</p>
+                <p>AI requests in this section are processed through Cloudflare Workers. Cloudflare, Inc. receives each request, including the prompt and the other inputs of the selected model. Cloudflare Images may also receive a generated image when that storage path is used. Admin and internal generation calls use the separate AI Worker. A model that is disabled, not approved, or not selected does not receive the content.</p>
+                <p>The table names every model the product code can send content to. Where the model id starts with <code>@cf/</code>, Cloudflare, Inc. is the content recipient and the author named beside the id does not receive the request. For every other model, Cloudflare AI Gateway is the intermediary and the named company receives the listed content. The PixVerse admin extend path and the Vidu admin fallback can also call that provider's API directly, as the table states. Where a company publishes two legal entities and the code does not show which one is billed through Cloudflare, both are named. International transfers are described in section 11.</p>
+                <div class="policy-table-wrap" tabindex="0" role="region" aria-label="AI models and the companies that receive generation content">
+                <table>
+                    <caption>AI models and the companies that receive generation content</caption>
+                    <thead>
+                    <tr>
+                        <th scope="col">Model or feature</th>
+                        <th scope="col">Company that receives the content</th>
+                        <th scope="col">Country of seat</th>
+                        <th scope="col">Content sent</th>
+                        <th scope="col">Intermediary and route</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr data-model="xai/grok-4.6">
+                        <td><code>xai/grok-4.6</code> Grok 4.6 (xAI). Canvas text and private Grok chat.</td>
+                        <td>SpaceXAI LLC and x.AI LLC. The published xAI privacy policy uses both names. The product code identifies the provider as xAI and does not show which legal entity receives a Cloudflare-billed request.</td>
+                        <td>United States. That privacy policy describes the company as US-based.</td>
+                        <td>Prompt, system text, chat messages, and attached images when that chat sends them. The named company returns the generated output through Cloudflare.</td>
+                        <td>Cloudflare Workers AI binding. This text path does not set a gateway id. Cloudflare's AI Gateway documentation says a third-party model on this binding uses AI Gateway, including the default gateway when no id is set. Private Grok chat sets AI Gateway in the product code.</td>
+                    </tr>
+                    <tr data-model="xai/grok-4.20-multi-agent-0309">
+                        <td><code>xai/grok-4.20-multi-agent-0309</code> Grok 4.20 multi-agent web search (xAI). Private Grok chat when web search is not off.</td>
+                        <td>SpaceXAI LLC and x.AI LLC. The published xAI privacy policy uses both names. The product code identifies the provider as xAI and does not show which legal entity receives a Cloudflare-billed request.</td>
+                        <td>United States. That privacy policy describes the company as US-based.</td>
+                        <td>Search-prepared messages and attached images when that chat mode sends them. The named company returns the generated output through Cloudflare.</td>
+                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
+                    </tr>
+                    <tr data-model="@cf/meta/llama-3.1-8b-instruct-fast">
+                        <td><code>@cf/meta/llama-3.1-8b-instruct-fast</code> Llama 3.1 8B Instruct Fast (Meta model). Canvas text and organization member text.</td>
+                        <td>Cloudflare, Inc. The model author named in the first column does not receive the request. The product code does not call that author's API.</td>
+                        <td>United States</td>
+                        <td>Prompt, system text, and chat messages. Cloudflare returns the model output.</td>
+                        <td>Cloudflare Workers AI binding. This path does not set an AI Gateway option and does not call the model author's API.</td>
+                    </tr>
+                    <tr data-model="@cf/meta/llama-3.3-70b-instruct-fp8-fast">
+                        <td><code>@cf/meta/llama-3.3-70b-instruct-fp8-fast</code> Llama 3.3 70B Instruct FP8 Fast (Meta model). Canvas text.</td>
+                        <td>Cloudflare, Inc. The model author named in the first column does not receive the request. The product code does not call that author's API.</td>
+                        <td>United States</td>
+                        <td>Prompt, system text, and chat messages. Cloudflare returns the model output.</td>
+                        <td>Cloudflare Workers AI binding. This path does not set an AI Gateway option and does not call the model author's API.</td>
+                    </tr>
+                    <tr data-model="@cf/google/gemma-4-26b-a4b-it">
+                        <td><code>@cf/google/gemma-4-26b-a4b-it</code> Gemma 4 26B A4B (Google model, not Gemini Omni). Canvas text and the admin live agent.</td>
+                        <td>Cloudflare, Inc. The model author named in the first column does not receive the request. The product code does not call that author's API.</td>
+                        <td>United States</td>
+                        <td>Prompt, system text, and chat messages. Cloudflare returns the model output.</td>
+                        <td>Cloudflare Workers AI binding. This path does not set an AI Gateway option and does not call the model author's API.</td>
+                    </tr>
+                    <tr data-model="anthropic/claude-fable-5">
+                        <td><code>anthropic/claude-fable-5</code> Claude Fable 5 (Anthropic). Canvas text, the Canvas assistant, and admin chat.</td>
+                        <td>Anthropic PBC and Anthropic Ireland, Limited. The product code does not show which of these published entities receives a Cloudflare-billed request.</td>
+                        <td>United States (Anthropic PBC, San Francisco) and Ireland (Anthropic Ireland, Limited, Dublin).</td>
+                        <td>Prompt or conversation and system text. Admin chat can also send an optional approximate location and web-search or web-fetch tool settings. Canvas assistant planning sends the planning brief. Fable does not receive Canvas evaluation image frames. The named company returns the generated output through Cloudflare.</td>
+                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
+                    </tr>
+                    <tr data-model="@cf/qwen/qwen3-30b-a3b-fp8">
+                        <td><code>@cf/qwen/qwen3-30b-a3b-fp8</code> Qwen3 30B-A3B (Qwen model). Admin text and admin-chat memory summaries.</td>
+                        <td>Cloudflare, Inc. The model author named in the first column does not receive the request. The product code does not call that author's API.</td>
+                        <td>United States</td>
+                        <td>Prompt, system text, and chat messages. A memory summary is text derived from the admin chat. Cloudflare returns the model output. There is no separate call to a Qwen or Alibaba API.</td>
+                        <td>Cloudflare Workers AI binding. The admin-chat memory summary also sets an AI Gateway option. This path does not call a Qwen or Alibaba API.</td>
+                    </tr>
+                    <tr data-model="@cf/openai/gpt-oss-20b">
+                        <td><code>@cf/openai/gpt-oss-20b</code> GPT-OSS 20B (OpenAI open-weight model). Canvas text.</td>
+                        <td>Cloudflare, Inc. The model author named in the first column does not receive the request. The product code does not call that author's API.</td>
+                        <td>United States</td>
+                        <td>Prompt, system text, and chat messages. Cloudflare returns the model output. There is no call to the OpenAI API.</td>
+                        <td>Cloudflare Workers AI binding. This path does not set an AI Gateway option and does not call the model author's API.</td>
+                    </tr>
+                    <tr data-model="@cf/openai/gpt-oss-120b">
+                        <td><code>@cf/openai/gpt-oss-120b</code> GPT-OSS 120B (OpenAI open-weight model). Canvas text.</td>
+                        <td>Cloudflare, Inc. The model author named in the first column does not receive the request. The product code does not call that author's API.</td>
+                        <td>United States</td>
+                        <td>Prompt, system text, and chat messages. Cloudflare returns the model output. There is no call to the OpenAI API.</td>
+                        <td>Cloudflare Workers AI binding. This path does not set an AI Gateway option and does not call the model author's API.</td>
+                    </tr>
+                    <tr data-model="@cf/black-forest-labs/flux-1-schnell">
+                        <td><code>@cf/black-forest-labs/flux-1-schnell</code> FLUX.1 Schnell (Black Forest Labs model). Member and Canvas image generation, and a music-cover prompt built from a style description.</td>
+                        <td>Cloudflare, Inc. The model author named in the first column does not receive the request. The product code does not call that author's API.</td>
+                        <td>United States</td>
+                        <td>Prompt text, including a cover prompt built from a style description. Cloudflare returns the generated image. There is no call to a Black Forest Labs API.</td>
+                        <td>Cloudflare Workers AI binding. This path does not set an AI Gateway option and does not call the model author's API.</td>
+                    </tr>
+                    <tr data-model="@cf/black-forest-labs/flux-2-klein-9b">
+                        <td><code>@cf/black-forest-labs/flux-2-klein-9b</code> FLUX.2 Klein 9B (Black Forest Labs model). Member and Canvas image generation.</td>
+                        <td>Cloudflare, Inc. The model author named in the first column does not receive the request. The product code does not call that author's API.</td>
+                        <td>United States</td>
+                        <td>Prompt and image dimensions. Cloudflare returns the generated image. There is no call to a Black Forest Labs API.</td>
+                        <td>Cloudflare Workers AI binding. This path does not set an AI Gateway option and does not call the model author's API.</td>
+                    </tr>
+                    <tr data-model="@cf/black-forest-labs/flux-2-dev">
+                        <td><code>@cf/black-forest-labs/flux-2-dev</code> FLUX.2 Dev (Black Forest Labs model). Admin AI Lab.</td>
+                        <td>Cloudflare, Inc. The model author named in the first column does not receive the request. The product code does not call that author's API.</td>
+                        <td>United States</td>
+                        <td>Prompt, up to four reference images, and generation settings. Cloudflare returns the generated image. There is no call to a Black Forest Labs API.</td>
+                        <td>Cloudflare Workers AI binding. This path does not set an AI Gateway option and does not call the model author's API.</td>
+                    </tr>
+                    <tr data-model="openai/gpt-image-2">
+                        <td><code>openai/gpt-image-2</code> GPT Image 2 (OpenAI). Member and Canvas image generation.</td>
+                        <td>OpenAI OpCo, LLC and OpenAI Ireland Limited. The product code does not show which of these published entities receives a Cloudflare-billed request.</td>
+                        <td>United States (OpenAI OpCo, LLC, San Francisco) and Ireland (OpenAI Ireland Limited, Dublin).</td>
+                        <td>Prompt and up to 16 reference images. The named company returns the generated output through Cloudflare.</td>
+                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
+                    </tr>
+                    <tr data-model="xai/grok-imagine-image-2.0">
+                        <td><code>xai/grok-imagine-image-2.0</code> Grok Imagine Image 2.0 (xAI). Member and Canvas image generation and editing.</td>
+                        <td>SpaceXAI LLC and x.AI LLC. The published xAI privacy policy uses both names. The product code identifies the provider as xAI and does not show which legal entity receives a Cloudflare-billed request.</td>
+                        <td>United States. That privacy policy describes the company as US-based.</td>
+                        <td>Prompt and up to five reference images, including a mask when an edit uses one. The named company returns the generated output through Cloudflare.</td>
+                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
+                    </tr>
+                    <tr data-model="xai/grok-imagine-image">
+                        <td><code>xai/grok-imagine-image</code> Grok Imagine Image (xAI). Admin AI Lab.</td>
+                        <td>SpaceXAI LLC and x.AI LLC. The published xAI privacy policy uses both names. The product code identifies the provider as xAI and does not show which legal entity receives a Cloudflare-billed request.</td>
+                        <td>United States. That privacy policy describes the company as US-based.</td>
+                        <td>Prompt, up to ten input images, and a mask when an edit uses one. The named company returns the generated output through Cloudflare.</td>
+                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
+                    </tr>
+                    <tr data-model="black-forest-labs/flux-2-max">
+                        <td><code>black-forest-labs/flux-2-max</code> FLUX.2 Max (Black Forest Labs). Member and Canvas image generation and editing. This is not a Workers-AI-hosted @cf/ model.</td>
+                        <td>BFL GmbH and Black Forest Labs Inc. The product code does not show which of these published entities receives a Cloudflare-billed request.</td>
+                        <td>Germany (BFL GmbH, Freiburg im Breisgau) and the United States (Black Forest Labs Inc., San Francisco).</td>
+                        <td>Prompt and up to eight reference images. The named company returns the generated output through Cloudflare.</td>
+                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
+                    </tr>
+                    <tr data-model="openai/gpt-image-2.5-sunburst">
+                        <td><code>openai/gpt-image-2.5-sunburst</code> GPT Image 2.5 Sunburst (OpenAI). Member and Canvas image generation and editing.</td>
+                        <td>OpenAI OpCo, LLC and OpenAI Ireland Limited. The product code does not show which of these published entities receives a Cloudflare-billed request.</td>
+                        <td>United States (OpenAI OpCo, LLC, San Francisco) and Ireland (OpenAI Ireland Limited, Dublin).</td>
+                        <td>Prompt and up to 16 reference images, including images sent for an edit. The named company returns the generated output through Cloudflare.</td>
+                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
+                    </tr>
+                    <tr data-model="openai/gpt-image-2.5-flare">
+                        <td><code>openai/gpt-image-2.5-flare</code> GPT Image 2.5 Flare (OpenAI). Member and Canvas image generation and editing.</td>
+                        <td>OpenAI OpCo, LLC and OpenAI Ireland Limited. The product code does not show which of these published entities receives a Cloudflare-billed request.</td>
+                        <td>United States (OpenAI OpCo, LLC, San Francisco) and Ireland (OpenAI Ireland Limited, Dublin).</td>
+                        <td>Prompt and up to 16 reference images, including images sent for an edit. The named company returns the generated output through Cloudflare.</td>
+                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
+                    </tr>
+                    <tr data-model="@cf/baai/bge-m3">
+                        <td><code>@cf/baai/bge-m3</code> BGE M3 (BAAI model). Admin embeddings.</td>
+                        <td>Cloudflare, Inc. The model author named in the first column does not receive the request. The product code does not call that author's API.</td>
+                        <td>United States</td>
+                        <td>Text submitted for an embedding. No image or audio input. Cloudflare returns the embedding. There is no call to a BAAI API.</td>
+                        <td>Cloudflare Workers AI binding. This path does not set an AI Gateway option and does not call the model author's API.</td>
+                    </tr>
+                    <tr data-model="@cf/google/embeddinggemma-300m">
+                        <td><code>@cf/google/embeddinggemma-300m</code> EmbeddingGemma 300M (Google model, not Gemini Omni). Admin embeddings.</td>
+                        <td>Cloudflare, Inc. The model author named in the first column does not receive the request. The product code does not call that author's API.</td>
+                        <td>United States</td>
+                        <td>Text submitted for an embedding. No image or audio input. Cloudflare returns the embedding. There is no call to a Google API.</td>
+                        <td>Cloudflare Workers AI binding. This path does not set an AI Gateway option and does not call the model author's API.</td>
+                    </tr>
+                    <tr data-model="minimax/music-2.6">
+                        <td><code>minimax/music-2.6</code> Music 2.6 (MiniMax). Member and Canvas music generation.</td>
+                        <td>上海稀宇科技有限公司, the operator named in the MiniMax Chinese privacy policy. The product code does not show whether a Cloudflare-billed request uses that company or another MiniMax company.</td>
+                        <td>Not confirmed for the Cloudflare-billed request. The named operator publishes an address in Shanghai, China.</td>
+                        <td>Prompt and lyrics. The named company returns the generated output through Cloudflare.</td>
+                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
+                    </tr>
+                    <tr data-model="elevenlabs/music-v2">
+                        <td><code>elevenlabs/music-v2</code> ElevenLabs Music v2 (ElevenLabs). Member and Canvas music generation.</td>
+                        <td>Eleven Labs Inc.</td>
+                        <td>United States (New York).</td>
+                        <td>Prompt or a composition plan, and generation settings. This contract does not send an uploaded audio file as the model input. The named company returns the generated output through Cloudflare.</td>
+                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
+                    </tr>
+                    <tr data-model="bytedance/seedance-2.5">
+                        <td><code>bytedance/seedance-2.5</code> Seedance 2.5 (ByteDance). Member and Canvas video generation.</td>
+                        <td>ByteDance. The product code and Cloudflare's model page use this name and do not name one legal entity.</td>
+                        <td>Not confirmed</td>
+                        <td>Prompt, plus reference images, video, or audio when the request includes them. The named company returns the generated output through Cloudflare.</td>
+                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
+                    </tr>
+                    <tr data-model="google/gemini-omni-flash">
+                        <td><code>google/gemini-omni-flash</code> Gemini Omni Flash (Google). Member and Canvas video generation. Member use requires a separate runtime approval.</td>
+                        <td>Google LLC. The Google APIs Terms use this name. The Gemini API additional terms checked for this update did not name a different entity.</td>
+                        <td>United States (Mountain View).</td>
+                        <td>Prompt, plus reference images, video, or audio when the request includes them. The named company returns the generated output through Cloudflare.</td>
+                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
+                    </tr>
+                    <tr data-model="minimax/h3">
+                        <td><code>minimax/h3</code> MiniMax H3 (MiniMax). Member and Canvas video generation.</td>
+                        <td>上海稀宇科技有限公司, the operator named in the MiniMax Chinese privacy policy. The product code does not show whether a Cloudflare-billed request uses that company or another MiniMax company.</td>
+                        <td>Not confirmed for the Cloudflare-billed request. The named operator publishes an address in Shanghai, China.</td>
+                        <td>Prompt, plus image, video, or audio references when the request includes them. The named company returns the generated output through Cloudflare.</td>
+                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
+                    </tr>
+                    <tr data-model="pixverse/v6">
+                        <td><code>pixverse/v6</code> PixVerse V6 (Pixverse). Member and Canvas video generation. Admin extend uses a direct PixVerse call.</td>
+                        <td>AIVORA PTE. LTD., the operator named in the PixVerse privacy policy.</td>
+                        <td>Singapore.</td>
+                        <td>Prompt, negative prompt, and an uploaded image when image-to-video is used. Admin extend also sends the source video, prompt, and negative prompt. The provider returns the generated video through Cloudflare, or directly on the admin extend path.</td>
+                        <td>Generation uses the Cloudflare Workers AI binding and AI Gateway. Admin extend calls the PixVerse API at app-api.pixverse.ai directly.</td>
+                    </tr>
+                    <tr data-model="vidu/q3-pro">
+                        <td><code>vidu/q3-pro</code> Vidu Q3 Pro (Vidu). Admin AI Lab. Not on the member video allowlist.</td>
+                        <td>ShengShu AI HK Limited, the company named in the Vidu privacy policy.</td>
+                        <td>Hong Kong.</td>
+                        <td>Prompt and a start or end image when that admin operation sends one. The provider returns the generated video.</td>
+                        <td>Cloudflare Workers AI binding and AI Gateway. If that gateway path fails and a Vidu API key is configured, the admin path calls api.vidu.com directly.</td>
+                    </tr>
+                    <tr data-model="alibaba/hh1-t2v">
+                        <td><code>alibaba/hh1-t2v</code> HappyHorse 1.0 text-to-video (Alibaba). Member and Canvas video generation.</td>
+                        <td>Alibaba. Cloudflare's model page marks this as a third-party Alibaba model. The product code does not name one legal entity.</td>
+                        <td>Not confirmed</td>
+                        <td>Prompt and generation settings such as duration, ratio, resolution, seed, and watermark. This member contract does not send a reference image. The named company returns the generated output through Cloudflare.</td>
+                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
+                    </tr>
+                    <tr data-model="bytedance/seedance-2.0-fast">
+                        <td><code>bytedance/seedance-2.0-fast</code> Seedance 2.0 Fast (ByteDance). Member video route and Canvas.</td>
+                        <td>ByteDance. The product code names this vendor and does not name one legal entity.</td>
+                        <td>Not confirmed</td>
+                        <td>Prompt and generation settings. This contract does not send a reference image. The named company returns the generated output through Cloudflare.</td>
+                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
+                    </tr>
+                    <tr data-model="bytedance/seedance-2.0">
+                        <td><code>bytedance/seedance-2.0</code> Seedance 2.0 (ByteDance). Member video route and Canvas. It is not in the separate member-exposure catalog list.</td>
+                        <td>ByteDance. The product code names this vendor and does not name one legal entity.</td>
+                        <td>Not confirmed</td>
+                        <td>Prompt and generation settings. This contract does not send a reference image. The named company returns the generated output through Cloudflare.</td>
+                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
+                    </tr>
+                    <tr data-model="xai/grok-imagine-video">
+                        <td><code>xai/grok-imagine-video</code> Grok Imagine Video (xAI). Member and Canvas video generation.</td>
+                        <td>SpaceXAI LLC and x.AI LLC. The published xAI privacy policy uses both names. The product code identifies the provider as xAI and does not show which legal entity receives a Cloudflare-billed request.</td>
+                        <td>United States. That privacy policy describes the company as US-based.</td>
+                        <td>Prompt, and an image or video when the selected operation sends one. The named company returns the generated output through Cloudflare.</td>
+                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
+                    </tr>
+                    <tr data-model="xai/grok-imagine-video-1.5-preview">
+                        <td><code>xai/grok-imagine-video-1.5-preview</code> Grok Imagine Video 1.5 Preview (xAI). Member and Canvas video generation.</td>
+                        <td>SpaceXAI LLC and x.AI LLC. The published xAI privacy policy uses both names. The product code identifies the provider as xAI and does not show which legal entity receives a Cloudflare-billed request.</td>
+                        <td>United States. That privacy policy describes the company as US-based.</td>
+                        <td>Prompt, and an image or video when the selected operation sends one. The named company returns the generated output through Cloudflare.</td>
+                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
+                    </tr>
+                    <tr data-model="xai/grok-4.7">
+                        <td><code>xai/grok-4.7</code> Grok 4.7 (xAI). Canvas assistant planning and evaluation.</td>
+                        <td>SpaceXAI LLC and x.AI LLC. The published xAI privacy policy uses both names. The product code identifies the provider as xAI and does not show which legal entity receives a Cloudflare-billed request.</td>
+                        <td>United States. That privacy policy describes the company as US-based.</td>
+                        <td>The planning brief, and on evaluation up to eight sampled image frames from the Canvas project. The named company returns the generated output through Cloudflare.</td>
+                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
+                    </tr>
+                    <tr data-model="@cf/swiss-ai/apertus-v1.5-8b">
+                        <td><code>@cf/swiss-ai/apertus-v1.5-8b</code> Apertus v1.5 8B (model by ETH Zurich and EPFL). Configured model for the public website assistant. That assistant is not enabled.</td>
+                        <td>Cloudflare, Inc. The model author named in the first column does not receive the request. The product code does not call that author's API.</td>
+                        <td>United States</td>
+                        <td>If the assistant is later enabled: the message, a limited recent conversation history, the selected public page category and language, and public help text. No account data. Nothing is sent while the assistant stays disabled. Section 5a describes this feature.</td>
+                        <td>Cloudflare Workers AI binding, without an AI Gateway option and without a call to ETH Zurich or EPFL.</td>
+                    </tr>
+                    <tr data-model="@cf/utter-project/eurollm-9b-it">
+                        <td><code>@cf/utter-project/eurollm-9b-it</code> EuroLLM 9B Instruct (UTTER project model). Allowlisted alternative for the public website assistant. It is not the configured model, and the assistant is not enabled.</td>
+                        <td>Cloudflare, Inc. The model author named in the first column does not receive the request. The product code does not call that author's API.</td>
+                        <td>United States</td>
+                        <td>The same assistant content as Apertus, only if this model is selected later. Nothing is sent while it is not selected and the assistant stays disabled. Section 5a describes this feature.</td>
+                        <td>Cloudflare Workers AI binding, without an AI Gateway option and without a call to the UTTER project.</td>
+                    </tr>
+                    </tbody>
+                </table>
+                </div>
+                <p>Not confirmed means the product code and the public sources checked for this update do not establish one country of seat for the company that receives the Cloudflare-billed request.</p>
                 <p>Do not submit sensitive personal data, confidential information, or third-party personal data in prompts or uploads unless you have the necessary rights and understand that the data must be processed by infrastructure and model providers to generate the requested output. Provider-side retention and training/use terms depend on the applicable provider contracts and settings and are not fully visible from the public website code.</p>
             </div>
         </div>
@@ -261,7 +524,14 @@
             </div>
             <div class="glass-card__body policy-section">
                 <p>The service uses Cloudflare for Pages, Workers, D1, R2, Queues, Durable Objects, Images, Workers AI, and AI Gateway; GitHub for source hosting/static deployment; Stripe for payments; Resend for email delivery; and AI/model providers as required by selected generation features.</p>
-                <p>These providers may process data in the EU, the United States, or other locations depending on their infrastructure and product configuration. Where data is transferred outside the EEA, transfers should rely on appropriate safeguards such as data-processing agreements, standard contractual clauses, adequacy decisions, or other mechanisms offered by the provider. We do not state that all processing is limited to the EU.</p>
+                <p>Section 5 names the recipients used for AI generation. The following of those recipients have a seat outside the EU/EEA, or a seat that is not confirmed. Recipients seated in Ireland or Germany (OpenAI Ireland Limited, Anthropic Ireland, Limited, and BFL GmbH) are in the EEA. Where the product code does not show whether a Cloudflare-billed request goes to the EEA company or to the United States company named beside it, a transfer to that United States company remains possible, and the United States entry below then applies to that company.</p>
+                <p><strong class="text-strong">United States.</strong> Cloudflare, Inc. is listed on the EU-US Data Privacy Framework website as participant 5666 with the status &ldquo;Active - Re-certification under Review&rdquo;. Google LLC is listed there as participant 5780 with EU-US Data Privacy Framework status &ldquo;Active&rdquo;. To the extent of those listings, we rely on the EU-US Data Privacy Framework for these two companies. The other United States recipients in section 5 are SpaceXAI LLC and x.AI LLC, OpenAI OpCo, LLC, Anthropic PBC, Black Forest Labs Inc., and Eleven Labs Inc. Certification of those companies on the EU-US Data Privacy Framework was not verified for this text. For them we rely on the EU-US Data Privacy Framework insofar as they are certified, and otherwise on standard contractual clauses under Article 46(2)(c) GDPR. The public product code does not show whether BITBI has concluded those clauses.</p>
+                <p><strong class="text-strong">China.</strong> 上海稀宇科技有限公司, the operator named in the MiniMax privacy policy, publishes an address in Shanghai. The Cloudflare-billed MiniMax entity is not confirmed. There is no European Commission adequacy decision for China. Authorities in China may access data under the law of that country. Where no adequacy decision applies, standard contractual clauses under Article 46(2)(c) GDPR are the intended safeguard. The public product code does not show whether BITBI has concluded those clauses. Vidu&rsquo;s own privacy policy states that information may be stored in Singapore and processed in China. That processing in China is separate from the Hong Kong seat of ShengShu AI HK Limited.</p>
+                <p><strong class="text-strong">Hong Kong.</strong> ShengShu AI HK Limited (Vidu) is seated in Hong Kong. There is no European Commission adequacy decision for Hong Kong. Authorities there may access data under the law of that country. Standard contractual clauses under Article 46(2)(c) GDPR are the intended safeguard. The public product code does not show whether BITBI has concluded those clauses.</p>
+                <p><strong class="text-strong">Singapore.</strong> AIVORA PTE. LTD. (PixVerse) is seated in Singapore. Vidu&rsquo;s privacy policy also states that information may be stored in Singapore. There is no European Commission adequacy decision for Singapore. Authorities there may access data under the law of that country. Standard contractual clauses under Article 46(2)(c) GDPR are the intended safeguard. The public product code does not show whether BITBI has concluded those clauses.</p>
+                <p><strong class="text-strong">Seat not confirmed.</strong> Section 5 does not confirm a country of seat for ByteDance (Seedance 2.5, Seedance 2.0, and Seedance 2.0 Fast), Alibaba (HappyHorse), or the Cloudflare-billed MiniMax entity. If the recipient that actually receives the request is outside the EEA, and no adequacy decision covers that country, standard contractual clauses under Article 46(2)(c) GDPR are the intended safeguard. The public product code does not show whether BITBI has concluded those clauses.</p>
+                <p>The United Kingdom is not the seat of a section 5 recipient. The United Kingdom adequacy decision is therefore not applied to a recipient in that table.</p>
+                <p>The infrastructure providers named above (GitHub, Stripe, and Resend) may also process data outside the EEA. This section does not state a Data Privacy Framework certification, or that standard contractual clauses have been concluded, for those providers. We do not state that all processing is limited to the EU.</p>
                 <p>Relevant provider information includes the <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener noreferrer">Cloudflare Privacy Policy</a>, <a href="https://docs.github.com/en/site-policy/privacy-policies/github-privacy-statement" target="_blank" rel="noopener noreferrer">GitHub Privacy Statement</a>, <a href="https://stripe.com/privacy" target="_blank" rel="noopener noreferrer">Stripe Privacy Policy</a>, and <a href="https://resend.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer">Resend Privacy Policy</a>.</p>
             </div>
         </div>
@@ -316,7 +586,7 @@
             </div>
             <div class="glass-card__body policy-section">
                 <p>We may update this Privacy Policy when the service, providers, data flows, or legal requirements change. The current version is available on this page.</p>
-                <p class="last-updated">Last updated: 3 May 2026</p>
+                <p class="last-updated">Last updated: October 22, 2026</p>
             </div>
         </div>
 

@@ -15,7 +15,7 @@ import { getCurrentLocale, localizedHref } from '../../shared/locale.js?v=__ASSE
 import { getPublicPricingCards } from '../../shared/pricing-public-offers.mjs?v=__ASSET_VERSION__';
 import { BITBI_MEMBER_SUBSCRIPTION } from '../../shared/member-subscription.mjs?v=__ASSET_VERSION__';
 
-const TERMS_VERSION = '2026-05-05';
+const TERMS_VERSION = '2026-10-22';
 const PENDING_PACK_KEY = 'bitbi_pending_credit_pack';
 const PENDING_OFFER_KEY = 'bitbi_pending_pricing_offer';
 const LOCALE = getCurrentLocale();
