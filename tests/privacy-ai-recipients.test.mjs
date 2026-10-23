@@ -21,6 +21,29 @@ function modelIds(html) {
   return new Set([...html.matchAll(/data-model="([^"]+)"/g)].map(match => match[1]));
 }
 
+function markupOutsideScripts(html) {
+  const lower = html.toLowerCase();
+  let cursor = 0;
+  let visible = '';
+  while (cursor < html.length) {
+    const open = lower.indexOf('<script', cursor);
+    if (open === -1) {
+      visible += html.slice(cursor);
+      break;
+    }
+    const openEnd = lower.indexOf('>', open);
+    const close = openEnd === -1 ? -1 : lower.indexOf('</script', openEnd + 1);
+    const closeEnd = close === -1 ? -1 : lower.indexOf('>', close);
+    if (openEnd === -1 || close === -1 || closeEnd === -1) {
+      visible += html.slice(cursor);
+      break;
+    }
+    visible += html.slice(cursor, open);
+    cursor = closeEnd + 1;
+  }
+  return visible;
+}
+
 function requiredModelIds() {
   const ids = new Set();
   const catalog = listAdminAiCatalog({ includeCanvas: true });
@@ -76,8 +99,18 @@ test('privacy copies stay noindex, dated, and outside the sitemap', () => {
   }
   const sitemap = read('sitemap.xml');
   assert.doesNotMatch(sitemap, /legal\/privacy|datenschutz/);
+  const scriptShapes = [
+    '<p>visible</p><script>AGB</script><p>after</p>',
+    '<p>visible</p><SCRIPT type="text/javascript">AGB</SCRIPT><p>after</p>',
+    '<p>visible</p><script type="module">AGB</script ><p>after</p>',
+  ];
+  for (const sample of scriptShapes) {
+    const visible = markupOutsideScripts(sample);
+    assert.equal(visible, '<p>visible</p><p>after</p>');
+    assert.doesNotMatch(visible, /AGB/);
+  }
   for (const file of ['legal/privacy.html', 'legal/datenschutz.html']) {
-    assert.doesNotMatch(pages[file].replace(/<script[\s\S]*?<\/script>/g, ' '), /AGB/);
+    assert.doesNotMatch(markupOutsideScripts(pages[file]), /AGB/);
   }
   for (const file of ['de/legal/datenschutz.html', 'de/legal/privacy.html']) {
     assert.match(pages[file], /\/de\/legal\/datenschutz\.html/);
