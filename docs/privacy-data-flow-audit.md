@@ -1,5 +1,7 @@
 # Privacy Data Flow and Contract Evidence
 
+Future audit work starts from [docs/audits/NEXT_AUDIT_BASELINE.md](audits/NEXT_AUDIT_BASELINE.md).
+
 Reviewed: 2026-10-23. Engineering evidence for owner/counsel review, not legal
 certification. Public documents and source establish only the facts stated below;
 account agreements and transfer assessments require separate evidence. The model

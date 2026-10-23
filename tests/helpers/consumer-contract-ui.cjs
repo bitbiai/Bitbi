@@ -208,4 +208,3 @@ async function contractDocuments({page,expect,locale,mockCreditsAccount}) {
       await expect(mount).toBeHidden();await expect(buttons).toHaveCount(0);expect(mutations).toEqual([]);
 }
 module.exports.contractDocuments=contractDocuments;
-
