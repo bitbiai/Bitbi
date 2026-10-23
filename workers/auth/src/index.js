@@ -583,11 +583,15 @@ export default {
 
   async scheduled(event, env, ctx) {
     if (event?.cron === '*/5 * * * *') {
-      ctx.waitUntil(processTransactionalMessages(env, {limit:10}).catch(() => {
-        logDiagnostic({service:'bitbi-auth',component:'consumer-mail',event:'consumer_mail_recovery_unavailable',level:'error',code:'consumer_mail_recovery_unavailable'});
-      }));
-      await requeueMemberGenerations(env);
-      await requeueCanvasAgents(env);
+      await Promise.all([
+        processTransactionalMessages(env, {limit:10}).catch(() => {
+          logDiagnostic({service:'bitbi-auth',component:'consumer-mail',event:'consumer_mail_recovery_unavailable',level:'error',code:'consumer_mail_recovery_unavailable'});
+        }),
+        (async () => {
+          await requeueMemberGenerations(env);
+          await requeueCanvasAgents(env);
+        })(),
+      ]);
       return;
     }
     if (event?.cron === MEMVID_STREAM_PREVIEW_CATCHUP_CRON) {
