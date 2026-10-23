@@ -92,7 +92,7 @@ export function homepageCoreArguments(scripts) {
 export function verifyHomepageCoreDiscovery(core, standard) {
   assert(Array.isArray(core) && core.length > 0, 'homepage-core: no tests discovered');
   const projects = {chromium: HOMEPAGE_CORE_FILES, 'webkit-canvas': HOMEPAGE_CORE_WEBKIT_FILES,
-    'webkit-assistant': ['website-assistant.spec.js', 'admin-website-assistant.spec.js']};
+    'webkit-assistant': ['website-assistant.spec.js', 'admin-website-assistant.spec.js'], 'webkit-consumer': ['smoke.spec.js']};
   const expected = standard.filter(test => projects[test.project]?.includes(test.file));
   for (const [project, files] of Object.entries(projects)) {
     for (const file of files) {

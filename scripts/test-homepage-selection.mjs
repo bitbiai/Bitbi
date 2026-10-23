@@ -17,7 +17,7 @@ const read = (name) => name === '.github/workflows/static.yml' ? releaseValidati
 const fixture = (file, project, index) => ({ file, project, title: `case ${index}`, expectedStatus: 'passed', tags: [] });
 const coreFixtures = [...HOMEPAGE_CORE_FILES.map(file => fixture(file, 'chromium', 0)),
   ...HOMEPAGE_CORE_WEBKIT_FILES.map(file => fixture(file, 'webkit-canvas', 0)),
-  ...['website-assistant.spec.js', 'admin-website-assistant.spec.js'].map(file => fixture(file, 'webkit-assistant', 0))];
+  ...['website-assistant.spec.js', 'admin-website-assistant.spec.js'].map(file => fixture(file, 'webkit-assistant', 0)), fixture('smoke.spec.js','webkit-consumer',0)];
 assert.deepEqual(HOMEPAGE_CORE_WEBKIT_FILES, ['canvas.spec.js', 'oma2-q1-canvas.spec.js', 'smoke.spec.js']);
 const adminFixture = fixture('auth-admin.spec.js', 'webkit-canvas', 0);
 assert.throws(() => verifyHomepageCoreDiscovery([...coreFixtures, adminFixture], [...coreFixtures, adminFixture]), /lost or added/);
@@ -43,6 +43,10 @@ const canvasProject = standardConfig.projects.find(project => project.name === '
 assert.equal(canvasProject?.use.browserName, 'webkit');
 assert.deepEqual(canvasProject.testMatch, CANVAS_WEBKIT_FILES.map(file => '**/' + file));
 assert.deepEqual(canvasProject.grep, /Canvas|P13|@canvas-model-ui/);
+const consumerProject=standardConfig.projects.find(project=>project.name==='webkit-consumer');
+assert.deepEqual(consumerProject.testMatch,['**/smoke.spec.js','**/auth-admin.spec.js']);
+assert.deepEqual(consumerProject.grep,/@consumer-contract/);
+assert.equal(consumerProject.use.browserName,'webkit');
 
 // Exercise the actual npm caller and the exact discovery line used by CI. The
 // wider project file set must not silently expand homepage-core to Admin, nor
@@ -59,6 +63,24 @@ try {
     return flattenHomepageDiscovery(JSON.parse(fs.readFileSync(output, 'utf8')));
   };
   const standard = discover('standard', ['test', '-c', 'playwright.config.js']);
+  const verifyConsumerDiscovery = rows => {
+    for (const project of ['chromium','webkit-consumer']) {
+      const cases = rows.filter(row=>row.project===project && row.title.includes('@consumer-contract'));
+      assert(cases.every(row=>['smoke.spec.js','auth-admin.spec.js'].includes(row.file)),'Test declarations retain their owning entrypoint');
+      assert.equal(cases.length,13,'Public, account and operator consumer cases must execute in both engines');
+      assert.equal(new Set(cases.map(row=>row.title)).size,13,'Duplicate consumer case');
+      assert(cases.every(row=>row.expectedStatus==='passed'),'Consumer cases cannot be skipped');
+      for(const locale of ['en','de']) {
+        assert.equal(cases.filter(row=>row.title.includes(`@consumer-contract ${locale} `)).length,6);
+      }
+    }
+  };
+  verifyConsumerDiscovery(standard);
+  const consumerCase = standard.find(row=>row.title.includes('@consumer-contract'));
+  assert.throws(()=>verifyConsumerDiscovery(standard.filter(row=>row!==consumerCase)));
+  assert.throws(()=>verifyConsumerDiscovery([...standard,consumerCase]));
+  assert.throws(()=>verifyConsumerDiscovery(standard.map(row=>row===consumerCase?{...row,expectedStatus:'skipped'}:row)));
+
   const core = discover('core', homepageCoreArguments({'test:homepage-core': coreScript}));
   const counts = verifyHomepageCoreDiscovery(core, standard);
   assert(counts['webkit-canvas/smoke.spec.js'] > 0);

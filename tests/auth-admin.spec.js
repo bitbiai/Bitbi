@@ -1,4 +1,5 @@
 const { test, expect } = require('@playwright/test');
+const cUI = require('./helpers/consumer-contract-ui.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
 const { mockPublicAppearance } = require('./helpers/appearance.js');
@@ -13,7 +14,7 @@ const CURRENT_AUTH_MIGRATION = RELEASE_COMPAT.release.schemaCheckpoints.auth.lat
 const MOBILE_CHROME_USER_AGENT =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/126.0.0.0 Mobile/15E148 Safari/604.1';
 
-test('@consumer-contract operator queue keeps declaration receipt separate from verified cancellation and review',({page})=>require('./helpers/consumer-contract-ui.cjs').operatorQueue({page,expect,mockAdminControlPlane,seedCookieConsent,mockAdminAiLab}));
+test('@consumer-contract operator review',({page})=>cUI.operatorQueue({page,expect,mockAdminControlPlane,seedCookieConsent,mockAdminAiLab}));
 
 function createSvgUpload(width, height) {
   return {
@@ -8441,7 +8442,10 @@ test.describe('Pricing credit-pack rollout', () => {
     expect(mobileOverflow).toBeLessThanOrEqual(1);
   });
 
-  require('./helpers/consumer-contract-ui.cjs').registerAccountCases({test,expect,mockPricingAccount,mockCreditsAccount});
+  for (const locale of ['en','de']) {
+test(`@consumer-contract ${locale} consent`,({page})=>cUI.checkoutConsent({page,expect,locale,mockPricingAccount}));
+test(`@consumer-contract ${locale} documents`,({page})=>cUI.contractDocuments({page,expect,locale,mockCreditsAccount}));
+  }
 
   test('logged-in Pricing checkout requires both legal confirmations before live checkout', async ({ page }) => {
     await page.route('https://pay.bitbi.ai/**', async (route) => {
@@ -8475,7 +8479,7 @@ test.describe('Pricing credit-pack rollout', () => {
       pack_id: 'live_credits_12000',
       terms_accepted: true,
       terms_version: '2026-10-23',
-      consentVersion: 'consumer-v1', locale: 'en', earlyStartRequested: true, withdrawalKnowledgeAccepted: false,
+consentVersion:'consumer-v1',locale:'en',earlyStartRequested:true,withdrawalKnowledgeAccepted:false,
       immediate_delivery_accepted: true,
     }));
     expect(checkoutRequests[0].url).toContain('/api/account/billing/checkout/live-credit-pack');
@@ -8683,7 +8687,7 @@ test.describe('Credits dashboard live credit packs', () => {
       pack_id: 'live_credits_5000',
       terms_accepted: true,
       terms_version: '2026-10-23',
-      consentVersion: 'consumer-v1', locale: 'en', earlyStartRequested: true, withdrawalKnowledgeAccepted: false,
+consentVersion:'consumer-v1',locale:'en',earlyStartRequested:true,withdrawalKnowledgeAccepted:false,
       immediate_delivery_accepted: true,
     }));
     expect(checkoutRequests[0].body.accepted_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);

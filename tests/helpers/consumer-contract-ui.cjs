@@ -209,10 +209,3 @@ async function contractDocuments({page,expect,locale,mockCreditsAccount}) {
 }
 module.exports.contractDocuments=contractDocuments;
 
-module.exports.registerAccountCases = ({test,expect,mockPricingAccount,mockCreditsAccount}) => {
-  for (const locale of ['en', 'de']) {
-    test(`@consumer-contract ${locale} checkout keeps explicit early-start separate from extinction`,({page})=>checkoutConsent({page,expect,locale,mockPricingAccount}));
-    test(`@consumer-contract ${locale} account downloads immutable documents and clears on account switch`,({page})=>contractDocuments({page,expect,locale,mockCreditsAccount}));
-  }
-
-};

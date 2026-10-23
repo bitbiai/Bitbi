@@ -23,11 +23,12 @@ module.exports = defineConfig({
       use: { browserName: 'chromium' },
     },
     { name: 'webkit-appearance', testMatch: ['**/oma2-q3-appearance.spec.js', '**/auth-admin.spec.js'], grep: /oma2-q3-appearance\.spec\.js|cold workspace exposes grouped tasks/, use: { browserName: 'webkit' } },
+    { name: 'webkit-consumer', testMatch: ['**/smoke.spec.js', '**/auth-admin.spec.js'], grep: /@consumer-contract/, use: { browserName: 'webkit' } },
     { name: 'webkit-pricing', testMatch: ['**/oma2-q3-model-pricing.spec.js'], use: { browserName: 'webkit' } },
     {
       name: 'webkit-canvas',
       testMatch: ['**/canvas.spec.js', '**/oma2-q1-canvas.spec.js', '**/auth-admin.spec.js', '**/smoke.spec.js', '**/oma2-q1-member.spec.js'],
-      grep: /Canvas|P13|@canvas-model-ui|@consumer-contract/,
+      grep: /Canvas|P13|@canvas-model-ui/,
       use: { browserName: 'webkit' },
     },
   ],
