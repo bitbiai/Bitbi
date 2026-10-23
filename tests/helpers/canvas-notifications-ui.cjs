@@ -1,3 +1,9 @@
+const presentedNotification=page=>page.evaluate(()=>new Promise(resolve=>{
+  const list=document.querySelector('.canvas-notifications__list');
+  const observer=new IntersectionObserver(entries=>{if(entries.some(entry=>entry.isIntersecting&&entry.intersectionRatio>=.5)){observer.disconnect();resolve();}},{root:list,threshold:.5});
+  observer.observe(list.firstElementChild);
+}));
+
 module.exports=async options=>{
   const {page,expect,locale,info,mockSharedAuth,createCanvasApiMock}=options,de=locale==='de';
   const clockStart=Date.now();await page.clock.install({time:clockStart});await page.clock.pauseAt(clockStart+1000);
@@ -100,14 +106,24 @@ module.exports=async options=>{
   const readsBeforeLifecycle=state.notificationReads.length;
   // A list transport outage is visible even while the inbox is closed. The
   // local warning is coalesced and never recursively sent to its failing API.
-  await page.keyboard.press('Escape');let unavailable=true,failedLists=0;const clientBeforeOutage=state.notificationClients.length;
-  await page.route('**/api/account/canvas/notifications?*',async route=>{if(unavailable){failedLists++;return route.abort('failed');}return route.fallback();});
+  await page.keyboard.press('Escape');let unavailable=true,failedLists=0,holdReconnect=false,releaseReconnect;const clientBeforeOutage=state.notificationClients.length;
+  await page.route('**/api/account/canvas/notifications?*',async route=>{if(unavailable){failedLists++;return route.abort('failed');}if(holdReconnect){holdReconnect=false;await new Promise(resolve=>{releaseReconnect=resolve;});}return route.fallback();});
   await page.evaluate(()=>window.dispatchEvent(new Event('online')));await expect.poll(()=>failedLists).toBe(1);await expect(badge).toBeVisible();
   await toggle.click();await expect(inbox.locator('[data-code="canvas_connection_interrupted"]')).toHaveCount(1);
   await expect(inbox.getByRole('button',{name:de?'Aktualisieren':'Refresh',exact:true})).toBeEnabled();
   await inbox.getByRole('button',{name:de?'Aktualisieren':'Refresh',exact:true}).click();await expect.poll(()=>failedLists).toBeGreaterThan(1);
   await expect(inbox.locator('[data-code="canvas_connection_interrupted"]')).toHaveCount(1);expect(state.notificationClients).toHaveLength(clientBeforeOutage);
-  unavailable=false;await page.evaluate(()=>window.dispatchEvent(new Event('online')));await expect(inbox.getByRole('button',{name:de?'Aktualisieren':'Refresh',exact:true})).toBeEnabled();
+  // Refresh remains enabled during reads. Hold reconnect before the state mock
+  // sees it, proving that button state/request count alone is not completion.
+  const beforeReconnect=state.requests.filter(request=>request.pathname==='/api/account/canvas/notifications').length;
+  unavailable=false;holdReconnect=true;await page.evaluate(()=>window.dispatchEvent(new Event('online')));
+  await expect.poll(()=>Boolean(releaseReconnect)).toBe(true);
+  await expect(inbox.getByRole('button',{name:de?'Aktualisieren':'Refresh',exact:true})).toBeEnabled();
+  expect(state.requests.filter(request=>request.pathname==='/api/account/canvas/notifications')).toHaveLength(beforeReconnect);
+  await expect(inbox.getByRole('status')).toHaveText(de?'Verbindung unterbrochen. Gespeicherte Meldungen werden automatisch abgeglichen.':'Connection interrupted. Saved notifications will reconnect automatically.');
+  const reconnect=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/account/canvas/notifications'&&response.request().method()==='GET'&&response.status()===200);
+  releaseReconnect();await (await reconnect).finished();await expect(inbox.getByRole('status')).toHaveText('');
+  expect(state.requests.filter(request=>request.pathname==='/api/account/canvas/notifications')).toHaveLength(beforeReconnect+1);
   // BFCache restoration observes the inbox; it does not acknowledge or execute.
   const before=state.requests.filter(request=>request.pathname==='/api/account/canvas/notifications').length;
   await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pagehide',{persisted:true})));await page.clock.runFor(60000);
@@ -210,7 +226,12 @@ module.exports.inbox=async({page,expect,locale,mockSharedAuth,createCanvasApiMoc
   await ai.click();await panel.getByRole('button',{name:de?'Arbeitsfläche ausfüllen':'Expand workspace',exact:true}).click();
   await toggle.click();await expect(inbox).toBeVisible();await expect(toggle).toHaveAttribute('aria-expanded','true');await expect(badge).toBeVisible();
   await expect(inbox.locator('li')).toHaveCount(40);await expect(inbox.locator('[data-notification-id="client:old-39"]')).not.toBeInViewport();
-  await page.clock.runFor(700);await expect.poll(()=>state.notificationReads.length).toBe(1);
+  // Native visibility delivery is independent of the paused JavaScript clock.
+  // Wait for it before advancing the read debounce, and keep the early-read
+  // countercontrol: presentation alone and the first 600ms must not acknowledge.
+  await presentedNotification(page);expect(state.notificationReads).toHaveLength(0);
+  await page.clock.runFor(600);expect(state.notificationReads).toHaveLength(0);
+  await page.clock.runFor(100);await expect.poll(()=>state.notificationReads.length).toBe(1);
   expect(state.notificationReads[0].length).toBeGreaterThan(0);expect(state.notificationReads[0]).not.toContain('client:old-39');
   expect(state.notifications.find(item=>item.id==='client:old-89').readAt).toBeNull();
   await mark.click();await expect(badge).toBeHidden();expect(state.notifications.every(item=>item.readAt)).toBe(true);expect(state.notifications).toHaveLength(90);

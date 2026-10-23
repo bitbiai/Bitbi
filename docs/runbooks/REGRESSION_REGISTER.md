@@ -2159,6 +2159,17 @@ EN/DE Chromium/WebKit cases cover computed toggle colors, actual visibility,
 whole-inbox actions, cancellation, two tabs, offline identity replay and reload.
 Use one browser clock for timestamp fixtures and wait for actual intersection;
 advancing a frozen timer before asynchronous observer delivery is not a read.
+The 2026-10-23 local `b343cf4c` acceptance exposed this missing barrier in
+its inbox fixture (0 acknowledgements instead of 1), plus two other premature
+measurements: a local sending bee precedes the accepted reply/cleared composer
+(39px versus the required >60px transcript), and an enabled Refresh button does
+not prove reconnect GET completion (25 requests versus the captured 24). The
+existing helpers now hold/release those real responses, await their UI effects,
+and await native intersection before the read debounce. Countercontrols retain
+no read before 650ms, no hidden polling, the original geometry bounds and zero
+inference before dispatch. All 12 EN/DE Chromium/WebKit cases passed without
+retries in 31.5s through `playwright.assets.config.js`; original failed reports
+remain in the private local-release checkpoint. Product code is unchanged.
 Browser acceptance also exposed a panel-only Escape listener: disabling a focused
 read/refresh control can move focus outside the panel. Close the open menu from
 the document and test explicit outside focus; Escape cannot acknowledge anything.

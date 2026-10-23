@@ -5,7 +5,7 @@ module.exports=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock
   const {createAuthTestEnv}=require('./auth-worker-harness.js');
   const {canvasAgentConversationFixture}=await import('./canvas-agent-conversation-control.mjs');
   const DB=new SqliteD1Database();applyAuthMigrations(DB);
-  const de=locale==='de',requests=[],errors=[];let c;
+  const de=locale==='de',requests=[],errors=[];let c,releaseMessageAcceptance;
   try{
     c=await canvasAgentConversationFixture({...createAuthTestEnv(),DB},{scope:'natural-browser-'+locale,locale});
     const f=c.f;await mockSharedAuth(page,true,'user',f.owner);createCanvasApiMock(page);
@@ -16,6 +16,7 @@ module.exports=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock
       for(const name of ['Idempotency-Key','X-Bitbi-Tariff-Revision'])if(request.headers()[name.toLowerCase()])headers[name]=request.headers()[name.toLowerCase()];
       requests.push({path:url.pathname,method:request.method(),body,key:headers['Idempotency-Key']});
       const response=await f.request(url.pathname+url.search,request.method(),body,headers),bytes=await responseBytes(response);
+      if(request.method()==='POST'&&url.pathname.endsWith('/conversation/messages'))await new Promise(resolve=>{releaseMessageAcceptance=resolve;});
       if(!page.isClosed())await route.fulfill({status:response.status,headers:Object.fromEntries(response.headers),body:bytes});
     });
     await page.goto(de?'/de/canvas/':'/canvas/');await page.locator('#canvasAgentToggle').click();
@@ -39,7 +40,15 @@ module.exports=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock
     await expect(panel.locator('.canvas-agent__thinking .canvas-agent__diagnostic code')).toBeHidden();
     expect(c.calls).toHaveLength(0);
     const bounds=()=>panel.evaluate(node=>{const r=node.getBoundingClientRect(),composer=node.querySelector('.canvas-agent__composer').getBoundingClientRect(),start=node.querySelector('.canvas-agent__make-now').getBoundingClientRect(),help=document.querySelector('#bitbiHelpTrigger').getBoundingClientRect(),transcript=node.querySelector('.canvas-agent__transcript');return {height:transcript.clientHeight,composerBottom:composer.bottom,startBottom:start.bottom,panelBottom:r.bottom,helpBottom:help.bottom,composerTop:composer.top,viewport:innerHeight,overflow:document.documentElement.scrollWidth>innerWidth};});
+    // A local sending bee is not an accepted turn. Hold the real route response
+    // so this control deterministically measures the still-expanded draft first.
+    await expect.poll(()=>Boolean(releaseMessageAcceptance)).toBe(true);
+    await expect(composer).toHaveAttribute('aria-busy','true');await expect(input).toHaveValue(idea);
+    const sendingBounds=await bounds();expect((await c.read()).pendingTurnId).toBeTruthy();
+    releaseMessageAcceptance();await expect(input).toHaveValue('');await expect(composer).toHaveAttribute('aria-busy','false');
+    await expect(bee).toHaveCount(1);expect(c.calls).toHaveLength(0);
     const measured=await bounds();expect(measured.height).toBeGreaterThan(60);expect(measured.startBottom).toBeLessThanOrEqual(measured.panelBottom);expect(measured.composerBottom).toBeLessThan(measured.viewport);expect(measured.helpBottom).toBeLessThan(measured.composerTop);expect(measured.overflow).toBe(false);
+    if(de)expect(measured.height).toBeGreaterThan(sendingBounds.height);
     const help=page.locator('#bitbiHelpTrigger');await expect(panel.locator('.canvas-panel__head #bitbiHelpTrigger')).toHaveCount(1);
     await help.focus();await help.press('Enter');await expect(page.locator('#bitbiHelpPanel')).toBeVisible();
     await page.keyboard.press('Escape');await expect(page.locator('#bitbiHelpPanel')).toBeHidden();await expect(help).toBeFocused();await expect(panel).toBeVisible();
@@ -69,6 +78,6 @@ module.exports=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMock
     await page.reload();await page.locator('#canvasAgentToggle').click();await expect(intent).toHaveAttribute('data-state','started');
     await expect(panel.locator('.canvas-agent__chat-run')).toBeVisible();
     expect((await f.data(await f.request(f.route))).run.id).toBe(run.id);expect(errors).toEqual([]);
-    await info.attach('natural-start-evidence',{contentType:'application/json',body:JSON.stringify({transport:'authenticated routes, D1, actual queue and signed synthetic inference callback',pendingBee:true,explicitApproval:true,cap:saved.quote.proposedCapCredits,originalRun:run.id,providerCalls:c.calls.length,bounds:measured})});
-  }finally{c?.restore();if(!page.isClosed())await page.close();DB.close();}
+    await info.attach('natural-start-evidence',{contentType:'application/json',body:JSON.stringify({transport:'authenticated routes, D1, actual queue and signed synthetic inference callback',pendingBee:true,explicitApproval:true,cap:saved.quote.proposedCapCredits,originalRun:run.id,providerCalls:c.calls.length,sendingBounds,bounds:measured})});
+  }finally{releaseMessageAcceptance?.();c?.restore();if(!page.isClosed())await page.close();DB.close();}
 };
