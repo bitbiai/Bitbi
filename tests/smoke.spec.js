@@ -9855,7 +9855,7 @@ test.describe('Legal pages', () => {
     const response = await page.goto('/legal/terms.html');
     expect(response.status()).toBe(200);
     await expect(page.locator('.legal-hero__title')).toContainText('Terms of Service');
-    await expect(page.locator('main')).toContainText('Effective date: October 22, 2026');
+    await expect(page.locator('main')).toContainText('Effective date: October 23, 2026');
     await expect(page.locator('.site-footer__links a[href="terms.html"]')).toContainText('Terms');
   });
 
@@ -9864,7 +9864,7 @@ test.describe('Legal pages', () => {
     expect(response.status()).toBe(200);
     await expect(page.locator('html')).toHaveAttribute('lang', 'de');
     await expect(page.locator('.legal-hero__title')).toContainText('Allgemeine Geschäftsbedingungen');
-    await expect(page.locator('main')).toContainText('Stand: 22. Oktober 2026');
+    await expect(page.locator('main')).toContainText('Stand: 23. Oktober 2026');
   });
 
   test('soft navigation only intercepts parsed http and https allowlist targets', async ({ page }) => {

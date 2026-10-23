@@ -1928,6 +1928,8 @@ async function withNewsLayout(page,info,locale,scenario) {
     const neighbours=[...document.querySelectorAll('.hero__models-cta-wrap,.hero__content,.latest-models-video-module__label')]
       .filter(e=>e.getBoundingClientRect().width>0).map(e=>({name:e.className,...e.getBoundingClientRect().toJSON()}));
     const active=feed.querySelector('.is-active .news-pulse__link');
+    const canvas=document.querySelector('.hero__canvas-teaser').getBoundingClientRect();
+    const rights=document.querySelector('.hero__content .consumer-contract-entry').getBoundingClientRect();
     // Published layout's lower edge: preserve it while relaxing only the top.
     const hero=feed.closest('.hero--homepage').getBoundingClientRect();
     const hint=document.querySelector('.hero__scroll-hint');
@@ -1936,7 +1938,7 @@ async function withNewsLayout(page,info,locale,scenario) {
     const oldTop=Math.max(hero.top,...neighbours.map(n=>n.bottom))+1.5*rem;
     const previousBottom=lower-Math.max(0,(lower-oldTop-17*rem)/2);
     return{fits:feed.dataset.newsPulseFits,inert:feed.inert,rect:r.toJSON(),gap,neighbours,previousBottom,
-      canvas:document.querySelector('.hero__canvas-teaser').getBoundingClientRect().toJSON(),
+      canvas:canvas.toJSON(),rights:rights.toJSON(),centralBottom:Math.max(canvas.bottom,rights.bottom),
       safe:neighbours.every(n=>r.right+gap<=n.left+1||r.left-gap>=n.right-1||r.top-gap>=n.bottom-1||r.bottom+gap<=n.top+1),
       contentsFit:!active||[...active.children].every(e=>e.getBoundingClientRect().bottom<=active.getBoundingClientRect().bottom+1),
       viewport:{width:innerWidth,height:innerHeight,scrollWidth:document.documentElement.scrollWidth},
@@ -1951,14 +1953,14 @@ async function withNewsLayout(page,info,locale,scenario) {
     expect(s.safe,JSON.stringify(s)).toBe(true);
     expect(s.contentsFit,JSON.stringify(s)).toBe(true);
     expect(Math.abs(s.rect.bottom-s.previousBottom),JSON.stringify(s)).toBeLessThan(0.04);
-    expect(s.rect.top-s.canvas.bottom).toBeGreaterThanOrEqual(s.gap-0.1);
+    expect(s.rect.top-s.centralBottom).toBeGreaterThanOrEqual(s.gap-0.1);
   };
   const settled=async()=>{
     await expect.poll(async()=>{
       const s=await geometry();
       // Wait for placement at the newly measured bounds, not an arbitrary
       // frame count or a previous ready bit. The 176..180px band is hysteresis.
-      const space=s.previousBottom-s.canvas.bottom-s.gap;
+      const space=s.previousBottom-s.centralBottom-s.gap;
       return s.fits==='true' ? s.safe && s.contentsFit && Math.abs(s.rect.bottom-s.previousBottom)<0.04
         : space<180;
     }).toBe(true);
@@ -1985,16 +1987,45 @@ test.describe('homepage news layout', () => {
   for (const locale of ['en','de']) {
     test(`homepage news free-space geometry and boundary (${locale})`, async ({page},info)=>withNewsLayout(page,info,locale,async ({feed,geometry,assertVisible,resize,settled,samples,releaseImage,requests})=>{
   const before=await geometry();assertVisible(before);
-  expect(before.rect.top-before.canvas.bottom).toBeLessThan(9);
+  // Contract rights are now the final central controls, after Canvas. Keep
+  // their real bounds separate from the News placement implementation.
+  expect(before.rights.bottom).toBeGreaterThan(before.canvas.bottom);
+  for (const link of await page.locator('.hero__content .consumer-contract-entry a').all()) {
+    await expect(link).toBeVisible();expect((await link.boundingBox()).height).toBeGreaterThanOrEqual(44);
+  }
+  expect(before.rect.top-before.centralBottom).toBeLessThan(9);
+  // Calibrate the safety measurement against an actual overlapping panel.
+  await feed.evaluate(e=>e.style.transform='translateY(-32px)');
+  expect((await geometry()).safe).toBe(false);
+  await feed.evaluate(e=>e.style.removeProperty('transform'));
+  assertVisible(await geometry());
   releaseImage();
   samples.push({phase:'desktop',...await geometry()});
   await page.screenshot({path:info.outputPath(`news-${locale}-desktop.png`)});
   for(const height of [950,1080]) {
     await resize({width:1920,height});
-    const normal=await geometry();expect(normal.fits).toBe('true');assertVisible(normal);
-    expect(normal.rect.top-normal.canvas.bottom).toBeLessThan(9);
+    const normal=await geometry();
     samples.push({phase:'normal-desktop',...normal});
-    expect(normal.rect.bottom).toBeCloseTo(height===950?868.21875:990.15625,1);
+    if(height===950) {
+      // The additional 44px rights links leave only 160px, below the
+      // established 176px readable minimum. Keep the links, hide News.
+      expect(normal.previousBottom-normal.centralBottom-normal.gap).toBeLessThan(176);
+      expect(normal.fits).toBe('false');expect(normal.inert).toBe(true);
+      await expect(feed).not.toBeVisible();
+    } else {
+      expect(normal.fits).toBe('true');assertVisible(normal);
+      expect(normal.rect.top-normal.centralBottom).toBeLessThan(9);
+    }
+    // Retain the independent published-layout anchor check with its original
+    // content, then restore the newly required controls and their safe bounds.
+    const rights=page.locator('.hero__content .consumer-contract-entry');
+    await rights.evaluate(e=>e.style.display='none');
+    await expect(feed).toHaveAttribute('data-news-pulse-fits','true');
+    const original=await settled();assertVisible(original);
+    expect(original.rect.bottom).toBeCloseTo(height===950?868.21875:990.15625,1);
+    await rights.evaluate(e=>e.style.removeProperty('display'));
+    await expect(feed).toHaveAttribute('data-news-pulse-fits',normal.fits);
+    await settled();
   }
   await page.setViewportSize({width:1300,height:1117});
   await expect.poll(async()=> (await geometry()).rect.width).toBeLessThan(before.rect.width);
@@ -2009,7 +2040,7 @@ test.describe('homepage news layout', () => {
     const s=await geometry();samples.push({height,...s});
     if(s.fits==='true'){assertVisible(s);expect(s.rect.bottom).toBeLessThan(height);}
     else expect(s.inert).toBe(true);
-    if(height<=900 && !stabilityChecked.has(s.fits)){
+    if(height<=980 && !stabilityChecked.has(s.fits)){
       stabilityChecked.add(s.fits);
       // Repeated real resize notifications at the boundary must not alternate
       // visibility; measurements do not depend on the feed's hidden box.
@@ -2017,7 +2048,7 @@ test.describe('homepage news layout', () => {
       await expect(feed).toHaveAttribute('data-news-pulse-fits',s.fits);
 
     }
-    if(height<=900 && s.fits==='true' && !boundaryCaptured){
+    if(height<=980 && s.fits==='true' && !boundaryCaptured){
       boundaryCaptured=true;
       await page.screenshot({path:info.outputPath(`news-${locale}-boundary.png`)});
     }
