@@ -5182,7 +5182,11 @@ test.describe('Homepage', () => {
 
       const footerCopy = page.locator('.site-footer__copy');
       await expect(footerCopy).toHaveCount(1);
-      await expect(footerCopy).toHaveText(FOOTER_COPY_TEXT);
+      const germanAlias = pathname === '/legal/datenschutz.html';
+      await expect(page.locator('html')).toHaveAttribute('lang', germanAlias ? 'de' : 'en');
+      await expect(footerCopy).toHaveText(germanAlias
+        ? 'BITBI Studio • Entwickelt mit Sorgfalt & Code • © 2026'
+        : FOOTER_COPY_TEXT);
       await expect(page.getByText(REMOVED_FOOTER_FRAGMENT)).toHaveCount(0);
 
       const footerStructure = await page.evaluate(() => {
@@ -10012,13 +10016,15 @@ test.describe('Shared MODELS overlay', () => {
       for (const pathname of STATIC_SHARED_HEADER_PATHS) {
         await page.goto(pathname);
 
+        const germanAlias = pathname === '/legal/datenschutz.html';
+        await expect(page.locator('html')).toHaveAttribute('lang', germanAlias ? 'de' : 'en');
         const nav = page.locator('.site-nav__links');
         await expect(nav.getByRole('link', { name: 'Video' })).toBeVisible();
         await expect(page.locator('#mobileMenuBtn')).toHaveCount(1);
         await expect(page.locator('#mobileNav')).toHaveCount(1);
         await expect
           .poll(() => nav.locator(':scope > *').evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())))
-          .toEqual(['Gallery', 'Video', 'Sound Lab']);
+          .toEqual([germanAlias ? 'Galerie' : 'Gallery', 'Video', 'Sound Lab']);
         await expect(nav.getByRole('link', { name: 'Contact' })).toHaveCount(0);
         await expect(nav.getByRole('button', { name: 'Models' })).toHaveCount(0);
         await expect(page.locator('a[aria-label="YouTube"]')).toHaveCount(0);
