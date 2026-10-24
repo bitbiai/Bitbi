@@ -330,7 +330,9 @@ module.exports.legalDocuments = async function legalDocuments({ page, expect, lo
     const privacy = locale === 'de' ? '/de/legal/datenschutz.html' : '/legal/privacy.html';
     const terms = locale === 'de' ? '/de/legal/terms.html' : '/legal/terms.html';
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto(privacy);
+    await page.goto(`${privacy}#website-assistant`);
+    await expect(page.locator('#website-assistant h2')).toContainText('5a.');
+    await expect(page.locator('#website-assistant')).toBeInViewport();
     await expect(page.locator('html')).toHaveAttribute('lang', locale);
     await expect(page.locator('main')).not.toContainText(/\[(?:P|V)\d|ARBEITSENTWURF|WORKING DRAFT|EFFECTIVE_DATE/);
     const region = page.locator('.policy-table-wrap').nth(1);

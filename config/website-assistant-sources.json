@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "reviewedOn": "2026-10-01",
+  "reviewedOn": "2026-10-24",
   "purpose": "Review anchors for public help facts. These repository paths and excerpts are never sent to the assistant or the browser.",
   "sources": [
     { "file": "js/shared/live-credit-packs.mjs", "includes": ["export const BITBI_LIVE_CREDIT_PACKS"] },
@@ -14,7 +14,7 @@
     { "file": "js/pages/canvas/main.js", "includes": ["Run the nodes from left to right.", "Create the result in the connected source node first.", "Not runnable", "Retry saving"] },
     { "file": "js/pages/canvas/audio-controls.js", "includes": ["Sound & Music", "Original audio enabled", "Background music", "Fade in", "Fade out"] },
     { "file": "js/pages/canvas/full-video.js", "includes": ["Download and Save use the last completed export.", "Save full video to Assets"] },
-    { "file": "legal/privacy.html", "includes": ["Public delivery is only intended after you explicitly publish eligible content.", "We do not state that all processing is limited to the EU."] },
+    { "file": "legal/privacy.html", "includes": ["Private assets do not become public merely through creation. Publication uses the designated feature.", "We do not promise exclusively EU processing."] },
     { "file": "index.html", "includes": ["id=\"contact\"", "id=\"gallery\"", "id=\"video-creations\"", "id=\"soundlab\""] }
   ]
 }

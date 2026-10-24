@@ -65,6 +65,11 @@ test('source guard blocks a real changed product fact and accepts unchanged auth
   });
   assert.equal(broken.length, 1);
   assert.match(broken[0], /canvas\/full-video.js: reviewed public fact changed/);
+  for (const fact of manifest.sources.find(source => source.file === 'legal/privacy.html').includes) {
+    const changed = validateKnowledgeSources(manifest, file => file === 'legal/privacy.html' ? read(file).replace(fact, 'Changed privacy fact') : read(file));
+    assert.equal(changed.length, 1);
+    assert.match(changed[0], /legal\/privacy.html: reviewed public fact changed/);
+  }
 });
 
 test('content and suggestion edits invalidate the deployed knowledge version', () => {

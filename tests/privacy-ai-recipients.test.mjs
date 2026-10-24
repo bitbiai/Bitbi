@@ -139,6 +139,7 @@ test('privacy copies retain route language, aliases, metadata and current public
   }
   for (const html of Object.values(pages)) {
     assert.match(html, /<meta name="robots" content="noindex, follow">/);
+    assert.match(html, /<section id="website-assistant"[^>]*aria-labelledby="legal-section-6">/);
     assert.doesNotMatch(html, /andere konfigurierte Modellanbieter|other configured model providers/);
   }
   assert.doesNotMatch(read('sitemap.xml'), /legal\/privacy|datenschutz/);
