@@ -1,0 +1,4 @@
+{
+  "name": "bitbi",
+  "install": "if [ -f .nvmrc ]; then . \"$HOME/.nvm/nvm.sh\" && nvm install; fi && npm ci"
+}
