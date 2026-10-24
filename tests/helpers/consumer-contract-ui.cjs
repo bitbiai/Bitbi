@@ -380,6 +380,20 @@ module.exports.legalDocuments = async function legalDocuments({ page, expect, lo
     await expect(page.locator(`main a[href="${url(locale, 'cancellation')}"]`).first()).toBeVisible();
     await page.setViewportSize({ width: 1440, height: 900 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    if (locale === 'de') {
+        await page.context().addCookies([{ name: 'bitbi_locale', value: 'en', url: 'http://localhost:3000' }]);
+        await page.goto('/legal/datenschutz.html');
+        expect(await page.evaluate(async () => (await import('/js/shared/locale.js')).getCurrentLocale())).toBe('de');
+        await expect(page.locator('header #navbar')).toHaveAttribute('aria-label', 'Hauptnavigation');
+        await expect(page.locator('header .site-nav__logo')).toHaveAttribute('href', '/de/');
+        await expect(page.locator('.site-footer__link[href="/de/legal/terms.html"]')).toHaveText('AGB');
+        await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', 'https://bitbi.ai/legal/datenschutz.html');
+        const english = page.locator('.locale-switcher__link[hreflang="en"]').first();
+        await expect(english).toHaveAttribute('href', '/legal/privacy.html');
+        await english.click();
+        await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+        await expect(page.locator('header #navbar')).toHaveAttribute('aria-label', 'Main navigation');
+    }
     expect(state.unexpected).toEqual([]);
     expect(state.calls).toEqual([]);
 };

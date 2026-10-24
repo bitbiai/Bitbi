@@ -116,6 +116,14 @@ across soft navigation. The EN/DE browser case checks both engines, exact moveme
 descendant/modifier exclusion and listener removal. These source changes and
 local checks are not publication evidence; use the protected release receipt.
 
+The `bf06cbca` core browser attempt exposed a stale English classification of
+the already-German `/legal/datenschutz.html` alias. Its navigation also selected
+English after initialization. Keep this alias German with or without the static
+server's `.html` normalization, retain its canonical URL, and send its EN switch
+to `/legal/privacy.html`. The existing locale and `@consumer-contract` callers
+cover cookie overrides, near-match/Admin exclusions and the actual language switch
+in Chromium/WebKit. The legal document body remains unchanged by this repair.
+
 Current [§356 BGB](https://www.gesetze-im-internet.de/bgb/__356.html) addresses services
 in (5), non-physical digital content in (6). [§327](https://www.gesetze-im-internet.de/bgb/__327.html)
 does not classify a credit merely by its name. [§312f](https://www.gesetze-im-internet.de/bgb/__312f.html)

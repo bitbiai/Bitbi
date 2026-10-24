@@ -2047,6 +2047,8 @@ function format(template, values = {}) {
 
 export function getCurrentLocale() {
     if (typeof window !== 'undefined' && isAdminPath(window.location.pathname)) return 'en';
+    // This retained root alias contains the German legal document.
+    if (typeof window !== 'undefined' && /^\/legal\/datenschutz(?:\.html)?$/.test(window.location.pathname)) return 'de';
     if (typeof window !== 'undefined' && isGermanPath(window.location.pathname)) return 'de';
     return getLocaleCookie(getCookieHeader()) || 'en';
 }
@@ -2073,7 +2075,9 @@ export function localizedHref(path, locale = getCurrentLocale()) {
 
 export function currentLanguageHref(locale) {
     if (typeof window === 'undefined') return mapLocalizedPath('/', locale);
-    return getLocalizedUrl(`${window.location.pathname}${window.location.search}${window.location.hash}`, locale);
+    const pathname = /^\/legal\/datenschutz(?:\.html)?$/.test(window.location.pathname)
+        ? '/legal/privacy.html' : window.location.pathname;
+    return getLocalizedUrl(`${pathname}${window.location.search}${window.location.hash}`, locale);
 }
 
 export function initLocaleSwitcher(container = document) {

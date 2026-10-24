@@ -1879,24 +1879,61 @@ test.describe('Bilingual locale pages', () => {
   });
 
   test('English and German legal links stay in their own locale', async () => {
-    for (const englishFile of ['index.html', 'pricing.html', 'legal/privacy.html', 'legal/imprint.html', 'legal/datenschutz.html']) {
+    for (const englishFile of ['index.html', 'pricing.html', 'legal/privacy.html', 'legal/imprint.html']) {
       const html = repoFile(englishFile);
+      expect(html, `${englishFile} language`).toContain('<html lang="en">');
       expect(html, `${englishFile} terms link`).toMatch(/href="(?:\/legal\/terms\.html|(?:\.\.\/)?terms\.html|legal\/terms\.html)"/);
       expect(visibleHtmlText(html)).not.toContain('AGB');
     }
 
-    for (const germanFile of ['de/index.html', 'de/pricing.html', 'de/legal/datenschutz.html', 'de/legal/privacy.html', 'de/legal/imprint.html', 'de/legal/terms.html']) {
+    for (const germanFile of ['de/index.html', 'de/pricing.html', 'legal/datenschutz.html', 'de/legal/datenschutz.html', 'de/legal/privacy.html', 'de/legal/imprint.html', 'de/legal/terms.html']) {
       const html = repoFile(germanFile);
+      expect(html, `${germanFile} language`).toContain('<html lang="de">');
       expect(html).toContain('/de/legal/datenschutz.html');
       expect(html).toContain('/de/legal/terms.html');
     }
 
-    for (const germanLegalFile of ['de/legal/datenschutz.html', 'de/legal/privacy.html', 'de/legal/imprint.html', 'de/legal/terms.html']) {
+    for (const germanLegalFile of ['legal/datenschutz.html', 'de/legal/datenschutz.html', 'de/legal/privacy.html', 'de/legal/imprint.html', 'de/legal/terms.html']) {
       const html = repoFile(germanLegalFile);
       expect(html, `${germanLegalFile} privacy footer`).not.toContain('href="datenschutz.html"');
       expect(html, `${germanLegalFile} terms footer`).not.toContain('href="terms.html"');
       expect(html, `${germanLegalFile} imprint footer`).not.toContain('href="imprint.html"');
     }
+
+    const rootGermanAlias = repoFile('legal/datenschutz.html');
+    expect(rootGermanAlias).toContain('<link rel="canonical" href="https://bitbi.ai/legal/datenschutz.html">');
+    expect(rootGermanAlias).toContain('aria-label="Hauptnavigation"');
+    expect(rootGermanAlias).toContain('href="/de/legal/terms.html" class="site-footer__link">AGB</a>');
+
+    // Run the actual module in a separate process: no browser network or shared global mutation.
+    const { execFileSync } = require('child_process');
+    const localeUrl = pathToFileURL(path.join(__dirname, '..', 'js/shared/locale.js')).href;
+    const localeCases = [
+      ['/legal/datenschutz.html', '', 'de', 'de'],
+      ['/legal/datenschutz.html', 'bitbi_locale=en', 'de', 'de'],
+      ['/legal/datenschutz', 'bitbi_locale=en', 'de', 'de'],
+      ['/de/legal/datenschutz.html', 'bitbi_locale=en', 'de', 'de'],
+      ['/legal/privacy.html', '', 'en', 'en'],
+      ['/legal/privacy.html', 'bitbi_locale=en', 'de', 'en'],
+      ['/legal/datenschutz.html.extra', '', 'de', 'en'],
+      ['/admin/index.html', 'bitbi_locale=de', 'de', 'en'],
+    ];
+    const observedLocales = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '--eval', `
+      const { getCurrentLocale, currentLanguageHref } = await import(process.argv[1]);
+      const cases = JSON.parse(process.argv[2]);
+      const locales = cases.map(([pathname, cookie, lang]) => {
+        globalThis.window = { location: { pathname, search: '?from=legal', hash: '#website-assistant' } };
+        globalThis.document = { cookie, documentElement: { lang } };
+        return { locale: getCurrentLocale(), en: currentLanguageHref('en'), de: currentLanguageHref('de') };
+      });
+      process.stdout.write(JSON.stringify(locales));
+    `, localeUrl, JSON.stringify(localeCases)], { encoding: 'utf8' }));
+    expect(observedLocales.map(entry => entry.locale)).toEqual(localeCases.map((entry) => entry[3]));
+    for (const entry of observedLocales.slice(0, 4)) {
+      expect(entry.en).toBe('/legal/privacy.html?from=legal#website-assistant');
+      expect(entry.de).toBe('/de/legal/datenschutz.html?from=legal#website-assistant');
+    }
+    expect(observedLocales.at(-1).en).toBe('/admin/index.html?from=legal#website-assistant');
 
     const dePrivacyAlias = repoFile('de/legal/privacy.html');
     expect(dePrivacyAlias).toContain('<link rel="canonical" href="https://bitbi.ai/de/legal/datenschutz.html">');
