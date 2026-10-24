@@ -308,6 +308,23 @@ async function contractDocuments({page,expect,locale,mockCreditsAccount}) {
 }
 module.exports.contractDocuments=contractDocuments;
 
+module.exports.cachedCreditsTerms = async function cachedCreditsTerms({ page, expect, checkoutRequests }) {
+    await page.locator('#creditsTermsAccepted').check();
+    await page.locator('#creditsImmediateDeliveryAccepted').check();
+    const pattern = '**/api/orgs/*/billing/checkout/live-credit-pack';
+    const outdated = route => route.fulfill({status:409,json:{ok:false,code:'terms_version_outdated'}});
+    await page.route(pattern, outdated);
+    try {
+        await page.locator('[data-checkout-pack="live_credits_5000"]').click();
+        await expect(page.locator('.credits-legal__error')).toBeVisible();
+        await expect(page.locator('.credits-legal__error')).toContainText('Please reload the page and review the current terms');
+        await expect(page.locator('#creditsDashboard')).toBeVisible();
+        expect(checkoutRequests).toHaveLength(0);
+    } finally {
+        await page.unroute(pattern, outdated);
+    }
+};
+
 module.exports.legalDocuments = async function legalDocuments({ page, expect, locale }) {
     const state = await setup(page);
     const privacy = locale === 'de' ? '/de/legal/datenschutz.html' : '/legal/privacy.html';

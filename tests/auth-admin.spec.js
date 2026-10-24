@@ -8678,16 +8678,7 @@ test.describe('Credits dashboard live credit packs', () => {
     await expect(page.locator('.credits-legal__error')).toContainText('Please accept the terms');
     expect(checkoutRequests).toHaveLength(0);
 
-    await page.locator('#creditsTermsAccepted').check();
-    await page.locator('#creditsImmediateDeliveryAccepted').check();
-    const outdated = route => route.fulfill({status:409,json:{ok:false,code:'terms_version_outdated'}});
-    await page.route('**/api/orgs/*/billing/checkout/live-credit-pack', outdated);
-    await page.locator('[data-checkout-pack="live_credits_5000"]').click();
-    await expect(page.locator('.credits-legal__error')).toBeVisible();
-    await expect(page.locator('.credits-legal__error')).toContainText('Please reload the page and review the current terms');
-    await expect(page.locator('#creditsDashboard')).toBeVisible();
-    expect(checkoutRequests).toHaveLength(0);
-    await page.unroute('**/api/orgs/*/billing/checkout/live-credit-pack', outdated);
+    await cUI.cachedCreditsTerms({ page, expect, checkoutRequests });
     await page.locator('[data-checkout-pack="live_credits_5000"]').click();
     await expect(page).toHaveURL(/\/account\/credits(?:\.html)?\?checkout=success$/);
     expect(checkoutRequests).toHaveLength(1);
