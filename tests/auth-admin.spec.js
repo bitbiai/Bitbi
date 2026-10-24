@@ -8372,7 +8372,7 @@ test.describe('Pricing credit-pack rollout', () => {
     await expect(page.locator('main')).not.toContainText('Compare options');
     await expect(page.locator('body')).not.toContainText(/Test ?mode/i);
     await require('./helpers/pricing-cards.cjs').assertEnglishPricingCards(page, expect);
-    await expect(page.locator('.pricing-legal')).toContainText('I accept the BITBI Terms of Service dated 23 October 2026.');
+    await expect(page.locator('.pricing-legal')).toContainText('I accept the BITBI Terms of Service dated 24 October 2026.');
     await expect(page.locator('.pricing-legal')).toContainText('begins performance before the withdrawal period ends');
     await expect(page.locator('.pricing-legal a[href="/legal/terms.html"]')).toHaveAttribute('rel', /noopener/);
     const pricingTitles = await page.locator('.pricing-card__title').evaluateAll((nodes) =>
@@ -8478,7 +8478,7 @@ test(`@consumer-contract ${locale} documents`,({page})=>cUI.contractDocuments({p
     expect(checkoutRequests[0].body).toEqual(expect.objectContaining({
       pack_id: 'live_credits_12000',
       terms_accepted: true,
-      terms_version: '2026-10-23',
+      terms_version: '2026-10-24',
 consentVersion:'consumer-v1',locale:'en',earlyStartRequested:true,withdrawalKnowledgeAccepted:false,
       immediate_delivery_accepted: true,
     }));
@@ -8680,13 +8680,21 @@ test.describe('Credits dashboard live credit packs', () => {
 
     await page.locator('#creditsTermsAccepted').check();
     await page.locator('#creditsImmediateDeliveryAccepted').check();
+    const outdated = route => route.fulfill({status:409,json:{ok:false,code:'terms_version_outdated'}});
+    await page.route('**/api/orgs/*/billing/checkout/live-credit-pack', outdated);
+    await page.locator('[data-checkout-pack="live_credits_5000"]').click();
+    await expect(page.locator('.credits-legal__error')).toBeVisible();
+    await expect(page.locator('.credits-legal__error')).toContainText('Please reload the page and review the current terms');
+    await expect(page.locator('#creditsDashboard')).toBeVisible();
+    expect(checkoutRequests).toHaveLength(0);
+    await page.unroute('**/api/orgs/*/billing/checkout/live-credit-pack', outdated);
     await page.locator('[data-checkout-pack="live_credits_5000"]').click();
     await expect(page).toHaveURL(/\/account\/credits(?:\.html)?\?checkout=success$/);
     expect(checkoutRequests).toHaveLength(1);
     expect(checkoutRequests[0].body).toEqual(expect.objectContaining({
       pack_id: 'live_credits_5000',
       terms_accepted: true,
-      terms_version: '2026-10-23',
+      terms_version: '2026-10-24',
 consentVersion:'consumer-v1',locale:'en',earlyStartRequested:true,withdrawalKnowledgeAccepted:false,
       immediate_delivery_accepted: true,
     }));

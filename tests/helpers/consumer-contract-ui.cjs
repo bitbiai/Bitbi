@@ -232,9 +232,15 @@ async function checkoutConsent({page,expect,locale,mockPricingAccount}) {
       await expect(checks).toHaveCount(2); await expect(checks.nth(0)).not.toBeChecked(); await expect(checks.nth(1)).not.toBeChecked();
       await expect(page.locator('.pricing-legal')).toContainText(locale==='de'?'verzichte ich nicht pauschal':'does not constitute a blanket waiver');
       await checks.nth(0).check(); await checks.nth(1).check();
+      const stale = route => route.fulfill({status:409,json:{ok:false,code:'terms_version_outdated',error:'Reload the checkout to review the current terms before purchasing.'}});
+      await page.route('**/api/account/billing/checkout/subscription', stale);
+      await page.locator('.pricing-legal__checkout').click();
+      await expect(page.locator('.pricing-legal')).toContainText(locale==='de'?'Bitte laden Sie die Seite neu':'Please reload the page');
+      expect(checkoutRequests).toHaveLength(0);
+      await page.unroute('**/api/account/billing/checkout/subscription', stale);
       await page.locator('.pricing-legal__checkout').click();
       await expect.poll(()=>checkoutRequests.length).toBe(1);
-      expect(checkoutRequests[0].body).toMatchObject({terms_version:'2026-10-23',consentVersion:'consumer-v1',locale,earlyStartRequested:true,withdrawalKnowledgeAccepted:false});
+      expect(checkoutRequests[0].body).toMatchObject({terms_version:'2026-10-24',consentVersion:'consumer-v1',locale,earlyStartRequested:true,withdrawalKnowledgeAccepted:false});
 }
 module.exports.checkoutConsent=checkoutConsent;
 
@@ -301,3 +307,60 @@ async function contractDocuments({page,expect,locale,mockCreditsAccount}) {
       expect(mutations).toEqual([]);
 }
 module.exports.contractDocuments=contractDocuments;
+
+module.exports.legalDocuments = async function legalDocuments({ page, expect, locale }) {
+    const state = await setup(page);
+    const privacy = locale === 'de' ? '/de/legal/datenschutz.html' : '/legal/privacy.html';
+    const terms = locale === 'de' ? '/de/legal/terms.html' : '/legal/terms.html';
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(privacy);
+    await expect(page.locator('html')).toHaveAttribute('lang', locale);
+    await expect(page.locator('main')).not.toContainText(/\[(?:P|V)\d|ARBEITSENTWURF|WORKING DRAFT|EFFECTIVE_DATE/);
+    const region = page.locator('.policy-table-wrap').nth(1);
+    await expect(region).toHaveAttribute('role', 'region');
+    await expect(region).toHaveAttribute('aria-label', /\S/);
+    await region.focus();
+    await expect(region).toBeFocused();
+    await page.keyboard.press('Home');
+    await page.keyboard.press('ArrowRight');
+    await expect.poll(() => region.evaluate(element => element.scrollLeft)).toBe(64);
+    await page.keyboard.press('ArrowLeft');
+    await expect.poll(() => region.evaluate(element => element.scrollLeft)).toBe(0);
+    await page.keyboard.press('End');
+    const end = await region.evaluate(element => ({ left: element.scrollLeft, maximum: element.scrollWidth - element.clientWidth }));
+    expect(Math.abs(end.left - end.maximum)).toBeLessThanOrEqual(1);
+    await page.keyboard.press('Home');
+    await expect.poll(() => region.evaluate(element => element.scrollLeft)).toBe(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    // Independent detached-region control proves listener cleanup and that only
+    // the region itself (never descendants, modifiers or unrelated keys) handles input.
+    const control = await page.evaluate(async () => {
+        const source = [...document.scripts].map(script => script.textContent).join('\n').match(/from '(\/js\/pages\/legal\/tables\.js\?v=[^']+)'/)[1];
+        const { initLegalTables } = await import(source);
+        const root = document.createElement('div'), table = document.createElement('div');
+        table.className = 'policy-table-wrap'; table.tabIndex = 0;
+        table.style.cssText = 'width:100px;overflow:auto';
+        const wide = document.createElement('input'); wide.style.width = '500px';
+        table.append(wide); root.append(table); document.body.append(root);
+        const send = (target, key, extra = {}) => {
+            const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...extra });
+            target.dispatchEvent(event); return event.defaultPrevented;
+        };
+        const before = send(table, 'ArrowRight');
+        const clean = initLegalTables(root);
+        const handled = send(table, 'ArrowRight'), moved = table.scrollLeft;
+        const input = send(wide, 'ArrowLeft'), modifier = send(table, 'ArrowLeft', { ctrlKey: true });
+        const other = send(table, 'ArrowDown');
+        clean(); const removed = send(table, 'ArrowRight'), after = table.scrollLeft;
+        root.remove(); return { before, handled, moved, input, modifier, other, removed, after };
+    });
+    expect(control).toEqual({ before: false, handled: true, moved: 64, input: false, modifier: false, other: false, removed: false, after: 64 });
+    await page.goto(terms);
+    await expect(page.locator('main')).not.toContainText(/\[(?:P|V)\d|ARBEITSENTWURF|WORKING DRAFT|EFFECTIVE_DATE/);
+    await expect(page.locator(`main a[href="${url(locale, 'withdrawal')}"]`).first()).toBeVisible();
+    await expect(page.locator(`main a[href="${url(locale, 'cancellation')}"]`).first()).toBeVisible();
+    await page.setViewportSize({ width: 1440, height: 900 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(state.unexpected).toEqual([]);
+    expect(state.calls).toEqual([]);
+};

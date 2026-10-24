@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { persistConsumerContractSnapshot } from '../workers/auth/src/lib/consumer-contracts.js';
+import { persistConsumerContractSnapshot, prepareConsumerContractSnapshot } from '../workers/auth/src/lib/consumer-contracts.js';
+import { CONSUMER_TERMS_CONTENT as HISTORICAL_TERMS } from '../workers/auth/src/lib/consumer-terms-content-2026-10-23.js';
+import { sha256Hex } from '../workers/auth/src/lib/tokens.js';
 import { prepareTransactionalMessage } from '../workers/auth/src/lib/transactional-messages.js';
 import { expectNativeRejection } from './helpers/q2-runtime/assertions.mjs';
 
@@ -7,7 +9,7 @@ import { expectNativeRejection } from './helpers/q2-runtime/assertions.mjs';
 // checkout evidence. All commits, triggers and mail claims use native workerd D1.
 export async function runConsumerContractBillingTests(f,{seed}) {
   const {db,sql,rows,scalar,test}=f;
-  const acceptance={termsVersion:'2026-10-23',locale:'de',termsAccepted:true,earlyStartRequested:true,consentVersion:'consumer-v1'};
+  const acceptance={termsVersion:'2026-10-24',locale:'de',termsAccepted:true,earlyStartRequested:true,consentVersion:'consumer-v1'};
   async function accepted(index) {
     const s=await seed(index);
     await sql('UPDATE billing_member_subscription_checkout_sessions SET metadata_json=? WHERE id=?',JSON.stringify(acceptance),s.id).run();
@@ -41,6 +43,32 @@ export async function runConsumerContractBillingTests(f,{seed}) {
     assert.ok((await missing.deliver(missing.invoice())).status>=500);assert.equal(await missing.credits(),0);
     const legacy=await seed(202);assert.equal((await legacy.deliver(legacy.invoice())).status,202);assert.equal(await legacy.credits(),1);
     assert.equal(await scalar('SELECT COUNT(*) AS value FROM consumer_contract_confirmations WHERE checkout_id=?',legacy.id),0);
+  });
+  await test('q4_consumer_native_delayed_historical_snapshot_survives_new_version_invoice_renewal_and_duplicate',async()=>{
+    const s=await seed(203);
+    // Model the already accepted immutable v1 row, without using new-checkout
+    // admission to mint old consent. All subsequent fulfillment uses signed HTTP.
+    const prepared=await prepareConsumerContractSnapshot({DB:db},{checkoutId:s.id,userId:s.user,scope:'member_subscription',acceptance,
+      offer:{id:'bitbi_pro_monthly',name:'BITBI Pro',allowanceCredits:6000,storageLimitBytes:5*1024**3,amountCents:999,currency:'eur',interval:'month'}});
+    const snapshot={...prepared.snapshot,terms:HISTORICAL_TERMS.de};delete snapshot.offer.contractSummary;
+    snapshot.consent.wording.terms='Ich akzeptiere die BITBI-Nutzungsbedingungen vom 23.10.2026.';
+    snapshot.acceptedAt='2026-10-23T12:00:00.000Z';
+    const json=JSON.stringify(snapshot),hash=await sha256Hex(json);
+    await sql('INSERT INTO consumer_contract_snapshots(checkout_id,user_id,checkout_scope,terms_version,locale,snapshot_json,snapshot_hash,accepted_at) VALUES (?,?,?,?,?,?,?,?)',
+      s.id,s.user,'member_subscription','2026-10-23','de',json,hash,snapshot.acceptedAt).run();
+    await sql('UPDATE billing_member_subscription_checkout_sessions SET metadata_json=? WHERE id=?',JSON.stringify({...acceptance,termsVersion:'2026-10-23'}),s.id).run();
+    const invoice=s.invoice();assert.equal((await s.deliver(invoice)).status,202);assert.equal(await s.credits(),1);
+    const original=await sql('SELECT * FROM consumer_contract_confirmations WHERE checkout_id=?',s.id).first();
+    const doc=JSON.parse(original.document_json);assert.deepEqual(doc.snapshot,snapshot);assert.ok(doc.text.includes(HISTORICAL_TERMS.de.text));
+    assert.ok(doc.text.includes('auf 6.000 Credits aufgefüllt'));
+    await sql("UPDATE transactional_messages SET state='sending',attempt_count=1,error_code='mail_acceptance_unknown' WHERE source_id=?",s.id).run();
+    const originalMail=await sql('SELECT * FROM transactional_messages WHERE source_id=?',s.id).first();
+    assert.equal((await s.deliver(invoice)).status,200);assert.equal(await s.credits(),1);
+    const renewal=s.invoice('renewal',{start:Math.floor(Date.now()/1000)+40*86400,end:Math.floor(Date.now()/1000)+70*86400});
+    assert.equal((await s.deliver(renewal)).status,202);assert.equal(await s.credits(),2);
+    assert.deepEqual(await sql('SELECT * FROM consumer_contract_confirmations WHERE checkout_id=?',s.id).first(),original);
+    assert.deepEqual(await sql('SELECT * FROM transactional_messages WHERE source_id=?',s.id).first(),originalMail);
+    assert.deepEqual(await sql('SELECT snapshot_json,snapshot_hash FROM consumer_contract_snapshots WHERE checkout_id=?',s.id).first(),{snapshot_json:json,snapshot_hash:hash});
   });
   await test('q4_consumer_native_mail_claim_and_expired_unknown_keep_contract_receipt_without_send',async()=>{
     const now=new Date().toISOString();

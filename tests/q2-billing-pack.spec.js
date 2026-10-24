@@ -690,7 +690,7 @@ test('Q2 consumer contract: signed paid checkout atomically saves immutable full
     const fs = require('node:fs'), path = require('node:path');
     f.db.exec(fs.readFileSync(path.join(__dirname,'../workers/auth/migrations/0117_consumer_contracts.sql'),'utf8'));
     const contracts=await load('workers/auth/src/lib/consumer-contracts.js');
-    const acceptance={termsVersion:'2026-10-23',locale:'de',termsAccepted:true,earlyStartRequested:true,consentVersion:'consumer-v1'};
+    const acceptance={termsVersion:'2026-10-24',locale:'de',termsAccepted:true,earlyStartRequested:true,consentVersion:'consumer-v1'};
     await f.db.prepare("UPDATE billing_member_checkout_sessions SET metadata_json=? WHERE id=?").bind(JSON.stringify(acceptance),f.checkout.id).run();
     await contracts.persistConsumerContractSnapshot(f.env,{checkoutId:f.checkout.id,userId:MEMBER,scope:'member',
       offer:{id:f.checkout.pack,name:'Starter',credits:5000,amountCents:999,currency:'eur'},acceptance});
@@ -703,7 +703,7 @@ test('Q2 consumer contract: signed paid checkout atomically saves immutable full
     expect(doc.document.snapshot.consent.extinction).toBe('not_determined');
     expect(doc.document.payment.taxAmount).toBe(159);
     expect(doc.document.text).toContain('Widerruf');
-    expect(doc.document.text).toContain('23.10.2026');
+    expect(doc.document.text).toContain('24.10.2026');
     expect(doc.document.text.length).toBeGreaterThan(6000);
     expect(await contracts.readOwnedContractConfirmation(f.env,{checkoutId:f.checkout.id,userId:'someone-else'})).toBe(null);
     expect(f.db.database.prepare('SELECT COUNT(*) AS n FROM transactional_messages').get().n).toBe(1);
@@ -719,7 +719,7 @@ test('Q2 consumer contract: ordinary checkout pins server consent and locale bef
     f.db.exec(fs.readFileSync(path.join(__dirname,'../workers/auth/migrations/0117_consumer_contracts.sql'),'utf8'));
     Object.assign(f.env,{ENABLE_LIVE_STRIPE_CREDIT_PACKS:'true',STRIPE_LIVE_SECRET_KEY:'sk_live_synthetic_contract_only',
       STRIPE_LIVE_CHECKOUT_SUCCESS_URL:'https://bitbi.ai/pricing.html?checkout=success',STRIPE_LIVE_CHECKOUT_CANCEL_URL:'https://bitbi.ai/pricing.html?checkout=cancel'});
-    const body={pack_id:'live_credits_5000',termsAccepted:true,termsVersion:'2026-10-23',consentVersion:'consumer-v1',locale:'de',earlyStartRequested:true,
+    const body={pack_id:'live_credits_5000',termsAccepted:true,termsVersion:'2026-10-24',consentVersion:'consumer-v1',locale:'de',earlyStartRequested:true,
       acceptedAt:'2000-01-01T00:00:00.000Z'};
     const calls=[],prior=globalThis.fetch;
     globalThis.fetch=async (url,init)=>{calls.push({url,init});return Response.json({id:'cs_live_q2_contract_new_checkout',url:'https://checkout.stripe.com/c/pay/cs_live_q2_contract_new_checkout',mode:'payment',status:'open',payment_status:'unpaid',livemode:true});};
@@ -729,6 +729,9 @@ test('Q2 consumer contract: ordinary checkout pins server consent and locale bef
     try {
       expect((await request({...body,earlyStartRequested:false})).status).toBe(400);
       expect((await request({...body,withdrawalKnowledgeAccepted:true})).status).toBe(400);
+      const oldClient=await request({...body,termsVersion:'2026-10-23'});
+      expect(oldClient.status).toBe(409);expect(await oldClient.json()).toMatchObject({code:'terms_version_outdated'});
+      expect((await request({...body,termsVersion:'2030-01-01'})).status).toBe(400);
       expect(calls).toHaveLength(0);
       const first=await request(body);expect(first.status).toBe(201);
       expect((await request(body)).status).toBe(200);
@@ -737,11 +740,71 @@ test('Q2 consumer contract: ordinary checkout pins server consent and locale bef
       const row=f.db.database.prepare('SELECT * FROM consumer_contract_snapshots').get();
       expect(row.accepted_at).toBe(new Date().toISOString());expect(row.locale).toBe('de');
       const snapshot=JSON.parse(row.snapshot_json);expect(snapshot.consent.earlyStartRequested).toBe(true);
+      expect(snapshot.terms.version).toBe('2026-10-24');expect(snapshot.offer.contractSummary).toContain('Einmaliger Credit-Kauf');
       expect(snapshot.consent.withdrawalKnowledgeAccepted).toBe(false);
       expect(snapshot.customer.accountEmail).toBe('pack-member@example.invalid');
       expect(new URLSearchParams(calls[0].init.body).get('metadata[accepted_at]')).toBe(row.accepted_at);
       expect(state(f).ledger).toHaveLength(0);
     } finally {globalThis.fetch=prior;}
+  });
+});
+
+async function seedHistoricalConsumerSnapshot(f,locale,mutate=()=>{},corruptHash=false) {
+  const fs=require('node:fs'),path=require('node:path');
+  f.db.exec(fs.readFileSync(path.join(__dirname,'../workers/auth/migrations/0117_consumer_contracts.sql'),'utf8'));
+  const {CONSUMER_TERMS_CONTENT}=await load('workers/auth/src/lib/consumer-terms-content-2026-10-23.js');
+  const de=locale==='de',acceptedAt='2026-10-23T12:00:00.000Z';
+  const snapshot={version:1,checkoutId:f.checkout.id,userId:MEMBER,organizationId:null,scope:'member',locale,acceptedAt,
+    supplier:{name:'Stefan van Ark',tradingName:'BITBI',address:'Schwarzwaldstraße 20, 78647 Trossingen, Germany',email:'bit@bitbi.ai'},
+    customer:{accountEmail:'pack-member@example.invalid'},offer:{id:f.checkout.pack,name:'Starter',credits:5000,amountCents:999,currency:'eur'},
+    consent:{version:'consumer-v1',termsAccepted:true,earlyStartRequested:true,withdrawalKnowledgeAccepted:false,classification:'review_required',extinction:'not_determined',wording:{
+      terms:de?'Ich akzeptiere die BITBI-Nutzungsbedingungen vom 23.10.2026.':'I accept the BITBI Terms of Service dated 23 October 2026.',
+      earlyStart:de?'Ich verlange ausdrücklich, dass BITBI vor Ablauf der Widerrufsfrist mit der Leistung beginnt. Damit verzichte ich nicht pauschal auf mein Widerrufsrecht.':'I expressly request that BITBI begins performance before the withdrawal period ends. This does not constitute a blanket waiver of my right of withdrawal.',
+      rights:de?'Ein Erlöschen des Widerrufsrechts wird nicht automatisch aus dem Kauf oder der Nutzung von Credits abgeleitet. Die gesetzlichen Voraussetzungen werden im Einzelfall geprüft.':'Loss of the right of withdrawal is not automatically inferred from purchasing or using credits. The statutory conditions are assessed individually.'}},
+    terms:CONSUMER_TERMS_CONTENT[locale],performance:{startsAfterVerifiedPayment:true,confirmationAvailability:'immutable_account_document',emailDelivery:'separately_observed'}};
+  mutate(snapshot);
+  const json=JSON.stringify(snapshot),hash=require('node:crypto').createHash('sha256').update(json).digest('hex');
+  await f.db.prepare('UPDATE billing_member_checkout_sessions SET metadata_json=? WHERE id=?').bind(JSON.stringify({termsVersion:'2026-10-23'}),f.checkout.id).run();
+  await f.db.prepare('INSERT INTO consumer_contract_snapshots(checkout_id,user_id,checkout_scope,terms_version,locale,snapshot_json,snapshot_hash,accepted_at) VALUES (?,?,?,?,?,?,?,?)')
+    .bind(f.checkout.id,MEMBER,'member','2026-10-23',locale,json,corruptHash?'incorrect':hash,acceptedAt).run();
+  return {snapshot,json,hash};
+}
+
+for (const locale of ['de','en']) test(`Q2 consumer contract: delayed ${locale} old-version payment preserves accepted document and unknown mail across duplicates`, async()=>{
+  await withPack(async f=>{
+    const original=await seedHistoricalConsumerSnapshot(f,locale);
+    f.advance(Date.parse('2026-11-01T12:00:00Z')-f.now());
+    expect((await deliver(f,payload(f.checkout,'evt_old_contract_first'))).response.status).toBe(202);
+    const confirmation=f.db.database.prepare('SELECT * FROM consumer_contract_confirmations').get();
+    const document=JSON.parse(confirmation.document_json);expect(document.snapshot).toEqual(original.snapshot);
+    expect(document.text).toContain(original.snapshot.terms.text);expect(document.text).toContain(original.snapshot.consent.wording.terms);
+    expect(document.snapshot.offer.contractSummary).toBeUndefined();
+    const mailBefore=f.db.database.prepare('SELECT payload_json,payload_hash FROM transactional_messages').get();
+    await f.db.prepare("UPDATE transactional_messages SET state='sending',attempt_count=1,error_code='mail_acceptance_unknown' WHERE source_id=?").bind(f.checkout.id).run();
+    // A distinct signed event is accepted (202); only replaying the same event is 200.
+    expect((await deliver(f,payload(f.checkout,'evt_old_contract_duplicate'))).response.status).toBe(202);
+    expect((await deliver(f,payload(f.checkout,'evt_old_contract_first'))).response.status).toBe(200);
+    expect(f.db.database.prepare('SELECT * FROM consumer_contract_confirmations').get()).toEqual(confirmation);
+    expect(f.db.database.prepare('SELECT payload_json,payload_hash FROM transactional_messages').get()).toEqual(mailBefore);
+    expect(f.db.database.prepare('SELECT state,error_code FROM transactional_messages').get()).toEqual({state:'sending',error_code:'mail_acceptance_unknown'});
+    expect(f.db.database.prepare('SELECT snapshot_json,snapshot_hash FROM consumer_contract_snapshots').get()).toEqual({snapshot_json:original.json,snapshot_hash:original.hash});
+    expect(state(f).ledger).toHaveLength(1);
+  });
+});
+
+for(const mismatch of ['owner','version','scope','hash','future_protocol']) test(`Q2 consumer contract: old snapshot ${mismatch} mismatch cannot fulfill or mail`,async()=>{
+  await withPack(async f=>{
+    await seedHistoricalConsumerSnapshot(f,'en',snapshot=>{
+      if(mismatch==='owner')snapshot.userId='other-customer';
+      if(mismatch==='version')snapshot.terms={...snapshot.terms,version:'2026-10-24'};
+      if(mismatch==='scope')snapshot.scope='organization';
+    },mismatch==='hash');
+    if(mismatch==='future_protocol')await f.db.prepare('UPDATE billing_member_checkout_sessions SET metadata_json=? WHERE id=?')
+      .bind(JSON.stringify({termsVersion:'2030-01-01'}),f.checkout.id).run();
+    expect((await deliver(f)).response.status).toBeGreaterThanOrEqual(500);
+    expect(state(f).ledger).toHaveLength(0);
+    expect(f.db.database.prepare('SELECT COUNT(*) AS n FROM consumer_contract_confirmations').get().n).toBe(0);
+    expect(f.db.database.prepare('SELECT COUNT(*) AS n FROM transactional_messages').get().n).toBe(0);
   });
 });
 
@@ -794,14 +857,14 @@ test('Q2 consumer contract: missing new acceptance evidence cannot grant, while 
   await withPack(async f=>{
     const fs=require('node:fs'),path=require('node:path');
     f.db.exec(fs.readFileSync(path.join(__dirname,'../workers/auth/migrations/0117_consumer_contracts.sql'),'utf8'));
-    await f.db.prepare('UPDATE billing_member_checkout_sessions SET metadata_json=? WHERE id=?').bind(JSON.stringify({termsVersion:'2026-10-23'}),f.checkout.id).run();
+    await f.db.prepare('UPDATE billing_member_checkout_sessions SET metadata_json=? WHERE id=?').bind(JSON.stringify({termsVersion:'2026-10-24'}),f.checkout.id).run();
     expect((await deliver(f,payload(f.checkout))).response.status).toBeGreaterThanOrEqual(500);
     expect(state(f).ledger).toHaveLength(0);
     Object.assign(f.env,{ENABLE_LIVE_STRIPE_CREDIT_PACKS:'true',STRIPE_LIVE_SECRET_KEY:'sk_live_synthetic_contract_only',
       STRIPE_LIVE_CHECKOUT_SUCCESS_URL:'https://bitbi.ai/pricing.html?checkout=success',STRIPE_LIVE_CHECKOUT_CANCEL_URL:'https://bitbi.ai/pricing.html?checkout=cancel'});
     f.db.exec("CREATE TRIGGER contract_snapshot_fault BEFORE INSERT ON consumer_contract_snapshots BEGIN SELECT RAISE(ABORT,'snapshot fixture fault'); END");
     const response=await f.http.request('/api/account/billing/checkout/live-credit-pack',{method:'POST',headers:{'Content-Type':'application/json',Origin:'https://bitbi.ai',Cookie:f.memberCookie,'Idempotency-Key':'consumer-snapshot-fault','CF-Connecting-IP':'192.0.2.56'},
-      body:JSON.stringify({pack_id:'live_credits_5000',termsAccepted:true,termsVersion:'2026-10-23',consentVersion:'consumer-v1',locale:'en',earlyStartRequested:true})});
+      body:JSON.stringify({pack_id:'live_credits_5000',termsAccepted:true,termsVersion:'2026-10-24',consentVersion:'consumer-v1',locale:'en',earlyStartRequested:true})});
     expect(response.status).toBeGreaterThanOrEqual(500);
     expect(f.db.database.prepare('SELECT COUNT(*) AS n FROM billing_member_checkout_sessions').get().n).toBe(1);
     expect(f.db.database.prepare('SELECT COUNT(*) AS n FROM consumer_contract_snapshots').get().n).toBe(0);

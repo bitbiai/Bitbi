@@ -88,6 +88,34 @@ Store agreements, invoices, acceptance logs and assessments privately.
 
 ## Offer and consent decisions
 
+### Versioned interim integration (2026-10-24)
+
+The revised notices narrow unsupported promises; they do not establish missing
+supplier coverage, fix analytics consent, change credit balances or resolve the
+confirmation-before-performance boundary below. The owner confirmed Pro's
+top-up-to-6,000 intent; the general credit-bucket balance/consumption discrepancy
+still needs a separate implementation and acquired-rights decision.
+
+New checkout admission uses `2026-10-24`. Fulfillment separately recognizes the
+immutable `2026-10-23` snapshot protocol, validates its owner/scope/version/hash,
+and uses its original text and consent. The old text bundle is retained in
+`consumer-terms-content-2026-10-23.js`; completed documents and unknown mail
+payloads are never regenerated. Old cached clients receive an explicit refresh
+response before a new Stripe checkout. The `2026-10-22` creation cutoff is
+unchanged. A new website version does not replace existing customer contracts.
+
+Counterchecks: signed consumer cases in `q2-billing-pack.spec.js`, populated native
+subscription cases in `q4-runtime-consumer-billing.mjs`, and the existing
+`@consumer-contract` browser callers. The privacy guard retains the exact model
+inventory, direct-route drift and missing protected-caller controls.
+
+The legal table's focused-region ArrowRight failed in an isolated WebKit
+overflow fixture while programmatic scrolling worked. `js/pages/legal/tables.js`
+handles only unmodified horizontal/Home/End keys on that region, with cleanup
+across soft navigation. The EN/DE browser case checks both engines, exact movement,
+descendant/modifier exclusion and listener removal. These source changes and
+local checks are not publication evidence; use the protected release receipt.
+
 Current [§356 BGB](https://www.gesetze-im-internet.de/bgb/__356.html) addresses services
 in (5), non-physical digital content in (6). [§327](https://www.gesetze-im-internet.de/bgb/__327.html)
 does not classify a credit merely by its name. [§312f](https://www.gesetze-im-internet.de/bgb/__312f.html)

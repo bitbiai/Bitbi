@@ -4,6 +4,9 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import { createHash } from 'node:crypto';
+import { CONSUMER_TERMS_VERSION, consumerConsentText } from '../js/shared/consumer-contract.mjs';
+import { CONSUMER_TERMS_CONTENT, HISTORICAL_CONSUMER_TERMS_CONTENT } from '../workers/auth/src/lib/consumer-terms-content.js';
 import { listAdminAiCatalog } from '../js/shared/admin-ai-contract.mjs';
 import { CANVAS_ASSISTANT_MODELS } from '../js/shared/canvas-assistant-models.mjs';
 import { ASSISTANT_MODELS } from '../workers/auth/src/lib/website-assistant-policy.js';
@@ -47,6 +50,41 @@ function markupOutsideScripts(html) {
   return visible;
 }
 
+function visibleText(html) {
+  const entities = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', szlig: 'ß' };
+  return markupOutsideScripts(html).replace(/<[^>]*>/g, '').replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (all, code) => {
+    if (code.startsWith('#x')) return String.fromCodePoint(Number.parseInt(code.slice(2), 16));
+    if (code.startsWith('#')) return String.fromCodePoint(Number.parseInt(code.slice(1), 10));
+    return entities[code] ?? all;
+  }).replace(/\s+/g, ' ').trim();
+}
+
+function legalBody(html) {
+  const body = html.match(/<div class="card-stack--legal">([\s\S]*?)<p class="last-updated">/);
+  assert.ok(body, 'legal document body must remain identifiable');
+  return body[1];
+}
+
+function legalBlocks(html) {
+  return [...legalBody(html).matchAll(/<(h2|h3|p|li|th|td)\b[^>]*>([\s\S]*?)<\/\1>/g)]
+    .map(match => visibleText(match[2]));
+}
+
+function verifyDocumentStructure(html, kind) {
+  const body = legalBody(html);
+  const headings = [...body.matchAll(/<h2\b[^>]*>([\s\S]*?)<\/h2>/g)].map(match => visibleText(match[1]));
+  const numbers = headings.map(heading => heading.match(/^(\d+a?)\./)?.[1]).filter(Boolean);
+  const expected = kind === 'terms' ? Array.from({ length: 22 }, (_, i) => String(i + 1))
+    : ['1', '2', '3', '4', '5', '5a', ...Array.from({ length: 11 }, (_, i) => String(i + 6))];
+  assert.deepEqual(numbers, expected, `${kind} numbered sections must remain complete and ordered`);
+  const text = visibleText(body);
+  assert.doesNotMatch(text, /\[(?:P|V)\d|EFFECTIVE_DATE|ARBEITSENTWURF|working draft|PRIVATE PREVIEW|PRIVATE VORSCHAU|Variante [AB]|Option [AB]|\/Users\//i);
+  if (kind === 'privacy') {
+    assert.deepEqual(headings.filter(heading => /^(?:Appendix|Anhang) [AB] /.test(heading)).map(heading => heading.match(/^(?:Appendix|Anhang) ([AB])/)[1]), ['A', 'B']);
+    assert.equal((body.match(/<table\b/g) || []).length, 3, 'retention, provider and browser-storage tables must remain');
+  }
+}
+
 function requiredModelIds() {
   const ids = new Set();
   const catalog = listAdminAiCatalog({ includeCanvas: true });
@@ -64,7 +102,7 @@ function requiredModelIds() {
 
 const { ids, catalog } = requiredModelIds();
 
-test('privacy pages name every catalog, assistant, and private-search model recipient', () => {
+test('privacy pages disclose every catalog, assistant, and private-search model route', () => {
   assert.ok(ids.size >= 35, `expected the verified recipient set, found ${ids.size}`);
   for (const [file, html] of Object.entries(pages)) {
     const listed = modelIds(html);
@@ -85,57 +123,55 @@ test('privacy pages name every catalog vendor', () => {
   }
 });
 
-test('privacy copies stay noindex, dated, and outside the sitemap', () => {
-  assert.match(pages['legal/privacy.html'], /Effective date: <strong class="text-strong">October 23, 2026<\/strong>/);
-  assert.match(pages['legal/privacy.html'], /Last updated: October 23, 2026/);
-  assert.match(pages['legal/privacy.html'], /href="https:\/\/bitbi\.ai\/legal\/privacy\.html"/);
-  assert.match(pages['legal/privacy.html'], /<h2 class="glass-card__title">11\. Infrastructure, Processors, and Transfers<\/h2>/);
+test('privacy copies retain route language, aliases, metadata and current publication version', () => {
+  const english = pages['legal/privacy.html'];
+  assert.match(visibleText(english), /Version dated 24 October 2026/);
+  assert.match(english, /Last updated: October 24, 2026/);
+  assert.match(english, /<link rel="canonical" href="https:\/\/bitbi\.ai\/legal\/privacy\.html">/);
+  assert.match(english, /<html lang="en"/);
+  assert.doesNotMatch(markupOutsideScripts(english), /AGB/);
+  const german = pages['de/legal/datenschutz.html'];
   for (const file of ['de/legal/datenschutz.html', 'de/legal/privacy.html', 'legal/datenschutz.html']) {
-    assert.match(pages[file], /Stand: <strong class="text-strong">23\. Oktober 2026<\/strong>/);
-    assert.match(pages[file], /<p class="last-updated">Stand: 23\. Oktober 2026<\/p>/);
-    assert.match(pages[file], /<h2 class="glass-card__title">11\. Infrastruktur, Auftragsverarbeiter und Drittlandtransfer<\/h2>/);
+    assert.match(visibleText(pages[file]), /Stand: 24\. Oktober 2026/);
+    assert.match(pages[file], /<p class="last-updated">Stand: 24\. Oktober 2026<\/p>/);
+    assert.match(pages[file], /<html lang="de"/);
+    assert.deepEqual(legalBlocks(pages[file]), legalBlocks(german), `${file} German alias content drift`);
   }
-  assert.match(pages['de/legal/datenschutz.html'], /href="https:\/\/bitbi\.ai\/de\/legal\/datenschutz\.html"/);
   for (const html of Object.values(pages)) {
     assert.match(html, /<meta name="robots" content="noindex, follow">/);
     assert.doesNotMatch(html, /andere konfigurierte Modellanbieter|other configured model providers/);
   }
-  const sitemap = read('sitemap.xml');
-  assert.doesNotMatch(sitemap, /legal\/privacy|datenschutz/);
-  const scriptShapes = [
+  assert.doesNotMatch(read('sitemap.xml'), /legal\/privacy|datenschutz/);
+  for (const sample of [
     '<p>visible</p><script>AGB</script><p>after</p>',
     '<p>visible</p><SCRIPT type="text/javascript">AGB</SCRIPT><p>after</p>',
     '<p>visible</p><script type="module">AGB</script ><p>after</p>',
-  ];
-  for (const sample of scriptShapes) {
-    const visible = markupOutsideScripts(sample);
-    assert.equal(visible, '<p>visible</p><p>after</p>');
-    assert.doesNotMatch(visible, /AGB/);
-  }
-  for (const file of ['legal/privacy.html', 'legal/datenschutz.html']) {
-    assert.doesNotMatch(markupOutsideScripts(pages[file]), /AGB/);
-  }
+  ]) assert.equal(markupOutsideScripts(sample), '<p>visible</p><p>after</p>');
   for (const file of ['de/legal/datenschutz.html', 'de/legal/privacy.html']) {
     assert.match(pages[file], /\/de\/legal\/datenschutz\.html/);
     assert.match(pages[file], /\/de\/legal\/terms\.html/);
     assert.doesNotMatch(pages[file], /href="datenschutz\.html"|href="terms\.html"|href="imprint\.html"/);
   }
+  assert.match(pages['de/legal/datenschutz.html'], /<link rel="canonical" href="https:\/\/bitbi\.ai\/de\/legal\/datenschutz\.html">/);
   assert.match(pages['de/legal/privacy.html'], /<link rel="canonical" href="https:\/\/bitbi\.ai\/de\/legal\/datenschutz\.html">/);
   assert.match(pages['legal/datenschutz.html'], /<link rel="canonical" href="https:\/\/bitbi\.ai\/legal\/datenschutz\.html">/);
 });
 
-test('disclosures distinguish verified register scope, account coverage and real hosting', () => {
-  const english = pages['legal/privacy.html'];
-  for (const participant of [5666, 5780, 9996]) assert.match(english, new RegExp(`participant ${participant}`));
+test('disclosures distinguish dated register observations, unconfirmed account coverage and real hosting', () => {
+  const english = visibleText(pages['legal/privacy.html']);
+  for (const participant of [5666, 5780, 9996]) assert.match(english, new RegExp(`no\\. ${participant}`));
+  assert.match(english, /23 October 2026/);
   assert.match(english, /Eleven Labs Inc\./);
-  assert.match(english, /Active - Re-certification under Review/);
+  assert.match(english, /Active – Re-certification under Review/);
+  assert.match(english, /dated registry observation, not a promise of continued certification/);
   assert.match(english, /Article 46\(2\)\(c\) GDPR/);
-  assert.match(english, /United Kingdom and Switzerland/);
+  assert.match(english, /Switzerland and the United Kingdom/);
   assert.match(english, /December 2025/);
   assert.match(english, /Plus Five Five, Inc\./);
-  assert.match(english, /processor or as a controller/);
-  assert.match(english, /not the configured public website host/);
-  assert.match(english, /account-specific coverage.*has not yet been fully confirmed/);
+  assert.match(english, /processor or independent controller depending on purpose/);
+  assert.match(english, /not the public website host/);
+  assert.match(english, /actual recipient entity and applicable contractual and transfer chain have not yet been fully confirmed/);
+  assert.match(english, /exclude certain third-party products on third-party infrastructure from Cloudflare's DPA/);
   for (const html of Object.values(pages)) {
     assert.doesNotMatch(html, /GitHub Pages|public product code does not show whether|zeigt nicht, ob BITBI diese Klauseln/);
     assert.doesNotMatch(html, /we rely on.*otherwise on standard contractual clauses|intended safeguard/i);
@@ -143,12 +179,30 @@ test('disclosures distinguish verified register scope, account coverage and real
     assert.match(html, /Canvas/);
   }
   for (const file of ['de/legal/datenschutz.html', 'de/legal/privacy.html', 'legal/datenschutz.html']) {
-    assert.match(pages[file], /Teilnehmer 9996/);
-    assert.match(pages[file], /Art\. 46 Abs\. 2 lit\. c DSGVO/);
-    assert.match(pages[file], /Plus Five Five, Inc\./);
-    assert.match(pages[file], /UK-Angemessenheit/);
-    assert.match(pages[file], /noch nicht vollständig bestätigt/);
+    const text = visibleText(pages[file]);
+    assert.match(text, /Nr\. 9996/);
+    assert.match(text, /Art\. 46 Abs\. 2 Buchst\. c DSGVO/);
+    assert.match(text, /Plus Five Five, Inc\./);
+    assert.match(text, /UK-Angemessenheit/);
+    assert.match(text, /noch nicht vollständig bestätigt/);
+    assert.match(text, /Drittanbieterprodukte auf fremder Infrastruktur von Cloudflares DPA/);
   }
+});
+
+test('analytics and retention disclosures do not turn missing proof into opt-out or erasure promises', () => {
+  const english = visibleText(pages['legal/privacy.html']);
+  assert.match(english, /does not reliably prevent this analytics activity/);
+  assert.match(english, /Those test requests were intercepted before transmission/);
+  assert.match(english, /prove neither acceptance nor storage by Cloudflare/);
+  assert.match(english, /90 days/);
+  assert.match(english, /archiv/i);
+  assert.match(english, /bitbi_home_scroll_restore_v2/);
+  const german = visibleText(pages['de/legal/datenschutz.html']);
+  assert.match(german, /verhindert diese Analyse nicht zuverlässig/);
+  assert.match(german, /Testanfragen wurden vor dem Versand abgefangen/);
+  assert.match(german, /weder ihre Annahme noch ihre Speicherung durch Cloudflare belegt/);
+  assert.match(german, /90 Tage/);
+  assert.match(german, /Archiv/);
 });
 
 const inventory = JSON.parse(read('config/privacy-provider-routes.json'));
@@ -197,62 +251,90 @@ test('route guard covers the actual catalog and direct callers, with drift count
   assert.throws(() => verifyRoutes(inventory.routes, ids, removed), /incomplete/);
 });
 
-test('persistent assistant and conditional direct routes are not described as unrelated consumer services', () => {
-  const english = pages['legal/privacy.html'];
+test('persistent assistant and conditional direct routes are distinguished from hosted model authors', () => {
+  const english = visibleText(pages['legal/privacy.html']);
   assert.match(english, /REST background processing/);
   assert.match(english, /native Messages format/);
   assert.match(english, /Nanonoble Pte\. Ltd\./);
-  assert.match(english, /API Platform Terms name MOTIVAI PRIVATE LIMITED/);
+  assert.match(english, /Public API terms name MOTIVAI PRIVATE LIMITED/);
   assert.match(english, /Singapore storage and possible China processing/);
-  assert.doesNotMatch(english, /direct api\.vidu\.com[^<]*disabled/i);
+  assert.match(english, /Developer names do not establish extra API calls/);
+  assert.match(english, /conditional direct fallback at api\.vidu\.com/);
+  assert.doesNotMatch(english, /direct api\.vidu\.com[^.]*disabled/i);
   for (const file of ['de/legal/datenschutz.html', 'de/legal/privacy.html', 'legal/datenschutz.html']) {
-    assert.match(pages[file], /REST-Hintergrundverarbeitung/);
-    assert.match(pages[file], /nativem Messages-Format/);
-    assert.match(pages[file], /Nanonoble Pte\. Ltd\./);
-    assert.match(pages[file], /API-Plattformbedingungen nennen MOTIVAI PRIVATE LIMITED/);
+    const text = visibleText(pages[file]);
+    assert.match(text, /REST-Hintergrundverarbeitung/);
+    assert.match(text, /nativem Messages-Format/);
+    assert.match(text, /Nanonoble Pte\. Ltd\./);
+    assert.match(text, /API-Bedingungen nennen MOTIVAI PRIVATE LIMITED/);
   }
 });
 
-test('terms include the withdrawal instruction, model form, and output-rights clause', () => {
-  const english = read('legal/terms.html');
-  const german = read('de/legal/terms.html');
-  assert.match(english, /Effective date: October 23, 2026/);
-  assert.match(english, /<meta name="robots" content="noindex, follow">/);
+test('terms preserve withdrawal, usable-result rights and bounded input and output licences', () => {
+  const englishHtml = read('legal/terms.html'), germanHtml = read('de/legal/terms.html');
+  const english = visibleText(legalBody(englishHtml)), german = visibleText(legalBody(germanHtml));
+  for (const html of [englishHtml, germanHtml]) assert.match(html, /<meta name="robots" content="noindex, follow">/);
+  assert.match(english, /Version dated 24 October 2026/);
   assert.match(english, /Model withdrawal form/);
-  assert.match(english, /Muster-Widerrufsformular/);
-  assert.match(english, /Schwarzwaldstra&szlig;e 20, 78647 Trossingen, Germany/);
-  assert.match(english, /§ 356\(6\) BGB|356\(6\) BGB/);
-  assert.match(english, /claims no ownership in those outputs/);
-  assert.match(english, /10 free credits each day/);
-  assert.match(english, /href="\/legal\/withdrawal\.html"/);
-  assert.match(english, /href="\/legal\/cancellation\.html"/);
-  assert.match(english, /does not automatically treat/);
+  assert.match(english, /Schwarzwaldstraße 20, 78647 Trossingen, Germany/);
+  assert.match(english, /saved, playable exported video with the agreed audio or music and its editable Canvas project/);
+  assert.match(english, /raises the combined existing credit balance to no more than ten credits/);
+  assert.match(english, /does not automatically treat credit provision or use as extinguishing withdrawal rights/);
   assert.match(english, /not a blanket waiver/);
-  assert.match(english, /not full performance/);
-  assert.match(english, /does not grant a blanket licence/);
-  assert.match(german, /Stand: 23\. Oktober 2026/);
-  assert.match(german, /<meta name="robots" content="noindex, follow">/);
+  assert.match(english, /not its full performance/);
+  assert.match(english, /No blanket licence is granted for every commercial use/);
+  assert.match(english, /does not automatically authorise independent advertising or model training using private content/);
+  assert.match(english, /responsibility for its own necessary provider and service permissions is not shifted to you/);
+  assert.match(english, /internal supplier invoice or credit entry alone does not determine/);
+  assert.match(english, /payment-provider change has already occurred/);
+  assert.match(english, /Existing contracts are not automatically replaced/);
+  assert.match(german, /Fassung vom 24\. Oktober 2026/);
   assert.match(german, /Muster-Widerrufsformular/);
-  assert.match(german, /Anlage 2 \(zu Artikel 246a § 1 Absatz 2 Satz 1 Nummer 1 und § 2 Absatz 2 Nummer 2 EGBGB\)/);
   assert.match(german, /Schwarzwaldstraße 20, 78647 Trossingen, Deutschland/);
-  assert.match(german, /§ 356 Abs\. 6 BGB/);
-  assert.match(german, /beansprucht kein Eigentum an diesen Ausgaben/);
-  assert.match(german, /10 kostenlose Credits je Tag/);
-  assert.match(german, /Widerruf bestätigen/);
-  assert.match(german, /href="\/de\/legal\/widerruf\.html"/);
-  assert.match(german, /href="\/de\/legal\/kuendigung\.html"/);
-  assert.match(german, /kein pauschaler Verzicht/);
-  assert.match(german, /keine pauschale Erlaubnis/);
+  assert.match(german, /keinen pauschalen Verzicht/);
+  assert.match(german, /kein fertiger Film/);
+  assert.match(german, /nicht automatisch als Erlöschen dieses Rechts/);
+  assert.match(german, /Eine pauschale Lizenz für jede kommerzielle Verwendung sämtlicher Modellergebnisse wird nicht erteilt/);
+  assert.match(german, /Bestätigungs-E-Mail|technischer Mailfehler/);
+  for (const [html, paths] of [[englishHtml, ['withdrawal', 'cancellation']], [germanHtml, ['widerruf', 'kuendigung']]]) {
+    for (const path of paths) assert.match(html, new RegExp(`href="/(?:de/)?legal/${path}\\.html"`));
+  }
   assert.doesNotMatch(english, /credits expire|Credits verfallen/);
   assert.doesNotMatch(german, /Credits verfallen|verfallen die Credits/);
 });
 
-test('checkout and legal versions share one explicit current contract', () => {
-  const contract = read('js/shared/consumer-contract.mjs');
-  assert.match(contract, /2026-10-23/);
+test('checkout, complete legal texts and immutable historical content keep explicit versions', () => {
+  assert.equal(CONSUMER_TERMS_VERSION, '2026-10-24');
   for (const file of ['js/pages/pricing/main.js', 'js/pages/credits/main.js', 'workers/auth/src/lib/stripe-billing.js']) {
     assert.match(read(file), /consumer-contract\.mjs/);
   }
+  function verifyTermsContent(html, text) {
+    assert.deepEqual(legalBlocks(html), text.split('\n').filter(Boolean), 'every current terms block must match its contract snapshot text');
+  }
+  for (const [locale, file] of [['en', 'legal/terms.html'], ['de', 'de/legal/terms.html']]) {
+    const content = CONSUMER_TERMS_CONTENT[locale];
+    assert.equal(content.version, CONSUMER_TERMS_VERSION);
+    assert.match(consumerConsentText(locale).terms, locale === 'de' ? /24\.10\.2026/ : /24 October 2026/);
+    verifyTermsContent(read(file), content.text);
+    const missingParagraph = read(file).replace(/<p>[^<]*<\/p>/, '');
+    assert.notEqual(missingParagraph, read(file), 'countercontrol must remove a real paragraph');
+    assert.throws(() => verifyTermsContent(missingParagraph, content.text), /snapshot text/);
+    assert.equal(HISTORICAL_CONSUMER_TERMS_CONTENT['2026-10-23'][locale].version, '2026-10-23');
+  }
+  // Original a4b2cc3c bundle retained byte-for-byte; do not silently replace old accepted text.
+  assert.equal(createHash('sha256').update(readFileSync(resolve(root, 'workers/auth/src/lib/consumer-terms-content-2026-10-23.js'))).digest('hex'),
+    '6480399bd5ebdeb5ac97df401fa10578fad273c774e99bdb750a4a6a59905f28');
+});
+
+test('complete numbered documents and both privacy appendices cannot disappear during conversion', () => {
+  for (const html of Object.values(pages)) verifyDocumentStructure(html, 'privacy');
+  for (const file of ['legal/terms.html', 'de/legal/terms.html']) verifyDocumentStructure(read(file), 'terms');
+  const missingSection = pages['legal/privacy.html'].replace(/>5a\. Public website assistant<\/h2>/, '>Missing section</h2>');
+  assert.notEqual(missingSection, pages['legal/privacy.html']);
+  assert.throws(() => verifyDocumentStructure(missingSection, 'privacy'), /complete and ordered/);
+  const withoutAppendix = pages['legal/privacy.html'].replace('Appendix B — BITBI browser storage', 'Removed appendix');
+  assert.throws(() => verifyDocumentStructure(withoutAppendix, 'privacy'));
+  assert.throws(() => verifyDocumentStructure(read('legal/terms.html').replace('1. Provider and scope', '[V1: unfinished]'), 'terms'));
 });
 
 test('the protected release executes the privacy guard through its unconditional asset-version caller', () => {
@@ -276,12 +358,15 @@ test('the protected release executes the privacy guard through its unconditional
   assert.throws(() => verifyCaller({ ...scripts, 'test:asset-version': 'node scripts/test-asset-version.mjs' }, plan));
 });
 
-test('recipient table wrappers are keyboard-focusable and named', () => {
-  const english = '<div class="policy-table-wrap" tabindex="0" role="region" aria-label="AI models and the companies that receive generation content">';
-  const german = '<div class="policy-table-wrap" tabindex="0" role="region" aria-label="KI-Modelle und die Unternehmen, die Generierungsinhalte erhalten">';
-  assert.ok(pages['legal/privacy.html'].includes(english));
-  for (const file of ['de/legal/datenschutz.html', 'de/legal/privacy.html', 'legal/datenschutz.html']) {
-    assert.ok(pages[file].includes(german), file);
+test('all legal table wrappers are keyboard-focusable and named independently of attribute ordering', () => {
+  for (const [file, html] of Object.entries(pages)) {
+    const wrappers = [...legalBody(html).matchAll(/<div\b[^>]*class="policy-table-wrap"[^>]*>/g)].map(match => match[0]);
+    assert.equal(wrappers.length, 3, `${file} requires named retention, provider and storage table wrappers`);
+    for (const wrapper of wrappers) {
+      assert.match(wrapper, /tabindex="0"/);
+      assert.match(wrapper, /role="region"/);
+      assert.match(wrapper, /aria-label="[^"\s][^"]+"/);
+    }
   }
   assert.match(read('css/pages/legal.css'), /\.policy-table-wrap:focus-visible\s*\{[^}]*outline:/);
 });

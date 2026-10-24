@@ -6,6 +6,12 @@
 
 @layer pages {
     .policy-section {
+        min-inline-size: 0;
+
+        :is(p, code, h2, h3) {
+            overflow-wrap: anywhere;
+        }
+
         h3 {
             font-family: var(--font-display);
             font-weight: 700;

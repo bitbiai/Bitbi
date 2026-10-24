@@ -1,4 +1,4 @@
-import { CONSUMER_TERMS_VERSION, CONSUMER_CONSENT_VERSION, LEGACY_CONSUMER_TERMS_VERSION } from '../../../../js/shared/consumer-contract.mjs';
+import { CONSUMER_TERMS_VERSION, CONSUMER_CONSENT_VERSION, LEGACY_CONSUMER_TERMS_VERSION, CONSUMER_SNAPSHOT_TERMS_VERSIONS } from '../../../../js/shared/consumer-contract.mjs';
 import { prepareConsumerContractSnapshot, prepareConsumerConfirmation, queueCancellationConfirmation } from './consumer-contracts.js';
 import { applyMemberSubscriptionEvent, markMemberSubscriptionEventFailed } from "./subscription-fulfillment.js";
 import {
@@ -1497,6 +1497,9 @@ function normalizeLiveLegalAcceptance(value) {
     throw new StripeBillingError("BITBI terms must be accepted before checkout.", {status:400,code:"terms_acceptance_required"});
   }
   const termsVersion = safeString(data.termsVersion || data.terms_version, 32);
+  if (termsVersion !== CONSUMER_TERMS_VERSION && CONSUMER_SNAPSHOT_TERMS_VERSIONS.includes(termsVersion)) {
+    throw new StripeBillingError("Reload the checkout to review the current terms before purchasing.", {status:409,code:"terms_version_outdated"});
+  }
   if (![CONSUMER_TERMS_VERSION, LEGACY_CONSUMER_TERMS_VERSION].includes(termsVersion)) {
     throw new StripeBillingError("The current BITBI terms version must be accepted before checkout.", {status:400,code:"terms_version_required"});
   }

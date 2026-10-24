@@ -1,4 +1,4 @@
-import { CONSUMER_TERMS_VERSION, CONSUMER_CONSENT_VERSION, consumerConsentText } from '../../shared/consumer-contract.mjs?v=__ASSET_VERSION__';
+import { CONSUMER_TERMS_VERSION, CONSUMER_CONSENT_VERSION, consumerConsentText, consumerTermsRefreshMessage } from '../../shared/consumer-contract.mjs?v=__ASSET_VERSION__';
 /* ============================================================
    BITBI — Public Pricing / Live Credit Packs
    ============================================================ */
@@ -761,7 +761,7 @@ async function handleCheckout(auth) {
     checkoutBusy = false;
 
     if (!response.ok) {
-        setInlineMessage(response.error || t('checkoutFailed'), 'error');
+        setInlineMessage(response.code === 'terms_version_outdated' ? consumerTermsRefreshMessage(LOCALE) : response.error || t('checkoutFailed'), 'error');
         return;
     }
     const checkoutUrl = response.data?.checkout_url;

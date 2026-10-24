@@ -1,10 +1,36 @@
-import { CONSUMER_TERMS_VERSION, CONSUMER_CONSENT_VERSION, consumerConsentText } from '../../../../js/shared/consumer-contract.mjs';
+import { CONSUMER_TERMS_VERSION, CONSUMER_CONSENT_VERSION, CONSUMER_SNAPSHOT_TERMS_VERSIONS, consumerConsentText } from '../../../../js/shared/consumer-contract.mjs';
 import { CONSUMER_TERMS_CONTENT } from './consumer-terms-content.js';
 import { prepareTransactionalMessage } from './transactional-messages.js';
 import { nowIso, sha256Hex } from './tokens.js';
 
 const parse = value => { try { return JSON.parse(value || '{}'); } catch { return {}; } };
 const clean = (value, length=300) => typeof value==='string' ? value.replace(/[\u0000-\u001f\u007f]/g,' ').trim().slice(0,length) : null;
+
+// Version-one summaries remain available for snapshots accepted before summaries
+// were pinned. New snapshots carry their own text; fulfillment never reads the
+// current product catalog or current terms to reinterpret an accepted offer.
+function versionOneOfferSummary(locale, interval) {
+  const de=locale==='de';
+  return interval
+    ? (de?'Laufzeit: monatlich, automatische Verlängerung; ordentliche Kündigung zum Ende des bezahlten Zeitraums. Monatlich wird das Aboguthaben auf 6.000 Credits aufgefüllt; separat gekaufte Credits bleiben getrennt.':'Term: monthly, automatically renewing; ordinary cancellation at the end of the paid period. The subscription balance is topped up to 6,000 credits monthly; separately purchased credits remain separate.')
+    : (de?'Einmaliger Credit-Kauf, kein Abonnement.':'One-time credit purchase, not a subscription.');
+}
+
+function validateAcceptedSnapshot(row, snapshot, checkout, termsVersion) {
+  const scope=checkout.plan_id ? 'member_subscription' : checkout.organization_id ? 'organization' : 'member';
+  if (row.terms_version!==termsVersion || snapshot.version!==1 || snapshot.checkoutId!==checkout.id || snapshot.userId!==checkout.user_id
+    || snapshot.organizationId!==(checkout.organization_id || null) || row.checkout_scope!==scope || snapshot.scope!==scope
+    || !['en','de'].includes(row.locale) || snapshot.locale!==row.locale || snapshot.acceptedAt!==row.accepted_at
+    || snapshot.terms?.version!==termsVersion || typeof snapshot.terms.text!=='string' || !snapshot.terms.text.trim()
+    || snapshot.consent?.version!==(termsVersion==='2026-10-23'?'consumer-v1':CONSUMER_CONSENT_VERSION) || snapshot.consent.termsAccepted!==true
+    || snapshot.consent.earlyStartRequested!==true || snapshot.consent.withdrawalKnowledgeAccepted!==false
+    || snapshot.consent.extinction!=='not_determined' || !snapshot.offer || !snapshot.customer?.accountEmail
+    || !['terms','earlyStart','rights'].every(key=>typeof snapshot.consent.wording?.[key]==='string' && snapshot.consent.wording[key].trim()))
+    throw new Error('contract_snapshot_binding_mismatch');
+  if (snapshot.offer.contractSummary===undefined && termsVersion!=='2026-10-23') throw new Error('contract_offer_summary_missing');
+  if (snapshot.offer.contractSummary!==undefined && (typeof snapshot.offer.contractSummary!=='string' || !snapshot.offer.contractSummary.trim()))
+    throw new Error('contract_offer_summary_invalid');
+}
 
 export async function prepareConsumerContractSnapshot(env, { checkoutId, userId, organizationId=null, scope, offer, acceptance, now=nowIso() }) {
   // Old accepted checkouts retain only their recorded evidence. Never label current terms as historic terms.
@@ -15,7 +41,7 @@ export async function prepareConsumerContractSnapshot(env, { checkoutId, userId,
   if (content.version !== acceptance.termsVersion) throw new Error('contract_document_version_mismatch');
   const snapshot={version:1,checkoutId,userId,organizationId,scope,locale,acceptedAt,
     supplier:{name:'Stefan van Ark',tradingName:'BITBI',address:'Schwarzwaldstraße 20, 78647 Trossingen, Germany',email:'bit@bitbi.ai'},
-    customer:{accountEmail:user.email},offer:{...offer},
+    customer:{accountEmail:user.email},offer:{...offer,contractSummary:versionOneOfferSummary(locale,offer.interval)},
     consent:{version:CONSUMER_CONSENT_VERSION,termsAccepted:true,earlyStartRequested:true,withdrawalKnowledgeAccepted:false,
       classification:'review_required',extinction:'not_determined',wording:consumerConsentText(locale)},
     terms:{version:content.version,text:content.text},
@@ -47,7 +73,7 @@ function confirmationText(snapshot,payment,createdAt) {
     snapshot.offer.storageLimitBytes ? `${de?'Speicher':'Storage'}: ${snapshot.offer.storageLimitBytes} bytes` : '',
     `${de?'Preis / Währung':'Price / currency'}: ${(payment.amountTotal/100).toFixed(2)} ${payment.currency.toUpperCase()}`,
     `${de?'Steuern laut Zahlungsbeleg':'Tax recorded by payment provider'}: ${payment.taxAmount === null ? (de?'nicht separat ausgewiesen':'not separately stated') : `${(payment.taxAmount/100).toFixed(2)} ${payment.currency.toUpperCase()}`}`,
-    snapshot.offer.interval ? (de?'Laufzeit: monatlich, automatische Verlängerung; ordentliche Kündigung zum Ende des bezahlten Zeitraums. Monatlich wird das Aboguthaben auf 6.000 Credits aufgefüllt; separat gekaufte Credits bleiben getrennt.':'Term: monthly, automatically renewing; ordinary cancellation at the end of the paid period. The subscription balance is topped up to 6,000 credits monthly; separately purchased credits remain separate.') : (de?'Einmaliger Credit-Kauf, kein Abonnement.':'One-time credit purchase, not a subscription.'),
+    snapshot.offer.contractSummary ?? versionOneOfferSummary(snapshot.locale,snapshot.offer.interval),
     '',`${de?'Zustimmung erfasst':'Consent recorded'}: ${snapshot.acceptedAt}`,
     consent.wording.terms,consent.wording.earlyStart,consent.wording.rights,
     '',de?'Vollständige vereinbarte Bedingungen einschließlich Widerrufsbelehrung und Musterformular:':'Full applicable terms, including withdrawal instructions and model form:',
@@ -58,11 +84,18 @@ function confirmationText(snapshot,payment,createdAt) {
 // Caller supplies only a signature-verified, ownership-checked Stripe object and
 // commits these statements in its existing fulfillment transaction.
 export async function prepareConsumerConfirmation(env,{checkout,payload,providerEventId,now=nowIso()}) {
-  if (parse(checkout.metadata_json).termsVersion !== CONSUMER_TERMS_VERSION) return [];
+  const termsVersion=parse(checkout.metadata_json).termsVersion;
+  if (!CONSUMER_SNAPSHOT_TERMS_VERSIONS.includes(termsVersion)) {
+    // Pre-snapshot purchases retain their original legacy behavior. A newer
+    // unrecognized document protocol must not silently omit its confirmation.
+    if (typeof termsVersion==='string' && termsVersion>='2026-10-23') throw new Error('contract_terms_version_unsupported');
+    return [];
+  }
   const row=await env.DB.prepare('SELECT * FROM consumer_contract_snapshots WHERE checkout_id=? AND user_id=?').bind(checkout.id,checkout.user_id).first();
   if (!row) throw new Error('contract_snapshot_missing'); // New consent must have its actual immutable evidence.
   if (await sha256Hex(row.snapshot_json)!==row.snapshot_hash) throw new Error('contract_snapshot_integrity');
   const snapshot=parse(row.snapshot_json), raw=payload?.data?.object || {};
+  validateAcceptedSnapshot(row,snapshot,checkout,termsVersion);
   const current=await env.DB.prepare('SELECT checkout_id FROM consumer_contract_confirmations WHERE checkout_id=?').bind(checkout.id).first();
   if(current) return [];
   const sessionId=checkout.provider_checkout_session_id;

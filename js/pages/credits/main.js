@@ -1,5 +1,5 @@
 import { initContractDocuments } from './contracts.js?v=__ASSET_VERSION__';
-import { CONSUMER_TERMS_VERSION, CONSUMER_CONSENT_VERSION, consumerConsentText } from '../../shared/consumer-contract.mjs?v=__ASSET_VERSION__';
+import { CONSUMER_TERMS_VERSION, CONSUMER_CONSENT_VERSION, consumerConsentText, consumerTermsRefreshMessage } from '../../shared/consumer-contract.mjs?v=__ASSET_VERSION__';
 import { initSiteHeader } from '../../shared/site-header.js?v=__ASSET_VERSION__';
 import { initParticles } from '../../shared/particles.js';
 import { initBinaryRain } from '../../shared/binary-rain.js';
@@ -1074,7 +1074,7 @@ async function startCheckout(packId, button) {
     if (!res.ok) {
         button.disabled = false;
         button.textContent = original;
-        setError(res.error || localeText('credits.checkoutFailed'));
+        legalError = res.code === 'terms_version_outdated' ? consumerTermsRefreshMessage(LOCALE) : res.error || localeText('credits.checkoutFailed');
         if (currentDashboard) {
             if (activeMode === 'member') renderMemberDashboard(currentDashboard);
             else renderDashboard(currentDashboard);

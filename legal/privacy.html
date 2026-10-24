@@ -122,483 +122,90 @@
 <section class="section" aria-label="Privacy policy content">
     <article class="section__inner--narrow" style="margin-inline:auto">
     <div class="card-stack--legal">
-
-        <!-- 1. CONTROLLER, SCOPE, AND SERVICE -->
-        <div class="glass glass-card reveal policy-section">
-            <div class="glass-card__header">
-                <h2 class="glass-card__title">1. Controller, Scope, and Service</h2>
-            </div>
-            <div class="glass-card__body policy-section">
-                <p>This Privacy Policy explains how personal data is processed when you use <strong class="text-strong">bitbi.ai</strong>, including public browsing, account features, AI generation, saved assets, public galleries, credits, payments, contact forms, and administrative support features.</p>
-                <p>The controller is <strong class="text-strong">Stefan van Ark</strong>, Schwarzwaldstra&szlig;e 20, 78647 Trossingen, Germany. Contact: <a href="mailto:bit@bitbi.ai">bit@bitbi.ai</a>. Further legal information is available in the <a href="/legal/imprint.html">Imprint</a>.</p>
-                <p>Effective date: <strong class="text-strong">October 23, 2026</strong>.</p>
-            </div>
-        </div>
-
-        <!-- 2. PUBLIC BROWSING AND TECHNICAL DELIVERY -->
-        <div class="glass glass-card reveal policy-section">
-            <div class="glass-card__header">
-                <h2 class="glass-card__title">2. Public Browsing and Technical Delivery</h2>
-            </div>
-            <div class="glass-card__body policy-section">
-                <p>You can browse public pages and public galleries without creating an account. Technical request data such as IP address, user agent, referrer, requested URL, timestamps, headers, and error/security signals may be processed by Cloudflare and the relevant Cloudflare Workers to deliver the site, protect it against abuse, enforce rate limits, and troubleshoot errors.</p>
-                <p>The legal basis is usually Art. 6(1)(f) GDPR: our legitimate interest in secure, reliable, and performant delivery of the service. Where communication is necessary to provide a feature you request, Art. 6(1)(b) GDPR may also apply.</p>
-                <p>The current public site is not intended to run active analytics or advertising trackers. If optional analytics or marketing scripts are enabled later, they should be controlled by the existing consent mechanism.</p>
-            </div>
-        </div>
-
-        <!-- 3. ACCOUNTS, LOGIN, AND SECURITY TOKENS -->
-        <div class="glass glass-card reveal policy-section">
-            <div class="glass-card__header">
-                <h2 class="glass-card__title">3. Accounts, Login, and Security Tokens</h2>
-            </div>
-            <div class="glass-card__body policy-section">
-                <p>When you create or use an account, we process account and authentication data such as email address, password hash, email verification status, password-reset and email-verification token hashes, session records, login/security timestamps, profile identifiers, account roles, and security state such as admin MFA state where applicable.</p>
-                <p>Session cookies are used to keep you signed in. The main session cookie is HTTP-only and is not intended to be read by frontend JavaScript. Session and token records are stored in Cloudflare D1. Raw password-reset or verification tokens are sent by email where required and are stored server-side only as hashes.</p>
-                <p>This processing is necessary for account creation, login, account security, fraud prevention, and providing member-only features. Legal bases include Art. 6(1)(b), Art. 6(1)(f), and, where legal record-keeping is required, Art. 6(1)(c) GDPR.</p>
-            </div>
-        </div>
-
-        <!-- 4. PROFILE, WALLET, FAVORITES, AND ORGANIZATIONS -->
-        <div class="glass glass-card reveal policy-section">
-            <div class="glass-card__header">
-                <h2 class="glass-card__title">4. Profile, Wallet, Favorites, and Organizations</h2>
-            </div>
-            <div class="glass-card__body policy-section">
-                <p>Optional profile data may include display name, avatar, public profile metadata, favorites, and media publication choices. If you connect or verify a wallet, we process wallet address, chain/network information, verification nonce/challenge state, and signature-verification metadata needed for wallet features.</p>
-                <p>Organization and team features, where enabled, may process organization names, slugs, owner/member roles, invitations, billing seats, and related administrative metadata.</p>
-                <p>Profile display name and avatar may become visible to other users or the public when you publish content. Favorites and private account settings are not intended to make private media public by themselves.</p>
-            </div>
-        </div>
-
-        <!-- 5. AI GENERATION, UPLOADS, AND PROVIDER PROCESSING -->
-        <div class="glass glass-card reveal policy-section">
-            <div class="glass-card__header">
-                <h2 class="glass-card__title">5. AI Generation, Uploads, and Provider Processing</h2>
-            </div>
-            <div class="glass-card__body policy-section">
-                <p>When you use AI features, we process the inputs and settings needed to provide the requested generation. Depending on the feature, this may include prompts, negative prompts, style descriptions, lyrics, reference images or uploaded files, model choices, duration, quality, aspect ratio, seed, generation options, and generated outputs such as images, videos, audio/music, text, posters, and thumbnails.</p>
-                <p>AI requests in this section are processed through Cloudflare Workers. Cloudflare, Inc. receives each request, including the prompt and the other inputs of the selected model. Cloudflare Images may also receive a generated image when that storage path is used. Admin and internal generation calls use the separate AI Worker. A model that is disabled, not approved, or not selected does not receive the content.</p>
-                <p>The table covers supported routes, not proof that every model is enabled for every account. For <code>@cf/</code> models, Cloudflare hosts inference; naming a model developer does not mean that developer receives the request. Third-party routes send content through Cloudflare AI Gateway to the selected supplier. A billing counterparty is not necessarily the entity processing content. Direct admin routes are identified separately. Where a gateway supplier’s precise receiving entity is not established, the table states that limitation rather than treating a consumer privacy-policy entity as the API recipient. International transfers are described in section 11.</p>
-                <p>The Canvas assistant uses project-scoped conversation, the confirmed brief, relevant nodes, references, permitted media, execution and budget facts, and error context. These are saved with the project and selected context is sent to the chosen assistant model. Visual review can send selected frames where supported. Private Admin conversations and their memory are separate; they are not imported into a user’s Canvas project. Provider request identifiers, usage and recovery receipts may be retained independently of chat display. Disabling Gateway payload logging is not a promise that suppliers retain no data.</p>
-                <div class="policy-table-wrap" tabindex="0" role="region" aria-label="AI models and the companies that receive generation content">
-                <table>
-                    <caption>AI models and the companies that receive generation content</caption>
-                    <thead>
-                    <tr>
-                        <th scope="col">Model or feature</th>
-                        <th scope="col">Company that receives the content</th>
-                        <th scope="col">Country of seat</th>
-                        <th scope="col">Content sent</th>
-                        <th scope="col">Intermediary and route</th>
-                    </tr>
-                    </thead>
-                    <tbody>
-                    <tr data-model="xai/grok-4.6">
-                        <td><code>xai/grok-4.6</code> Grok 4.6 (xAI). Canvas text and private Grok chat.</td>
-                        <td>xAI / SpaceXAI. The current enterprise API terms name SpaceXAI LLC; the applicable Cloudflare-mediated receiving and contracting chain has not been independently confirmed.</td>
-                        <td>United States (published enterprise entity); processing locations are not restricted to the company seat.</td>
-                        <td>Prompt, system text, chat messages, and attached images when that chat sends them. The named company returns the generated output through Cloudflare.</td>
-                        <td>Cloudflare Workers AI binding. This text path does not set a gateway id. Cloudflare's AI Gateway documentation says a third-party model on this binding uses AI Gateway, including the default gateway when no id is set. Private Grok chat sets AI Gateway in the product code.</td>
-                    </tr>
-                    <tr data-model="xai/grok-4.20-multi-agent-0309">
-                        <td><code>xai/grok-4.20-multi-agent-0309</code> Grok 4.20 multi-agent web search (xAI). Private Grok chat when web search is not off.</td>
-                        <td>xAI / SpaceXAI. The current enterprise API terms name SpaceXAI LLC; the applicable Cloudflare-mediated receiving and contracting chain has not been independently confirmed.</td>
-                        <td>United States (published enterprise entity); processing locations are not restricted to the company seat.</td>
-                        <td>Search-prepared messages and attached images when that chat mode sends them. The named company returns the generated output through Cloudflare.</td>
-                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
-                    </tr>
-                    <tr data-model="@cf/meta/llama-3.1-8b-instruct-fast">
-                        <td><code>@cf/meta/llama-3.1-8b-instruct-fast</code> Llama 3.1 8B Instruct Fast (Meta model). Canvas text and organization member text.</td>
-                        <td>Cloudflare, Inc. Inference is hosted by Cloudflare; BITBI does not send this request to the model author's API.</td>
-                        <td>United States</td>
-                        <td>Prompt, system text, and chat messages. Cloudflare returns the model output.</td>
-                        <td>Cloudflare Workers AI binding. This path does not set an AI Gateway option and does not call the model author's API.</td>
-                    </tr>
-                    <tr data-model="@cf/meta/llama-3.3-70b-instruct-fp8-fast">
-                        <td><code>@cf/meta/llama-3.3-70b-instruct-fp8-fast</code> Llama 3.3 70B Instruct FP8 Fast (Meta model). Canvas text.</td>
-                        <td>Cloudflare, Inc. Inference is hosted by Cloudflare; BITBI does not send this request to the model author's API.</td>
-                        <td>United States</td>
-                        <td>Prompt, system text, and chat messages. Cloudflare returns the model output.</td>
-                        <td>Cloudflare Workers AI binding. This path does not set an AI Gateway option and does not call the model author's API.</td>
-                    </tr>
-                    <tr data-model="@cf/google/gemma-4-26b-a4b-it">
-                        <td><code>@cf/google/gemma-4-26b-a4b-it</code> Gemma 4 26B A4B (Google model, not Gemini Omni). Canvas text and the admin live agent.</td>
-                        <td>Cloudflare, Inc. Inference is hosted by Cloudflare; BITBI does not send this request to the model author's API.</td>
-                        <td>United States</td>
-                        <td>Prompt, system text, and chat messages. Cloudflare returns the model output.</td>
-                        <td>Cloudflare Workers AI binding. This path does not set an AI Gateway option and does not call the model author's API.</td>
-                    </tr>
-                    <tr data-model="anthropic/claude-fable-5">
-                        <td><code>anthropic/claude-fable-5</code> Claude Fable 5 (Anthropic). Canvas text, the Canvas assistant, and admin chat.</td>
-                        <td>Anthropic. Its commercial terms name Anthropic Ireland, Limited for direct EEA/Swiss/UK customers, and Anthropic, PBC elsewhere. The actual gateway contractual and receiving chain requires separate confirmation.</td>
-                        <td>United States (Anthropic PBC, San Francisco) and Ireland (Anthropic Ireland, Limited, Dublin).</td>
-                        <td>Prompt, conversation and system text. The Canvas assistant receives selected project context including brief, execution and error facts. Separate Admin chat may send an optional approximate location and web-search or web-fetch settings. Fable does not receive Canvas evaluation picture frames.</td>
-                        <td>Cloudflare AI Gateway with native Messages format; durable Canvas operations use REST background processing, other calls use the Workers AI binding.</td>
-                    </tr>
-                    <tr data-model="@cf/qwen/qwen3-30b-a3b-fp8">
-                        <td><code>@cf/qwen/qwen3-30b-a3b-fp8</code> Qwen3 30B-A3B (Qwen model). Admin text and admin-chat memory summaries.</td>
-                        <td>Cloudflare, Inc. Inference is hosted by Cloudflare; BITBI does not send this request to the model author's API.</td>
-                        <td>United States</td>
-                        <td>Prompt, system text, and chat messages. A memory summary is text derived from the admin chat. Cloudflare returns the model output. There is no separate call to a Qwen or Alibaba API.</td>
-                        <td>Cloudflare Workers AI binding. The admin-chat memory summary also sets an AI Gateway option. This path does not call a Qwen or Alibaba API.</td>
-                    </tr>
-                    <tr data-model="@cf/openai/gpt-oss-20b">
-                        <td><code>@cf/openai/gpt-oss-20b</code> GPT-OSS 20B (OpenAI open-weight model). Canvas text.</td>
-                        <td>Cloudflare, Inc. Inference is hosted by Cloudflare; BITBI does not send this request to the model author's API.</td>
-                        <td>United States</td>
-                        <td>Prompt, system text, and chat messages. Cloudflare returns the model output. There is no call to the OpenAI API.</td>
-                        <td>Cloudflare Workers AI binding. This path does not set an AI Gateway option and does not call the model author's API.</td>
-                    </tr>
-                    <tr data-model="@cf/openai/gpt-oss-120b">
-                        <td><code>@cf/openai/gpt-oss-120b</code> GPT-OSS 120B (OpenAI open-weight model). Canvas text.</td>
-                        <td>Cloudflare, Inc. Inference is hosted by Cloudflare; BITBI does not send this request to the model author's API.</td>
-                        <td>United States</td>
-                        <td>Prompt, system text, and chat messages. Cloudflare returns the model output. There is no call to the OpenAI API.</td>
-                        <td>Cloudflare Workers AI binding. This path does not set an AI Gateway option and does not call the model author's API.</td>
-                    </tr>
-                    <tr data-model="@cf/black-forest-labs/flux-1-schnell">
-                        <td><code>@cf/black-forest-labs/flux-1-schnell</code> FLUX.1 Schnell (Black Forest Labs model). Member and Canvas image generation, and a music-cover prompt built from a style description.</td>
-                        <td>Cloudflare, Inc. Inference is hosted by Cloudflare; BITBI does not send this request to the model author's API.</td>
-                        <td>United States</td>
-                        <td>Prompt text, including a cover prompt built from a style description. Cloudflare returns the generated image. There is no call to a Black Forest Labs API.</td>
-                        <td>Cloudflare Workers AI binding. This path does not set an AI Gateway option and does not call the model author's API.</td>
-                    </tr>
-                    <tr data-model="@cf/black-forest-labs/flux-2-klein-9b">
-                        <td><code>@cf/black-forest-labs/flux-2-klein-9b</code> FLUX.2 Klein 9B (Black Forest Labs model). Member and Canvas image generation.</td>
-                        <td>Cloudflare, Inc. Inference is hosted by Cloudflare; BITBI does not send this request to the model author's API.</td>
-                        <td>United States</td>
-                        <td>Prompt and image dimensions. Cloudflare returns the generated image. There is no call to a Black Forest Labs API.</td>
-                        <td>Cloudflare Workers AI binding. This path does not set an AI Gateway option and does not call the model author's API.</td>
-                    </tr>
-                    <tr data-model="@cf/black-forest-labs/flux-2-dev">
-                        <td><code>@cf/black-forest-labs/flux-2-dev</code> FLUX.2 Dev (Black Forest Labs model). Admin AI Lab.</td>
-                        <td>Cloudflare, Inc. Inference is hosted by Cloudflare; BITBI does not send this request to the model author's API.</td>
-                        <td>United States</td>
-                        <td>Prompt, up to four reference images, and generation settings. Cloudflare returns the generated image. There is no call to a Black Forest Labs API.</td>
-                        <td>Cloudflare Workers AI binding. This path does not set an AI Gateway option and does not call the model author's API.</td>
-                    </tr>
-                    <tr data-model="openai/gpt-image-2">
-                        <td><code>openai/gpt-image-2</code> GPT Image 2 (OpenAI). Member and Canvas image generation.</td>
-                        <td>OpenAI. Its business DPA names OpenAI Ireland Ltd. for direct EEA/Swiss customers and OpenAI OpCo, LLC otherwise, including relevant affiliates. This does not establish which entity receives this Cloudflare-mediated request.</td>
-                        <td>United States (OpenAI OpCo, LLC, San Francisco) and Ireland (OpenAI Ireland Limited, Dublin).</td>
-                        <td>Prompt and up to 16 reference images. The named company returns the generated output through Cloudflare.</td>
-                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
-                    </tr>
-                    <tr data-model="xai/grok-imagine-image-2.0">
-                        <td><code>xai/grok-imagine-image-2.0</code> Grok Imagine Image 2.0 (xAI). Member and Canvas image generation and editing.</td>
-                        <td>xAI / SpaceXAI. The current enterprise API terms name SpaceXAI LLC; the applicable Cloudflare-mediated receiving and contracting chain has not been independently confirmed.</td>
-                        <td>United States (published enterprise entity); processing locations are not restricted to the company seat.</td>
-                        <td>Prompt and up to five reference images, including a mask when an edit uses one. The named company returns the generated output through Cloudflare.</td>
-                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
-                    </tr>
-                    <tr data-model="xai/grok-imagine-image">
-                        <td><code>xai/grok-imagine-image</code> Grok Imagine Image (xAI). Admin AI Lab.</td>
-                        <td>xAI / SpaceXAI. The current enterprise API terms name SpaceXAI LLC; the applicable Cloudflare-mediated receiving and contracting chain has not been independently confirmed.</td>
-                        <td>United States (published enterprise entity); processing locations are not restricted to the company seat.</td>
-                        <td>Prompt, up to ten input images, and a mask when an edit uses one. The named company returns the generated output through Cloudflare.</td>
-                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
-                    </tr>
-                    <tr data-model="black-forest-labs/flux-2-max">
-                        <td><code>black-forest-labs/flux-2-max</code> FLUX.2 Max (Black Forest Labs). Member and Canvas image generation and editing. This is not a Workers-AI-hosted @cf/ model.</td>
-                        <td>Black Forest Labs. The EU Developer Terms name BFL GmbH; the non-EU Developer Terms name Black Forest Labs Inc. This does not by itself establish the actual gateway recipient.</td>
-                        <td>Germany (BFL GmbH, Freiburg im Breisgau) and the United States (Black Forest Labs Inc., San Francisco).</td>
-                        <td>Prompt and up to eight reference images. The named company returns the generated output through Cloudflare.</td>
-                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
-                    </tr>
-                    <tr data-model="openai/gpt-image-2.5-sunburst">
-                        <td><code>openai/gpt-image-2.5-sunburst</code> GPT Image 2.5 Sunburst (OpenAI). Member and Canvas image generation and editing.</td>
-                        <td>OpenAI. Its business DPA names OpenAI Ireland Ltd. for direct EEA/Swiss customers and OpenAI OpCo, LLC otherwise, including relevant affiliates. This does not establish which entity receives this Cloudflare-mediated request.</td>
-                        <td>United States (OpenAI OpCo, LLC, San Francisco) and Ireland (OpenAI Ireland Limited, Dublin).</td>
-                        <td>Prompt and up to 16 reference images, including images sent for an edit. The named company returns the generated output through Cloudflare.</td>
-                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
-                    </tr>
-                    <tr data-model="openai/gpt-image-2.5-flare">
-                        <td><code>openai/gpt-image-2.5-flare</code> GPT Image 2.5 Flare (OpenAI). Member and Canvas image generation and editing.</td>
-                        <td>OpenAI. Its business DPA names OpenAI Ireland Ltd. for direct EEA/Swiss customers and OpenAI OpCo, LLC otherwise, including relevant affiliates. This does not establish which entity receives this Cloudflare-mediated request.</td>
-                        <td>United States (OpenAI OpCo, LLC, San Francisco) and Ireland (OpenAI Ireland Limited, Dublin).</td>
-                        <td>Prompt and up to 16 reference images, including images sent for an edit. The named company returns the generated output through Cloudflare.</td>
-                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
-                    </tr>
-                    <tr data-model="@cf/baai/bge-m3">
-                        <td><code>@cf/baai/bge-m3</code> BGE M3 (BAAI model). Admin embeddings.</td>
-                        <td>Cloudflare, Inc. Inference is hosted by Cloudflare; BITBI does not send this request to the model author's API.</td>
-                        <td>United States</td>
-                        <td>Text submitted for an embedding. No image or audio input. Cloudflare returns the embedding. There is no call to a BAAI API.</td>
-                        <td>Cloudflare Workers AI binding. This path does not set an AI Gateway option and does not call the model author's API.</td>
-                    </tr>
-                    <tr data-model="@cf/google/embeddinggemma-300m">
-                        <td><code>@cf/google/embeddinggemma-300m</code> EmbeddingGemma 300M (Google model, not Gemini Omni). Admin embeddings.</td>
-                        <td>Cloudflare, Inc. Inference is hosted by Cloudflare; BITBI does not send this request to the model author's API.</td>
-                        <td>United States</td>
-                        <td>Text submitted for an embedding. No image or audio input. Cloudflare returns the embedding. There is no call to a Google API.</td>
-                        <td>Cloudflare Workers AI binding. This path does not set an AI Gateway option and does not call the model author's API.</td>
-                    </tr>
-                    <tr data-model="minimax/music-2.6">
-                        <td><code>minimax/music-2.6</code> Music 2.6 (MiniMax). Member and Canvas music generation.</td>
-                        <td>MiniMax. Its published Open Platform API terms name Nanonoble Pte. Ltd. in Singapore. This does not establish the actual receiving and contracting chain through Cloudflare.</td>
-                        <td>Singapore (published API contracting party); receiving and processing countries for this gateway route are unconfirmed.</td>
-                        <td>Prompt and lyrics. The named company returns the generated output through Cloudflare.</td>
-                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
-                    </tr>
-                    <tr data-model="elevenlabs/music-v2">
-                        <td><code>elevenlabs/music-v2</code> ElevenLabs Music v2 (ElevenLabs). Member and Canvas music generation.</td>
-                        <td>Eleven Labs Inc.</td>
-                        <td>United States (New York).</td>
-                        <td>Prompt or a composition plan, and generation settings. This contract does not send an uploaded audio file as the model input. The named company returns the generated output through Cloudflare.</td>
-                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
-                    </tr>
-                    <tr data-model="bytedance/seedance-2.5">
-                        <td><code>bytedance/seedance-2.5</code> Seedance 2.5 (ByteDance). Member and Canvas video generation.</td>
-                        <td>ByteDance. The product code and Cloudflare's model page use this name and do not name one legal entity.</td>
-                        <td>Not confirmed</td>
-                        <td>Prompt, plus reference images, video, or audio when the request includes them. The named company returns the generated output through Cloudflare.</td>
-                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
-                    </tr>
-                    <tr data-model="google/gemini-omni-flash">
-                        <td><code>google/gemini-omni-flash</code> Gemini Omni Flash (Google). Member and Canvas video generation. Member use requires a separate runtime approval.</td>
-                        <td>Google LLC. The Google APIs Terms use this name. The Gemini API additional terms checked for this update did not name a different entity.</td>
-                        <td>United States (Mountain View).</td>
-                        <td>Prompt, plus reference images, video, or audio when the request includes them. The named company returns the generated output through Cloudflare.</td>
-                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
-                    </tr>
-                    <tr data-model="minimax/h3">
-                        <td><code>minimax/h3</code> MiniMax H3 (MiniMax). Member and Canvas video generation.</td>
-                        <td>MiniMax. Its published Open Platform API terms name Nanonoble Pte. Ltd. in Singapore. This does not establish the actual receiving and contracting chain through Cloudflare.</td>
-                        <td>Singapore (published API contracting party); receiving and processing countries for this gateway route are unconfirmed.</td>
-                        <td>Prompt, plus image, video, or audio references when the request includes them. The named company returns the generated output through Cloudflare.</td>
-                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
-                    </tr>
-                    <tr data-model="pixverse/v6">
-                        <td><code>pixverse/v6</code> PixVerse V6 (Pixverse). Member and Canvas video generation. Admin extend uses a direct PixVerse call.</td>
-                        <td>PixVerse. Its API Platform Terms name MOTIVAI PRIVATE LIMITED as operator and AIVORA PTE. LTD. as a possible affiliate. The actual gateway contracting and receiving chain is unconfirmed.</td>
-                        <td>Singapore (published AIVORA affiliate); actual receiving and processing countries require separate confirmation.</td>
-                        <td>Prompt, negative prompt, and an uploaded image when image-to-video is used. Admin extend also sends the source video, prompt, and negative prompt. The provider returns the generated video through Cloudflare, or directly on the admin extend path.</td>
-                        <td>Generation uses the Cloudflare Workers AI binding and AI Gateway. Admin extend calls the PixVerse API at app-api.pixverse.ai directly.</td>
-                    </tr>
-                    <tr data-model="vidu/q3-pro">
-                        <td><code>vidu/q3-pro</code> Vidu Q3 Pro (Vidu). Admin AI Lab. Not on the member video allowlist.</td>
-                        <td>Vidu. Its published privacy policy names ShengShu AI HK Limited; this does not establish the actual API or gateway contracting party.</td>
-                        <td>Hong Kong (published operator); the policy describes Singapore storage and possible China processing, rather than limiting processing to the company seat.</td>
-                        <td>Prompt and a start or end image when that admin operation sends one. The provider returns the generated video.</td>
-                        <td>Cloudflare Workers AI and AI Gateway. A direct api.vidu.com admin fallback requires a configured key and positively undispatched gateway validation failure. An uncertain outcome or timeout does not permit fallback.</td>
-                    </tr>
-                    <tr data-model="alibaba/hh1-t2v">
-                        <td><code>alibaba/hh1-t2v</code> HappyHorse 1.0 text-to-video (Alibaba). Member and Canvas video generation.</td>
-                        <td>Alibaba. Cloudflare's model page marks this as a third-party Alibaba model. The product code does not name one legal entity.</td>
-                        <td>Not confirmed</td>
-                        <td>Prompt and generation settings such as duration, ratio, resolution, seed, and watermark. This member contract does not send a reference image. The named company returns the generated output through Cloudflare.</td>
-                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
-                    </tr>
-                    <tr data-model="bytedance/seedance-2.0-fast">
-                        <td><code>bytedance/seedance-2.0-fast</code> Seedance 2.0 Fast (ByteDance). Member video route and Canvas.</td>
-                        <td>ByteDance. The product code names this vendor and does not name one legal entity.</td>
-                        <td>Not confirmed</td>
-                        <td>Prompt and generation settings. This contract does not send a reference image. The named company returns the generated output through Cloudflare.</td>
-                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
-                    </tr>
-                    <tr data-model="bytedance/seedance-2.0">
-                        <td><code>bytedance/seedance-2.0</code> Seedance 2.0 (ByteDance). Member video route and Canvas. It is not in the separate member-exposure catalog list.</td>
-                        <td>ByteDance. The product code names this vendor and does not name one legal entity.</td>
-                        <td>Not confirmed</td>
-                        <td>Prompt and generation settings. This contract does not send a reference image. The named company returns the generated output through Cloudflare.</td>
-                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
-                    </tr>
-                    <tr data-model="xai/grok-imagine-video">
-                        <td><code>xai/grok-imagine-video</code> Grok Imagine Video (xAI). Member and Canvas video generation.</td>
-                        <td>xAI / SpaceXAI. The current enterprise API terms name SpaceXAI LLC; the applicable Cloudflare-mediated receiving and contracting chain has not been independently confirmed.</td>
-                        <td>United States (published enterprise entity); processing locations are not restricted to the company seat.</td>
-                        <td>Prompt, and an image or video when the selected operation sends one. The named company returns the generated output through Cloudflare.</td>
-                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
-                    </tr>
-                    <tr data-model="xai/grok-imagine-video-1.5-preview">
-                        <td><code>xai/grok-imagine-video-1.5-preview</code> Grok Imagine Video 1.5 Preview (xAI). Member and Canvas video generation.</td>
-                        <td>xAI / SpaceXAI. The current enterprise API terms name SpaceXAI LLC; the applicable Cloudflare-mediated receiving and contracting chain has not been independently confirmed.</td>
-                        <td>United States (published enterprise entity); processing locations are not restricted to the company seat.</td>
-                        <td>Prompt, and an image or video when the selected operation sends one. The named company returns the generated output through Cloudflare.</td>
-                        <td>Cloudflare Workers AI binding, with Cloudflare AI Gateway set in the product code.</td>
-                    </tr>
-                    <tr data-model="xai/grok-4.7">
-                        <td><code>xai/grok-4.7</code> Grok 4.7 (xAI). Canvas assistant conversation, planning, correction, error explanation and supported evaluation.</td>
-                        <td>xAI / SpaceXAI. The current enterprise API terms name SpaceXAI LLC; the applicable Cloudflare-mediated receiving and contracting chain has not been independently confirmed.</td>
-                        <td>United States (published enterprise entity); processing locations are not restricted to the company seat.</td>
-                        <td>Selected project context including conversation, brief, relevant nodes, execution and error facts. Supported visual review sends up to eight selected picture frames. Responses return through Cloudflare.</td>
-                        <td>Cloudflare AI Gateway, including REST background processing for durable Canvas operations; other supported calls use the Workers AI binding.</td>
-                    </tr>
-                    <tr data-model="@cf/swiss-ai/apertus-v1.5-8b">
-                        <td><code>@cf/swiss-ai/apertus-v1.5-8b</code> Apertus v1.5 8B (model by ETH Zurich and EPFL). Configured model for the public website assistant. That assistant is not enabled.</td>
-                        <td>Cloudflare, Inc. Inference is hosted by Cloudflare; BITBI does not send this request to the model author's API.</td>
-                        <td>United States</td>
-                        <td>If the assistant is later enabled: the message, a limited recent conversation history, the selected public page category and language, and public help text. No account data. Nothing is sent while the assistant stays disabled. Section 5a describes this feature.</td>
-                        <td>Cloudflare Workers AI binding, without an AI Gateway option and without a call to ETH Zurich or EPFL.</td>
-                    </tr>
-                    <tr data-model="@cf/utter-project/eurollm-9b-it">
-                        <td><code>@cf/utter-project/eurollm-9b-it</code> EuroLLM 9B Instruct (UTTER project model). Allowlisted alternative for the public website assistant. It is not the configured model, and the assistant is not enabled.</td>
-                        <td>Cloudflare, Inc. Inference is hosted by Cloudflare; BITBI does not send this request to the model author's API.</td>
-                        <td>United States</td>
-                        <td>The same assistant content as Apertus, only if this model is selected later. Nothing is sent while it is not selected and the assistant stays disabled. Section 5a describes this feature.</td>
-                        <td>Cloudflare Workers AI binding, without an AI Gateway option and without a call to the UTTER project.</td>
-                    </tr>
-                    </tbody>
-                </table>
-                </div>
-                <p>Not confirmed means the product code and the public sources checked for this update do not establish one country of seat for the company that receives the Cloudflare-billed request.</p>
-                <p>Do not submit sensitive personal data, confidential information, or third-party personal data in prompts or uploads unless you have the necessary rights and understand that the data must be processed by infrastructure and model providers to generate the requested output. Provider-side retention and training/use terms depend on the applicable provider contracts and settings and are not fully visible from the public website code.</p>
-            </div>
-        </div>
-
-        <!-- 5A. PUBLIC WEBSITE AI ASSISTANT -->
-        <div class="glass glass-card reveal policy-section" id="website-assistant">
-            <div class="glass-card__header">
-                <h2 class="glass-card__title">5a. Public Website AI Assistant</h2>
-            </div>
-            <div class="glass-card__body policy-section">
-                <p>The optional website AI assistant remains disabled until provider access, pricing, spending approval, and real acceptance checks are confirmed. When available, it will be identified as AI and provide public product help. It cannot read your account, assets, balance, jobs, or administration data or perform actions on your behalf.</p>
-                <p>If you choose to send a question, BITBI will send your message, a limited recent conversation history, the selected public page category and language, and relevant public help information through Cloudflare Workers to Cloudflare Workers AI. Page contents, form values, account details, and URL query parameters are not collected as assistant context. Please do not enter personal data, passwords, private prompts, or confidential information. AI answers may be inaccurate; check the linked BITBI sources.</p>
-                <p>The conversation stays in the current browser page's memory and is cleared when you clear the chat, change its page/language context, leave the page, or change account state. Closing the panel cancels an active response but does not clear the conversation. The assistant adds no cookies or persistent browser transcript storage. BITBI does not retain assistant prompts or replies in its backend or enable AI Gateway prompt/response logging for this feature. Pseudonymous short-lived request counters help prevent abuse; content-free budget reservation records become eligible for scheduled deletion after 48 hours, and aggregated request, token, and cost counters after 93 days.</p>
-                <p>Cloudflare states that Workers AI customer content is not used to train models or improve its or third-party services without explicit consent; see its <a href="https://developers.cloudflare.com/workers-ai/platform/data-usage/" target="_blank" rel="noopener noreferrer">Workers AI data-usage information</a>. This is not a promise of zero retention or EU-only processing. Model origin does not determine where processing takes place. The provider and international-transfer information below also applies.</p>
-            </div>
-        </div>
-
-        <!-- 6. SAVED ASSETS, FOLDERS, AND MEDIA STORAGE -->
-        <div class="glass glass-card reveal policy-section">
-            <div class="glass-card__header">
-                <h2 class="glass-card__title">6. Saved Assets, Folders, and Media Storage</h2>
-            </div>
-            <div class="glass-card__body policy-section">
-                <p>Member-generated and uploaded media may be saved to your account as private assets. This includes images, video, music/audio, text assets, thumbnails, posters, cover images, folders, filenames, sizes, MIME types, dimensions, generation metadata, publication state, and deletion state.</p>
-                <p>Asset metadata is stored mainly in Cloudflare D1. Media binaries and derivatives are stored in Cloudflare R2 or Cloudflare Images depending on the feature. Private saved assets are intended to be accessible only to the owning account and authorized administrative/support flows. Public delivery is only intended after you explicitly publish eligible content.</p>
-                <p>Deleting or unpublishing content affects visibility through the application, but storage cleanup can involve asynchronous lifecycle, derivative, or audit/archive processes. Deletion of backups, logs, derivatives, or archives may take additional time where those systems apply.</p>
-            </div>
-        </div>
-
-        <!-- 7. PUBLIC GALLERIES AND PUBLICATION -->
-        <div class="glass glass-card reveal policy-section">
-            <div class="glass-card__header">
-                <h2 class="glass-card__title">7. Public Galleries and Publication</h2>
-            </div>
-            <div class="glass-card__body policy-section">
-                <p>bitbi.ai includes public gallery areas for published member media, including Mempics, Memvids, and Memtracks. When you publish eligible media, the media itself and selected metadata such as title, preview image, media type, creation/publication time, and publisher display name or avatar/fallback identity may be visible to everyone, including logged-out visitors.</p>
-                <p>Unpublished/private media should not appear in public gallery endpoints. If you unpublish content, the public listing should stop showing it, subject to normal caching and technical propagation. Anyone who accessed public content while it was published may have viewed or cached it outside our control.</p>
-            </div>
-        </div>
-
-        <!-- 8. CREDITS, BILLING, AND STRIPE PAYMENTS -->
-        <div class="glass glass-card reveal policy-section">
-            <div class="glass-card__header">
-                <h2 class="glass-card__title">8. Credits, Billing, and Stripe Payments</h2>
-            </div>
-            <div class="glass-card__body policy-section">
-                <p>Member features use account credits. We process credit balances, reservations, deductions, refunds/reversals where applicable, quota/rate-limit events, generation attempts, transaction records, ledger entries, purchase records, and billing-related account metadata to provide paid features and prevent abuse or double charging.</p>
-                <p>Payments are handled by <strong class="text-strong">Stripe</strong>. We store Stripe checkout/session/customer/payment identifiers, product/pack metadata, transaction status, webhook processing metadata, and related accounting records. Based on the current implementation, full card numbers or complete payment credentials are handled by Stripe and are not stored by bitbi.ai.</p>
-                <p>Stripe processes payment data under its own privacy and security terms. We process payment metadata for contract performance, fraud prevention, accounting, and legal record-keeping under Art. 6(1)(b), Art. 6(1)(f), and Art. 6(1)(c) GDPR.</p>
-            </div>
-        </div>
-
-        <!-- 9. CONTACT FORM AND EMAIL DELIVERY -->
-        <div class="glass glass-card reveal policy-section">
-            <div class="glass-card__header">
-                <h2 class="glass-card__title">9. Contact Form and Email Delivery</h2>
-            </div>
-            <div class="glass-card__body policy-section">
-                <p>If you contact us through the contact form, we process the name, email address, subject, message, and technical anti-spam/rate-limit signals needed to receive and answer the request. The contact Worker validates the request and sends the message through <strong class="text-strong">Resend (Plus Five Five, Inc.)</strong>.</p>
-                <p>Purchase confirmations, withdrawal declarations and subscription cancellations additionally involve the declared name, contract reference, contact address, applicable contract and consent content, receipt time and delivery status. They are processed for contract performance and statutory duties under Art. 6(1)(b) and (c) GDPR, with proportionate abuse protection under Art. 6(1)(f). They are not public. Resend receives the recipient and message needed for transactional delivery; a received declaration is retained even if email delivery fails. Receipt, association, review and a payment-provider change are distinct records.</p>
-                <p>Contact messages are processed to respond to your request and to protect the form from abuse. Depending on the content, legal bases may include Art. 6(1)(b), Art. 6(1)(f), and Art. 6(1)(c) GDPR. Messages may be retained in mailboxes or support records as needed for follow-up, evidence, or legal obligations.</p>
-            </div>
-        </div>
-
-        <!-- 10. COOKIES, LOCAL STORAGE, AND SIMILAR TECHNOLOGIES -->
-        <div class="glass glass-card reveal policy-section">
-            <div class="glass-card__header">
-                <h2 class="glass-card__title">10. Cookies, Local Storage, and Similar Technologies</h2>
-            </div>
-            <div class="glass-card__body policy-section">
-                <p>We use necessary cookies and browser storage to provide account login, security, consent settings, navigation continuity, media playback continuity, wallet/organization preferences, and admin/user-interface state. Examples found in the code include session cookies, cookie-consent settings, audio-player state, active organization selection, wallet connection state, pending homepage category/scroll restoration state, and admin AI Lab UI state.</p>
-                <p>These technologies access or store information on your device. Necessary storage is used under &sect; 25(2) TDDDG and Art. 6(1)(b) or Art. 6(1)(f) GDPR. Optional analytics or marketing storage, if enabled, should require consent under &sect; 25(1) TDDDG and Art. 6(1)(a) GDPR and can be managed through Cookie Settings.</p>
-                <p>You can delete cookies and local storage through your browser. Doing so may sign you out, reset preferences, clear saved playback state, or disrupt member features.</p>
-            </div>
-        </div>
-
-        <!-- 11. INFRASTRUCTURE, PROCESSORS, AND TRANSFERS -->
-        <div class="glass glass-card reveal policy-section">
-            <div class="glass-card__header">
-                <h2 class="glass-card__title">11. Infrastructure, Processors, and Transfers</h2>
-            </div>
-            <div class="glass-card__body policy-section">
-                <p>The website is delivered by Cloudflare’s frontend Worker. Cloudflare, Inc. also processes service data through Workers, D1, R2, Queues, Durable Objects, Images, Workers AI and AI Gateway. GitHub supports source hosting, testing and release automation; it is not the configured public website host. Visiting a GitHub link or contributing to the repository involves GitHub separately. Ordinary Canvas prompts and private media are not sent to GitHub for website delivery.</p>
-                <p>Stripe handles checkout and payments. Depending on the service, Stripe acts as processor or as a controller, including for fraud prevention and legal duties; its agreement identifies the relevant Stripe entity. Resend (Plus Five Five, Inc., United States) processes transactional email. Cloudflare’s and Resend’s published data-processing terms include transfer provisions; their application depends on the agreement governing the service, not on a statement in this notice.</p>
-                <p><strong class="text-strong">United States and the Data Privacy Framework.</strong> On October 23, 2026, the official US Department of Commerce register listed Cloudflare, Inc. (participant 5666) as “Active - Re-certification under Review”, Google LLC (participant 5780) as “Active” and Eleven Labs Inc. (displayed as ElevenLabs, participant 9996) as “Active”. Each listing includes the EU-US, UK-extension and Swiss-US frameworks and HR/non-HR data. Google’s listing extends to specified wholly owned US subsidiaries subject to its stated exceptions; the other two list no additional covered entities. These findings apply only to the named entities and covered data, not automatically to every model, reseller or onward transfer. See the <a href="https://www.dataprivacyframework.gov/list" target="_blank" rel="noopener noreferrer">official participant register</a>.</p>
-                <p>We do not assert a verified DPF certification for OpenAI, Anthropic, Black Forest Labs or xAI. Where no applicable adequacy decision covers a transfer, Article 46(2)(c) GDPR safeguards such as effective standard contractual clauses and any necessary additional measures must cover the actual route. Publicly available clauses alone do not establish their application to a particular account. BITBI’s account-specific coverage for the third-party gateway routes has not yet been fully confirmed; this notice does not represent that missing coverage as an established lawful basis.</p>
-                <p><strong class="text-strong">Other countries and gateway suppliers.</strong> The precise receiving entities and transfer arrangements for the MiniMax, ByteDance and Alibaba gateway routes remain unconfirmed. A brand’s origin or a consumer website’s operator is not enough to identify the recipient. Vidu’s published policy names ShengShu AI HK Limited and describes possible Singapore storage and China processing; that policy alone does not establish the specific API or gateway agreement. PixVerse’s API terms name MOTIVAI PRIVATE LIMITED and the possible affiliate AIVORA PTE. LTD.; this is not proof of the actual gateway entity. China, Hong Kong and Singapore are not covered by an EU adequacy decision. For these routes the applicable contractual chain, processing/access countries and safeguards require route-specific confirmation.</p>
-                <p><strong class="text-strong">United Kingdom and Switzerland.</strong> The European Commission lists adequacy for Switzerland and renewed UK adequacy in December 2025, within each decision’s scope. UK access cannot be excluded merely because a supplier is seated elsewhere. EU-to-Switzerland adequacy is separate from obligations that may apply to Swiss users and onward transfers under Swiss law, including the relevant Swiss-US DPF scope. We do not state that all processing is limited to the EU.</p>
-                <p>No zero-retention or universal no-training assurance is made for all models. Service-specific settings and applicable business terms determine retention, use and onward processing. You may request details and copies of applicable safeguards, with necessary redactions, from <a href="mailto:bit@bitbi.ai">bit@bitbi.ai</a>. Unconfirmed recipient or account coverage is not a request for you to waive data-protection rights.</p>
-                <p>Sources: <a href="https://www.cloudflare.com/cloudflare-customer-dpa/" target="_blank" rel="noopener noreferrer">Cloudflare DPA</a>, <a href="https://www.cloudflare.com/gdpr/subprocessors/" target="_blank" rel="noopener noreferrer">Cloudflare subprocessors</a>, <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" target="_blank" rel="noopener noreferrer">GitHub privacy statement</a>, <a href="https://stripe.com/legal/dpa" target="_blank" rel="noopener noreferrer">Stripe DPA and roles</a>, <a href="https://resend.com/legal/dpa" target="_blank" rel="noopener noreferrer">Resend DPA</a>, and <a href="https://commission.europa.eu/law/law-topic/data-protection/international-dimension-data-protection/adequacy-decisions_en" target="_blank" rel="noopener noreferrer">EU adequacy decisions</a>.</p>
-            </div>
-        </div>
-
-        <!-- 12. LOGS, ADMIN ACCESS, AND ABUSE PREVENTION -->
-        <div class="glass glass-card reveal policy-section">
-            <div class="glass-card__header">
-                <h2 class="glass-card__title">12. Logs, Admin Access, and Abuse Prevention</h2>
-            </div>
-            <div class="glass-card__body policy-section">
-                <p>Administrative tools and backend systems may process account records, media metadata, generation logs, transaction records, rate-limit events, audit logs, activity summaries, and error/security events. Access is intended for authorized administration, support, abuse prevention, billing support, security investigation, and operational maintenance.</p>
-                <p>Security controls visible in the code include authentication checks, admin-only route guards, CSRF/same-origin protections for sensitive routes, session hashing, rate limiting, ownership checks for private media, signed/internal service calls for worker-to-worker flows, and size/type validation for media handling.</p>
-            </div>
-        </div>
-
-        <!-- 13. RETENTION, EXPORT, AND DELETION -->
-        <div class="glass glass-card reveal policy-section">
-            <div class="glass-card__header">
-                <h2 class="glass-card__title">13. Retention, Export, and Deletion</h2>
-            </div>
-            <div class="glass-card__body policy-section">
-                <p>We retain personal data for as long as needed to provide the account and requested features, maintain security, handle billing/accounting obligations, resolve disputes, comply with law, and operate lifecycle/export processes. Some tokens and sessions have defined expiry periods; some activity/audit data is archived or expired through scheduled lifecycle processes.</p>
-                <p>User data export and lifecycle/deletion tooling exists, including archive expiry and controlled cleanup execution. However, some newer billing, organization, and media-related records may require additional review before a specific complete hard-deletion timeline can be promised. Requests for access, export, correction, or deletion can be sent to <a href="mailto:bit@bitbi.ai">bit@bitbi.ai</a>.</p>
-            </div>
-        </div>
-
-        <!-- 14. LEGAL BASES AND YOUR RIGHTS -->
-        <div class="glass glass-card reveal policy-section">
-            <div class="glass-card__header">
-                <h2 class="glass-card__title">14. Legal Bases and Your Rights</h2>
-            </div>
-            <div class="glass-card__body policy-section">
-                <p>Depending on the feature, processing may be based on contract performance or pre-contractual steps (Art. 6(1)(b) GDPR), legitimate interests such as security and service operation (Art. 6(1)(f) GDPR), legal obligations such as accounting or compliance duties (Art. 6(1)(c) GDPR), or consent where optional storage or communications require it (Art. 6(1)(a) GDPR).</p>
-                <p>You may have rights of access (Art. 15), rectification (Art. 16), erasure (Art. 17), restriction (Art. 18), portability (Art. 20), objection (Art. 21), and withdrawal of consent (Art. 7(3) GDPR). You also have the right to lodge a complaint with a supervisory authority. The competent authority for the controller's location is the Landesbeauftragte f&uuml;r den Datenschutz und die Informationsfreiheit Baden-W&uuml;rttemberg (LfDI BW), <a href="https://www.baden-wuerttemberg.datenschutz.de" target="_blank" rel="noopener noreferrer">baden-wuerttemberg.datenschutz.de</a>.</p>
-            </div>
-        </div>
-
-        <!-- 15. AUTOMATED DECISION-MAKING -->
-        <div class="glass glass-card reveal policy-section">
-            <div class="glass-card__header">
-                <h2 class="glass-card__title">15. Automated Decision-Making</h2>
-            </div>
-            <div class="glass-card__body policy-section">
-                <p>AI generation features automatically create media or text in response to your inputs. These features are not intended to make automated decisions with legal or similarly significant effects within the meaning of Art. 22 GDPR. Credit checks, rate limits, fraud controls, and admin safety checks are rule-based operational controls for service use.</p>
-            </div>
-        </div>
-
-        <!-- 16. CHANGES -->
-        <div class="glass glass-card reveal policy-section">
-            <div class="glass-card__header">
-                <h2 class="glass-card__title">16. Changes</h2>
-            </div>
-            <div class="glass-card__body policy-section">
-                <p>We may update this Privacy Policy when the service, providers, data flows, or legal requirements change. The current version is available on this page.</p>
-                <p class="last-updated">Last updated: October 23, 2026</p>
-            </div>
-        </div>
-
-        <!-- BACK LINK -->
-        <div class="text-center--padded reveal">
-            <a href="/" class="back-link back-link--sm">
-                <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
-                Back to BITBI Playground
-            </a>
-        </div>
-    </div>
-    </article>
+<section class="glass glass-card reveal policy-section" aria-labelledby="legal-section-0"><div class="glass-card__header"><h2 class="glass-card__title" id="legal-section-0">BITBI Privacy Notice</h2></div><div class="glass-card__body policy-section"><p><strong class="text-strong">Version dated 24 October 2026.</strong></p></div></section>
+<section class="glass glass-card reveal policy-section" aria-labelledby="legal-section-1"><div class="glass-card__header"><h2 class="glass-card__title" id="legal-section-1">1. Controller, scope and contact</h2></div><div class="glass-card__body policy-section"><p>The controller for the processing described below is Stefan van Ark, trading as BITBI, Schwarzwaldstraße 20, 78647 Trossingen, Germany. Contact: <strong class="text-strong">bit@bitbi.ai</strong>. Further provider details are available in the Legal Notice on bitbi.ai.</p>
+<p>This notice explains personal-data processing when visiting bitbi.ai and using accounts, AI generation, Canvas projects, saved media, public galleries, social features, organisations, payments and enquiries. Personal data is information relating to an identified or identifiable natural person.</p>
+<p>For organisation accounts, the organisation&#x27;s purposes must be distinguished from our own purposes for account management, security, billing and legal duties. An organisation name or team role alone establishes neither a particular data protection role nor a data processing agreement. This notice does not claim a separately agreed processor arrangement for all organisation content.</p>
+<p>This notice does not replace separately required consent or a required data processing agreement. Using the website or accepting our terms is not blanket data protection consent.</p></div></section>
+<section class="glass glass-card reveal policy-section" aria-labelledby="legal-section-2"><div class="glass-card__header"><h2 class="glass-card__title" id="legal-section-2">2. Public browsing and technical delivery</h2></div><div class="glass-card__body policy-section"><p>Public pages and galleries are accessible without an account. Technical data includes IP address, time, requested address, browser/device information, transmitted headers and error or security signals. We and our infrastructure provider Cloudflare process the data necessary for delivery, connections, attack protection, abuse prevention and troubleshooting.</p>
+<p>The legal basis for secure public delivery is Article 6(1)(f) GDPR. Our legitimate interest is operating and protecting a functional website. Article 6(1)(b) GDPR applies where processing is necessary for a contractual feature you request. Analytics purposes are separate from those operational purposes; see section 10.</p>
+<p>Cloudflare delivers the website. GitHub is used for source control, tests and release processes and is not the public website host. A normal website visit does not on that account transmit private Canvas prompts to GitHub. Following a GitHub link or contributing to the repository involves separate processing there.</p></div></section>
+<section class="glass glass-card reveal policy-section" aria-labelledby="legal-section-3"><div class="glass-card__header"><h2 class="glass-card__title" id="legal-section-3">3. Accounts, sign-in and security</h2></div><div class="glass-card__body policy-section"><p>We process email address, password hash, verification status, account identifier, roles, sign-in and security information, and session and token data for account registration and use. Passwords are not retained as ordinary plaintext account records. Verification and password-reset links contain single-use tokens; the application stores token hashes server-side.</p>
+<p>Processing needed to establish and provide the account relies on Article 6(1)(b) GDPR. Account protection and abuse investigation, where not already necessary for the contract, rely on Article 6(1)(f). Our legitimate interest is protecting accounts, data and infrastructure.</p>
+<p>Session cookies enable sign-in and are Secure and HttpOnly in the intended production environment. The technical session lifetime is 30 days; signing out ends the session or expires the cookie. Verification and password-reset tokens are valid for 60 minutes; wallet challenges for ten minutes. Token validity is not the retention period of the account or related email records. See section 13.</p>
+<p>Additional authentication and audit measures protect administrative access. They do not confer unrestricted access to user content: authorised access must serve the relevant lawful operational, support or security purpose.</p></div></section>
+<section class="glass glass-card reveal policy-section" aria-labelledby="legal-section-4"><div class="glass-card__header"><h2 class="glass-card__title" id="legal-section-4">4. Profiles, wallets, favourites and organisations</h2></div><div class="glass-card__body policy-section"><p>You may supply optional profile details, such as a display name, description, avatar and website link. Processing for the chosen profile features relies on Article 6(1)(b) GDPR. Public visibility depends on the relevant profile and publication feature; a name or avatar may appear with published media and comments.</p>
+<p>If you choose wallet linking or wallet sign-in, we process the wallet address, chain/network details, nonces and signature-verification data needed for that feature. Private keys are not transmitted to BITBI for this purpose. Wallet software and public blockchain information are distinct from BITBI&#x27;s account records; deleting an account does not remove their independent records.</p>
+<p>Favourites are processed in the account context. Likes, comments and follow relationships support the corresponding social features; comments and associated profile information may be public. Adding a favourite does not by itself publish a private asset.</p>
+<p>Organisation features process names, invitations, member emails, roles, permissions and usage/billing information. Authorised organisation owners can see member email addresses, roles and organisation-related usage and ledger data for team administration and allocation of shared use. This does not make all account content accessible to all members. A contract with the organisation owner is not by itself the basis for every use of an invited person&#x27;s data. Assigning access rights does not make content generally public. Necessary team administration and access security may rely on our legitimate interest in providing and protecting the requested collaboration under Article 6(1)(f) GDPR; your own requested account functions rely on point (b). Affected members retain their rights.</p></div></section>
+<section class="glass glass-card reveal policy-section" aria-labelledby="legal-section-5"><div class="glass-card__header"><h2 class="glass-card__title" id="legal-section-5">5. AI features, uploads and the Canvas assistant</h2></div><div class="glass-card__body policy-section"><h3>5.1 Inputs and outputs</h3>
+<p>For the AI functions you select, we process required prompts, text, reference images and other media, together with settings such as model, style, duration, resolution, aspect ratio and audio options. Outputs may include images, videos, music, text, previews, metadata and technical processing records. Details depend on the model and operation actually used.</p>
+<p>Processing of your own personal data necessary to provide the requested service generally relies on Article 6(1)(b) GDPR. Operations, abuse prevention and necessary legal defence are assessed separately by purpose. Billing and statutory evidence do not automatically require retention of complete raw prompts.</p>
+<h3>5.2 Project conversations and automated actions</h3>
+<p>The Canvas assistant processes project chat, the brief, relevant nodes and references, approved media, model choice, budget decisions, execution state and necessary error context. These data are stored with the project. Selected information relevant to the current task is sent to the chosen assistant model. Supported visual checks may include selected video frames.</p>
+<p>The assistant may prepare or execute project actions within approved functions. Budget and action records document scope and accounting. An explanation of an error does not automatically authorise another operation.</p>
+<p>Private operator/admin chats and summaries remain separate from member projects. They are not imported into your Canvas conversation as general memory. Personal data used in an internal support process still requires an appropriate purpose and legal basis.</p>
+<h3>5.3 Provider routes</h3>
+<p>Cloudflare is the infrastructure provider or intermediary in the AI routes described here. For identifiers beginning <code>@cf/…</code>, Cloudflare runs inference. Naming a model developer does not mean BITBI calls that developer&#x27;s API. External models receive content through Cloudflare AI Gateway; narrowly scoped direct operator routes are listed separately in the provider appendix.</p>
+<p>A model does not receive data merely because it is listed. The selected feature, its availability and the actual executed route determine the transfer. The appendix describes input categories and known providers, including the expressly stated limits of recipient identification. Section 11 addresses international transfers.</p>
+<p>The actual recipient entity and applicable contractual and transfer chain have not yet been fully confirmed for several external Gateway routes. Appendix A identifies those limits. They establish neither the absence of an agreement nor proof of the required coverage through this notice.</p>
+<h3>5.4 Other people&#x27;s and sensitive data</h3>
+<p>Submit only content you may lawfully use for the relevant purpose. Copyright permissions, personality rights and data protection grounds are distinct. Our contract with you is not a blanket legal basis for all data about other people shown or mentioned in your inputs.</p>
+<p>Health data and other special categories, information about children, and face or voice references may require additional safeguards. General generation features and acceptance of terms provide neither a blanket legal basis nor a guarantee of a suitable provider route. Indirect collection is also subject to the applicable information duties, including Article 14 GDPR. A face or voice recording is not by itself biometric processing for unique identification.</p>
+<h3>5.5 Training and other uses</h3>
+<p>Inputs are transmitted for the selected function, storage and technical processing, and the separately described protection and record-keeping purposes. A private technical processing licence is not consent to publication, advertising or training our own or third-party models. This notice introduces no additional permission for training or cross-product evaluation.</p>
+<p><a href="https://developers.cloudflare.com/workers-ai/platform/data-usage/">Cloudflare states for Workers AI</a> that customer content is not used to train models. That service-specific statement does not automatically cover external providers connected through AI Gateway. We do not give a universal no-training or no-improvement promise for all providers. Logging, caching, temporary computation, persistent project storage, security retention and model training are distinct purposes. Disabling Gateway payload logs does not establish that providers retain no data.</p></div></section>
+<section class="glass glass-card reveal policy-section" aria-labelledby="legal-section-6"><div class="glass-card__header"><h2 class="glass-card__title" id="legal-section-6">5a. Public website assistant</h2></div><div class="glass-card__body policy-section"><p>The public website assistant is disabled. It is separate from the active Canvas assistant. No conversation is transmitted for the disabled feature. Any later activation requires information about its actual processing; this notice does not announce activation.</p></div></section>
+<section class="glass glass-card reveal policy-section" aria-labelledby="legal-section-7"><div class="glass-card__header"><h2 class="glass-card__title" id="legal-section-7">6. Saved media and data management</h2></div><div class="glass-card__body policy-section"><p>Saved media includes originals, selected results, derivatives, previews, covers, filenames and technical metadata. Metadata is mainly processed in Cloudflare D1; files are processed in R2 or Cloudflare Images as appropriate. This supports requested storage, display, editing and downloads under Article 6(1)(b) GDPR.</p>
+<p>Private assets do not become public merely through creation. Publication uses the designated feature. Authorised operational and support access remains purpose-limited.</p>
+<p>Deleting a project, deleting an Assets Manager item and unpublishing are different actions. Independently saved assets may survive deletion of a Canvas project. Removal from the interface does not necessarily mean that every preview, archive copy or necessary billing record has already been physically erased. Section 13 explains retention and deletion.</p></div></section>
+<section class="glass glass-card reveal policy-section" aria-labelledby="legal-section-8"><div class="glass-card__header"><h2 class="glass-card__title" id="legal-section-8">7. Public galleries, comments and social functions</h2></div><div class="glass-card__body policy-section"><p>When you publish media, the selected file, preview, title, type, timestamps and associated profile information may become publicly accessible. Comments and associated profiles may also be public. Third parties may copy or distribute public content outside our control.</p>
+<p>We process publication and interactions to provide the feature you request. Necessary moderation and abuse prevention protect people, rights and platform operations; the basis depends on the relevant legal obligation or legitimate protective interest.</p>
+<p>Unpublishing removes public presentation in offerings controlled by BITBI; technical caches may have a limited propagation period. It does not recall independent third-party copies. A single confirmed maximum period covering all involved caches is not currently available. This creates no entitlement to indefinite retention or continued publication.</p></div></section>
+<section class="glass glass-card reveal policy-section" aria-labelledby="legal-section-9"><div class="glass-card__header"><h2 class="glass-card__title" id="legal-section-9">8. Credits, contract records and payments</h2></div><div class="glass-card__body policy-section"><p>We process offers, order/payment references, balances, reservations, usage charges, billing periods, contract and consent snapshots, declarations and delivery status. Purposes are contract performance under Article 6(1)(b) GDPR, applicable legal obligations under point (c), and proportionate fraud/double-charge prevention under point (f).</p>
+<p>Stripe handles payments, subscriptions and, where applicable, payment management. Full card details are processed within the intended Stripe checkout and are not stored as ordinary BITBI records. BITBI receives the payment information needed for matching, fulfilment, accounting and handling enquiries. Stripe may act as processor or independent controller depending on purpose. The Stripe contracting entity applicable to BITBI&#x27;s account and its complete international processing chain have not yet been confirmed. We identify Stripe as the payment service without assigning an unverified entity or an exclusively processor role; see section 11.</p>
+<p>Receipt of withdrawal or termination is recorded separately from later legal assessment, reimbursement or a Stripe change. A technical confirmation-email failure does not erase receipt of a declaration.</p></div></section>
+<section class="glass glass-card reveal policy-section" aria-labelledby="legal-section-10"><div class="glass-card__header"><h2 class="glass-card__title" id="legal-section-10">9. Contact, transactional emails and declarations</h2></div><div class="glass-card__body policy-section"><p>When you contact us, we process your name/contact information, message and necessary technical protection data. Contract-related or pre-contractual enquiries rely on Article 6(1)(b) GDPR; other relevant enquiries rely on our legitimate interest in responding under point (f). Legally required handling and documentation rely on point (c) where the specific duty applies.</p>
+<p>Resend, operated by Plus Five Five, Inc., delivers verification, password-reset, contract and declaration confirmations. It receives the necessary destination and message content. We process acceptance, delivery, failure and bounce information for reliable delivery. Provider acceptance or observed delivery is not proof that a person read the message.</p>
+<p>Account-specific retention and the delivery service&#x27;s open/click-tracking settings have not been confirmed. We therefore give neither a specific supplier deletion period nor a promise that every email is free of such measurements. A transactional email is not marketing consent.</p></div></section>
+<section class="glass glass-card reveal policy-section" aria-labelledby="legal-section-11"><div class="glass-card__header"><h2 class="glass-card__title" id="legal-section-11">10. Cookies, browser storage and analytics</h2></div><div class="glass-card__body policy-section"><h3>10.1 Purpose-specific storage</h3>
+<p>Cookies, localStorage and sessionStorage support expressly requested features, including authentication, security proofs, recording your consent choice and reliable recovery of pending user actions. Selected language, wallet, organisation and playback preferences are assessed separately by purpose.</p>
+<p>Storage/access strictly necessary to provide a service you expressly request relies on section 25(2) TDDDG. Where no exemption applies, consent under section 25(1) is required before storage/access. The analytics-control limitation described below is separate; this notice does not claim consistently effective consent control. Subsequent personal-data processing also needs the appropriate GDPR basis. A convenience setting is not automatically strictly necessary just because it is technically useful.</p>
+<p>The storage appendix lists the BITBI keys used for these features. localStorage does not automatically expire without an application rule. Clearing browser data may affect sign-in, settings or interrupted-operation recovery; it does not erase independently required server data.</p>
+<h3>10.2 Website performance measurement and a limitation of the choice</h3>
+<p>Cloudflare delivers a Web Analytics beacon from <code>static.cloudflareinsights.com</code>. Its purpose is measuring page visits and performance, including loading times and Core Web Vitals. The browser can send page/navigation information, timing measurements and technical browser/device information to the RUM endpoint <code>/cdn-cgi/rum</code>; the connection also involves technical connection data. <a href="https://developers.cloudflare.com/web-analytics/data-metrics/data-origin-and-collection/">Cloudflare explains its data collection</a>. This performance analysis is distinct from necessary delivery and attack protection.</p>
+<p><strong class="text-strong">The current choice in Cookie Settings does not reliably prevent this analytics activity.</strong> A check on 24 October 2026 observed beacon loading without a prior choice and despite refused analytics, together with RUM send attempts. Those test requests were intercepted before transmission. They therefore prove neither acceptance nor storage by Cloudflare. Refusal is not presented here as a verified effective analytics opt-out.</p>
+<p>The account-specific retention period and complete legal allocation of this analysis have not yet been confirmed. Absence of cookies does not automatically make performance analysis necessary or exempt from consent. This disclosure replaces neither required consent nor correction of the choice control. Your statutory rights, including withdrawal of consent and objection where applicable, remain intact.</p></div></section>
+<section class="glass glass-card reveal policy-section" aria-labelledby="legal-section-12"><div class="glass-card__header"><h2 class="glass-card__title" id="legal-section-12">11. Recipients and international transfers</h2></div><div class="glass-card__body policy-section"><p>We use Cloudflare for infrastructure and technical intermediation, Stripe for payments, Resend for emails, and the AI providers in Appendix A for selected features. GitHub serves source control, testing and release processes. Processing on our behalf, independent control and technical intermediation are different roles. The provider appendix forms part of this section.</p>
+<p>Transfers outside the EEA require a permitted transfer mechanism as well as the general legal basis. An applicable adequacy decision may be relevant; otherwise appropriate safeguards such as validly agreed standard contractual clauses under Article 46(2)(c) GDPR and necessary supplementary measures are required, unless a narrowly defined statutory exception applies. Acceptance of our terms does not replace these requirements.</p>
+<p><strong class="text-strong">For several external Gateway routes, the exact recipient entity, account-specific contractual chain, processing countries and actually applicable transfer safeguards have not yet been fully confirmed.</strong> The limits stated in Appendix A are not a confirmed transfer basis. Public supplier agreements alone do not establish their application to BITBI&#x27;s account. In particular, Cloudflare&#x27;s published <a href="https://www.cloudflare.com/service-specific-terms-developer-platform/">Developer Platform terms</a> exclude certain third-party products on third-party infrastructure from Cloudflare&#x27;s DPA and Information Security Exhibit. Cloudflare billing therefore does not prove full data protection coverage of the downstream model.</p>
+<p>On <strong class="text-strong">23 October 2026</strong>, the <a href="https://www.dataprivacyframework.gov/list">official DPF register</a> listed Cloudflare, Inc. (no. 5666) as “Active – Re-certification under Review”, and Google LLC (no. 5780) and Eleven Labs Inc. (no. 9996) as “Active”. The observed entries covered EU-US, UK Extension and Swiss-US, and HR and non-HR data; Google&#x27;s entry included specified US subsidiaries subject to exceptions. This is a dated registry observation, not a promise of continued certification of every group entity or model route. We do not claim a verified DPF certification here for OpenAI, Anthropic, Black Forest Labs or xAI; that does not establish non-certification.</p>
+<p>The <a href="https://commission.europa.eu/law/law-topic/data-protection/international-dimension-data-protection/adequacy-decisions_en">European Commission&#x27;s adequacy decisions</a> for Switzerland and the United Kingdom, with UK adequacy renewed in December 2025, apply within their respective scope and are distinct from onward transfers elsewhere. There is no corresponding general adequacy decision for China, Hong Kong or Singapore. Registered office, storage, support and access countries are different facts. We do not promise exclusively EU processing.</p>
+<p>You may request information about the safeguards actually applied to your processing and a copy protecting others&#x27; rights at bit@bitbi.ai. This right is not a substitute for missing mandatory information or required safeguards. Unconfirmed coverage does not require you to waive data protection rights.</p>
+<p>Further public provider information: <a href="https://www.cloudflare.com/cloudflare-customer-dpa/">Cloudflare DPA</a>, <a href="https://www.cloudflare.com/gdpr/subprocessors/">Cloudflare subprocessors</a>, <a href="https://stripe.com/legal/dpa">Stripe DPA</a>, <a href="https://resend.com/legal/dpa">Resend DPA</a> and <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub privacy notice</a>. These sources do not confirm a particular BITBI account agreement.</p></div></section>
+<section class="glass glass-card reveal policy-section" aria-labelledby="legal-section-13"><div class="glass-card__header"><h2 class="glass-card__title" id="legal-section-13">12. Operations, diagnostics and administrative access</h2></div><div class="glass-card__body policy-section"><p>We process purpose-limited activity, security, usage and error information to operate features, troubleshoot, prevent abuse and maintain necessary records. Access is limited to authorised persons/services for the relevant purpose. Depending on that purpose, the basis is Article 6(1)(b), (c) or (f) GDPR; legitimate interests include secure operation, accountable billing and necessary legal defence.</p>
+<p>Canvas incidents may be explained by the chosen assistant using limited, sanitised project context. This is not a general transfer of complete infrastructure logs or other users&#x27; projects. Operational logs, Gateway logs, project memory and public browser analytics have different purposes and retention rules.</p></div></section>
+<section class="glass glass-card reveal policy-section" aria-labelledby="legal-section-14"><div class="glass-card__header"><h2 class="glass-card__title" id="legal-section-14">13. Retention, deletion and exports</h2></div><div class="glass-card__body policy-section"><p>We distinguish active use, necessary recovery, legal records, necessary legal defence and technical cleanup. The ability to archive does not itself justify indefinite retention. Legal retention concerns the data classes needed for that duty, not all complete raw prompts.</p>
+<div class="policy-table-wrap" role="region" tabindex="0" aria-label="Table: 13. Retention, deletion and exports"><table><thead><tr><th scope="col">Data class</th><th scope="col">Duration, criterion and limitation</th></tr></thead><tbody><tr><td>Account details</td><td>For the existing account and requested features; after termination, only data with a statutory or specifically justified continuing purpose may remain. Complete physical closure of every account-deletion path and a uniform residual-data period have not yet been confirmed.</td></tr><tr><td>Sessions / one-use tokens</td><td>Sessions 30 days; verification/reset tokens 60 minutes; wallet challenges ten minutes of validity. Expired/used records are scheduled for regular cleanup. Validity and actual physical deletion time are distinct.</td></tr><tr><td>Projects / chats</td><td>Stored with the project; project deletion redacts conversation and brief text and removes specified incident data. Original operation, recovery and accounting records may remain separate. A complete uniform maximum period for residual classes has not been confirmed.</td></tr><tr><td>Saved media</td><td>For the chosen storage and use until the associated deletion; independently saved assets may survive project deletion. Derivatives and unused objects undergo separate cleanup. No single maximum period has been confirmed for all caches and backup copies.</td></tr><tr><td>Activity / audit records</td><td>Approximately 90 days in active storage, followed by archiving. <strong class="text-strong">This is not complete deletion after 90 days.</strong> A general final archive-deletion period is not currently established or confirmed. Further retention requires a continuing lawful purpose.</td></tr><tr><td>Prepared data-export archives</td><td>Technically scheduled for 14 days, followed by planned cleanup. Actual execution can differ from the scheduled time. Statutory access rights do not expire after 14 days.</td></tr><tr><td>Purchase, tax, declaration and legal records</td><td>According to statutory retention duties for each document class and necessary handling or legal defence. An unresolved matter may justify continued retention. No universal ten-year period applies to all inputs or media.</td></tr><tr><td>Provider / Gateway / backup data</td><td>Storage depends on service and route. BITBI-account retention periods for several providers and Gateway logs/caches have not been fully confirmed; neither immediate deletion nor a single fixed period is promised.</td></tr></tbody></table></div>
+<p>These limitations do not authorise indefinite storage. Access, rectification, erasure, restriction and portability remain subject to statutory conditions. Contact bit@bitbi.ai to exercise them. A media download is not a full data protection access response; hiding a notification does not delete the original operation record. Individual export/deletion tools do not mean every right is fully automated for every data class.</p></div></section>
+<section class="glass glass-card reveal policy-section" aria-labelledby="legal-section-15"><div class="glass-card__header"><h2 class="glass-card__title" id="legal-section-15">14. Your rights</h2></div><div class="glass-card__body policy-section"><p>Subject to legal conditions, you have rights of access (Article 15 GDPR), rectification (16), erasure (17), restriction (18) and portability (20). Portability concerns, in particular, data you provide that is processed automatically on consent or contract grounds; it does not automatically cover every internal record.</p>
+<p><strong class="text-strong">Objection:</strong> You may object on grounds relating to your particular situation to processing based on Article 6(1)(e) or (f). We will stop that processing unless we demonstrate compelling legitimate grounds overriding your interests, rights and freedoms, or the processing concerns establishing, exercising or defending legal claims. You may object to direct-marketing processing at any time without giving reasons; such processing then stops.</p>
+<p>You may withdraw consent at any time for the future without affecting prior lawful processing. Exercising rights is generally free. We respond within statutory periods, normally one month; any permitted extension and its reasons will be communicated within that period. Where identity doubts are reasonable, we request only proportionate additional evidence.</p>
+<p>You may complain to a supervisory authority, including where you habitually reside, work or believe an infringement occurred. The State Commissioner for Data Protection and Freedom of Information of Baden-Württemberg is a competent contact for our establishment.</p>
+<p>Data essential for account functions cannot all be omitted while retaining those functions. Optional profile information and optional consent are different. Refusal of optional analytics must not make unrelated contractual functions conditional on consent.</p></div></section>
+<section class="glass glass-card reveal policy-section" aria-labelledby="legal-section-16"><div class="glass-card__header"><h2 class="glass-card__title" id="legal-section-16">15. Automated processing and decisions</h2></div><div class="glass-card__body policy-section"><p>AI features automatically generate content from your inputs. Before execution, technical rules check available credits, reservations, project/model limits, quotas, request rates and permissions, among other criteria. An unmet criterion may prevent an operation or require review. Permanent account-status changes in the available administration route are initiated by a person.</p>
+<p>Calling a control “rule-based” does not determine whether Article 22 GDPR applies. We give no blanket assurance that every fraud or security decision falls outside that Article. Where a solely automated decision has legal or similarly significant effects, its requirements and safeguards apply, including human intervention, expressing your position and contesting the decision where provided by law.</p>
+<p>Contact bit@bitbi.ai about a restriction or incorrect account state. This contact route does not claim an already completed individual review or an automated appeal or legal-assessment service.</p></div></section>
+<section class="glass glass-card reveal policy-section" aria-labelledby="legal-section-17"><div class="glass-card__header"><h2 class="glass-card__title" id="legal-section-17">16. Changes to this notice</h2></div><div class="glass-card__body policy-section"><p>We update this notice when actual processing or legal requirements change. We provide information about material new purposes before the relevant further processing as legally required. An update does not replace required renewed consent. Publishing a new website version does not rewrite historical contract confirmations.</p></div></section>
+<section class="glass glass-card reveal policy-section" aria-labelledby="legal-section-18"><div class="glass-card__header"><h2 class="glass-card__title" id="legal-section-18">Appendix A — Providers and routes</h2></div><div class="glass-card__body policy-section"><p>This overview describes supported routes, not availability of every model for every account. Cloudflare is the technical intermediary for external models. Public direct-API counterparties are not automatically the actual BITBI Gateway recipients or billing parties. The stated identification limits remain material; missing confirmation establishes neither absence nor applicability of an agreement. A public entity&#x27;s country is not a promise of exclusive processing there.</p>
+<div class="policy-table-wrap" role="region" tabindex="0" aria-label="Table: Appendix A — Providers and routes"><table><thead><tr><th scope="col">Group / model identifiers</th><th scope="col">Route and data</th><th scope="col">Entity, countries and identification limits</th></tr></thead><tbody><tr><td><strong class="text-strong">Cloudflare-hosted</strong>: <code data-model="@cf/meta/llama-3.1-8b-instruct-fast">@cf/meta/llama-3.1-8b-instruct-fast</code>, <code data-model="@cf/meta/llama-3.3-70b-instruct-fp8-fast">@cf/meta/llama-3.3-70b-instruct-fp8-fast</code>, <code data-model="@cf/google/gemma-4-26b-a4b-it">@cf/google/gemma-4-26b-a4b-it</code>, <code data-model="@cf/qwen/qwen3-30b-a3b-fp8">@cf/qwen/qwen3-30b-a3b-fp8</code>, <code data-model="@cf/openai/gpt-oss-20b">@cf/openai/gpt-oss-20b</code>, <code data-model="@cf/openai/gpt-oss-120b">@cf/openai/gpt-oss-120b</code>, <code data-model="@cf/black-forest-labs/flux-1-schnell">@cf/black-forest-labs/flux-1-schnell</code>, <code data-model="@cf/black-forest-labs/flux-2-klein-9b">@cf/black-forest-labs/flux-2-klein-9b</code>, <code data-model="@cf/black-forest-labs/flux-2-dev">@cf/black-forest-labs/flux-2-dev</code>, <code data-model="@cf/baai/bge-m3">@cf/baai/bge-m3</code>, <code data-model="@cf/google/embeddinggemma-300m">@cf/google/embeddinggemma-300m</code>, <code data-model="@cf/swiss-ai/apertus-v1.5-8b">@cf/swiss-ai/apertus-v1.5-8b</code>, <code data-model="@cf/utter-project/eurollm-9b-it">@cf/utter-project/eurollm-9b-it</code></td><td>Cloudflare executes inference; input text, images/references or embedding text depend on the feature. Apertus/EuroLLM concern the disabled public assistant. Developer names do not establish extra API calls.</td><td>Cloudflare, Inc. (US) is the infrastructure provider. No EU-only promise. Naming it does not confirm the exact account/product scope or full transfer chain; storage and Gateway products are separate.</td></tr><tr><td><strong class="text-strong">xAI / SpaceXAI</strong>: <code data-model="xai/grok-4.6">xai/grok-4.6</code>, <code data-model="xai/grok-4.20-multi-agent-0309">xai/grok-4.20-multi-agent-0309</code>, <code data-model="xai/grok-4.7">xai/grok-4.7</code>, <code data-model="xai/grok-imagine-image">xai/grok-imagine-image</code>, <code data-model="xai/grok-imagine-image-2.0">xai/grok-imagine-image-2.0</code>, <code data-model="xai/grok-imagine-video">xai/grok-imagine-video</code>, <code data-model="xai/grok-imagine-video-1.5-preview">xai/grok-imagine-video-1.5-preview</code></td><td>Cloudflare AI Gateway, including REST background processing for durable Canvas operations. Inputs depend on feature: text, project/conversation context, image/video references and selected review frames. Web search only in the actual authorised internal route.</td><td>Public enterprise entity: SpaceXAI LLC (US). This does not confirm the actual Gateway recipient, BITBI contractual chain, retention/training terms or transfer safeguards.</td></tr><tr><td><strong class="text-strong">Anthropic</strong>: <code data-model="anthropic/claude-fable-5">anthropic/claude-fable-5</code></td><td>Cloudflare AI Gateway with native Messages format, including REST background processing for durable Canvas operations. Text and relevant project/error context; separate internal chat options. This Canvas evaluation route does not send picture frames to Fable.</td><td>Public direct-customer terms: Anthropic Ireland Limited (Ireland) or Anthropic PBC (US), by region. The actual Gateway contracting/recipient chain and account-specific retention/transfer terms are not fully confirmed.</td></tr><tr><td><strong class="text-strong">OpenAI</strong>: <code data-model="openai/gpt-image-2">openai/gpt-image-2</code>, <code data-model="openai/gpt-image-2.5-sunburst">openai/gpt-image-2.5-sunburst</code>, <code data-model="openai/gpt-image-2.5-flare">openai/gpt-image-2.5-flare</code></td><td>Gateway. Image prompts and necessary reference/edit images; distinct from Cloudflare-hosted GPT-OSS models above.</td><td>Public direct-customer terms: OpenAI Ireland Ltd. (Ireland) or OpenAI OpCo, LLC (US). The actual Gateway entity and contractual, retention and transfer terms are not fully confirmed.</td></tr><tr><td><strong class="text-strong">Black Forest Labs</strong>: <code data-model="black-forest-labs/flux-2-max">black-forest-labs/flux-2-max</code></td><td>External Gateway route for image prompts/references; not equivalent to hosted @cf FLUX models.</td><td>Public regional developer entities: BFL GmbH (Germany) / Black Forest Labs Inc. (US). The actual Gateway chain and account-specific retention/transfer terms are not fully confirmed.</td></tr><tr><td><strong class="text-strong">MiniMax</strong>: <code data-model="minimax/music-2.6">minimax/music-2.6</code>, <code data-model="minimax/h3">minimax/h3</code></td><td>Gateway. Music prompt/lyrics or video request and supported media references.</td><td>Public API entity: Nanonoble Pte. Ltd. (Singapore). The actual Gateway entity, further processing countries, input use, retention and transfer basis are not fully confirmed.</td></tr><tr><td><strong class="text-strong">ElevenLabs</strong>: <code data-model="elevenlabs/music-v2">elevenlabs/music-v2</code></td><td>Gateway. Music prompt/composition plan and options, potentially inpainting storage.</td><td>Public provider entity: Eleven Labs Inc. (US). The particular Gateway/contractual chain and account-specific retention, use and transfer terms are separate and not fully confirmed.</td></tr><tr><td><strong class="text-strong">ByteDance</strong>: <code data-model="bytedance/seedance-2.0">bytedance/seedance-2.0</code>, <code data-model="bytedance/seedance-2.0-fast">bytedance/seedance-2.0-fast</code>, <code data-model="bytedance/seedance-2.5">bytedance/seedance-2.5</code></td><td>Gateway. Text, supported image/video/audio references and settings, depending on the model.</td><td>ByteDance identifies the model/product. The actual recipient entity, processing countries and account-specific retention/transfer terms have not yet been confirmed; brand origin is not used to infer them.</td></tr><tr><td><strong class="text-strong">Google</strong>: <code data-model="google/gemini-omni-flash">google/gemini-omni-flash</code></td><td>Gateway. Prompt and supported media references, subject to actual availability approval.</td><td>Google identifies the model/product. The specific Google product/Gateway entity and account terms are not fully confirmed; Google LLC DPF status does not automatically cover every service.</td></tr><tr><td><strong class="text-strong">PixVerse</strong>: <code data-model="pixverse/v6">pixverse/v6</code></td><td>Gateway generation. Separate direct admin extension at app-api.pixverse.ai; the direct extension route is not currently configured as active.</td><td>Public API terms name MOTIVAI PRIVATE LIMITED and possible affiliate AIVORA PTE. LTD. (Singapore). The actual Gateway entity, processing countries, retention and transfer basis are not fully confirmed.</td></tr><tr><td><strong class="text-strong">Vidu</strong>: <code data-model="vidu/q3-pro">vidu/q3-pro</code></td><td>Admin Gateway and conditional direct fallback at api.vidu.com; direct routing requires the relevant technical conditions. Prompt/start/end frame depend on operation. Existence of this route does not mean it is used for every request.</td><td>Public policy: ShengShu AI HK Limited (Hong Kong), Singapore storage and possible China processing. This does not confirm the particular BITBI API/Gateway agreement, retention or transfer safeguards.</td></tr><tr><td><strong class="text-strong">Alibaba</strong>: <code data-model="alibaba/hh1-t2v">alibaba/hh1-t2v</code></td><td>Gateway for text-to-video; no reference images in the member route.</td><td>Alibaba identifies the model/product. The actual recipient entity, countries and account-specific data protection, retention and transfer terms have not yet been confirmed.</td></tr></tbody></table></div>
+<p><strong class="text-strong">Other services:</strong> Cloudflare processes hosting, infrastructure and its storage services; Stripe payment information in purpose-specific roles; Resend/Plus Five Five, Inc. (US) email destinations and content; GitHub source, CI and contributor data. GitHub does not receive private generation content merely through website delivery. Full account-specific contractual/transfer and retention terms have not all been confirmed. A provider key configured in Gateway can change the contractual/billing route compared with Unified Billing. The particular account settings are not represented as verified here. Output files from providers or their delivery services are retrieved for storage and playback; those delivery addresses are distinct from the inference provider.</p></div></section>
+<section class="glass glass-card reveal policy-section" aria-labelledby="legal-section-19"><div class="glass-card__header"><h2 class="glass-card__title" id="legal-section-19">Appendix B — BITBI browser storage</h2></div><div class="glass-card__body policy-section"><p>This table describes technical purposes and lifecycles; it does <strong class="text-strong">not classify every item as strictly necessary</strong>. Third-party checkout, wallet software and potential Cloudflare security cookies have separate conditions and are not fully covered here. Angle-bracket text represents variable account/project references. Without a specific deletion rule, localStorage entries generally remain until removed by the application, browser or user.</p>
+<div class="policy-table-wrap" role="region" tabindex="0" aria-label="Table: Appendix B — BITBI browser storage"><table><thead><tr><th scope="col">Technology</th><th scope="col">Name</th><th scope="col">Purpose / period</th></tr></thead><tbody><tr><td>Cookie</td><td><code>__Host-bitbi_session</code>, legacy <code>bitbi_session</code></td><td>Sign-in; 30 days; logout/expiry</td></tr><tr><td>Cookie</td><td><code>__Host-bitbi_admin_mfa</code>, legacy <code>bitbi_admin_mfa</code></td><td>Admin security proof; 12 hours</td></tr><tr><td>Cookie</td><td><code>bitbi_locale</code></td><td>Chosen language; one year</td></tr><tr><td>localStorage</td><td><code>bitbi_cookie_consent</code></td><td>Consent choice; version checked, no automatic age-based expiry</td></tr><tr><td>localStorage</td><td><code>bitbi.appearance.global.v1</code></td><td>Appearance preference; no independent time-based deletion rule</td></tr><tr><td>localStorage</td><td><code>bitbi.activeOrganizationId</code></td><td>Active organisation; no independent time-based deletion rule</td></tr><tr><td>localStorage</td><td><code>bitbi_audio_state_v1</code></td><td>Playback/position/track data; no general age limit in restore</td></tr><tr><td>localStorage</td><td><code>bitbi_wallet_connector_type</code>, <code>bitbi_wallet_connector_id</code>, <code>bitbi_wallet_address</code>, <code>bitbi_wallet_chain_id</code>, <code>bitbi_wallet_updated_at</code></td><td>Wallet recovery; seven-day age check on applicable restore, cleared on disconnect</td></tr><tr><td>localStorage</td><td><code>bitbi-generation:&lt;hash&gt;</code></td><td>Request ID for duplicate prevention; explicit clear, no general TTL</td></tr><tr><td>localStorage</td><td><code>bitbi_admin_ai_lab_state_v1</code></td><td>Admin lab state; no independent time-based deletion rule</td></tr><tr><td>localStorage</td><td><code>bitbi:canvas-agent-width:v1</code></td><td>Chat panel width; no independent time-based deletion rule</td></tr><tr><td>sessionStorage</td><td><code>bitbi:pending-home-category</code>, <code>bitbi:return-context</code></td><td>Return navigation; consumed/cleared or session-bound</td></tr><tr><td>sessionStorage</td><td><code>bitbi_pending_credit_pack</code>, <code>bitbi_pending_pricing_offer</code></td><td>Offer choice across sign-in; removed after use</td></tr><tr><td>sessionStorage</td><td><code>bitbi_omni_settings:&lt;owner&gt;</code>, <code>bitbi_seedance25:&lt;owner&gt;</code></td><td>Model/reference settings; session- and owner-specific</td></tr><tr><td>sessionStorage</td><td><code>bitbi:canvas-agent-start:&lt;projectId&gt;</code>, <code>bitbi:canvas-agent-budget:&lt;projectId&gt;</code></td><td>Pending interaction; not server authority</td></tr><tr><td>sessionStorage</td><td><code>bitbi:canvas-conversation-request:&lt;projectId&gt;</code></td><td>Unacknowledged chat request; may contain message; server chat separate</td></tr><tr><td>sessionStorage</td><td><code>bitbi:canvas-export:&lt;projectId&gt;:&lt;anchor&gt;</code></td><td>Unacknowledged export request; cleared on resolution</td></tr><tr><td>sessionStorage</td><td><code>bitbi:canvas-notifications:&lt;viewer&gt;</code>, <code>bitbi:canvas-notification-mutations:&lt;viewer&gt;</code></td><td>Offline notifications/read markers; bounded and viewer-specific</td></tr><tr><td>sessionStorage</td><td><code>bitbi:consumer-declaration:&lt;kind&gt;:v1</code></td><td>Resume declaration/receipt, potentially name/email; 24-hour restore limit</td></tr><tr><td>sessionStorage</td><td><code>bitbi_home_scroll_restore_v2</code></td><td>Scroll position; saved after scrolling and when leaving, restored only on reload; no independent time-based deletion rule</td></tr></tbody></table></div>
+<p>Browser session restoration may restore sessionStorage. Browser retention does not replace required server deletion. The selected language version does not alter the scope of rights.</p></div></section>
+</div>
+<p class="last-updated">Last updated: October 24, 2026</p>
+</article>
 </section>
 
 <p style="text-align:center;font-size:0.9rem;"><em>German version: <a href="/de/legal/datenschutz.html">Datenschutzerkl&auml;rung</a></em></p>
@@ -640,19 +247,23 @@
     import { initScrollReveal } from '/js/shared/scroll-reveal.js?v=__ASSET_VERSION__';
     import { initCookieConsent } from '/js/shared/cookie-consent.js?v=__ASSET_VERSION__';
     import { initSoftNav } from '/js/shared/soft-nav.js?v=__ASSET_VERSION__';
+    import { initLegalTables } from '/js/pages/legal/tables.js?v=__ASSET_VERSION__';
 
     try { initSiteHeader(); } catch(e) { console.warn(e); }
 
     let particlesHandle = null;
     let revealObserver = null;
+    let cleanupTables = null;
 
     function initPageVisuals() {
+        cleanupTables = initLegalTables();
         try { particlesHandle = initParticles('heroCanvas'); } catch(e) { console.warn(e); }
         try { initBinaryRain('binaryRain'); } catch(e) { console.warn(e); }
         try { revealObserver = initScrollReveal(); } catch(e) { console.warn(e); }
     }
 
     function cleanupPageVisuals() {
+        if (cleanupTables) { cleanupTables(); cleanupTables = null; }
         if (particlesHandle) { particlesHandle.destroy(); particlesHandle = null; }
         if (revealObserver) { revealObserver.disconnect(); revealObserver = null; }
     }
