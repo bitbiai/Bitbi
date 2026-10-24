@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { formatCiTestSelection, selectCiTests, memberSpecSources, canvasCompletionRouteSources } from "./lib/ci-test-selection.mjs";
+import { formatCiTestSelection, selectCiTests, memberSpecSources, canvasCompletionRouteSources, CURSOR_ENVIRONMENT_FILE, cursorEnvironmentSources } from "./lib/ci-test-selection.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
@@ -153,6 +153,7 @@ try {
   }
   const resolved = resolveFiles(options);
   let selection = selectCiTests(resolved.files, {
+    cursorSources: resolved.files.includes(CURSOR_ENVIRONMENT_FILE) ? cursorEnvironmentSources(options.base, options.head, repoRoot) : null,
     exportSources: exportDeliverySources(options.base ? options.head : null),
     forceFull: options.forceFull || !!resolved.issue,
     forceReason: resolved.issue || "explicit full regression",

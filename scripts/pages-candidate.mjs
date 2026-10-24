@@ -12,7 +12,7 @@ import {CANVAS_AGENT_DEPLOY_SOURCE,resolveCanvasAgentDeploySource,resolveCanvasA
 import {COMPLETED_MEDIA_SOURCE,assertCompletedMediaArtifact} from './lib/completed-media-continuation.mjs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { selectCiTests, requiresPrivateMediaImage, memberSpecSources, canvasCompletionRouteSources } from './lib/ci-test-selection.mjs';
+import { selectCiTests, requiresPrivateMediaImage, memberSpecSources, canvasCompletionRouteSources, CURSOR_ENVIRONMENT_FILE, cursorEnvironmentSources } from './lib/ci-test-selection.mjs';
 import { verifyHomepageReport, CANVAS_RELEASE_SCOPES, canvasReleaseProject, flattenHomepageDiscovery, verifyCanvasCompletionDiscovery, CANVAS_AUDIO_SCOPES, verifyCanvasAudioDiscovery, verifyCanvasAudioFitDiscovery, verifyCanvasInspectorDiscovery } from './lib/homepage-test-selection.mjs';
 // A changed acceptance scope requires fresh candidate evidence. Earlier Hero
 // reports cannot be recertified by removing their former required job.
@@ -74,7 +74,8 @@ export function gitSelection(base, sha) {
   assert(/^[a-f0-9]{40}$/.test(base || ''), 'Missing exact release base');
   assert(/^[a-f0-9]{40}$/.test(sha || ''), 'Missing exact release head');
   execFileSync('git',['merge-base','--is-ancestor',base,sha],{stdio:'pipe'});
-  return selectCiTests(execFileSync('git',['diff','--name-only','--no-renames',`${base}...${sha}`,'--'],{encoding:'utf8'}).trim().split('\n').filter(Boolean), {exportSources:exportDeliverySources(sha),inspectorSources:canvasInspectorSources(base,sha),memberTestSources:memberSpecSources(base,sha),canvasRouteSources:canvasCompletionRouteSources(base,sha)});
+  const files = execFileSync('git',['diff','--name-only','--no-renames',`${base}...${sha}`,'--'],{encoding:'utf8'}).trim().split('\n').filter(Boolean);
+  return selectCiTests(files, {cursorSources: files.includes(CURSOR_ENVIRONMENT_FILE) ? cursorEnvironmentSources(base, sha) : null, exportSources:exportDeliverySources(sha),inspectorSources:canvasInspectorSources(base,sha),memberTestSources:memberSpecSources(base,sha),canvasRouteSources:canvasCompletionRouteSources(base,sha)});
 }
 export function validatePublishedDeployment(deployment,status,run,job) {
   assert.equal(deployment.environment,'github-pages'); assert.equal(status.state,'success');

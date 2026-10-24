@@ -17,6 +17,36 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 
 {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bitbi-cursor-planner-'));
+  const file = '.cursor/environment.json';
+  const git = args => execFileSync('git', args, {cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']}).trim();
+  const commit = message => {git(['add', '.']); git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', message]); return git(['rev-parse', 'HEAD']);};
+  const reviewed = JSON.stringify({name: 'bitbi', install: 'if [ -f .nvmrc ]; then . "$HOME/.nvm/nvm.sh" && nvm install; fi && npm ci'});
+  const write = value => {fs.mkdirSync(path.join(root, '.cursor'), {recursive: true}); fs.writeFileSync(path.join(root, file), value);};
+  try {
+    git(['init', '-q']); fs.writeFileSync(path.join(root, '.nvmrc'), '24\n'); const base = commit('base');
+    write(reviewed); const head = commit('reviewed setup');
+    const context = {...createContext(), repoRoot: root};
+    const source = {mode: 'git-diff', base, head};
+    const plan = createReleasePlan(context, {changedFiles: [file], source});
+    assert.deepEqual(plan.deploySteps, [], 'Dependency setup creates no deploy or migration');
+    assert.deepEqual(plan.impacts.validationOnlyFiles, [file]);
+    assert.deepEqual(plan.impacts.uncategorizedFiles, []);
+    assert(!plan.recommendedChecks.includes('npm run test:workers'), 'Planner uses the same proved source as protected test selection');
+    const mixed = createReleasePlan(context, {changedFiles: [file, 'workers/auth/src/lib/consumer-contracts.js', 'legal/terms.html'], source});
+    assert.deepEqual(mixed.workerDeploys.map(step => step.worker), ['auth']);
+    assert.equal(mixed.deploySteps.at(-1).type, 'static'); assert.deepEqual(mixed.schemaApplies, []);
+    assert(mixed.recommendedChecks.includes('npm run test:workers'));
+    assert.deepEqual(createReleasePlan(context, {changedFiles: [file, '.cursor/unknown.json'], source}).impacts.uncategorizedFiles, ['.cursor/unknown.json']);
+    write(reviewed.replace('npm ci', 'npm ci && npm run deploy')); const bad = commit('unreviewed command');
+    const rejected = createReleasePlan(context, {changedFiles: [file], source: {...source, head: bad}});
+    assert.deepEqual(rejected.impacts.uncategorizedFiles, [file]);
+    assert(rejected.recommendedChecks.includes('npm run test:workers'), 'Unknown configuration retains broad test admission');
+    assert.deepEqual(createReleasePlan(createContext(), {changedFiles: [file], source}).impacts.uncategorizedFiles, [file], 'Absent source evidence cannot classify the deployment');
+  } finally {fs.rmSync(root, {recursive: true, force: true});}
+}
+
+{
  const migration='0117_consumer_contracts.sql';
  const {assertSupportedBackendMigrations}=await import('./lib/backend-publication.mjs');
  const {backendContinuationSupported}=await import('./lib/backend-continuation.mjs');

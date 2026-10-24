@@ -10,12 +10,67 @@ import {
   FAST_DEPLOY_WORKFLOW_PATHS,
   isFastDeploySafePath,
 } from "./lib/fast-deploy-paths.mjs";
-import { selectCiTests, requiresPrivateMediaImage, isDurableImageTestChange, isFluxReviewTestChange, isCanvasCompletionRouteChange, isCanvasWorkspaceRouteChange } from "./lib/ci-test-selection.mjs";
-import { requiredJobs } from "./pages-candidate.mjs";
+import { selectCiTests, requiresPrivateMediaImage, isDurableImageTestChange, isFluxReviewTestChange, isCanvasCompletionRouteChange, isCanvasWorkspaceRouteChange, CURSOR_ENVIRONMENT_FILE, cursorEnvironmentSources, isCursorDependencySetup } from "./lib/ci-test-selection.mjs";
+import { requiredJobs, gitSelection } from "./pages-candidate.mjs";
 import {isCanvasInspectorChange,isCanvasTransitionExampleChange} from './lib/canvas-inspector-selection.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
+
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bitbi-cursor-selection-'));
+  const git = args => {
+    const result = spawnSync('git', args, {cwd: root, encoding: 'utf8'});
+    assert.equal(result.status, 0, result.stderr); return result.stdout.trim();
+  };
+  const write = value => {fs.mkdirSync(path.join(root, '.cursor'), {recursive: true}); fs.writeFileSync(path.join(root, CURSOR_ENVIRONMENT_FILE), value);};
+  const commit = message => {git(['add', '.']); git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', message]); return git(['rev-parse', 'HEAD']);};
+  const reviewed = JSON.stringify({name: 'bitbi', install: 'if [ -f .nvmrc ]; then . "$HOME/.nvm/nvm.sh" && nvm install; fi && npm ci'});
+  const protectedSelection = (base, head) => {
+    const previous = process.cwd();
+    try {process.chdir(root); return gitSelection(base, head);} finally {process.chdir(previous);}
+  };
+  const cli = (base, head) => {
+    const output = path.join(root, 'selection-output');
+    fs.writeFileSync(output, '');
+    const result = spawnSync(process.execPath, ['scripts/select-ci-tests.mjs', '--base', base, '--head', head, '--github-output'], {
+      cwd: repoRoot, encoding: 'utf8', timeout: 10000,
+      env: {...process.env, GIT_DIR: path.join(root, '.git'), GIT_WORK_TREE: root, GITHUB_ACTIONS: 'false', GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: ''},
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const flags = Object.fromEntries(fs.readFileSync(output, 'utf8').trim().split('\n').map(line => line.split('=')));
+    fs.unlinkSync(output); return flags;
+  };
+  try {
+    git(['init', '-q']); fs.writeFileSync(path.join(root, '.nvmrc'), '24\n'); const base = commit('base');
+    write(reviewed); const head = commit('reviewed dependency setup');
+    const sources = cursorEnvironmentSources(base, head, root);
+    assert(isCursorDependencySetup(sources)); assert.equal(sources.before, null);
+    const selected = protectedSelection(base, head);
+    assert(selected.dependencies && !selected.docsOnly && !selected.full && !selected.runtime);
+    assert.deepEqual(Object.keys(requiredJobs(selected)), ['release-compatibility']);
+    assert(requiredJobs(selected)['release-compatibility'].includes('Audit root dependencies'));
+    assert.equal(cli(base, head).full, 'false'); assert.equal(cli(base, head).dependencies, 'true');
+    assert(selectCiTests([CURSOR_ENVIRONMENT_FILE]).full, 'Missing source evidence remains broad');
+    assert(selectCiTests([CURSOR_ENVIRONMENT_FILE], {cursorSources: sources, forceFull: true}).full);
+    assert(selectCiTests([CURSOR_ENVIRONMENT_FILE, '.cursor/hooks.json'], {cursorSources: sources}).full, 'Unknown neighboring file is not a dev-config wildcard');
+    const mixed = selectCiTests([CURSOR_ENVIRONMENT_FILE, 'workers/auth/package-lock.json'], {cursorSources: sources});
+    assert(mixed.dependencies && mixed.workerDependencies && mixed.workers && mixed.auth && !mixed.full);
+    for (const bad of [reviewed.replace('npm ci', 'npm install'), reviewed.replace('npm ci', 'npm ci && npm run deploy'), JSON.stringify({...JSON.parse(reviewed), start: 'npm run dev'}), '{']) {
+      write(bad);
+      assert.equal(isCursorDependencySetup(cursorEnvironmentSources(null, null, root)), false);
+      assert.equal(protectedSelection(base, head).full, false, 'Dirty worktree cannot replace immutable accepted candidate evidence');
+      const rejected = commit('changed setup');
+      assert(protectedSelection(head, rejected).full);
+      assert.equal(cli(head, rejected).full, 'true', 'Actual CLI must preserve the unknown/changed-command Full fallback');
+      write(reviewed); const restored = commit('restore setup');
+      assert(protectedSelection(rejected, restored).full, 'An unreviewed base setup cannot inherit the narrow transition');
+    }
+    fs.chmodSync(path.join(root, CURSOR_ENVIRONMENT_FILE), 0o755);
+    assert.equal(cursorEnvironmentSources(null, null, root), null, 'Executable setup is outside the reviewed file shape');
+    assert.equal(cursorEnvironmentSources('missing-ref', head, root), null);
+  } finally {fs.rmSync(root, {recursive: true, force: true});}
+}
 
 {
  const workers=['tests/q2-canvas-media-policy.spec.js','tests/helpers/canvas-agent-media-policy-control.mjs','tests/q2-canvas-media-action-policy.spec.js','tests/helpers/canvas-agent-media-action-policy-control.mjs','tests/q2-canvas-reliability.spec.js','tests/helpers/canvas-notifications-control.mjs',

@@ -1,7 +1,7 @@
 import {reviewedCanvasAgentConfigFiles} from './canvas-agent-release.mjs';
 import {backendContinuationSupported} from './backend-continuation.mjs';
 import { workerToolingPatchEvidence } from './worker-tooling-impact.mjs';
-import { selectCiTests } from './ci-test-selection.mjs';
+import { selectCiTests, CURSOR_ENVIRONMENT_FILE, cursorEnvironmentSources, isCursorDependencySetup } from './ci-test-selection.mjs';
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -570,7 +570,7 @@ function buildManualPrerequisites(context, impactedWorkerIds, staticRequired) {
   };
 }
 
-function buildRecommendedChecks(impacts, changedFiles) {
+function buildRecommendedChecks(impacts, changedFiles, selectionOptions = {}) {
   // This is discovery only (no browsers/providers). Test registration may live
   // in imported helpers; run the actual caller/equality checks before expensive
   // acceptance whenever those inputs or their selection contract change.
@@ -583,7 +583,7 @@ function buildRecommendedChecks(impacts, changedFiles) {
       'scripts/test-ci-test-selection.mjs', 'scripts/lib/release-plan.mjs', 'scripts/test-release-plan.mjs'].includes(file));
   // Validation-only fixtures/setup can select the Worker chain without a deploy.
   // Share CI's impact decision; preparation must fail before expensive suites.
-  const workersRequired = selectCiTests(changedFiles).workers
+  const workersRequired = selectCiTests(changedFiles, selectionOptions).workers
     || Object.keys(impacts.workers).length > 0 || Object.keys(impacts.schemaCheckpoints).length > 0;
   // The real static build checks the public corpus, including registry-derived
   // text. Surface a stale reviewed version before expensive selected suites.
@@ -674,7 +674,10 @@ function buildCompatibilityNotes(context, changedFiles, impacts) {
 export function createReleasePlan(context, { changedFiles, source = { mode: "explicit" } } = {}) {
   const normalizedFiles = normalizeUnique(changedFiles);
   const { toolingOnlyWorkerPackageFiles, reviewedToolingPatchFiles } = workerToolingPatchEvidence(context.repoRoot, source, normalizedFiles);
-  const impacts = classifyChangedFiles(context, normalizedFiles, toolingOnlyWorkerPackageFiles);
+  const cursorSources = normalizedFiles.includes(CURSOR_ENVIRONMENT_FILE) && context.repoRoot
+    ? cursorEnvironmentSources(source.mode === 'git-diff' ? source.base : null, source.head, context.repoRoot) : null;
+  const validationOnly = [...toolingOnlyWorkerPackageFiles, ...(isCursorDependencySetup(cursorSources) ? [CURSOR_ENVIRONMENT_FILE] : [])];
+  const impacts = classifyChangedFiles(context, normalizedFiles, validationOnly);
   const deploySteps = buildDeploySteps(context, impacts);
   const impactedWorkerIds = new Set(Object.keys(impacts.workers));
   const impactedServiceIds = new Set(Object.keys(impacts.services));
@@ -683,7 +686,7 @@ export function createReleasePlan(context, { changedFiles, source = { mode: "exp
     impactedWorkerIds,
     impacts.static.changedFiles.length > 0
   );
-  const recommendedChecks = buildRecommendedChecks(impacts, normalizedFiles);
+  const recommendedChecks = buildRecommendedChecks(impacts, normalizedFiles, {cursorSources});
   const consistencyIssues = buildConsistencyIssues(context, normalizedFiles, impacts);
   const compatibilityNotes = buildCompatibilityNotes(context, normalizedFiles, impacts);
 

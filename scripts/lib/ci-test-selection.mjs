@@ -1,5 +1,6 @@
 import {EXPORT_DELIVERY_POLICY,EXPORT_DELIVERY_FILES,EXPORT_DELIVERY_UNPUBLISHED_FILES,exportDeliverySources,isExportDeliverySource} from './canvas-export-release.mjs';
 import path from "node:path";
+import fs from "node:fs";
 import { execFileSync } from "node:child_process";
 import { isMemberModelFastDeployPath } from "./fast-deploy-paths.mjs";
 import {isCanvasInspectorChange,isCanvasTransitionExampleChange} from './canvas-inspector-selection.mjs';
@@ -11,6 +12,43 @@ const DOCUMENTATION_FILENAMES = new Set([
   "LICENSE",
   "README.md",
 ]);
+
+export const CURSOR_ENVIRONMENT_FILE = '.cursor/environment.json';
+const CURSOR_INSTALL = 'if [ -f .nvmrc ]; then . "$HOME/.nvm/nvm.sh" && nvm install; fi && npm ci';
+
+// A development-only setup is not a product/runtime change. Keep this exact
+// reviewed shape closed: unknown hooks, commands and neighboring files stay broad.
+export function isCursorDependencySetup(sources) {
+  const reviewed = text => {
+    if (typeof text !== 'string' || text.length > 2048) return false;
+    try {
+      const value = JSON.parse(text);
+      return value?.name === 'bitbi' && value.install === CURSOR_INSTALL
+        && Object.keys(value).sort().join(',') === 'install,name';
+    } catch { return false; }
+  };
+  return !!sources && (sources.before === null || reviewed(sources.before)) && reviewed(sources.after);
+}
+
+export function cursorEnvironmentSources(base, head, cwd = process.cwd()) {
+  try {
+    const git = args => execFileSync('git', args, {cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']}).trim();
+    const read = ref => {
+      const entry = git(['ls-tree', ref, '--', CURSOR_ENVIRONMENT_FILE]);
+      if (!entry) return null;
+      if (!entry.startsWith('100644 blob ')) throw new Error('Unsupported development setup file mode');
+      return git(['show', `${ref}:${CURSOR_ENVIRONMENT_FILE}`]);
+    };
+    if (base) {
+      const candidate = git(['rev-parse', '--verify', `${head || 'HEAD'}^{commit}`]);
+      return {before: read(git(['merge-base', base, candidate])), after: read(candidate)};
+    }
+    const target = path.join(cwd, CURSOR_ENVIRONMENT_FILE);
+    const info = fs.lstatSync(target);
+    if (!info.isFile() || (info.mode & 0o111)) return null;
+    return {before: read('HEAD'), after: fs.readFileSync(target, 'utf8')};
+  } catch { return null; }
+}
 
 const ROOT_STATIC_FILES = new Set([
   "404.html",
@@ -1029,7 +1067,7 @@ const CANVAS_COMPLETION_FILES = new Set([
   'tests/helpers/q2-runtime/environment.mjs',
 ]);
 
-export function selectCiTests(files, { forceFull = false, forceReason = "explicit full regression", memberTestSources = null, canvasRouteSources = null, inspectorSources = null, exportSources = undefined } = {}) {
+export function selectCiTests(files, { forceFull = false, forceReason = "explicit full regression", memberTestSources = null, canvasRouteSources = null, inspectorSources = null, exportSources = undefined, cursorSources = null } = {}) {
   const changedFiles = normalizeFiles(files);
   const selection = {
     files: changedFiles,
@@ -1311,6 +1349,11 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
 
     if (file === "package.json" || file === "package-lock.json") {
       addReason(selection, "dependencies", file, "changes the root dependency or toolchain contract");
+      continue;
+    }
+
+    if (file === CURSOR_ENVIRONMENT_FILE && isCursorDependencySetup(cursorSources)) {
+      addReason(selection, 'dependencies', file, 'reviews development setup using the existing Node pin and root npm ci; no deployment input');
       continue;
     }
 
