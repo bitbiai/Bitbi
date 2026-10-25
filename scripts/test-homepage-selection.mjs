@@ -67,12 +67,13 @@ try {
     for (const project of ['chromium','webkit-consumer']) {
       const cases = rows.filter(row=>row.project===project && row.title.includes('@consumer-contract'));
       assert(cases.every(row=>['smoke.spec.js','auth-admin.spec.js'].includes(row.file)),'Test declarations retain their owning entrypoint');
-      assert.equal(cases.length,15,'Public, account and operator consumer cases must execute in both engines');
-      assert.equal(new Set(cases.map(row=>row.title)).size,15,'Duplicate consumer case');
+      assert.equal(cases.length,17,'Public, account and operator consumer cases must execute in both engines');
+      assert.equal(new Set(cases.map(row=>row.title)).size,17,'Duplicate consumer case');
       assert(cases.every(row=>row.expectedStatus==='passed'),'Consumer cases cannot be skipped');
       for(const locale of ['en','de']) {
-        assert.equal(cases.filter(row=>row.title.includes(`@consumer-contract ${locale} `)).length,7);
+        assert.equal(cases.filter(row=>row.title.includes(`@consumer-contract ${locale} `)).length,8);
         assert.equal(cases.filter(row=>row.title.includes(`@consumer-contract ${locale} legal documents`)).length,1,'Complete legal documents and table keyboard access must be covered');
+        assert.equal(cases.filter(row=>row.file==='auth-admin.spec.js' && row.title.endsWith(`@consumer-contract ${locale} account consent`)).length,1,'Account-switch consent must execute in both locales and engines');
       }
     }
   };
@@ -82,6 +83,7 @@ try {
   assert.throws(()=>verifyConsumerDiscovery([...standard,consumerCase]));
   assert.throws(()=>verifyConsumerDiscovery(standard.map(row=>row===consumerCase?{...row,expectedStatus:'skipped'}:row)));
   assert.throws(()=>verifyConsumerDiscovery(standard.map(row=>row.title.includes('legal documents')?{...row,title:row.title.replace('legal documents','replacement')}:row)));
+  assert.throws(()=>verifyConsumerDiscovery(standard.map(row=>row.title.endsWith('account consent')?{...row,title:row.title.replace('account consent','replacement')}:row)));
 
   const core = discover('core', homepageCoreArguments({'test:homepage-core': coreScript}));
   const counts = verifyHomepageCoreDiscovery(core, standard);
