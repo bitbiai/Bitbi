@@ -2136,6 +2136,7 @@ export function apiCreateLiveCreditPackCheckout(orgId, {
     termsAccepted,
     termsVersion,
     consentVersion, locale, earlyStartRequested,
+    creditPackPerformanceConsent, creditPackConsentVersion,
     immediateDeliveryAccepted,
     acceptedAt,
 } = {}) {
@@ -2144,6 +2145,7 @@ export function apiCreateLiveCreditPackCheckout(orgId, {
         terms_accepted: termsAccepted === true,
         terms_version: termsVersion,
         ...(consentVersion ? { consentVersion, locale, earlyStartRequested: earlyStartRequested === true, withdrawalKnowledgeAccepted: false } : {}),
+        ...(creditPackPerformanceConsent === true ? { creditPackPerformanceConsent: true, creditPackConsentVersion } : {}),
         immediate_delivery_accepted: immediateDeliveryAccepted === true,
         accepted_at: acceptedAt || null,
     }, {
@@ -2157,6 +2159,7 @@ export function apiCreateMemberLiveCreditPackCheckout({
     termsAccepted,
     termsVersion,
     consentVersion, locale, earlyStartRequested,
+    creditPackPerformanceConsent, creditPackConsentVersion,
     immediateDeliveryAccepted,
     acceptedAt,
 } = {}) {
@@ -2165,6 +2168,7 @@ export function apiCreateMemberLiveCreditPackCheckout({
         terms_accepted: termsAccepted === true,
         terms_version: termsVersion,
         ...(consentVersion ? { consentVersion, locale, earlyStartRequested: earlyStartRequested === true, withdrawalKnowledgeAccepted: false } : {}),
+        ...(creditPackPerformanceConsent === true ? { creditPackPerformanceConsent: true, creditPackConsentVersion } : {}),
         immediate_delivery_accepted: immediateDeliveryAccepted === true,
         accepted_at: acceptedAt || null,
     }, {

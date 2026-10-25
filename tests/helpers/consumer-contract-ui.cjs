@@ -228,6 +228,16 @@ async function checkoutConsent({page,expect,locale,mockPricingAccount}) {
       const {checkoutRequests} = await mockPricingAccount(page, {role:'user',organizations:[]});
       await page.route('https://checkout.stripe.com/**',route=>route.fulfill({body:'Synthetic checkout'}));
       await page.goto(locale==='de'?'/de/pricing.html':'/pricing.html');
+      await expect(page.locator('[data-pricing-free-account] .pricing-card__tax-note')).toHaveCount(0);
+      await expect(page.locator('.pricing-card__tax-note').first()).toHaveText(locale==='de'
+        ? 'Alle Preise sind Endpreise. Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.'
+        : 'All prices are final prices. Pursuant to § 19 UStG, no VAT is charged.');
+      await page.locator('[data-pricing-pack="live_credits_5000"]').click();
+      await expect(page.locator('.pricing-legal')).toContainText(locale==='de'
+        ? 'Mir ist bekannt, dass ich mit dieser Zustimmung mein Widerrufsrecht mit Beginn der Vertragsausführung verliere.'
+        : 'add the credits to my account immediately');
+      await expect(page.locator('.pricing-legal__check input').nth(1)).not.toBeChecked();
+      await page.locator('[data-subscription-checkout]').click();
       const checks=page.locator('.pricing-legal__check input');
       await expect(checks).toHaveCount(2); await expect(checks.nth(0)).not.toBeChecked(); await expect(checks.nth(1)).not.toBeChecked();
       await expect(page.locator('.pricing-legal')).toContainText(locale==='de'?'verzichte ich nicht pauschal':'does not constitute a blanket waiver');
@@ -240,9 +250,42 @@ async function checkoutConsent({page,expect,locale,mockPricingAccount}) {
       await page.unroute('**/api/account/billing/checkout/subscription', stale);
       await page.locator('.pricing-legal__checkout').click();
       await expect.poll(()=>checkoutRequests.length).toBe(1);
-      expect(checkoutRequests[0].body).toMatchObject({terms_version:'2026-10-24',consentVersion:'consumer-v1',locale,earlyStartRequested:true,withdrawalKnowledgeAccepted:false});
+      expect(checkoutRequests[0].body).toMatchObject({terms_version:'2026-10-25',consentVersion:'consumer-v1',locale,earlyStartRequested:true,withdrawalKnowledgeAccepted:false});
 }
 module.exports.checkoutConsent=checkoutConsent;
+
+async function checkoutAccountConsent({page,expect,locale,mockPricingAccount}) {
+  const {checkoutRequests}=await mockPricingAccount(page,{role:'user',organizations:[]});
+  const member=id=>({loggedIn:true,user:{id,role:'user',email:'synthetic@example.invalid'}});
+  let response=member('pricing-owner-a'),status=200;
+  await page.route('**/api/me',route=>route.fulfill({status,json:response}));
+  await page.route('https://checkout.stripe.com/**',route=>route.fulfill({body:'Synthetic checkout'}));
+  await page.goto(locale==='de'?'/de/pricing.html':'/pricing.html');
+  const refresh=()=>page.evaluate(async()=>{await (await import('/js/shared/auth-state.js')).initAuth();});
+  await expect.poll(()=>page.evaluate(async()=>(await import('/js/shared/auth-state.js')).getAuthState().user?.id)).toBe('pricing-owner-a');
+  const checks=page.locator('.pricing-legal__check input');
+  const pack=page.locator('[data-pricing-pack="live_credits_5000"]');
+  const pro=page.locator('[data-subscription-checkout]');
+  const setConsents=async()=>{await checks.nth(0).check();await checks.nth(1).check();};
+  const checkConsents=async checked=>{for(const check of await checks.all())await expect(check).toBeChecked({checked});};
+  await checkConsents(false);
+  await setConsents(); // Remember Pro's distinct early-performance choice too.
+  await pack.click();await expect(pack).toHaveAttribute('aria-pressed','true');
+  await checks.nth(1).check();
+  await refresh();await checkConsents(true); // The same confirmed actor keeps the draft.
+  status=503;response={ok:false,error:'Synthetic connection loss'};await refresh();
+  status=200;response=member('pricing-owner-a');await refresh();await checkConsents(true);
+  response=member('pricing-owner-b');await refresh();
+  await expect(pack).toHaveAttribute('aria-pressed','true');await checkConsents(false);
+  await page.locator('.pricing-legal__checkout').click();expect(checkoutRequests).toHaveLength(0);
+  await pro.click();await checkConsents(false); // A hidden Pro consent cannot cross accounts.
+  await setConsents();
+  response={loggedIn:false,user:null};await refresh();await checkConsents(false);
+  response=member('pricing-owner-b');await refresh();await checkConsents(false);
+  await pack.click();await expect(pack).toHaveAttribute('aria-pressed','true');await checkConsents(false);
+  expect(checkoutRequests).toHaveLength(0);
+}
+module.exports.checkoutAccountConsent=checkoutAccountConsent;
 
 async function contractDocuments({page,expect,locale,mockCreditsAccount}) {
       await mockCreditsAccount(page,{organizations:[]});

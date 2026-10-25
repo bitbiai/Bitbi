@@ -83,7 +83,7 @@ export const MAINTAINABILITY_FILE_BUDGETS = Object.freeze([
   { path: "css/pages/generate-lab.css", maxBytes: 65_000, reason: "Generate Lab CSS should stay targeted to the creation workspace." },
   { path: "css/account/assets-manager.css", maxBytes: 105_000, reason: "Assets Manager CSS carries private media UI complexity." },
   { path: "tests/workers.spec.js", maxBytes: 2_175_000, reason: "Worker tests are intentionally broad but should not grow unnoticed." },
-  { path: "tests/auth-admin.spec.js", maxBytes: 975_000, reason: "Admin/static integration coverage is broad and should be watched." },
+  { path: "tests/auth-admin.spec.js", maxBytes: 976_000, reason: "Admin/static integration coverage includes the credit-pack consent checkout assertions." },
   { path: "tests/smoke.spec.js", maxBytes: 520_000, reason: "Static smoke coverage should remain navigable for one-owner maintenance." },
 ]);
 

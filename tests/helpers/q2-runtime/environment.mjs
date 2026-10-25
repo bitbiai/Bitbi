@@ -9,6 +9,7 @@ import { randomBytes } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { parseJsonc } from '../../../scripts/lib/release-compat.mjs';
 import { readMigrations, sha256 } from './sql.mjs';
+import { createConsumerMailProvider } from './consumer-mail-provider.mjs';
 
 export const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
 const authRoot = path.join(repoRoot, 'workers/auth');
@@ -104,6 +105,8 @@ export async function createRuntime(build, name, { restricted = false, reference
   if (canvasRuntime) Object.assign(bindings, { ENABLE_GROK_4_6: 'true', ENABLE_ADMIN_AI_TEXT_BUDGET: 'true', ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET: 'true', AI_SERVICE_AUTH_SECRET: 'q2-canvas-service-synthetic-not-live' });
   const deny = async () => { counters.outboundDenied += 1; throw new Error('Native test outbound denied'); };
   const denyService = async () => { counters.serviceDenied += 1; throw new Error('Native test provider service denied'); };
+  const consumerMailProvider = name === 'q4-subscription' ? createConsumerMailProvider(deny) : null;
+  if (consumerMailProvider) bindings.Q2_CONSUMER_MAIL_FIXTURE = 'true';
   const canvasProvider = { requests: [], fail: false };
   if (canvasRuntime) {
     const sharp = requireAuth('sharp');
@@ -155,7 +158,7 @@ export async function createRuntime(build, name, { restricted = false, reference
   };
   const shared = { modules: true, ...(['member-generation','canvas','canvas-reliability','canvas-completion','canvas-audio','canvas-audio-fit','canvas-transitions','canvas-retention','model-status'].includes(name) ? {images:{binding:'IMAGES'}} : {}), compatibilityDate: build.config.compatibility_date, bindings, d1Databases: { DB: `q2-${name}-db`, ...(canvasRuntime?{CANVAS_IMAGE_TEST_DB:'q2-canvas-image-scheduling-db'}:{}) },
     r2Buckets: { USER_IMAGES: `q2-${name}-images`, PRIVATE_MEDIA: `q2-${name}-private`, AUDIT_ARCHIVE: `q2-${name}-archive` },
-    outboundService: canvasRuntime ? canvasOutput : name==='member-generation' ? h3Rest : deny, serviceBindings: { AI_LAB: canvasRuntime ? canvasService : denyService },
+    outboundService: canvasRuntime ? canvasOutput : name==='member-generation' ? h3Rest : consumerMailProvider?.fetch || deny, serviceBindings: { AI_LAB: canvasRuntime ? canvasService : denyService },
     ...(canvasRuntime ? { unsafeBindings: [{name:'AI',type:'q2-image25-ai',plugin:{name:'q2-image25-ai',package:fileURLToPath(new URL('./image25-ai-binding.mjs',import.meta.url))},options:{}}] } : {}), unsafeRegisterWorker: false };
   const limiterOwner = restricted ? 'q2-restricted' : 'q2-candidate';
   const limiter = owner => ({ PUBLIC_RATE_LIMITER: { className: 'AuthPublicRateLimiterDurableObject', useSQLite: true, ...(owner ? { scriptName: owner } : {}) } });
@@ -206,7 +209,7 @@ export async function createRuntime(build, name, { restricted = false, reference
     const scalar = async (query, ...args) => sql(query, ...args).first('value');
     const controlWorker = referenceOnly ? null : await mf.getWorker('q2-control');
     const control = (route, body) => controlWorker.fetch(`https://q2-control.invalid${route}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-q2-control': controlToken }, body: JSON.stringify(body) });
-    return { mf, db, imageDb, bucket, sql, rows, scalar, control, counters, canvasProvider, webhookSecret, migrations: build.migrations, config: build.config, executionDir, close: () => mf.dispose() };
+    return { mf, db, imageDb, bucket, sql, rows, scalar, control, counters, canvasProvider, consumerMailProvider, webhookSecret, migrations: build.migrations, config: build.config, executionDir, close: () => mf.dispose() };
   } catch (error) { await mf.dispose(); throw error; }
 }
 

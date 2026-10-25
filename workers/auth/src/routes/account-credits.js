@@ -92,6 +92,8 @@ async function handleMemberLiveCreditPackCheckout(ctx, session) {
         earlyStartRequested: parsed.body?.earlyStartRequested === true,
         withdrawalKnowledgeAccepted: parsed.body?.withdrawalKnowledgeAccepted,
         extinction: parsed.body?.extinction,
+        creditPackPerformanceConsent: parsed.body?.creditPackPerformanceConsent === true,
+        creditPackConsentVersion: parsed.body?.creditPackConsentVersion,
         immediateDeliveryAccepted: parsed.body?.immediate_delivery_accepted === true || parsed.body?.immediateDeliveryAccepted === true,
         acceptedAt: parsed.body?.accepted_at || parsed.body?.acceptedAt || null,
       },

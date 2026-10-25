@@ -55,7 +55,9 @@ async function sendClaimed(env, row, now) {
   try {
     const response = await fetch('https://api.resend.com/emails', { method:'POST',
       headers:{ Authorization:`Bearer ${env.RESEND_API_KEY}`, 'Content-Type':'application/json', 'Idempotency-Key':`bitbi/${row.id}` },
-      body:row.payload_json, signal:AbortSignal.timeout(15_000), redirect:'error' });
+      // Workers supports manual/follow, not redirect:error. Return any redirect
+      // to the existing non-success branch without forwarding credentials.
+      body:row.payload_json, signal:AbortSignal.timeout(15_000), redirect:'manual' });
     if (response.status === 429 || response.status >= 500) { await response.body?.cancel(); await retry('mail_transient_or_unknown'); return; }
     if (!response.ok) { await response.body?.cancel(); await updateOwned(env,row,{state:'review_required',code:`mail_http_${response.status}`,now}); return; }
     const body = await boundedJson(response);
@@ -68,7 +70,7 @@ async function observeAccepted(env, row, now) {
   if (!env.RESEND_API_KEY || !PROVIDER_ID.test(row.provider_message_id || '')) return;
   try {
     const response = await fetch(`https://api.resend.com/emails/${encodeURIComponent(row.provider_message_id)}`, {
-      headers:{Authorization:`Bearer ${env.RESEND_API_KEY}`}, signal:AbortSignal.timeout(10_000), redirect:'error' });
+      headers:{Authorization:`Bearer ${env.RESEND_API_KEY}`}, signal:AbortSignal.timeout(10_000), redirect:'manual' });
     if (!response.ok) { await response.body?.cancel(); throw new Error('mail_observation_failed'); }
     const data = await boundedJson(response);
     if (data.id !== row.provider_message_id) throw new Error('mail_observation_mismatch');
@@ -88,14 +90,18 @@ async function observeAccepted(env, row, now) {
 
 // Called by the existing cron, never by a download/read endpoint. Small serial
 // batches respect the shared account; a lease and the same provider key fence replay.
-export async function processTransactionalMessages(env, { limit = 10, now = nowIso() } = {}) {
+export async function processTransactionalMessages(env, { limit = 10, now = nowIso(), messageId = null } = {}) {
+  if (messageId!==null && !safeId(messageId)) throw new Error('transactional_message_id_invalid');
+  // A verified fulfillment can wake its own message immediately; the ordinary
+  // cron remains unfiltered. Never let unrelated backlog consume that wake.
+  const target=messageId===null ? '' : ' AND id=?', bindings=messageId===null ? [] : [messageId];
   await env.DB.prepare(`UPDATE transactional_messages SET state='review_required',error_code='mail_outcome_requires_review',
-    lease_token=NULL,lease_expires_at=NULL,updated_at=? WHERE state='sending' AND lease_expires_at<=? AND attempt_count>=?`)
-    .bind(now,now,MAX_ATTEMPTS).run();
-  const rows = await env.DB.prepare(`SELECT * FROM transactional_messages WHERE
+    lease_token=NULL,lease_expires_at=NULL,updated_at=? WHERE state='sending' AND lease_expires_at<=? AND attempt_count>=?${target}`)
+    .bind(now,now,MAX_ATTEMPTS,...bindings).run();
+  const rows = await env.DB.prepare(`SELECT * FROM transactional_messages WHERE (
     (state='queued' AND next_attempt_at<=?) OR (state='sending' AND lease_expires_at<=?)
-    OR (state='accepted' AND next_attempt_at IS NOT NULL AND next_attempt_at<=?) ORDER BY created_at,id LIMIT ?`)
-    .bind(now,now,now,Math.min(20,Math.max(1,limit))).all();
+    OR (state='accepted' AND next_attempt_at IS NOT NULL AND next_attempt_at<=?))${target} ORDER BY created_at,id LIMIT ?`)
+    .bind(now,now,now,...bindings,Math.min(20,Math.max(1,limit))).all();
   let processed=0;
   for (const item of rows.results || []) {
     if (item.state==='accepted') { await observeAccepted(env,item,now); processed++; continue; }

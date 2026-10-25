@@ -27,6 +27,9 @@ async function startWorkerHttp(worker, env, { origin = 'https://bitbi.ai' } = {}
         ...(chunks.length ? { body: Buffer.concat(chunks) } : {}),
       });
       const response = await worker.fetch(request, env, context);
+      // Observe waitUntil before the fixture returns, so mail woken with the
+      // response is visible to the caller and is not a race with the cron.
+      await Promise.allSettled([...background]);
       outgoing.statusCode = response.status;
       for (const [name, value] of response.headers) {
         if (name !== 'set-cookie') outgoing.setHeader(name, value);

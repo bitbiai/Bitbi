@@ -74,7 +74,25 @@ export default {
     if (request.method !== 'POST' || request.headers.get('x-q2-control') !== env.Q2_CONTROL_TOKEN) return new Response(null,{status:403});
     const path=new URL(request.url).pathname;
     const body=await request.json();
-    if(path==='/consumer-mail')return Response.json(await processTransactionalMessages(env));
+    if(path==='/consumer-mail'&&!body.syntheticDelivery)return Response.json(await processTransactionalMessages(env));
+    if((path==='/consumer-pack-webhook'||path==='/consumer-mail'||path==='/consumer-mail-redirect-contract')&&env.Q2_CONSUMER_MAIL_FIXTURE==='true'){
+      // Actual Worker.fetch, native D1 and real signature verification; only the
+      // mail environment/boundary is synthetic. No live keys or recipients.
+      const scoped={...env,RESEND_API_KEY:'test-native-consumer-mail',RESEND_FROM_EMAIL:'receipts@example.invalid',STRIPE_LIVE_SECRET_KEY:'sk_live_example_native_consumer_mail'};
+      if(path==='/consumer-mail-redirect-contract'){
+        try {await fetch('https://api.resend.com/emails',{redirect:'error'});}
+        catch(error){return Response.json({name:error.name,invalidRedirect:error instanceof TypeError&&error.message.includes('Invalid redirect value')});}
+        throw new Error('Native redirect:error counterexample no longer rejects before dispatch');
+      }
+      if(path==='/consumer-mail')return Response.json(await processTransactionalMessages(scoped,{now:body.now}));
+      if(typeof body.raw!=='string'||body.raw.length>10000||typeof body.signature!=='string')return new Response(null,{status:400});
+      const pending=[];
+      const response=await worker.fetch(new Request('https://bitbi.ai/api/billing/webhooks/stripe/live',{
+        method:'POST',headers:{'Content-Type':'application/json','CF-Connecting-IP':'192.0.2.182','Stripe-Signature':body.signature},body:body.raw,
+      }),scoped,{waitUntil(promise){pending.push(promise);}});
+      await Promise.all(pending);
+      return Response.json({status:response.status,body:await response.json(),waitUntilCount:pending.length});
+    }
     if(path==='/canvas-project-lifecycle')return Response.json(await canvasProjectLifecycleCase(env));
     if(path==='/canvas-notifications')return Response.json(await canvasNotificationsCase(env));
     if(path==='/canvas-notifications-migration-seed')return Response.json(await seedCanvasNotificationsMigration(env));

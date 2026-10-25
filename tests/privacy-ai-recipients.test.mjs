@@ -275,13 +275,13 @@ test('terms preserve withdrawal, usable-result rights and bounded input and outp
   const englishHtml = read('legal/terms.html'), germanHtml = read('de/legal/terms.html');
   const english = visibleText(legalBody(englishHtml)), german = visibleText(legalBody(germanHtml));
   for (const html of [englishHtml, germanHtml]) assert.match(html, /<meta name="robots" content="noindex, follow">/);
-  assert.match(english, /Version dated 24 October 2026/);
+  assert.match(english, /Version dated 25 October 2026/);
   assert.match(english, /Model withdrawal form/);
   assert.match(english, /Schwarzwaldstraße 20, 78647 Trossingen, Germany/);
   assert.match(english, /saved, playable exported video with the agreed audio or music and its editable Canvas project/);
   assert.match(english, /raises the combined existing credit balance to no more than ten credits/);
-  assert.match(english, /does not automatically treat credit provision or use as extinguishing withdrawal rights/);
-  assert.match(english, /not a blanket waiver/);
+  assert.match(english, /§ 356\(6\) no\. 2 BGB/);
+  assert.match(english, /not a waiver of the right of withdrawal/);
   assert.match(english, /not its full performance/);
   assert.match(english, /No blanket licence is granted for every commercial use/);
   assert.match(english, /does not automatically authorise independent advertising or model training using private content/);
@@ -289,12 +289,13 @@ test('terms preserve withdrawal, usable-result rights and bounded input and outp
   assert.match(english, /internal supplier invoice or credit entry alone does not determine/);
   assert.match(english, /payment-provider change has already occurred/);
   assert.match(english, /Existing contracts are not automatically replaced/);
-  assert.match(german, /Fassung vom 24\. Oktober 2026/);
+  assert.match(german, /Fassung vom 25\. Oktober 2026/);
   assert.match(german, /Muster-Widerrufsformular/);
   assert.match(german, /Schwarzwaldstraße 20, 78647 Trossingen, Deutschland/);
-  assert.match(german, /keinen pauschalen Verzicht/);
+  assert.match(german, /§ 356 Abs\. 6 Nr\. 2 BGB/);
+  assert.match(german, /keinen Verzicht auf das Widerrufsrecht/);
   assert.match(german, /kein fertiger Film/);
-  assert.match(german, /nicht automatisch als Erlöschen dieses Rechts/);
+  assert.match(german, /nicht seine vollständige Erfüllung/);
   assert.match(german, /Eine pauschale Lizenz für jede kommerzielle Verwendung sämtlicher Modellergebnisse wird nicht erteilt/);
   assert.match(german, /Bestätigungs-E-Mail|technischer Mailfehler/);
   for (const [html, paths] of [[englishHtml, ['withdrawal', 'cancellation']], [germanHtml, ['widerruf', 'kuendigung']]]) {
@@ -305,7 +306,7 @@ test('terms preserve withdrawal, usable-result rights and bounded input and outp
 });
 
 test('checkout, complete legal texts and immutable historical content keep explicit versions', () => {
-  assert.equal(CONSUMER_TERMS_VERSION, '2026-10-24');
+  assert.equal(CONSUMER_TERMS_VERSION, '2026-10-25');
   for (const file of ['js/pages/pricing/main.js', 'js/pages/credits/main.js', 'workers/auth/src/lib/stripe-billing.js']) {
     assert.match(read(file), /consumer-contract\.mjs/);
   }
@@ -315,12 +316,14 @@ test('checkout, complete legal texts and immutable historical content keep expli
   for (const [locale, file] of [['en', 'legal/terms.html'], ['de', 'de/legal/terms.html']]) {
     const content = CONSUMER_TERMS_CONTENT[locale];
     assert.equal(content.version, CONSUMER_TERMS_VERSION);
-    assert.match(consumerConsentText(locale).terms, locale === 'de' ? /24\.10\.2026/ : /24 October 2026/);
+    assert.match(consumerConsentText(locale).terms, locale === 'de' ? /25\.10\.2026/ : /25 October 2026/);
     verifyTermsContent(read(file), content.text);
     const missingParagraph = read(file).replace(/<p>[^<]*<\/p>/, '');
     assert.notEqual(missingParagraph, read(file), 'countercontrol must remove a real paragraph');
     assert.throws(() => verifyTermsContent(missingParagraph, content.text), /snapshot text/);
     assert.equal(HISTORICAL_CONSUMER_TERMS_CONTENT['2026-10-23'][locale].version, '2026-10-23');
+    assert.equal(HISTORICAL_CONSUMER_TERMS_CONTENT['2026-10-24'][locale].version, '2026-10-24');
+    assert.match(HISTORICAL_CONSUMER_TERMS_CONTENT['2026-10-24'][locale].text, locale === 'de' ? /keinen pauschalen Verzicht/ : /not a blanket waiver/);
   }
   // Original a4b2cc3c bundle retained byte-for-byte; do not silently replace old accepted text.
   assert.equal(createHash('sha256').update(readFileSync(resolve(root, 'workers/auth/src/lib/consumer-terms-content-2026-10-23.js'))).digest('hex'),
