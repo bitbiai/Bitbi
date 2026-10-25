@@ -53,7 +53,7 @@ const repoRoot = path.resolve(__dirname, "..");
  assertSupportedBackendMigrations([migration]);
  const plan=createReleasePlanFromRepo(repoRoot,{files:[`workers/auth/migrations/${migration}`,'js/shared/consumer-contract.mjs','workers/auth/src/lib/stripe-billing.js','legal/withdrawal.html','de/legal/widerruf.html']});
  assert.deepEqual(plan.workerDeploys.map(step=>step.worker),['auth']);
- assert.equal(plan.schemaApplies[0].latestMigration,migration);
+ assert.equal(plan.schemaApplies[0].latestMigration,JSON.parse(fs.readFileSync(path.join(repoRoot,'config/release-compat.json'),'utf8')).release.schemaCheckpoints.auth.latest);
  assert.equal(plan.deploySteps[0].type,'schema-checkpoint');assert.equal(plan.deploySteps.at(-1).type,'static');
  assert(backendContinuationSupported(plan));assert.deepEqual(Object.keys(plan.impacts.services),[]);
  assert.throws(()=>assertSupportedBackendMigrations(['0117_unreviewed.sql']));

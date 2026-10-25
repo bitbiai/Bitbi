@@ -50,6 +50,7 @@ Latest auth D1 migration: read `release.schemaCheckpoints.auth.latest` from `con
 
 Current high-impact migration dependencies:
 
+- `0118_retire_missing_member_stripe_customers.sql` adds nullable `retired_at` on `billing_member_customers`. Apply it before deploying Auth Worker credit-pack Checkout that reuses a member Stripe customer.
 - Q2 adds `0082_add_admin_mfa_mutation_guard.sql` and `0083_add_r2_cleanup_reference_fence.sql` as forward-only candidate files. Apply neither during code preparation. MFA consumes credentials atomically before issuing a credential-bound v2 proof; old v1 proofs require re-verification. Cleanup preserves permanent retired-key fences and holds ambiguous legacy queue entries. Package-specific release/recovery requirements are in `docs/runbooks/OMA2_Q2_RELEASE.md`.
 - `0081_add_ai_dispatch_outcome_guards.sql` defines durable dispatch/outcome receipts, canonical `_v2` writers, read-only legacy views and `ai_dispatch_token` settlement guards. A dated production receipt named 0081 is observed; full applied SQL and serving bundle identity remain separate evidence requirements. Do not edit or reapply this history. Earlier 54e89/237e bundles cannot be used with the revised protocol. Unknown outcomes survive reservation expiry; older Workers that ignore the guards are not safe mixed-version recovery targets.
 

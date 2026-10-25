@@ -14,7 +14,7 @@ The Admin Live Billing Command Center does not enable live billing. It is a reda
 2. Deploy the Auth Worker because live billing routes, webhooks, portal, reconciliation, and Admin status are Worker code.
 3. Deploy Static Pages because Admin and Credits member UI changed.
 
-No new D1 migration is introduced by this live-billing command-center/portal wave unless `npm run release:plan` reports a pending existing migration from another change.
+Credit-pack Checkout reads `billing_member_customers.retired_at` from `0118_retire_missing_member_stripe_customers.sql`. Apply that migration before the Auth Worker. The AI Worker, contact Worker, and static Pages are not required for this customer-link change.
 
 ## Required Cloudflare Secrets And Vars
 
@@ -39,7 +39,7 @@ Recommended optional tax flag values until legal, tax, and accounting review app
 - `ENABLE_STRIPE_AUTOMATIC_TAX=false`
 - `ENABLE_STRIPE_TAX_ID_COLLECTION=false`
 
-Credit-pack payment Checkout always sends `invoice_creation[enabled]=true`. Setting `ENABLE_STRIPE_INVOICE_CREATION` does not turn that off. Subscription Checkout is unchanged and does not send `invoice_creation`. Invoice footer text and the account tax ID come from Stripe account invoice settings, not from Worker code. This is not legal, tax, accounting, or production-readiness proof.
+Credit-pack payment Checkout always sends `invoice_creation[enabled]=true`. Setting `ENABLE_STRIPE_INVOICE_CREATION` does not turn that off. Subscription Checkout is unchanged and does not send `invoice_creation`. Invoice footer text and the account tax ID come from Stripe account invoice settings, not from Worker code. Checkout `invoice_data` does not accept `rendering.pdf.page_size`; after a credit-pack invoice exists, the Auth Worker sets `a4` with `invoices.update`. A linked live member Stripe customer is sent as `customer`; otherwise Checkout still uses `customer_creation=always`, and the completed session stores that customer on `billing_member_customers` without replacing a different active link. Customers are given `preferred_locales=['de']` when that is not already set. Checkout `locale` follows the buyer locale when it is a Stripe locale, otherwise `de`. This is not legal, tax, accounting, or production-readiness proof.
 
 ## Stripe Dashboard Checklist
 
@@ -67,7 +67,7 @@ Credit-pack payment Checkout always sends `invoice_creation[enabled]=true`. Sett
 - For one-time credit-pack payments, verify **Customer emails → Successful payments** together with `invoice_creation[enabled]=true`; subscription email settings alone do not prove this path. Record account configuration, invoice/PDF contents and actual automatic delivery separately. Confirm the intended account invoice footer and default tax ID in the resulting PDF; Checkout does not supply either.
 - Stripe documents no emails for test-mode Invoice Send API calls even when `invoice.sent` is emitted. Test-payment receipts can be sent manually from the Dashboard; that demonstrates neither automatic production delivery nor live configuration. A sandbox invoice/PDF and webhook pass must retain any unverified delivery requirement for an explicit owner acceptance decision. Do not substitute a live purchase. Sources: [receipts and paid invoices](https://docs.stripe.com/receipts), [Invoice Send API](https://docs.stripe.com/api/invoices/send).
 - `invoice.paid` and `invoice.payment_succeeded` for one-time credit-pack invoices are acknowledged and do not grant credits. Credits still require verified `checkout.session.completed`.
-- `invoice.created` and `invoice.finalized`, if the endpoint receives them, are stored with no credit side effects.
+- `invoice.created` and `invoice.finalized`, if the endpoint receives them, still grant no credits. For a one-time credit-pack invoice they may set PDF page size `a4` and German `preferred_locales`. The same presentation update runs from `checkout.session.completed` when `invoice` is present, and from an ignored credit-pack `invoice.paid`. A presentation failure does not block the credit grant. No new webhook subscription is required for the subscribed `checkout.session.completed` and `invoice.paid` events.
 - Enable Stripe Tax and tax ID collection only after operator, legal, tax, and accounting review.
 
 ## Admin Starting Point

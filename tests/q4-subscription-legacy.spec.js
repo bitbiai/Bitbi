@@ -14,12 +14,20 @@ function createContractUser({ id='admin-ai-user', role='admin', email, created_a
   return { id, email:email || `${id}@example.com`, password_hash:'unused', created_at:created_at || nowIso(), status:'active',role,email_verified_at:nowIso(),verification_method:'email_verified' };
 }
 const createAdminUser = id => createContractUser({ id, role:'admin' });
-function expectCreditPackInvoiceForm(form, { email, packId, credits, description, checkoutScope, organizationId } = {}) {
+function expectCreditPackInvoiceForm(form, { email, packId, credits, description, checkoutScope, organizationId, customerId, locale = 'de' } = {}) {
   expect(form.mode).toBe('payment');
   expect(form['invoice_creation[enabled]']).toBe('true');
-  expect(form.customer_creation).toBe('always');
-  if (email) expect(form.customer_email).toBe(email);
-  else expect(form.customer_email).toBeUndefined();
+  expect(form.locale).toBe(locale);
+  if (customerId) {
+    expect(form.customer).toBe(customerId);
+    expect(form.customer_creation).toBeUndefined();
+    expect(form.customer_email).toBeUndefined();
+  } else {
+    expect(form.customer).toBeUndefined();
+    expect(form.customer_creation).toBe('always');
+    if (email) expect(form.customer_email).toBe(email);
+    else expect(form.customer_email).toBeUndefined();
+  }
   expect(form['invoice_creation[invoice_data][description]']).toBe(description);
   expect(form['invoice_creation[invoice_data][metadata][credit_pack_id]']).toBe(packId);
   expect(form['invoice_creation[invoice_data][metadata][pack_id]']).toBe(packId);
@@ -459,6 +467,11 @@ test.describe('BITBI Pro member subscriptions', () => {
     const createdAt = '2026-04-26T10:00:00.000Z';
     const terms = { terms_accepted: true, terms_version: '2026-10-22', immediate_delivery_accepted: true };
     const checkoutFetch = (calls, { live }) => async (url, init = {}) => {
+      const target = String(url);
+      if (target.includes('/v1/customers/')) {
+        const id = decodeURIComponent(target.split('/v1/customers/')[1] || 'cus_invoice');
+        return new Response(JSON.stringify({ id, object: 'customer', preferred_locales: ['de'] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
       const form = Object.fromEntries(new URLSearchParams(String(init.body || '')));
       calls.push({ url, form });
       const id = `${live ? 'cs_live' : 'cs_test'}_invoice_${String(calls.length).padStart(2, '0')}`;
@@ -630,6 +643,318 @@ test.describe('BITBI Pro member subscriptions', () => {
     expect(status.failClosedFacts).toEqual(expect.arrayContaining([
       'Stripe Tax and tax ID collection stay disabled unless explicit operator env flags are set. Credit-pack Checkout always requests a Stripe invoice and does not grant credits from invoice events.',
     ]));
+  });
+
+  test('credit-pack checkout reuses a linked customer, keeps invoice metadata, and follows locale', async () => {
+    const { CREDIT_PACK_PERFORMANCE_CONSENT_TEXT } = await moduleAt('js/shared/consumer-contract.mjs');
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const member = createContractUser({ id: 'credit-pack-customer-member', role: 'user', email: 'buyer.member@example.com' });
+    const consent = (locale) => ({
+      termsAccepted: true,
+      termsVersion: '2026-10-25',
+      consentVersion: 'consumer-v1',
+      locale,
+      earlyStartRequested: true,
+      creditPackPerformanceConsent: true,
+      creditPackConsentVersion: 'credit-pack-356-v1',
+      creditPackConsentText: CREDIT_PACK_PERFORMANCE_CONSENT_TEXT[locale],
+    });
+    const calls = [];
+    const env = createAuthTestEnv({
+      ENABLE_LIVE_STRIPE_CREDIT_PACKS: 'true',
+      ENABLE_STRIPE_AUTOMATIC_TAX: 'true',
+      ENABLE_STRIPE_TAX_ID_COLLECTION: 'true',
+      STRIPE_LIVE_SECRET_KEY: 'sk_live_credit_pack_customer_1234567890',
+      STRIPE_LIVE_WEBHOOK_SECRET: 'whsec_credit_pack_customer_1234567890',
+      STRIPE_LIVE_CHECKOUT_SUCCESS_URL: 'https://bitbi.ai/pricing.html?checkout=success',
+      STRIPE_LIVE_CHECKOUT_CANCEL_URL: 'https://bitbi.ai/pricing.html?checkout=cancel',
+      users: [member],
+      billingMemberCustomers: [{
+        id: 'bmc_credit_pack_existing',
+        user_id: member.id,
+        provider: 'stripe',
+        provider_mode: 'live',
+        provider_customer_ref: 'cus_credit_pack_existing',
+        created_at: '2026-10-01T00:00:00.000Z',
+        retired_at: null,
+      }],
+      fetch: async (url, init = {}) => {
+        const target = String(url);
+        const form = Object.fromEntries(new URLSearchParams(String(init.body || '')));
+        calls.push({ url: target, method: init.method || 'GET', form });
+        if (target.includes('/v1/customers/')) {
+          return Response.json({ id: 'cus_credit_pack_existing', object: 'customer', preferred_locales: ['de'] });
+        }
+        const sessionId = form.locale === 'en' ? 'cs_live_credit_pack_locale_en' : 'cs_live_credit_pack_locale_de';
+        return Response.json({
+          id: sessionId,
+          object: 'checkout.session',
+          livemode: true,
+          mode: 'payment',
+          url: `https://checkout.stripe.com/c/pay/${sessionId}`,
+          customer: 'cus_credit_pack_existing',
+        });
+      },
+    });
+    const token = await seedSession(env, member.id);
+    const checkoutFor = (locale, key) => worker.fetch(
+      authJsonRequest('/api/account/billing/checkout/live-credit-pack', 'POST', {
+        pack_id: 'live_credits_5000',
+        ...consent(locale),
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': key,
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect((await checkoutFor('en', 'credit-pack-existing-en')).status).toBe(201);
+    const english = calls.find((call) => call.url.endsWith('/v1/checkout/sessions') && call.form.locale === 'en');
+    expectCreditPackInvoiceForm(english.form, {
+      customerId: 'cus_credit_pack_existing',
+      locale: 'en',
+      packId: 'live_credits_5000',
+      credits: 5000,
+      description: 'One-time purchase: 5000 Credit Pack',
+      checkoutScope: 'member',
+    });
+    expect(english.form['customer_update[address]']).toBe('auto');
+    expect(english.form['customer_update[name]']).toBe('auto');
+    expect(english.form['metadata[credit_pack_consent_version]']).toBe('credit-pack-356-v1');
+    expect(english.form['metadata[credit_pack_consent_text]']).toBe(CREDIT_PACK_PERFORMANCE_CONSENT_TEXT.en);
+    expect(english.form['automatic_tax[enabled]']).toBe('true');
+    expect(english.form['billing_address_collection']).toBe('auto');
+    expect(english.form['tax_id_collection[enabled]']).toBe('true');
+    expect(calls.filter((call) => call.method === 'POST' && call.url.includes('/v1/customers/'))).toHaveLength(0);
+    expect(env.DB.state.billingMemberCustomers).toHaveLength(1);
+
+    calls.length = 0;
+    expect((await checkoutFor('de', 'credit-pack-existing-de')).status).toBe(201);
+    const german = calls.find((call) => call.url.endsWith('/v1/checkout/sessions'));
+    expect(german.form.locale).toBe('de');
+    expect(german.form.customer).toBe('cus_credit_pack_existing');
+    expect(german.form.customer_creation).toBeUndefined();
+    expect(german.form['metadata[credit_pack_consent_version]']).toBe('credit-pack-356-v1');
+    expect(german.form['metadata[credit_pack_consent_text]']).toBe(CREDIT_PACK_PERFORMANCE_CONSENT_TEXT.de);
+    expect(env.DB.state.billingMemberCustomers).toHaveLength(1);
+  });
+
+  test('credit-pack completion stores one Stripe customer and sets A4 without blocking credits', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const { handleVerifiedStripeLiveWebhookEvent } = await loadStripeBillingModule();
+    const member = createContractUser({ id: 'credit-pack-new-customer', role: 'user' });
+    const calls = [];
+    let invoiceUpdates = 0;
+    let invoicePageSize = 'letter';
+    const env = createAuthTestEnv({
+      ENABLE_LIVE_STRIPE_CREDIT_PACKS: 'true',
+      STRIPE_LIVE_SECRET_KEY: 'sk_live_credit_pack_customer_1234567890',
+      STRIPE_LIVE_WEBHOOK_SECRET: 'whsec_credit_pack_customer_1234567890',
+      STRIPE_LIVE_CHECKOUT_SUCCESS_URL: 'https://bitbi.ai/pricing.html?checkout=success',
+      STRIPE_LIVE_CHECKOUT_CANCEL_URL: 'https://bitbi.ai/pricing.html?checkout=cancel',
+      users: [member],
+      fetch: async (url, init = {}) => {
+        const target = String(url);
+        const form = Object.fromEntries(new URLSearchParams(String(init.body || '')));
+        calls.push({ url: target, method: init.method || 'GET', form });
+        if (target.endsWith('/v1/checkout/sessions')) {
+          return Response.json({
+            id: 'cs_live_credit_pack_new_customer',
+            object: 'checkout.session',
+            livemode: true,
+            mode: 'payment',
+            url: 'https://checkout.stripe.com/c/pay/cs_live_credit_pack_new_customer',
+          });
+        }
+        if (target.includes('/v1/customers/')) {
+          if ((init.method || 'GET') === 'GET') {
+            return Response.json({ id: 'cus_credit_pack_new', object: 'customer', preferred_locales: [] });
+          }
+          return Response.json({ id: 'cus_credit_pack_new', object: 'customer', preferred_locales: ['de'] });
+        }
+        if (target.includes('/v1/invoices/')) {
+          if ((init.method || 'GET') === 'GET') {
+            return Response.json({ id: 'in_credit_pack_new', object: 'invoice', rendering: { pdf: { page_size: invoicePageSize } } });
+          }
+          invoiceUpdates += 1;
+          if (invoiceUpdates === 1) return Response.json({ error: { code: 'invoice_update_failed' } }, { status: 500 });
+          invoicePageSize = 'a4';
+          return Response.json({ id: 'in_credit_pack_new', object: 'invoice', rendering: { pdf: { page_size: 'a4' } } });
+        }
+        return Response.json({ error: { message: 'unexpected stripe call' } }, { status: 500 });
+      },
+    });
+    const token = await seedSession(env, member.id);
+    const created = await worker.fetch(
+      authJsonRequest('/api/account/billing/checkout/live-credit-pack', 'POST', {
+        pack_id: 'live_credits_5000',
+        terms_accepted: true,
+        terms_version: '2026-10-22',
+        immediate_delivery_accepted: true,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'credit-pack-new-customer',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(created.status).toBe(201);
+    const checkoutForm = calls.find((call) => call.url.endsWith('/v1/checkout/sessions')).form;
+    expectCreditPackInvoiceForm(checkoutForm, {
+      email: 'credit-pack-new-customer@example.com',
+      locale: 'de',
+      packId: 'live_credits_5000',
+      credits: 5000,
+      description: 'One-time purchase: 5000 Credit Pack',
+      checkoutScope: 'member',
+    });
+    expect(env.DB.state.billingMemberCustomers).toHaveLength(0);
+
+    const checkoutId = env.DB.state.billingMemberCheckoutSessions[0].id;
+    const payloadFor = (eventId, customerId) => ({
+      id: eventId,
+      object: 'event',
+      type: 'checkout.session.completed',
+      livemode: true,
+      data: {
+        object: {
+          id: 'cs_live_credit_pack_new_customer',
+          object: 'checkout.session',
+          livemode: true,
+          mode: 'payment',
+          payment_status: 'paid',
+          payment_intent: 'pi_live_credit_pack_new_customer',
+          payment_method_details: { type: 'card' },
+          customer: customerId,
+          invoice: 'in_credit_pack_new',
+          amount_total: 999,
+          currency: 'eur',
+          metadata: {
+            user_id: member.id,
+            credit_pack_id: 'live_credits_5000',
+            credits: '5000',
+            checkout_scope: 'member',
+            authorization_scope: 'member',
+            internal_checkout_session_id: checkoutId,
+          },
+        },
+      },
+    });
+    const first = await handleVerifiedStripeLiveWebhookEvent({
+      env,
+      rawBody: JSON.stringify(payloadFor('evt_credit_pack_new_customer', 'cus_credit_pack_new')),
+      payload: payloadFor('evt_credit_pack_new_customer', 'cus_credit_pack_new'),
+      verificationStatus: 'verified_live_signature',
+    });
+    expect(first.creditGrant).toEqual(expect.objectContaining({ creditsGranted: 5000, userId: member.id }));
+    expect(env.DB.state.billingMemberCustomers.map((row) => row.provider_customer_ref)).toEqual(['cus_credit_pack_new']);
+    expect(calls.some((call) => call.method === 'POST' && call.form['preferred_locales[0]'] === 'de')).toBe(true);
+    expect(invoiceUpdates).toBe(1);
+
+    const repeated = await handleVerifiedStripeLiveWebhookEvent({
+      env,
+      rawBody: JSON.stringify(payloadFor('evt_credit_pack_new_customer_repeat', 'cus_credit_pack_new')),
+      payload: payloadFor('evt_credit_pack_new_customer_repeat', 'cus_credit_pack_new'),
+      verificationStatus: 'verified_live_signature',
+    });
+    expect(repeated.creditGrant.creditsGranted).toBe(0);
+    expect(env.DB.state.billingMemberCustomers).toHaveLength(1);
+    expect(invoiceUpdates).toBe(2);
+    expect(invoicePageSize).toBe('a4');
+
+    env.DB.state.billingMemberCustomers.push({
+      id: 'bmc_credit_pack_kept',
+      user_id: member.id,
+      provider: 'stripe',
+      provider_mode: 'live',
+      provider_customer_ref: 'cus_credit_pack_kept',
+      created_at: '2026-09-01T00:00:00.000Z',
+      retired_at: null,
+    });
+    const conflicted = await handleVerifiedStripeLiveWebhookEvent({
+      env,
+      rawBody: JSON.stringify(payloadFor('evt_credit_pack_other_customer', 'cus_credit_pack_other')),
+      payload: payloadFor('evt_credit_pack_other_customer', 'cus_credit_pack_other'),
+      verificationStatus: 'verified_live_signature',
+    });
+    expect(conflicted.creditGrant.creditsGranted).toBe(0);
+    expect(env.DB.state.billingMemberCustomers.map((row) => row.provider_customer_ref).sort()).toEqual([
+      'cus_credit_pack_kept',
+      'cus_credit_pack_new',
+    ]);
+  });
+
+  test('missing linked Stripe customer falls back to customer creation', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const member = createContractUser({ id: 'credit-pack-stale-customer', role: 'user' });
+    const calls = [];
+    const env = createAuthTestEnv({
+      ENABLE_LIVE_STRIPE_CREDIT_PACKS: 'true',
+      STRIPE_LIVE_SECRET_KEY: 'sk_live_credit_pack_customer_1234567890',
+      STRIPE_LIVE_WEBHOOK_SECRET: 'whsec_credit_pack_customer_1234567890',
+      STRIPE_LIVE_CHECKOUT_SUCCESS_URL: 'https://bitbi.ai/pricing.html?checkout=success',
+      STRIPE_LIVE_CHECKOUT_CANCEL_URL: 'https://bitbi.ai/pricing.html?checkout=cancel',
+      users: [member],
+      billingMemberCustomers: [{
+        id: 'bmc_credit_pack_stale',
+        user_id: member.id,
+        provider: 'stripe',
+        provider_mode: 'live',
+        provider_customer_ref: 'cus_credit_pack_stale',
+        created_at: '2026-10-01T00:00:00.000Z',
+        retired_at: null,
+      }],
+      fetch: async (url, init = {}) => {
+        const target = String(url);
+        const form = Object.fromEntries(new URLSearchParams(String(init.body || '')));
+        calls.push({ url: target, method: init.method || 'GET', form, key: init.headers?.['Idempotency-Key'] || init.headers?.get?.('Idempotency-Key') });
+        if (target.endsWith('/v1/customers/cus_credit_pack_stale')) {
+          return Response.json({ id: 'cus_credit_pack_stale', object: 'customer', preferred_locales: ['de'] });
+        }
+        if (target.endsWith('/v1/checkout/sessions') && form.customer === 'cus_credit_pack_stale') {
+          return Response.json({
+            error: { code: 'resource_missing', param: 'customer', type: 'invalid_request_error' },
+          }, { status: 404 });
+        }
+        if (target.includes('/v1/customers/')) {
+          return Response.json({ id: 'cus_credit_pack_replacement', object: 'customer', preferred_locales: ['de'] });
+        }
+        return Response.json({
+          id: 'cs_live_credit_pack_replacement',
+          object: 'checkout.session',
+          livemode: true,
+          mode: 'payment',
+          url: 'https://checkout.stripe.com/c/pay/cs_live_credit_pack_replacement',
+          customer: 'cus_credit_pack_replacement',
+        });
+      },
+    });
+    const token = await seedSession(env, member.id);
+    const response = await worker.fetch(
+      authJsonRequest('/api/account/billing/checkout/live-credit-pack', 'POST', {
+        pack_id: 'live_credits_5000',
+        terms_accepted: true,
+        terms_version: '2026-10-22',
+        immediate_delivery_accepted: true,
+      }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${token}`,
+        'Idempotency-Key': 'credit-pack-stale-customer',
+      }),
+      env,
+      createExecutionContext().execCtx
+    );
+    expect(response.status).toBe(201);
+    const checkoutCalls = calls.filter((call) => call.url.endsWith('/v1/checkout/sessions'));
+    expect(checkoutCalls.map((call) => call.form.customer || null)).toEqual(['cus_credit_pack_stale', null]);
+    expect(checkoutCalls[1].form.customer_creation).toBe('always');
+    expect(checkoutCalls[1].key.endsWith(':new-customer')).toBe(true);
+    const stale = env.DB.state.billingMemberCustomers.find((row) => row.provider_customer_ref === 'cus_credit_pack_stale');
+    const replacement = env.DB.state.billingMemberCustomers.find((row) => row.provider_customer_ref === 'cus_credit_pack_replacement');
+    expect(stale.retired_at).toBeTruthy();
+    expect(replacement).toEqual(expect.objectContaining({ user_id: member.id, retired_at: null }));
   });
 
   test('paid subscription invoice webhook is idempotent and tops up subscription credits only', async () => withSubscription(async f => {

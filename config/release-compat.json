@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0117_consumer_contracts.sql",
+        "latest": "0118_retire_missing_member_stripe_customers.sql",
         "databaseName": "bitbi-auth-db"
       }
     },

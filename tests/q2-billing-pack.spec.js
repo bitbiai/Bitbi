@@ -703,9 +703,17 @@ test('Q2 consumer contract: signed paid checkout atomically saves immutable full
     let paymentReads=0, paymentRedirect;
     f.env.STRIPE_LIVE_SECRET_KEY='sk_live_example_contract_only';
     f.env.__TEST_FETCH=async (url, init)=>{
+      const target = String(url);
+      if (/\/v1\/customers\//.test(target)) {
+        return Response.json({ id: 'cus_q2_pack_fixture', object: 'customer', preferred_locales: ['de'] });
+      }
+      if (/\/v1\/invoices\//.test(target)) {
+        const invoiceId = decodeURIComponent(target.split('/v1/invoices/')[1] || 'in_q2_pack_fixture');
+        return Response.json({ id: invoiceId, object: 'invoice', rendering: { pdf: { page_size: 'a4' } } });
+      }
       paymentReads+=1;
       paymentRedirect=init.redirect;
-      expect(String(url)).toContain('/v1/payment_intents/pi_3Q2ContractChargedMethod?expand[]=latest_charge');
+      expect(target).toContain('/v1/payment_intents/pi_3Q2ContractChargedMethod?expand[]=latest_charge');
       expect(init.method||'GET').toBe('GET');
       expect(init.headers.Authorization).toBe(`Bearer ${f.env.STRIPE_LIVE_SECRET_KEY}`);
       return Response.json({id:'pi_3Q2ContractChargedMethod',livemode:true,customer:'cus_q2_pack_fixture',latest_charge:{payment_method_details:{type:'sepa_debit'}}});
@@ -770,7 +778,10 @@ for(const invalid of ['wrong_id','wrong_mode','missing_mode','wrong_customer','m
     f.env.STRIPE_LIVE_SECRET_KEY=invalid==='wrong_key'?'sk_test_synthetic_wrong_mode':'sk_live_example_contract_only';
     const requests=[];
     f.env.__TEST_FETCH=async(url,init)=>{
-      requests.push({url:String(url),method:init.method,authorization:init.headers.Authorization,redirect:init.redirect});
+      const target=String(url);
+      if(/\/v1\/customers\//.test(target)) return Response.json({id:'cus_q2_pack_fixture',object:'customer',preferred_locales:['de']});
+      if(/\/v1\/invoices\//.test(target)) return Response.json({id:'in_q2_pack_fixture',object:'invoice',rendering:{pdf:{page_size:'a4'}}});
+      requests.push({url:target,method:init.method,authorization:init.headers.Authorization,redirect:init.redirect});
       if(invalid==='unavailable')return Response.json({error:'synthetic_unavailable'},{status:503});
       if(invalid==='malformed')return new Response('{',{headers:{'Content-Type':'application/json'}});
       if(invalid==='redirect')return new Response(null,{status:302,headers:{Location:'https://untrusted.example.invalid/collect'}});
@@ -1195,5 +1206,95 @@ test('Q2 consumer contract: a different Stripe customer rejects cancellation pro
     expect(calls).toHaveLength(1);expect(calls[0].method).toBe('POST');expect(calls[0].url).toContain(`/subscriptions/${subscriptionId}`);
     expect(f.db.database.prepare('SELECT * FROM billing_member_subscriptions WHERE user_id=?').get(MEMBER)).toEqual(before);
     expect(f.db.database.prepare('SELECT COUNT(*) AS n FROM transactional_messages').get().n).toBe(0);expect(state(f).ledger).toHaveLength(0);
+  });
+});
+
+test('Q2 credit-pack customer link reuses, retires and refuses a conflicting Stripe customer on migrated SQLite', async () => {
+  await withPack(async f => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    for (const file of ['0085_add_member_subscription_fulfillment.sql', '0118_retire_missing_member_stripe_customers.sql']) {
+      f.db.exec(fs.readFileSync(path.join(__dirname, '../workers/auth/migrations', file), 'utf8'));
+    }
+    const stripe = await load('workers/auth/src/lib/stripe-billing.js');
+    const now = new Date().toISOString();
+    await f.db.prepare(`INSERT INTO billing_member_customers (id,user_id,provider,provider_mode,provider_customer_ref,created_at)
+      VALUES ('bmc_q2_existing',?,'stripe','live','cus_q2_existing',?)`).bind(MEMBER, now).run();
+    Object.assign(f.env, {
+      ENABLE_LIVE_STRIPE_CREDIT_PACKS: 'true',
+      STRIPE_LIVE_SECRET_KEY: 'sk_live_example_contract_only',
+      STRIPE_LIVE_CHECKOUT_SUCCESS_URL: 'https://bitbi.ai/pricing.html?checkout=success',
+      STRIPE_LIVE_CHECKOUT_CANCEL_URL: 'https://bitbi.ai/pricing.html?checkout=cancel',
+    });
+    const acceptance = { termsAccepted: true, termsVersion: '2026-10-22', immediateDeliveryAccepted: true };
+    const calls = [];
+    f.env.__TEST_FETCH = async (url, init = {}) => {
+      const target = String(url);
+      const form = Object.fromEntries(new URLSearchParams(String(init.body || '')));
+      calls.push({ url: target, method: init.method || 'GET', form });
+      if (target.endsWith('/v1/customers/cus_q2_existing') && (init.method || 'GET') !== 'POST') {
+        return Response.json({ id: 'cus_q2_existing', object: 'customer', preferred_locales: ['en'] });
+      }
+      if (target.includes('/v1/customers/') && init.method === 'POST') {
+        return Response.json({ id: target.split('/').pop(), object: 'customer', preferred_locales: ['de'] });
+      }
+      if (target.endsWith('/v1/checkout/sessions')) {
+        return Response.json({
+          id: 'cs_live_q2_existing_customer', object: 'checkout.session', livemode: true, mode: 'payment',
+          url: 'https://checkout.stripe.com/c/pay/cs_live_q2_existing_customer', customer: 'cus_q2_existing',
+        });
+      }
+      return Response.json({ error: { message: 'unexpected' } }, { status: 500 });
+    };
+    await stripe.createStripeLiveMemberCreditPackCheckout({
+      env: f.env, userId: MEMBER, packId: 'live_credits_5000', idempotencyKey: 'q2-existing-customer', legalAcceptance: acceptance,
+    });
+    const checkoutCall = calls.find((call) => call.url.endsWith('/v1/checkout/sessions'));
+    expect(checkoutCall.form.customer).toBe('cus_q2_existing');
+    expect(checkoutCall.form.customer_creation).toBeUndefined();
+    expect(checkoutCall.form.locale).toBe('de');
+    expect(checkoutCall.form['invoice_creation[enabled]']).toBe('true');
+    expect(checkoutCall.form['invoice_creation[invoice_data][footer]']).toBeUndefined();
+    expect(checkoutCall.form['metadata[credit_pack_consent_version]']).toBeUndefined();
+    expect(calls.some((call) => call.method === 'POST' && call.form['preferred_locales[0]'] === 'de')).toBe(true);
+    expect(f.db.database.prepare('SELECT COUNT(*) AS n FROM billing_member_customers').get().n).toBe(1);
+
+    calls.length = 0;
+    f.env.__TEST_FETCH = async (url, init = {}) => {
+      const target = String(url);
+      const form = Object.fromEntries(new URLSearchParams(String(init.body || '')));
+      calls.push({ url: target, method: init.method || 'GET', form });
+      if (target.endsWith('/v1/customers/cus_q2_existing') && (init.method || 'GET') !== 'POST') {
+        return Response.json({ error: { code: 'resource_missing', param: 'customer' } }, { status: 404 });
+      }
+      if (target.includes('/v1/customers/') && init.method === 'POST') {
+        return Response.json({ id: 'cus_q2_replacement', object: 'customer', preferred_locales: ['de'] });
+      }
+      if (target.includes('/v1/customers/cus_q2_replacement')) {
+        return Response.json({ id: 'cus_q2_replacement', object: 'customer', preferred_locales: ['de'] });
+      }
+      expect(form.customer).toBeUndefined();
+      expect(form.customer_creation).toBe('always');
+      return Response.json({
+        id: 'cs_live_q2_replacement_customer', object: 'checkout.session', livemode: true, mode: 'payment',
+        url: 'https://checkout.stripe.com/c/pay/cs_live_q2_replacement_customer', customer: 'cus_q2_replacement',
+      });
+    };
+    await stripe.createStripeLiveMemberCreditPackCheckout({
+      env: f.env, userId: MEMBER, packId: 'live_credits_5000', idempotencyKey: 'q2-stale-customer', legalAcceptance: acceptance,
+    });
+    expect(f.db.database.prepare("SELECT retired_at FROM billing_member_customers WHERE provider_customer_ref='cus_q2_existing'").get().retired_at).toBeTruthy();
+    expect(f.db.database.prepare("SELECT user_id, retired_at FROM billing_member_customers WHERE provider_customer_ref='cus_q2_replacement'").get())
+      .toEqual({ user_id: MEMBER, retired_at: null });
+    const repeat = await stripe.createStripeLiveMemberCreditPackCheckout({
+      env: f.env, userId: MEMBER, packId: 'live_credits_5000', idempotencyKey: 'q2-stale-customer', legalAcceptance: acceptance,
+    });
+    expect(repeat.reused).toBe(true);
+    expect(f.db.database.prepare('SELECT COUNT(*) AS n FROM billing_member_customers').get().n).toBe(2);
+    expect(() => f.db.exec("UPDATE billing_member_customers SET provider_customer_ref='cus_rewritten' WHERE provider_customer_ref='cus_q2_replacement'")).toThrow(/immutable/);
+    await f.db.prepare(`INSERT INTO billing_customers (id,organization_id,provider,provider_customer_ref,status,created_at,updated_at)
+      VALUES ('bc_q2_fence',?,'stripe','cus_q2_org_fence','active',?,?)`).bind(ORG, now, now).run();
+    expect(() => f.db.exec(`INSERT INTO billing_member_customers (id,user_id,provider,provider_mode,provider_customer_ref,created_at)
+      VALUES ('bmc_fence','${MEMBER}','stripe','live','cus_q2_org_fence','${now}')`)).toThrow(/scope conflicts/);
   });
 });

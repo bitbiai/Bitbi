@@ -1225,6 +1225,8 @@ class MockD1 {
       billingCheckoutSessions: [],
       billingMemberCheckoutSessions: [],
       billingMemberSubscriptions: [],
+      billingMemberCustomers: [],
+      consumerContractSnapshots: [],
       billingMemberSubscriptionCheckoutSessions: [],
       billingOperatorItemStates: [],
       billingOperatorCleanupRuns: [],
@@ -13959,6 +13961,71 @@ class MockD1 {
         const [key] = bindings;
         const row = (this.state[tableState] || []).find((entry) => entry[keyColumn] === key);
         return row ? { id: row.id, owner_user_id: row[ownerColumn] ?? null } : null;
+      }
+    }
+
+    if (query === "SELECT email FROM users WHERE id=? AND status='active'" || query === "SELECT email FROM users WHERE id = ? AND status = 'active'") {
+      const [userId] = bindings;
+      const user = this.state.users.find((row) => row.id === userId && row.status === 'active');
+      return user ? { email: user.email } : null;
+    }
+
+    if (query.startsWith('INSERT INTO consumer_contract_snapshots')) {
+      const [checkoutId, userId, scope, termsVersion, locale, snapshotJson, snapshotHash, acceptedAt] = bindings;
+      this.state.consumerContractSnapshots = this.state.consumerContractSnapshots || [];
+      if (this.state.consumerContractSnapshots.some((row) => row.checkout_id === checkoutId)) {
+        throw new Error('UNIQUE constraint failed: consumer_contract_snapshots');
+      }
+      this.state.consumerContractSnapshots.push({
+        checkout_id: checkoutId,
+        user_id: userId,
+        checkout_scope: scope,
+        terms_version: termsVersion,
+        locale,
+        snapshot_json: snapshotJson,
+        snapshot_hash: snapshotHash,
+        accepted_at: acceptedAt,
+      });
+      return { success: true, meta: { changes: 1 } };
+    }
+
+    if (query.includes('FROM billing_member_customers') || query.startsWith('INSERT INTO billing_member_customers') || query.startsWith('UPDATE billing_member_customers')) {
+      this.state.billingMemberCustomers = this.state.billingMemberCustomers || [];
+      const rows = this.state.billingMemberCustomers;
+      if (query.startsWith('SELECT') && query.includes('retired_at IS NULL') && query.includes('user_id = ?')) {
+        const [userId] = bindings;
+        const row = rows
+          .filter((entry) => entry.user_id === userId && entry.provider === 'stripe' && entry.provider_mode === 'live' && !entry.retired_at)
+          .sort((left, right) => String(left.created_at || '').localeCompare(String(right.created_at || '')) || String(left.id || '').localeCompare(String(right.id || '')))[0];
+        return deepClone(row || null);
+      }
+      if (query.startsWith('SELECT') && query.includes('provider_customer_ref = ?')) {
+        const [customerRef] = bindings;
+        const row = rows.find((entry) => entry.provider === 'stripe' && entry.provider_mode === 'live' && entry.provider_customer_ref === customerRef);
+        return deepClone(row || null);
+      }
+      if (query.startsWith('UPDATE') && query.includes('SET retired_at')) {
+        const [retiredAt, userId, customerRef] = bindings;
+        const row = rows.find((entry) => entry.user_id === userId && entry.provider === 'stripe' && entry.provider_mode === 'live' && entry.provider_customer_ref === customerRef && !entry.retired_at);
+        if (row) row.retired_at = retiredAt;
+        return { success: true, meta: { changes: row ? 1 : 0 } };
+      }
+      if (query.startsWith('INSERT INTO billing_member_customers')) {
+        const [id, userId, customerRef, createdAt] = bindings;
+        const sameRef = rows.some((entry) => entry.provider === 'stripe' && entry.provider_mode === 'live' && entry.provider_customer_ref === customerRef);
+        const otherActive = rows.some((entry) => entry.user_id === userId && entry.provider === 'stripe' && entry.provider_mode === 'live' && !entry.retired_at && entry.provider_customer_ref !== customerRef);
+        const organizationCustomer = (this.state.billingCustomers || []).some((entry) => entry.provider === 'stripe' && entry.provider_customer_ref === customerRef);
+        if (sameRef || otherActive || organizationCustomer) return { success: true, meta: { changes: 0 } };
+        rows.push({
+          id,
+          user_id: userId,
+          provider: 'stripe',
+          provider_mode: 'live',
+          provider_customer_ref: customerRef,
+          created_at: createdAt,
+          retired_at: null,
+        });
+        return { success: true, meta: { changes: 1 } };
       }
     }
 

@@ -23,6 +23,7 @@ import {
 } from "./billing-events.js";
 import { normalizeOrgId } from "./orgs.js";
 import { nowIso, randomTokenHex, sha256Hex } from "./tokens.js";
+import { logDiagnostic } from "../../../../js/shared/worker-observability.mjs";
 
 export const STRIPE_MODE_TEST = "test";
 export const STRIPE_MODE_LIVE = "live";
@@ -30,6 +31,17 @@ export const STRIPE_WEBHOOK_TOLERANCE_MS = 5 * 60_000;
 export const STRIPE_CHECKOUT_API_URL = "https://api.stripe.com/v1/checkout/sessions";
 export const STRIPE_SUBSCRIPTIONS_API_URL = "https://api.stripe.com/v1/subscriptions";
 export const STRIPE_BILLING_PORTAL_SESSIONS_API_URL = "https://api.stripe.com/v1/billing_portal/sessions";
+const STRIPE_CUSTOMERS_API_URL = "https://api.stripe.com/v1/customers";
+const STRIPE_INVOICES_API_URL = "https://api.stripe.com/v1/invoices";
+const STRIPE_CUSTOMER_ID_PATTERN = /^cus_[A-Za-z0-9_:-]{1,200}$/;
+const STRIPE_CHECKOUT_LOCALES = new Set([
+  "auto", "bg", "cs", "da", "de", "el", "en", "en-GB", "es", "es-419", "et", "fi", "fil",
+  "fr", "fr-CA", "hr", "hu", "id", "it", "ja", "ko", "lt", "lv", "ms", "mt", "nb", "nl",
+  "pl", "pt", "pt-BR", "ro", "ru", "sk", "sl", "sv", "th", "tr", "vi", "zh", "zh-HK", "zh-TW",
+]);
+const CREDIT_PACK_INVOICE_PAGE_SIZE = "a4";
+const CREDIT_PACK_CUSTOMER_PREFERRED_LOCALES = Object.freeze(["de"]);
+const CREDIT_PACK_ONE_TIME_INVOICE_REASON = "Stripe invoice is a one-time credit-pack invoice and does not grant credits.";
 
 const STRIPE_SIGNATURE_HEADER = "stripe-signature";
 const TEST_CHECKOUT_SESSION_ID_PATTERN = /^cs_test_[A-Za-z0-9_:-]{8,200}$/;
@@ -1151,9 +1163,13 @@ async function postStripeCheckoutSession({ env, config, body, idempotencyKey }) 
       parsed = null;
     }
     if (!response.ok) {
+      const stripeCode = safeString(parsed?.error?.code, 64);
+      const stripeParam = safeString(parsed?.error?.param, 64);
       throw new StripeBillingError("Stripe Checkout Session could not be created.", {
         status: 502,
-        code: "stripe_checkout_create_failed",
+        code: stripeCode === "resource_missing" && stripeParam === "customer"
+          ? "stripe_customer_missing"
+          : "stripe_checkout_create_failed",
       });
     }
     return normalizeStripeCheckoutSession(parsed, { mode: config.mode });
@@ -1166,6 +1182,241 @@ async function postStripeCheckoutSession({ env, config, body, idempotencyKey }) 
   } finally {
     if (timeout) clearTimeout(timeout);
   }
+}
+
+async function stripeApiRequest({ env, secretKey, url, method = "GET", body = null, idempotencyKey = null }) {
+  const fetchImpl = env?.__TEST_FETCH || globalThis.fetch;
+  if (typeof fetchImpl !== "function" || !secretKey) return { ok: false, status: 0, body: null };
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timeout = controller ? setTimeout(() => controller.abort(), STRIPE_CHECKOUT_TIMEOUT_MS) : null;
+  try {
+    const headers = { Authorization: `Bearer ${secretKey}` };
+    if (body) headers["Content-Type"] = "application/x-www-form-urlencoded";
+    if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
+    const response = await fetchImpl(url, {
+      method,
+      headers,
+      body: body || undefined,
+      signal: controller?.signal,
+      redirect: "manual",
+    });
+    if (response.status >= 300 && response.status < 400) {
+      await response.body?.cancel?.();
+      return { ok: false, status: response.status, body: null };
+    }
+    let parsed = null;
+    try {
+      parsed = await response.json();
+    } catch {
+      parsed = null;
+    }
+    return { ok: response.ok, status: response.status, body: parsed };
+  } catch {
+    return { ok: false, status: 0, body: null };
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+async function activeMemberStripeCustomerRef(env, userId) {
+  try {
+    const row = await env.DB.prepare(
+      `SELECT id, user_id, provider_customer_ref
+       FROM billing_member_customers
+       WHERE user_id = ? AND provider = 'stripe' AND provider_mode = 'live' AND retired_at IS NULL
+       ORDER BY created_at ASC, id ASC
+       LIMIT 1`
+    ).bind(userId).first();
+    return normalizeStripeCustomerId(row?.provider_customer_ref);
+  } catch {
+    logCreditPackStripeNotice("credit_pack_customer_lookup_failed", "stripe_customer_link_unavailable");
+    return null;
+  }
+}
+
+async function retireMemberStripeCustomer(env, { userId, customerId }) {
+  const ref = normalizeStripeCustomerId(customerId);
+  if (!ref || !userId) return;
+  try {
+    await env.DB.prepare(
+      `UPDATE billing_member_customers
+       SET retired_at = ?
+       WHERE user_id = ? AND provider = 'stripe' AND provider_mode = 'live'
+         AND provider_customer_ref = ? AND retired_at IS NULL`
+    ).bind(nowIso(), userId, ref).run();
+  } catch {
+    logCreditPackStripeNotice("credit_pack_customer_retire_failed", "stripe_customer_link_unavailable");
+  }
+}
+
+async function rememberMemberStripeCustomer(env, { userId, customerId }) {
+  const ref = normalizeStripeCustomerId(customerId);
+  if (!ref || !userId) return;
+  try {
+    const active = await env.DB.prepare(
+      `SELECT id, user_id, provider_customer_ref
+       FROM billing_member_customers
+       WHERE user_id = ? AND provider = 'stripe' AND provider_mode = 'live' AND retired_at IS NULL
+       ORDER BY created_at ASC, id ASC
+       LIMIT 1`
+    ).bind(userId).first();
+    if (active?.provider_customer_ref === ref) return;
+    if (active?.provider_customer_ref) {
+      logCreditPackStripeNotice("credit_pack_customer_link_kept", "stripe_customer_link_kept");
+      return;
+    }
+    const existing = await env.DB.prepare(
+      `SELECT id, user_id, provider_customer_ref, retired_at
+       FROM billing_member_customers
+       WHERE provider = 'stripe' AND provider_mode = 'live' AND provider_customer_ref = ?
+       LIMIT 1`
+    ).bind(ref).first();
+    if (existing?.user_id && existing.user_id !== userId) {
+      logCreditPackStripeNotice("credit_pack_customer_link_conflict", "stripe_customer_link_conflict");
+      return;
+    }
+    if (existing) return;
+    await env.DB.prepare(
+      `INSERT INTO billing_member_customers (
+         id, user_id, provider, provider_mode, provider_customer_ref, created_at
+       )
+       SELECT ?, ?, 'stripe', 'live', ?, ?
+       WHERE NOT EXISTS (
+         SELECT 1 FROM billing_member_customers
+         WHERE provider = 'stripe' AND provider_mode = 'live' AND provider_customer_ref = ?
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM billing_member_customers
+         WHERE user_id = ? AND provider = 'stripe' AND provider_mode = 'live'
+           AND retired_at IS NULL AND provider_customer_ref <> ?
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM billing_customers
+         WHERE provider = 'stripe' AND provider_customer_ref = ?
+       )`
+    ).bind(`bmc_${randomTokenHex(16)}`, userId, ref, nowIso(), ref, userId, ref, ref).run();
+  } catch {
+    logCreditPackStripeNotice("credit_pack_customer_link_failed", "stripe_customer_link_unavailable");
+  }
+}
+
+function preferredLocalesAreGerman(customer) {
+  const locales = Array.isArray(customer?.preferred_locales) ? customer.preferred_locales : [];
+  return locales.length === CREDIT_PACK_CUSTOMER_PREFERRED_LOCALES.length
+    && locales.every((locale, index) => locale === CREDIT_PACK_CUSTOMER_PREFERRED_LOCALES[index]);
+}
+
+async function ensureCreditPackCustomerPreferredLocale(env, config, customerId) {
+  const id = normalizeStripeCustomerId(customerId);
+  if (!id || !config?.secretKey) return "failed";
+  const loaded = await stripeApiRequest({
+    env,
+    secretKey: config.secretKey,
+    url: `${STRIPE_CUSTOMERS_API_URL}/${encodeURIComponent(id)}`,
+  });
+  if (loaded.status === 404 && loaded.body?.error?.code === "resource_missing") return "missing";
+  if (!loaded.ok || loaded.body?.object !== "customer" || loaded.body.id !== id) {
+    logCreditPackStripeNotice("credit_pack_customer_locale_failed", "stripe_customer_locale_update_failed");
+    return "failed";
+  }
+  if (preferredLocalesAreGerman(loaded.body)) return "ready";
+  const body = new URLSearchParams();
+  CREDIT_PACK_CUSTOMER_PREFERRED_LOCALES.forEach((locale, index) => {
+    body.set(`preferred_locales[${index}]`, locale);
+  });
+  const updated = await stripeApiRequest({
+    env,
+    secretKey: config.secretKey,
+    url: `${STRIPE_CUSTOMERS_API_URL}/${encodeURIComponent(id)}`,
+    method: "POST",
+    body,
+    idempotencyKey: `bitbi-credit-pack-locale-${id}`,
+  });
+  if (!updated.ok || updated.body?.object !== "customer" || updated.body.id !== id) {
+    logCreditPackStripeNotice("credit_pack_customer_locale_failed", "stripe_customer_locale_update_failed");
+    return "failed";
+  }
+  return "updated";
+}
+
+async function ensureCreditPackInvoicePageSize(env, config, invoiceId) {
+  const id = normalizeStripeInvoiceId(invoiceId);
+  if (!id || !config?.secretKey) return;
+  const current = await stripeApiRequest({
+    env,
+    secretKey: config.secretKey,
+    url: `${STRIPE_INVOICES_API_URL}/${encodeURIComponent(id)}`,
+  });
+  if (current.status === 404) {
+    logCreditPackStripeNotice("credit_pack_invoice_page_size_failed", "stripe_invoice_missing");
+    return;
+  }
+  if (current.ok && current.body?.rendering?.pdf?.page_size === CREDIT_PACK_INVOICE_PAGE_SIZE) return;
+  const updated = await stripeApiRequest({
+    env,
+    secretKey: config.secretKey,
+    url: `${STRIPE_INVOICES_API_URL}/${encodeURIComponent(id)}`,
+    method: "POST",
+    body: new URLSearchParams({ "rendering[pdf][page_size]": CREDIT_PACK_INVOICE_PAGE_SIZE }),
+    idempotencyKey: `bitbi-invoice-a4-${id}`,
+  });
+  if (!updated.ok || updated.body?.rendering?.pdf?.page_size !== CREDIT_PACK_INVOICE_PAGE_SIZE) {
+    logCreditPackStripeNotice("credit_pack_invoice_page_size_failed", "stripe_invoice_page_size_failed");
+  }
+}
+
+async function finalizeCreditPackCheckoutPresentation(env, { mode, userId = null, customerId = null, invoiceId = null }) {
+  const secretKey = creditPackStripeSecret(env, mode);
+  if (!secretKey) return;
+  const config = { mode, secretKey };
+  const customer = normalizeStripeCustomerId(customerId);
+  if (mode === STRIPE_MODE_LIVE && userId && customer) {
+    await rememberMemberStripeCustomer(env, { userId, customerId: customer });
+  }
+  if (customer) await ensureCreditPackCustomerPreferredLocale(env, config, customer);
+  if (invoiceId) await ensureCreditPackInvoicePageSize(env, config, invoiceId);
+}
+
+async function presentCreditPackInvoiceIfNeeded(env, payload) {
+  const invoice = getOptionalStripeEventObject(payload);
+  if (oneTimeCreditPackInvoiceReason(invoice) !== CREDIT_PACK_ONE_TIME_INVOICE_REASON) return;
+  await finalizeCreditPackCheckoutPresentation(env, {
+    mode: payload?.livemode === true ? STRIPE_MODE_LIVE : STRIPE_MODE_TEST,
+    customerId: invoice?.customer,
+    invoiceId: invoice?.id,
+  });
+}
+
+async function postCreditPackCheckoutSession({ env, config, userId, idempotencyKey, form }) {
+  let customerId = config.mode === STRIPE_MODE_LIVE
+    ? await activeMemberStripeCustomerRef(env, userId)
+    : null;
+  if (customerId) {
+    const localeState = await ensureCreditPackCustomerPreferredLocale(env, config, customerId);
+    if (localeState === "missing") {
+      await retireMemberStripeCustomer(env, { userId, customerId });
+      customerId = null;
+    }
+  }
+  const send = (linkedCustomerId, key) => postStripeCheckoutSession({
+    env,
+    config,
+    body: buildCheckoutForm({ ...form, customerId: linkedCustomerId, locale: form.locale }),
+    idempotencyKey: key,
+  });
+  const session = customerId
+    ? await send(customerId, idempotencyKey).catch(async (error) => {
+      if (error?.code !== "stripe_customer_missing") throw error;
+      await retireMemberStripeCustomer(env, { userId, customerId });
+      return send(null, `${idempotencyKey}:new-customer`);
+    })
+    : await send(null, idempotencyKey);
+  // Checkout cannot set preferred_locales. Persist a customer id returned at
+  // creation; German invoice locale is applied on the verified completion webhook.
+  if (config.mode === STRIPE_MODE_LIVE && session?.customer) {
+    await rememberMemberStripeCustomer(env, { userId, customerId: session.customer });
+  }
+  return session;
 }
 
 function normalizeStripeSubscriptionResponse(value, { expectedSubscriptionId, expectedPriceId } = {}) {
@@ -1301,6 +1552,53 @@ function setCreditPackIdentityMetadata(body, key, value) {
   body.set(`invoice_creation[invoice_data][metadata][${key}]`, text);
 }
 
+function normalizeStripeCustomerId(value) {
+  const raw = typeof value === "string" ? value : value?.id;
+  const id = safeString(raw, 128);
+  return id && STRIPE_CUSTOMER_ID_PATTERN.test(id) ? id : null;
+}
+
+function normalizeStripeInvoiceId(value) {
+  const raw = typeof value === "string" ? value : value?.id;
+  const id = safeString(raw, 220);
+  return id && LIVE_INVOICE_ID_PATTERN.test(id) ? id : null;
+}
+
+function stripeCheckoutLocale(value) {
+  const raw = safeString(value, 35);
+  if (!raw) return "de";
+  const normalized = raw.replace(/_/g, "-");
+  if (STRIPE_CHECKOUT_LOCALES.has(normalized)) return normalized;
+  const lower = normalized.toLowerCase();
+  for (const locale of STRIPE_CHECKOUT_LOCALES) {
+    if (locale.toLowerCase() === lower) return locale;
+  }
+  const primary = lower.split("-")[0];
+  if (primary === "en") return "en";
+  if (primary === "de") return "de";
+  for (const locale of STRIPE_CHECKOUT_LOCALES) {
+    if (locale.toLowerCase() === primary) return locale;
+  }
+  return "de";
+}
+
+function creditPackStripeSecret(env, mode) {
+  const live = mode === STRIPE_MODE_LIVE;
+  const key = safeString(live ? env?.STRIPE_LIVE_SECRET_KEY : env?.STRIPE_SECRET_KEY, 256);
+  if (!key || !key.startsWith(live ? "sk_live_" : "sk_test_")) return null;
+  return key;
+}
+
+function logCreditPackStripeNotice(event, code = "stripe_credit_pack_presentation_failed") {
+  logDiagnostic({
+    service: "bitbi-auth",
+    component: "stripe-billing",
+    event,
+    level: "warn",
+    code: safeString(code, 64) || "stripe_credit_pack_presentation_failed",
+  });
+}
+
 function buildCheckoutForm({
   config,
   pack,
@@ -1312,6 +1610,8 @@ function buildCheckoutForm({
   source = null,
   legalAcceptance = null,
   customerEmail = null,
+  customerId = null,
+  locale = null,
 }) {
   const body = new URLSearchParams();
   body.set("mode", "payment");
@@ -1322,11 +1622,22 @@ function buildCheckoutForm({
   body.set("cancel_url", config.cancelUrl);
   applyOptionalLiveCheckoutFormOptions(body, config);
   // Payment-mode Checkout does not invoice unless this is set. Footer and
-  // account tax IDs stay on the Stripe account defaults.
+  // account tax IDs stay on the Stripe account defaults. invoice_data does
+  // not accept rendering.pdf.page_size; A4 is set on the Invoice afterwards.
   body.set("invoice_creation[enabled]", "true");
-  body.set("customer_creation", "always");
-  const email = normalizeCheckoutCustomerEmail(customerEmail);
-  if (email) body.set("customer_email", email);
+  body.set("locale", stripeCheckoutLocale(locale));
+  const linkedCustomerId = normalizeStripeCustomerId(customerId);
+  if (linkedCustomerId) {
+    body.set("customer", linkedCustomerId);
+    // customer_update is valid only together with customer. Address is required
+    // when automatic tax collects a billing address; name is required for tax IDs.
+    if (config?.automaticTaxEnabled === true) body.set("customer_update[address]", "auto");
+    if (config?.taxIdCollectionEnabled === true) body.set("customer_update[name]", "auto");
+  } else {
+    body.set("customer_creation", "always");
+    const email = normalizeCheckoutCustomerEmail(customerEmail);
+    if (email) body.set("customer_email", email);
+  }
   const description = safeString(`One-time purchase: ${pack.name}`, 200);
   if (description) body.set("invoice_creation[invoice_data][description]", description);
   body.set("client_reference_id", checkoutId);
@@ -1445,18 +1756,20 @@ export async function createStripeCreditPackCheckout({
 
   const id = checkoutSessionId();
   const customerEmail = await activeUserCheckoutEmail(env, normalizedUserId);
-  const stripeSession = await postStripeCheckoutSession({
+  const stripeSession = await postCreditPackCheckoutSession({
     env,
     config,
-    body: buildCheckoutForm({
+    userId: normalizedUserId,
+    idempotencyKey: `bitbi-${keyHash.slice(0, 48)}`,
+    form: {
       config,
       pack,
       organizationId: orgId,
       userId: normalizedUserId,
       checkoutId: id,
       customerEmail,
-    }),
-    idempotencyKey: `bitbi-${keyHash.slice(0, 48)}`,
+      locale: null,
+    },
   });
 
   const now = nowIso();
@@ -1740,10 +2053,12 @@ export async function createStripeLiveCreditPackCheckout({
 
   try {
     const customerEmail = await activeUserCheckoutEmail(env, normalizedUserId);
-    const stripeSession = await postStripeCheckoutSession({
+    const stripeSession = await postCreditPackCheckoutSession({
       env,
       config,
-      body: buildCheckoutForm({
+      userId: normalizedUserId,
+      idempotencyKey: `bitbi-live-${keyHash.slice(0, 43)}`,
+      form: {
         config,
         pack,
         organizationId: orgId,
@@ -1754,8 +2069,8 @@ export async function createStripeLiveCreditPackCheckout({
         source: "pricing_page",
         legalAcceptance: acceptance,
         customerEmail,
-      }),
-      idempotencyKey: `bitbi-live-${keyHash.slice(0, 43)}`,
+        locale: acceptance.locale,
+      },
     });
     const checkout = await updateCheckoutSessionAfterStripeCreate(env, {
       id,
@@ -1975,10 +2290,12 @@ export async function createStripeLiveMemberCreditPackCheckout({
 
   try {
     const customerEmail = await activeUserCheckoutEmail(env, normalizedUserId);
-    const stripeSession = await postStripeCheckoutSession({
+    const stripeSession = await postCreditPackCheckoutSession({
       env,
       config,
-      body: buildCheckoutForm({
+      userId: normalizedUserId,
+      idempotencyKey: `bitbi-live-member-${keyHash.slice(0, 36)}`,
+      form: {
         config,
         pack,
         userId: normalizedUserId,
@@ -1988,8 +2305,8 @@ export async function createStripeLiveMemberCreditPackCheckout({
         source: "pricing_page",
         legalAcceptance: acceptance,
         customerEmail,
-      }),
-      idempotencyKey: `bitbi-live-member-${keyHash.slice(0, 36)}`,
+        locale: acceptance.locale,
+      },
     });
     const checkout = await updateMemberCheckoutSessionAfterStripeCreate(env, {
       id,
@@ -2842,9 +3159,7 @@ function oneTimeCreditPackInvoiceReason(invoice) {
   if (hasPack && subscriptionScoped) {
     return "Stripe invoice mixes credit-pack and subscription metadata and does not grant credits.";
   }
-  if (hasPack) {
-    return "Stripe invoice is a one-time credit-pack invoice and does not grant credits.";
-  }
+  if (hasPack) return CREDIT_PACK_ONE_TIME_INVOICE_REASON;
   return null;
 }
 
@@ -3959,6 +4274,7 @@ export async function handleVerifiedStripeWebhookEvent({
   }
 
   if (payload?.type === "invoice.created" || payload?.type === "invoice.finalized" || payload?.type === "invoice.paid" || payload?.type === "invoice.payment_succeeded") {
+    await presentCreditPackInvoiceIfNeeded(env, payload);
     return markLiveStripeEventIgnored(env, {
       stored,
       payload,
@@ -4022,6 +4338,11 @@ export async function handleVerifiedStripeWebhookEvent({
   try {
     const checkout = await requireAdminCreatedCheckoutSession(env, completion);
     const fulfilled = await fulfillStripeCreditPack({ env, completion, checkout, scope: "platform_admin", stored });
+    await finalizeCreditPackCheckoutPresentation(env, {
+      mode: STRIPE_MODE_TEST,
+      customerId: completion.customer,
+      invoiceId: rawSession.invoice,
+    });
     return stripeCreditPackWebhookResult({ stored, completion, fulfilled });
   } catch (error) {
     const code = error instanceof BillingError || error instanceof StripeBillingError
@@ -4116,7 +4437,10 @@ function subscriptionInvoiceMoneyMatches(invoice) {
 
 async function handleLiveSubscriptionInvoicePaid({ env, stored, payload }) {
   const input = normalizeLiveInvoicePaidEvent(payload);
-  if (input?.ignored) return markLiveStripeEventIgnored(env,{stored,payload,reason:input.reason,summary:{providerSubscriptionId:input.subscriptionId,invoiceId:input.invoiceId}});
+  if (input?.ignored) {
+    await presentCreditPackInvoiceIfNeeded(env, payload);
+    return markLiveStripeEventIgnored(env,{stored,payload,reason:input.reason,summary:{providerSubscriptionId:input.subscriptionId,invoiceId:input.invoiceId}});
+  }
   if (input.priceId !== normalizeStripeLiveSubscriptionPriceId(env)) return markLiveStripeEventIgnored(env, {
     stored,payload,reason:"Stripe invoice price id does not match BITBI Pro.",summary:{providerSubscriptionId:input.subscriptionId,invoiceId:input.invoiceId,priceIdPresent:Boolean(input.priceId)},
   });
@@ -4176,6 +4500,7 @@ export async function handleVerifiedStripeLiveWebhookEvent({
   }
 
   if (payload?.type === "invoice.created" || payload?.type === "invoice.finalized") {
+    await presentCreditPackInvoiceIfNeeded(env, payload);
     return markLiveStripeEventIgnored(env, {
       stored,
       payload,
@@ -4311,6 +4636,12 @@ export async function handleVerifiedStripeLiveWebhookEvent({
       ? await requireLiveMemberCheckoutSession(env, completion)
       : await requireLiveAuthorizedCheckoutSession(env, completion);
     const fulfilled = await fulfillStripeCreditPack({ env, completion, checkout, scope, stored });
+    await finalizeCreditPackCheckoutPresentation(env, {
+      mode: STRIPE_MODE_LIVE,
+      userId: completion.userId,
+      customerId: completion.customer,
+      invoiceId: rawSession.invoice,
+    });
     return stripeCreditPackWebhookResult({ stored, completion, fulfilled });
   } catch (error) {
     const code = error instanceof BillingError || error instanceof StripeBillingError
