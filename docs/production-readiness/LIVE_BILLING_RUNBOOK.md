@@ -64,7 +64,8 @@ Credit-pack payment Checkout always sends `invoice_creation[enabled]=true`. Sett
 - Confirm live one-time credit-pack Prices match the public BITBI catalog exactly.
 - Confirm the BITBI Pro live Price ID is a 9.99 EUR monthly subscription and matches `STRIPE_LIVE_SUBSCRIPTION_PRICE_ID`.
 - Configure Stripe Customer Portal in Stripe Dashboard before enabling portal usage.
-- Confirm Stripe emails finalized invoices to customers, and that the account invoice footer and default tax ID are the values credit-pack invoices should show. Checkout does not send a footer or account tax ID.
+- For one-time credit-pack payments, verify **Customer emails → Successful payments** together with `invoice_creation[enabled]=true`; subscription email settings alone do not prove this path. Record account configuration, invoice/PDF contents and actual automatic delivery separately. Confirm the intended account invoice footer and default tax ID in the resulting PDF; Checkout does not supply either.
+- Stripe documents no emails for test-mode Invoice Send API calls even when `invoice.sent` is emitted. Test-payment receipts can be sent manually from the Dashboard; that demonstrates neither automatic production delivery nor live configuration. A sandbox invoice/PDF and webhook pass must retain any unverified delivery requirement for an explicit owner acceptance decision. Do not substitute a live purchase. Sources: [receipts and paid invoices](https://docs.stripe.com/receipts), [Invoice Send API](https://docs.stripe.com/api/invoices/send).
 - `invoice.paid` and `invoice.payment_succeeded` for one-time credit-pack invoices are acknowledged and do not grant credits. Credits still require verified `checkout.session.completed`.
 - `invoice.created` and `invoice.finalized`, if the endpoint receives them, are stored with no credit side effects.
 - Enable Stripe Tax and tax ID collection only after operator, legal, tax, and accounting review.
