@@ -698,8 +698,20 @@ test('Q2 consumer contract: signed paid checkout atomically saves immutable full
       offer:{id:f.checkout.pack,name:'Starter',credits:5000,amountCents:999,currency:'eur'},acceptance});
     const event=payload(f.checkout); event.data.object.customer_details={name:'Synthetic buyer',address:{country:'DE',city:'Test city'}};
     event.data.object.total_details={amount_tax:159};
+    event.data.object.payment_method_types=['card'];
+    let paymentReads=0;
+    f.env.STRIPE_LIVE_SECRET_KEY='sk_live_synthetic_contract_only';
+    f.env.__TEST_FETCH=async (url, init)=>{
+      paymentReads+=1;
+      expect(String(url)).toContain('/v1/payment_intents/pi_live_q2_pack_fixture?expand[]=latest_charge');
+      expect(init.method||'GET').toBe('GET');
+      expect(init.headers.Authorization).toBe('Bearer sk_live_synthetic_contract_only');
+      return Response.json({id:'pi_live_q2_pack_fixture',latest_charge:{payment_method_details:{type:'sepa_debit'}}});
+    };
     expect((await deliver(f,event)).response.status).toBe(202);
+    expect(paymentReads).toBe(1);
     expect((await deliver(f,event)).response.status).toBe(200);
+    expect(paymentReads).toBe(1);
     const doc=await contracts.readOwnedContractConfirmation(f.env,{checkoutId:f.checkout.id,userId:MEMBER});
     expect(doc.document.snapshot.consent.withdrawalKnowledgeAccepted).toBe(true);
     expect(doc.document.snapshot.consent.extinction).toBe('on_performance_start');
@@ -707,6 +719,10 @@ test('Q2 consumer contract: signed paid checkout atomically saves immutable full
     expect(doc.document.payment.taxAmount).toBe(159);
     expect(doc.document.text).toContain(`Hallo Synthetic buyer`);
     expect(doc.document.text).toContain('Preis: 9,99 € (Endpreis; gemäß § 19 UStG wird keine Umsatzsteuer berechnet)');
+    expect(doc.document.text).toContain('Zahlungsart: SEPA-Lastschrift');
+    expect(doc.document.text).not.toContain('Zahlungsart: card');
+    expect(doc.document.text).toContain('Nachfolgend findest du unsere AGB und die Widerrufsbelehrung samt Muster-Widerrufsformular im vollständigen Wortlaut, in der Fassung, die zum Zeitpunkt deiner Bestellung galt.');
+    expect(doc.document.text).not.toContain('Im Anhang findest du');
     expect(doc.document.text).toContain('Du hast bestätigt, dass dir bekannt ist, dass du damit dein Widerrufsrecht mit Beginn der Vertragsausführung verlierst.');
     expect(doc.document.text).toContain('USt-IdNr. DE462787956');
     expect(doc.document.text).toContain('7.1 Widerrufsbelehrung');
@@ -717,6 +733,10 @@ test('Q2 consumer contract: signed paid checkout atomically saves immutable full
     expect(doc.document.text).toContain('Fassung vom 24. Oktober 2026');
     expect(doc.document.text.length).toBeGreaterThan(6000);
     expect(await contracts.readOwnedContractConfirmation(f.env,{checkoutId:f.checkout.id,userId:'someone-else'})).toBe(null);
+    expect(f.db.database.prepare('SELECT state,attempt_count FROM transactional_messages').get()).toEqual({state:'review_required',attempt_count:1});
+    const mail=await load('workers/auth/src/lib/transactional-messages.js');
+    await mail.processTransactionalMessages(f.env);
+    expect(f.db.database.prepare('SELECT state,attempt_count FROM transactional_messages').get()).toEqual({state:'review_required',attempt_count:1});
     expect(f.db.database.prepare('SELECT COUNT(*) AS n FROM transactional_messages').get().n).toBe(1);
     expect(f.db.database.prepare('SELECT COUNT(*) AS n FROM consumer_contract_confirmations').get().n).toBe(1);
     expect(state(f).ledger).toHaveLength(1);

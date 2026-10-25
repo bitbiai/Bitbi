@@ -395,7 +395,6 @@ function createFreeAccountCard(auth) {
     price.append(
         createTextElement('span', 'pricing-card__price-value', free.price),
         createTextElement('span', 'pricing-card__cadence', free.cadence),
-        createTextElement('p', 'pricing-card__tax-note', PRICING_FINAL_PRICE_NOTE[LOCALE] || PRICING_FINAL_PRICE_NOTE.en),
     );
 
     const description = createTextElement('p', 'pricing-card__copy', free.description);

@@ -228,13 +228,14 @@ async function checkoutConsent({page,expect,locale,mockPricingAccount}) {
       const {checkoutRequests} = await mockPricingAccount(page, {role:'user',organizations:[]});
       await page.route('https://checkout.stripe.com/**',route=>route.fulfill({body:'Synthetic checkout'}));
       await page.goto(locale==='de'?'/de/pricing.html':'/pricing.html');
+      await expect(page.locator('[data-pricing-free-account] .pricing-card__tax-note')).toHaveCount(0);
       await expect(page.locator('.pricing-card__tax-note').first()).toHaveText(locale==='de'
         ? 'Alle Preise sind Endpreise. Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.'
         : 'All prices are final prices. Pursuant to § 19 UStG, no VAT is charged.');
       await page.locator('[data-pricing-pack="live_credits_5000"]').click();
       await expect(page.locator('.pricing-legal')).toContainText(locale==='de'
         ? 'Mir ist bekannt, dass ich mit dieser Zustimmung mein Widerrufsrecht mit Beginn der Vertragsausführung verliere.'
-        : 'I lose my right of withdrawal when performance of the contract begins.');
+        : 'add the credits to my account immediately');
       await expect(page.locator('.pricing-legal__check input').nth(1)).not.toBeChecked();
       await page.locator('[data-subscription-checkout]').click();
       const checks=page.locator('.pricing-legal__check input');

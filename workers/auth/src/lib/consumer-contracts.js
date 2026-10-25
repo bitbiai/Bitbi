@@ -93,9 +93,48 @@ function euroAmount(cents, locale) {
   });
 }
 
-function paymentMethodLabel(raw) {
-  const type = Array.isArray(raw?.payment_method_types) ? raw.payment_method_types[0] : '';
-  return typeof type === 'string' && /^[a-z0-9_]{1,40}$/.test(type) ? type : 'card';
+const PAYMENT_METHOD_LABELS = Object.freeze({
+  de: Object.freeze({ card: 'Karte', paypal: 'PayPal', sepa_debit: 'SEPA-Lastschrift', klarna: 'Klarna' }),
+  en: Object.freeze({ card: 'Card', paypal: 'PayPal', sepa_debit: 'SEPA direct debit', klarna: 'Klarna' }),
+});
+
+function paymentMethodType(value) {
+  const details = value?.payment_method_details || value?.latest_charge?.payment_method_details
+    || value?.charges?.data?.[0]?.payment_method_details;
+  const type = details?.type;
+  return typeof type === 'string' && /^[a-z0-9_]{1,40}$/.test(type) ? type : null;
+}
+
+function labelPaymentMethod(type, locale) {
+  const language = locale === 'de' ? 'de' : 'en';
+  if (!type) return language === 'de' ? 'Zahlung' : 'Payment';
+  return PAYMENT_METHOD_LABELS[language][type] || type.split('_').filter(Boolean)
+    .map(part => part.length <= 3 ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
+}
+
+// Checkout Session webhooks name the offered method list, not the method that
+// was charged. One PaymentIntent read, with the charge expanded, supplies
+// payment_method_details.type. A missing or failed read keeps the grant and
+// uses the generic fallback label.
+async function resolveChargedPaymentMethod(env, raw, locale) {
+  const embedded = paymentMethodType(raw) || paymentMethodType(raw?.payment_intent) || paymentMethodType(raw?.latest_charge);
+  if (embedded) return labelPaymentMethod(embedded, locale);
+  const intentId = typeof raw?.payment_intent === 'string' ? raw.payment_intent : '';
+  const live = /^pi_live_[A-Za-z0-9_:-]{8,200}$/.test(intentId);
+  const secret = live ? env?.STRIPE_LIVE_SECRET_KEY : null;
+  const fetchImpl = env?.__TEST_FETCH || globalThis.fetch;
+  if (!live || typeof secret !== 'string' || !secret || typeof fetchImpl !== 'function') return labelPaymentMethod(null, locale);
+  try {
+    const response = await fetchImpl(`https://api.stripe.com/v1/payment_intents/${encodeURIComponent(intentId)}?expand[]=latest_charge`, {
+      method: 'GET', headers: { Authorization: `Bearer ${secret}` }, signal: AbortSignal.timeout(10_000), redirect: 'error',
+    });
+    if (!response.ok) { await response.body?.cancel?.(); return labelPaymentMethod(null, locale); }
+    const body = await response.json();
+    if (body?.id !== intentId) return labelPaymentMethod(null, locale);
+    return labelPaymentMethod(paymentMethodType(body), locale);
+  } catch {
+    return labelPaymentMethod(null, locale);
+  }
 }
 
 function creditPackConfirmationText(snapshot, payment, createdAt, checkout) {
@@ -110,7 +149,7 @@ function creditPackConfirmationText(snapshot, payment, createdAt, checkout) {
     ? `AGB und Widerrufsbelehrung samt Muster-Widerrufsformular\nFassung: ${snapshot.terms.version}\n\n${snapshot.terms.text}`
     : `Terms and withdrawal instructions, including the model withdrawal form\nVersion: ${snapshot.terms.version}\n\n${snapshot.terms.text}`;
   const body = de
-    ? `Hallo ${name},\n\nvielen Dank für deinen Kauf. Hiermit bestätigen wir den Vertrag:\n\nProdukt: ${snapshot.offer.name} (${snapshot.offer.credits} Credits)\nPreis: ${price} € (Endpreis; gemäß § 19 UStG wird keine Umsatzsteuer berechnet)\nBestelldatum: ${orderedAt}\nZahlungsart: ${payment.method}\n\nDeine Zustimmung zum sofortigen Beginn: Du hast am ${consentedAt} ausdrücklich verlangt, dass wir vor Ablauf der Widerrufsfrist mit der Vertragsausführung beginnen. Du hast bestätigt, dass dir bekannt ist, dass du damit dein Widerrufsrecht mit Beginn der Vertragsausführung verlierst. Die Credits wurden deinem Konto am ${grantedAt} gutgeschrieben.\n\nIm Anhang findest du unsere AGB und die Widerrufsbelehrung samt Muster-Widerrufsformular in der Fassung, die zum Zeitpunkt deiner Bestellung galt.\n\nAnbieter: ${provider}, USt-IdNr. ${IMPRINT_VAT_ID}`
+    ? `Hallo ${name},\n\nvielen Dank für deinen Kauf. Hiermit bestätigen wir den Vertrag:\n\nProdukt: ${snapshot.offer.name} (${snapshot.offer.credits} Credits)\nPreis: ${price} € (Endpreis; gemäß § 19 UStG wird keine Umsatzsteuer berechnet)\nBestelldatum: ${orderedAt}\nZahlungsart: ${payment.method}\n\nDeine Zustimmung zum sofortigen Beginn: Du hast am ${consentedAt} ausdrücklich verlangt, dass wir vor Ablauf der Widerrufsfrist mit der Vertragsausführung beginnen. Du hast bestätigt, dass dir bekannt ist, dass du damit dein Widerrufsrecht mit Beginn der Vertragsausführung verlierst. Die Credits wurden deinem Konto am ${grantedAt} gutgeschrieben.\n\nNachfolgend findest du unsere AGB und die Widerrufsbelehrung samt Muster-Widerrufsformular im vollständigen Wortlaut, in der Fassung, die zum Zeitpunkt deiner Bestellung galt.\n\nAnbieter: ${provider}, USt-IdNr. ${IMPRINT_VAT_ID}`
     : `Hello ${name},\n\nthank you for your purchase. We hereby confirm the contract:\n\nProduct: ${snapshot.offer.name} (${snapshot.offer.credits} credits)\nPrice: ${price} € (final price; pursuant to § 19 UStG, no VAT is charged)\nOrder date: ${orderedAt}\nPayment method: ${payment.method}\n\nYour consent to immediate performance: On ${consentedAt} you expressly requested that we begin performing the contract before the withdrawal period expires. You confirmed that you are aware that you thereby lose your right of withdrawal when performance of the contract begins. The credits were credited to your account on ${grantedAt}.\n\nOur terms and the withdrawal instructions, including the model withdrawal form, in the version that applied when you ordered, are included in full below.\n\nProvider: ${provider}, VAT ID pursuant to § 27a UStG: ${IMPRINT_VAT_ID}`;
   return `${body}\n\n${documents}`;
 }
@@ -159,11 +198,11 @@ export async function prepareConsumerConfirmation(env,{checkout,payload,provider
   const amount=raw.amount_total ?? raw.amount_paid;
   if (!Number.isSafeInteger(amount) || amount<0 || typeof raw.currency!=='string') throw new Error('contract_payment_amount_missing');
   const details=raw.customer_details || {}, address=details.address || raw.customer_address;
+  const creditPack=snapshot.consent?.version===CREDIT_PACK_PERFORMANCE_CONSENT_VERSION;
   const payment={sessionId,providerEventId,eventType:payload.type,providerEventTime:Number.isSafeInteger(payload.created)?new Date(payload.created*1000).toISOString():null,
     amountTotal:amount,currency:raw.currency.toLowerCase(),taxAmount:Number.isSafeInteger(raw.total_details?.amount_tax)?raw.total_details.amount_tax:null,
-    method:paymentMethodLabel(raw),
+    method:creditPack ? await resolveChargedPaymentMethod(env, raw, snapshot.locale) : labelPaymentMethod(paymentMethodType(raw), snapshot.locale),
     name:clean(details.name || raw.customer_name),address:address && typeof address==='object' ? Object.fromEntries(['line1','line2','city','state','postal_code','country'].map(key=>[key,clean(address[key])])) : null};
-  const creditPack=snapshot.consent?.version===CREDIT_PACK_PERFORMANCE_CONSENT_VERSION;
   const document={version:1,snapshot,payment,createdAt:now,text:creditPack?creditPackConfirmationText(snapshot,payment,now,checkout):confirmationText(snapshot,payment,now)};
   const json=JSON.stringify(document),hash=await sha256Hex(json);
   const subject=creditPack

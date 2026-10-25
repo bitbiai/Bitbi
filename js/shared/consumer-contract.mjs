@@ -29,7 +29,7 @@ export function consumerConsentText(locale = 'en') {
 export const CREDIT_PACK_PERFORMANCE_CONSENT_VERSION = 'credit-pack-356-v1';
 export const CREDIT_PACK_PERFORMANCE_CONSENT_TEXT = Object.freeze({
   de: 'Ich verlange ausdrücklich, dass bitbi.ai vor Ablauf der Widerrufsfrist mit der Vertragsausführung beginnt und mir die Credits sofort gutschreibt. Mir ist bekannt, dass ich mit dieser Zustimmung mein Widerrufsrecht mit Beginn der Vertragsausführung verliere.',
-  en: 'I expressly request that bitbi.ai begin performing the contract before the withdrawal period expires and credit the credits to me immediately. I am aware that, with this consent, I lose my right of withdrawal when performance of the contract begins.',
+  en: 'I expressly request that bitbi.ai begin performing the contract before the withdrawal period expires and add the credits to my account immediately. I am aware that, with this consent, I lose my right of withdrawal when performance of the contract begins.',
 });
 
 export function creditPackPerformanceConsentText(locale = 'en') {

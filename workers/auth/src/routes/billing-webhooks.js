@@ -34,6 +34,7 @@ import {
   getErrorFields,
   logDiagnostic,
 } from "../../../../js/shared/worker-observability.mjs";
+import { processTransactionalMessages } from "../lib/transactional-messages.js";
 
 async function enforceBillingWebhookRateLimit(ctx, provider) {
   const normalizedProvider = provider === "stripe-live"
@@ -118,6 +119,19 @@ export async function handleBillingWebhooks(ctx) {
         payload,
         verificationStatus: verification.verificationStatus,
       });
+      // Credit-pack confirmation is already queued. Wake the existing outbox
+      // now; the five-minute cron remains the recovery path. The outbox lease
+      // and provider idempotency key keep a concurrent cron from sending twice.
+      if (result.creditGrant && ctx.execCtx?.waitUntil) {
+        ctx.execCtx.waitUntil(processTransactionalMessages(env, { limit: 2 }).catch(() => logDiagnostic({
+          service: "bitbi-auth",
+          component: "consumer-mail",
+          event: "consumer_mail_wake_failed",
+          level: "error",
+          code: "consumer_mail_wake_failed",
+          correlationId: ctx.correlationId,
+        })));
+      }
       return json(
         {
           ok: true,
