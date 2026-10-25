@@ -1,4 +1,4 @@
-import { CONSUMER_TERMS_VERSION, CONSUMER_CONSENT_VERSION, consumerConsentText, consumerTermsRefreshMessage } from '../../shared/consumer-contract.mjs?v=__ASSET_VERSION__';
+import { CONSUMER_TERMS_VERSION, CONSUMER_CONSENT_VERSION, CREDIT_PACK_PERFORMANCE_CONSENT_VERSION, PRICING_FINAL_PRICE_NOTE, consumerConsentText, consumerTermsRefreshMessage, creditPackPerformanceConsentText } from '../../shared/consumer-contract.mjs?v=__ASSET_VERSION__';
 /* ============================================================
    BITBI — Public Pricing / Live Credit Packs
    ============================================================ */
@@ -61,13 +61,14 @@ const COPY = Object.freeze({
         loggedOutDestination: 'Create an account or sign in first. Credits will be added to your BITBI member account after verified Stripe payment.',
         memberDestination: 'Credit destination: your BITBI member account. No organization setup or owner role is required. Credits are account-bound usage units, not tokens, currency, crypto, or transferable value.',
         checkoutRequirements: 'Checkout requirements',
-        selectedSummary: 'Selected pack: {title} · {credits} credits · {price}. Prices include statutory VAT where applicable.',
+        selectedSummary: 'Selected pack: {title} · {credits} credits · {price}.',
         acceptTermsPrefix: 'I accept the ',
         termsLink: 'BITBI Terms',
         deliveryText: 'I request immediate provision of the credits and confirm that my withdrawal right may expire after provision or use of the digital credits, where legally permitted.',
         checkoutBusy: 'Opening checkout…',
         checkout: 'Continue to secure checkout',
         legalError: 'Please accept the Terms and confirm immediate provision of the digital credits.',
+        packLegalError: 'Please accept the Terms and the consent to begin performance immediately.',
         loginFirst: 'Create an account or sign in to buy credits.',
         checkoutFailed: 'Checkout could not be opened. Please try again.',
         unsafeCheckout: 'Checkout response was not a recognized Stripe-hosted payment URL. No payment was started.',
@@ -180,13 +181,14 @@ const COPY = Object.freeze({
         loggedOutDestination: 'Erstellen Sie zuerst ein Konto oder melden Sie sich an. Die Credits werden nach bestätigter Stripe-Zahlung Ihrem BITBI-Mitgliedskonto gutgeschrieben.',
         memberDestination: 'Credit-Ziel: Ihr BITBI-Mitgliedskonto. Keine Organisationseinrichtung und keine Owner-Rolle erforderlich. Credits sind kontogebundene Nutzungseinheiten, keine Token, Währung, Krypto oder übertragbaren Werte.',
         checkoutRequirements: 'Voraussetzungen für den Checkout',
-        selectedSummary: 'Ausgewähltes Paket: {title} · {credits} Credits · {price}. Preise enthalten die gesetzliche Umsatzsteuer, soweit anwendbar.',
+        selectedSummary: 'Ausgewähltes Paket: {title} · {credits} Credits · {price}.',
         acceptTermsPrefix: 'Ich akzeptiere die ',
         termsLink: 'AGB von BITBI',
         deliveryText: 'Ich verlange die sofortige Bereitstellung der Credits und bestätige, dass mein Widerrufsrecht nach Bereitstellung oder Nutzung der digitalen Credits erlöschen kann, soweit gesetzlich zulässig.',
         checkoutBusy: 'Checkout wird geöffnet…',
         checkout: 'Weiter zum sicheren Checkout',
         legalError: 'Bitte akzeptieren Sie die AGB und bestätigen Sie die sofortige Bereitstellung der digitalen Credits.',
+        packLegalError: 'Bitte akzeptieren Sie die AGB und die Zustimmung zum sofortigen Beginn.',
         loginFirst: 'Erstelle ein Konto oder melde dich an, um Credits zu kaufen.',
         checkoutFailed: 'Checkout konnte nicht geöffnet werden. Bitte versuchen Sie es erneut.',
         unsafeCheckout: 'Die Checkout-Antwort war keine erkannte von Stripe gehostete Zahlungs-URL. Es wurde keine Zahlung gestartet.',
@@ -280,6 +282,7 @@ let selectedPackId = sessionStorage.getItem(PENDING_PACK_KEY) || 'live_credits_1
 let selectedOfferType = sessionStorage.getItem(PENDING_OFFER_KEY) || 'subscription';
 let termsAccepted = false;
 let immediateDeliveryAccepted = false;
+let creditPackPerformanceConsent = false;
 let checkoutBusy = false;
 let inlineMessage = '';
 let inlineMessageTone = 'neutral';
@@ -392,6 +395,7 @@ function createFreeAccountCard(auth) {
     price.append(
         createTextElement('span', 'pricing-card__price-value', free.price),
         createTextElement('span', 'pricing-card__cadence', free.cadence),
+        createTextElement('p', 'pricing-card__tax-note', PRICING_FINAL_PRICE_NOTE[LOCALE] || PRICING_FINAL_PRICE_NOTE.en),
     );
 
     const description = createTextElement('p', 'pricing-card__copy', free.description);
@@ -455,6 +459,7 @@ function createPackCard(pack, auth) {
     price.append(
         createTextElement('span', 'pricing-card__price-value', pack.price),
         createTextElement('span', 'pricing-card__cadence', pack.cadence),
+        createTextElement('p', 'pricing-card__tax-note', PRICING_FINAL_PRICE_NOTE[LOCALE] || PRICING_FINAL_PRICE_NOTE.en),
     );
 
     const description = createTextElement('p', 'pricing-card__copy', pack.description);
@@ -529,6 +534,7 @@ function createSubscriptionCard(auth) {
     price.append(
         createTextElement('span', 'pricing-card__price-value', subscription.price),
         createTextElement('span', 'pricing-card__cadence', subscription.cadence),
+        createTextElement('p', 'pricing-card__tax-note', PRICING_FINAL_PRICE_NOTE[LOCALE] || PRICING_FINAL_PRICE_NOTE.en),
     );
 
     const description = createTextElement('p', 'pricing-card__copy', subscription.description);
@@ -658,6 +664,7 @@ function createLegalCheckout(auth) {
 
     const checks = document.createElement('div');
     checks.className = 'pricing-legal__checks';
+    const creditPackCheckout = selectedOfferType !== 'subscription';
 
     const termsLabel = document.createElement('label');
     termsLabel.className = 'pricing-legal__check';
@@ -683,17 +690,29 @@ function createLegalCheckout(auth) {
     deliveryLabel.className = 'pricing-legal__check';
     const deliveryInput = document.createElement('input');
     deliveryInput.type = 'checkbox';
-    deliveryInput.checked = immediateDeliveryAccepted;
-    deliveryInput.addEventListener('change', () => {
-        immediateDeliveryAccepted = deliveryInput.checked;
-        renderPricingExperience();
-    });
-    deliveryLabel.append(
-        deliveryInput,
-        createTextElement('span', '', consumerConsentText(LOCALE).earlyStart),
-    );
-
-    checks.append(termsLabel, deliveryLabel, createTextElement('p', 'pricing-legal__host-note', consumerConsentText(LOCALE).rights));
+    if (creditPackCheckout) {
+        deliveryInput.checked = creditPackPerformanceConsent;
+        deliveryInput.addEventListener('change', () => {
+            creditPackPerformanceConsent = deliveryInput.checked;
+            renderPricingExperience();
+        });
+        deliveryLabel.append(
+            deliveryInput,
+            createTextElement('span', '', creditPackPerformanceConsentText(LOCALE)),
+        );
+        checks.append(termsLabel, deliveryLabel);
+    } else {
+        deliveryInput.checked = immediateDeliveryAccepted;
+        deliveryInput.addEventListener('change', () => {
+            immediateDeliveryAccepted = deliveryInput.checked;
+            renderPricingExperience();
+        });
+        deliveryLabel.append(
+            deliveryInput,
+            createTextElement('span', '', consumerConsentText(LOCALE).earlyStart),
+        );
+        checks.append(termsLabel, deliveryLabel, createTextElement('p', 'pricing-legal__host-note', consumerConsentText(LOCALE).rights));
+    }
     section.appendChild(checks);
 
     if (inlineMessage) {
@@ -732,8 +751,9 @@ async function handleCheckout(auth) {
         });
         return;
     }
-    if (!termsAccepted || !immediateDeliveryAccepted) {
-        setInlineMessage(t('legalError'), 'error');
+    const creditPackCheckout = selectedOfferType !== 'subscription';
+    if (!termsAccepted || (creditPackCheckout ? !creditPackPerformanceConsent : !immediateDeliveryAccepted)) {
+        setInlineMessage(t(creditPackCheckout ? 'packLegalError' : 'legalError'), 'error');
         return;
     }
     checkoutBusy = true;
@@ -755,6 +775,8 @@ async function handleCheckout(auth) {
             termsAccepted: true,
             termsVersion: TERMS_VERSION,
         consentVersion: CONSUMER_CONSENT_VERSION, locale: LOCALE, earlyStartRequested: true,
+            creditPackPerformanceConsent: true,
+            creditPackConsentVersion: CREDIT_PACK_PERFORMANCE_CONSENT_VERSION,
             immediateDeliveryAccepted: true,
             acceptedAt,
         });

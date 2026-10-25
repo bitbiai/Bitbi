@@ -1,4 +1,4 @@
-import { CONSUMER_TERMS_VERSION, CONSUMER_CONSENT_VERSION, LEGACY_CONSUMER_TERMS_VERSION, CONSUMER_SNAPSHOT_TERMS_VERSIONS } from '../../../../js/shared/consumer-contract.mjs';
+import { CONSUMER_TERMS_VERSION, CONSUMER_CONSENT_VERSION, CREDIT_PACK_PERFORMANCE_CONSENT_VERSION, LEGACY_CONSUMER_TERMS_VERSION, CONSUMER_SNAPSHOT_TERMS_VERSIONS, creditPackPerformanceConsentText } from '../../../../js/shared/consumer-contract.mjs';
 import { prepareConsumerContractSnapshot, prepareConsumerConfirmation, queueCancellationConfirmation } from './consumer-contracts.js';
 import { applyMemberSubscriptionEvent, markMemberSubscriptionEventFailed } from "./subscription-fulfillment.js";
 import {
@@ -795,7 +795,7 @@ async function liveCheckoutRequestFingerprint({ organizationId, userId, pack, au
     termsAccepted: legalAcceptance.termsAccepted,
     termsVersion: legalAcceptance.termsVersion,
     immediateDeliveryAccepted: legalAcceptance.immediateDeliveryAccepted,
-    ...(legalAcceptance.consentVersion ? {consentVersion:legalAcceptance.consentVersion,locale:legalAcceptance.locale,earlyStartRequested:true,withdrawalKnowledgeAccepted:false} : {}),
+    ...recordedConsent(legalAcceptance),
   });
 }
 
@@ -814,7 +814,7 @@ async function liveMemberCheckoutRequestFingerprint({ userId, pack, legalAccepta
     termsAccepted: legalAcceptance.termsAccepted,
     termsVersion: legalAcceptance.termsVersion,
     immediateDeliveryAccepted: legalAcceptance.immediateDeliveryAccepted,
-    ...(legalAcceptance.consentVersion ? {consentVersion:legalAcceptance.consentVersion,locale:legalAcceptance.locale,earlyStartRequested:true,withdrawalKnowledgeAccepted:false} : {}),
+    ...recordedConsent(legalAcceptance),
   });
 }
 
@@ -1326,6 +1326,11 @@ function buildCheckoutForm({
     if (legalAcceptance.acceptedAt) {
       body.set("metadata[accepted_at]", legalAcceptance.acceptedAt);
     }
+    if (legalAcceptance.creditPackConsentVersion) {
+      body.set("metadata[credit_pack_consent_version]", legalAcceptance.creditPackConsentVersion);
+      body.set("metadata[credit_pack_consent_accepted_at]", legalAcceptance.acceptedAt || "");
+      body.set("metadata[credit_pack_consent_text]", legalAcceptance.creditPackConsentText);
+    }
   }
   return body;
 }
@@ -1522,6 +1527,38 @@ function normalizeLiveLegalAcceptance(value) {
     locale:current ? data.locale : null,acceptedAt:nowIso(),clientAcceptedAt};
 }
 
+function normalizeCreditPackLegalAcceptance(value) {
+  const acceptance = normalizeLiveLegalAcceptance(value);
+  if (acceptance.termsVersion !== CONSUMER_TERMS_VERSION) return acceptance;
+  const data = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const text = creditPackPerformanceConsentText(acceptance.locale);
+  if (data.creditPackPerformanceConsent !== true || data.creditPackConsentVersion !== CREDIT_PACK_PERFORMANCE_CONSENT_VERSION || !text) {
+    throw new StripeBillingError("Credit-pack performance consent is required before checkout.", {status:400,code:"credit_pack_performance_consent_required"});
+  }
+  return {...acceptance,creditPackPerformanceConsent:true,creditPackConsentVersion:CREDIT_PACK_PERFORMANCE_CONSENT_VERSION,creditPackConsentText:text};
+}
+
+function recordedConsent(acceptance) {
+  if (!acceptance?.consentVersion) return {};
+  const performance = acceptance.creditPackPerformanceConsent === true;
+  return {consentVersion:acceptance.consentVersion,locale:acceptance.locale,earlyStartRequested:true,
+    withdrawalKnowledgeAccepted:performance,extinction:performance ? "on_performance_start" : "not_determined",
+    ...(performance ? {creditPackPerformanceConsent:true,creditPackConsentVersion:acceptance.creditPackConsentVersion,creditPackConsentText:acceptance.creditPackConsentText} : {})};
+}
+
+function assertStoredCreditPackPerformanceConsent(checkout) {
+  let meta = {};
+  try { meta = JSON.parse(checkout?.metadata_json || "{}"); } catch { meta = {}; }
+  // Sessions opened before this consent version keep their stored snapshot.
+  // A new session cannot be created without the consent, and a row that claims
+  // the version must carry the canonical wording before any credit grant.
+  if (meta.creditPackConsentVersion == null && meta.creditPackPerformanceConsent == null) return;
+  const text = creditPackPerformanceConsentText(meta.locale);
+  if (meta.creditPackPerformanceConsent !== true || meta.creditPackConsentVersion !== CREDIT_PACK_PERFORMANCE_CONSENT_VERSION || meta.creditPackConsentText !== text) {
+    throw new StripeBillingError("Credit-pack performance consent is required before credits are granted.", {status:503,code:"credit_pack_performance_consent_required"});
+  }
+}
+
 async function updateCheckoutSessionAfterStripeCreate(env, {
   id,
   providerMode,
@@ -1589,7 +1626,7 @@ export async function createStripeLiveCreditPackCheckout({
   const orgId = normalizeOrgId(organizationId);
   const normalizedUserId = normalizeUserId(userId);
   const scope = normalizeLiveAuthorizationScope(authorizationScope);
-  const acceptance = normalizeLiveLegalAcceptance(legalAcceptance);
+  const acceptance = normalizeCreditPackLegalAcceptance(legalAcceptance);
   const normalizedKey = normalizeBillingIdempotencyKey(idempotencyKey);
   const pack = getStripeLiveCreditPack(packId);
   const config = getStripeLiveCheckoutConfig(env);
@@ -1667,7 +1704,7 @@ export async function createStripeLiveCreditPackCheckout({
       immediateDeliveryAccepted: true,
       acceptedAt: acceptance.acceptedAt,
       clientAcceptedAt: acceptance.clientAcceptedAt,
-      ...(acceptance.consentVersion ? {consentVersion:acceptance.consentVersion,locale:acceptance.locale,earlyStartRequested:true,withdrawalKnowledgeAccepted:false,extinction:"not_determined"} : {}),
+      ...recordedConsent(acceptance),
     }),
     now,
     now
@@ -1826,7 +1863,7 @@ export async function createStripeLiveMemberCreditPackCheckout({
   legalAcceptance,
 }) {
   const normalizedUserId = normalizeUserId(userId);
-  const acceptance = normalizeLiveLegalAcceptance(legalAcceptance);
+  const acceptance = normalizeCreditPackLegalAcceptance(legalAcceptance);
   const normalizedKey = normalizeBillingIdempotencyKey(idempotencyKey);
   const pack = getStripeLiveCreditPack(packId);
   const config = getStripeLiveCheckoutConfig(env);
@@ -1900,7 +1937,7 @@ export async function createStripeLiveMemberCreditPackCheckout({
       immediateDeliveryAccepted: true,
       acceptedAt: acceptance.acceptedAt,
       clientAcceptedAt: acceptance.clientAcceptedAt,
-      ...(acceptance.consentVersion ? {consentVersion:acceptance.consentVersion,locale:acceptance.locale,earlyStartRequested:true,withdrawalKnowledgeAccepted:false,extinction:"not_determined"} : {}),
+      ...recordedConsent(acceptance),
     }),
     now,
     now
@@ -3679,6 +3716,7 @@ async function stripeCreditPackCheckoutIdentity(payload) {
 async function fulfillStripeCreditPack({ env, completion, checkout, scope, stored = null, repair = null }) {
   const member = completion.checkoutScope === LIVE_MEMBER_CHECKOUT_SCOPE;
   const mode = checkout.provider_mode;
+  if (mode === STRIPE_MODE_LIVE) assertStoredCreditPackPerformanceConsent(checkout);
   const table = member ? "billing_member_checkout_sessions" : "billing_checkout_sessions";
   const ledgerColumn = member ? "member_credit_ledger_entry_id" : "credit_ledger_entry_id";
   const identity = await sha256Hex(`stripe-credit-pack:${mode}:${completion.sessionId}`);

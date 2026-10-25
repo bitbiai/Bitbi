@@ -8480,6 +8480,8 @@ test(`@consumer-contract ${locale} documents`,({page})=>cUI.contractDocuments({p
       terms_accepted: true,
       terms_version: '2026-10-24',
 consentVersion:'consumer-v1',locale:'en',earlyStartRequested:true,withdrawalKnowledgeAccepted:false,
+      creditPackPerformanceConsent: true,
+      creditPackConsentVersion: 'credit-pack-356-v1',
       immediate_delivery_accepted: true,
     }));
     expect(checkoutRequests[0].url).toContain('/api/account/billing/checkout/live-credit-pack');
@@ -8687,6 +8689,8 @@ test.describe('Credits dashboard live credit packs', () => {
       terms_accepted: true,
       terms_version: '2026-10-24',
 consentVersion:'consumer-v1',locale:'en',earlyStartRequested:true,withdrawalKnowledgeAccepted:false,
+      creditPackPerformanceConsent: true,
+      creditPackConsentVersion: 'credit-pack-356-v1',
       immediate_delivery_accepted: true,
     }));
     expect(checkoutRequests[0].body.accepted_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);

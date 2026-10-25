@@ -23,3 +23,20 @@ export function consumerConsentText(locale = 'en') {
     rights: 'Loss of the right of withdrawal is not automatically inferred from purchasing or using credits. The statutory conditions are assessed individually.',
   };
 }
+
+// Credit-pack checkout only. German is the counsel text. English is a faithful
+// translation pending legal review and is not a second German wording.
+export const CREDIT_PACK_PERFORMANCE_CONSENT_VERSION = 'credit-pack-356-v1';
+export const CREDIT_PACK_PERFORMANCE_CONSENT_TEXT = Object.freeze({
+  de: 'Ich verlange ausdrücklich, dass bitbi.ai vor Ablauf der Widerrufsfrist mit der Vertragsausführung beginnt und mir die Credits sofort gutschreibt. Mir ist bekannt, dass ich mit dieser Zustimmung mein Widerrufsrecht mit Beginn der Vertragsausführung verliere.',
+  en: 'I expressly request that bitbi.ai begin performing the contract before the withdrawal period expires and credit the credits to me immediately. I am aware that, with this consent, I lose my right of withdrawal when performance of the contract begins.',
+});
+
+export function creditPackPerformanceConsentText(locale = 'en') {
+  return CREDIT_PACK_PERFORMANCE_CONSENT_TEXT[locale === 'de' ? 'de' : 'en'];
+}
+
+export const PRICING_FINAL_PRICE_NOTE = Object.freeze({
+  de: 'Alle Preise sind Endpreise. Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.',
+  en: 'All prices are final prices. Pursuant to § 19 UStG, no VAT is charged.',
+});

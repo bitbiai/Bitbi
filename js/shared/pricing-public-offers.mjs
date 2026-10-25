@@ -38,7 +38,7 @@ const CARD_COPY = Object.freeze({
       badge: "Pro",
       description: "Monthly BITBI membership with separate subscription credits and expanded Asset Manager storage.",
       bestFor: "Regular creators who want predictable monthly credits and more storage.",
-      summary: "Selected subscription: {title} · {credits} credits per month · {price} / month. Prices include statutory VAT where applicable.",
+      summary: "Selected subscription: {title} · {credits} credits per month · {price} / month.",
     }),
     packs: Object.freeze({
       live_credits_5000: Object.freeze({
@@ -91,7 +91,7 @@ const CARD_COPY = Object.freeze({
       badge: "Pro",
       description: "Monatliche BITBI Mitgliedschaft mit getrennten Abo-Credits und mehr Assets-Manager-Speicher.",
       bestFor: "Regelmäßige Creator, die planbare Monats-Credits und mehr Speicher möchten.",
-      summary: "Ausgewähltes Abo: {title} · {credits} Credits pro Monat · {price} / Monat. Preise enthalten die gesetzliche Umsatzsteuer, soweit anwendbar.",
+      summary: "Ausgewähltes Abo: {title} · {credits} Credits pro Monat · {price} / Monat.",
     }),
     packs: Object.freeze({
       live_credits_5000: Object.freeze({

@@ -1,5 +1,5 @@
 import { initContractDocuments } from './contracts.js?v=__ASSET_VERSION__';
-import { CONSUMER_TERMS_VERSION, CONSUMER_CONSENT_VERSION, consumerConsentText, consumerTermsRefreshMessage } from '../../shared/consumer-contract.mjs?v=__ASSET_VERSION__';
+import { CONSUMER_TERMS_VERSION, CONSUMER_CONSENT_VERSION, CREDIT_PACK_PERFORMANCE_CONSENT_VERSION, consumerConsentText, consumerTermsRefreshMessage, creditPackPerformanceConsentText } from '../../shared/consumer-contract.mjs?v=__ASSET_VERSION__';
 import { initSiteHeader } from '../../shared/site-header.js?v=__ASSET_VERSION__';
 import { initParticles } from '../../shared/particles.js';
 import { initBinaryRain } from '../../shared/binary-rain.js';
@@ -475,13 +475,10 @@ function renderLegalBlock(visible) {
     });
     deliveryLabel.append(
         deliveryInput,
-        document.createTextNode(consumerConsentText(LOCALE).earlyStart),
+        document.createTextNode(creditPackPerformanceConsentText(LOCALE)),
     );
 
-    const rightsNote = document.createElement('p');
-    rightsNote.className = 'credits-legal__host-note';
-    rightsNote.textContent = consumerConsentText(LOCALE).rights;
-    $legalBlock.append(title, termsLabel, deliveryLabel, rightsNote);
+    $legalBlock.append(title, termsLabel, deliveryLabel);
     const hostNote = document.createElement('p');
     hostNote.className = 'credits-legal__host-note';
     hostNote.textContent = localeText('credits.securePayment');
@@ -1061,6 +1058,8 @@ async function startCheckout(packId, button) {
         termsAccepted: true,
         termsVersion: TERMS_VERSION,
         consentVersion: CONSUMER_CONSENT_VERSION, locale: LOCALE, earlyStartRequested: true,
+        creditPackPerformanceConsent: true,
+        creditPackConsentVersion: CREDIT_PACK_PERFORMANCE_CONSENT_VERSION,
         immediateDeliveryAccepted: true,
         acceptedAt: new Date().toISOString(),
     };

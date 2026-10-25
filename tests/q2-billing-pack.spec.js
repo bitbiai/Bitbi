@@ -690,7 +690,9 @@ test('Q2 consumer contract: signed paid checkout atomically saves immutable full
     const fs = require('node:fs'), path = require('node:path');
     f.db.exec(fs.readFileSync(path.join(__dirname,'../workers/auth/migrations/0117_consumer_contracts.sql'),'utf8'));
     const contracts=await load('workers/auth/src/lib/consumer-contracts.js');
-    const acceptance={termsVersion:'2026-10-24',locale:'de',termsAccepted:true,earlyStartRequested:true,consentVersion:'consumer-v1'};
+    const performanceLoss='Ich verlange ausdrücklich, dass bitbi.ai vor Ablauf der Widerrufsfrist mit der Vertragsausführung beginnt und mir die Credits sofort gutschreibt. Mir ist bekannt, dass ich mit dieser Zustimmung mein Widerrufsrecht mit Beginn der Vertragsausführung verliere.';
+    const acceptance={termsVersion:'2026-10-24',locale:'de',termsAccepted:true,earlyStartRequested:true,consentVersion:'consumer-v1',
+      creditPackPerformanceConsent:true,creditPackConsentVersion:'credit-pack-356-v1',creditPackConsentText:performanceLoss};
     await f.db.prepare("UPDATE billing_member_checkout_sessions SET metadata_json=? WHERE id=?").bind(JSON.stringify(acceptance),f.checkout.id).run();
     await contracts.persistConsumerContractSnapshot(f.env,{checkoutId:f.checkout.id,userId:MEMBER,scope:'member',
       offer:{id:f.checkout.pack,name:'Starter',credits:5000,amountCents:999,currency:'eur'},acceptance});
@@ -699,11 +701,20 @@ test('Q2 consumer contract: signed paid checkout atomically saves immutable full
     expect((await deliver(f,event)).response.status).toBe(202);
     expect((await deliver(f,event)).response.status).toBe(200);
     const doc=await contracts.readOwnedContractConfirmation(f.env,{checkoutId:f.checkout.id,userId:MEMBER});
-    expect(doc.document.snapshot.consent.withdrawalKnowledgeAccepted).toBe(false);
-    expect(doc.document.snapshot.consent.extinction).toBe('not_determined');
+    expect(doc.document.snapshot.consent.withdrawalKnowledgeAccepted).toBe(true);
+    expect(doc.document.snapshot.consent.extinction).toBe('on_performance_start');
+    expect(doc.document.snapshot.consent.wording.performanceLoss).toBe(performanceLoss);
     expect(doc.document.payment.taxAmount).toBe(159);
+    expect(doc.document.text).toContain(`Hallo Synthetic buyer`);
+    expect(doc.document.text).toContain('Preis: 9,99 € (Endpreis; gemäß § 19 UStG wird keine Umsatzsteuer berechnet)');
+    expect(doc.document.text).toContain('Du hast bestätigt, dass dir bekannt ist, dass du damit dein Widerrufsrecht mit Beginn der Vertragsausführung verlierst.');
+    expect(doc.document.text).toContain('USt-IdNr. DE462787956');
+    expect(doc.document.text).toContain('7.1 Widerrufsbelehrung');
+    expect(doc.document.text).toContain('7.5 Muster-Widerrufsformular');
+    expect(JSON.parse(f.db.database.prepare('SELECT payload_json FROM transactional_messages').get().payload_json).subject)
+      .toBe(`Deine Bestellung bei bitbi.ai – Vertragsbestätigung Nr. ${f.checkout.id}`);
     expect(doc.document.text).toContain('Widerruf');
-    expect(doc.document.text).toContain('24.10.2026');
+    expect(doc.document.text).toContain('Fassung vom 24. Oktober 2026');
     expect(doc.document.text.length).toBeGreaterThan(6000);
     expect(await contracts.readOwnedContractConfirmation(f.env,{checkoutId:f.checkout.id,userId:'someone-else'})).toBe(null);
     expect(f.db.database.prepare('SELECT COUNT(*) AS n FROM transactional_messages').get().n).toBe(1);
@@ -719,8 +730,9 @@ test('Q2 consumer contract: ordinary checkout pins server consent and locale bef
     f.db.exec(fs.readFileSync(path.join(__dirname,'../workers/auth/migrations/0117_consumer_contracts.sql'),'utf8'));
     Object.assign(f.env,{ENABLE_LIVE_STRIPE_CREDIT_PACKS:'true',STRIPE_LIVE_SECRET_KEY:'sk_live_synthetic_contract_only',
       STRIPE_LIVE_CHECKOUT_SUCCESS_URL:'https://bitbi.ai/pricing.html?checkout=success',STRIPE_LIVE_CHECKOUT_CANCEL_URL:'https://bitbi.ai/pricing.html?checkout=cancel'});
+    const performanceLoss='Ich verlange ausdrücklich, dass bitbi.ai vor Ablauf der Widerrufsfrist mit der Vertragsausführung beginnt und mir die Credits sofort gutschreibt. Mir ist bekannt, dass ich mit dieser Zustimmung mein Widerrufsrecht mit Beginn der Vertragsausführung verliere.';
     const body={pack_id:'live_credits_5000',termsAccepted:true,termsVersion:'2026-10-24',consentVersion:'consumer-v1',locale:'de',earlyStartRequested:true,
-      acceptedAt:'2000-01-01T00:00:00.000Z'};
+      creditPackPerformanceConsent:true,creditPackConsentVersion:'credit-pack-356-v1',acceptedAt:'2000-01-01T00:00:00.000Z'};
     const calls=[],prior=globalThis.fetch;
     globalThis.fetch=async (url,init)=>{calls.push({url,init});return Response.json({id:'cs_live_q2_contract_new_checkout',url:'https://checkout.stripe.com/c/pay/cs_live_q2_contract_new_checkout',mode:'payment',status:'open',payment_status:'unpaid',livemode:true});};
     f.env.__TEST_FETCH=globalThis.fetch;
@@ -729,6 +741,7 @@ test('Q2 consumer contract: ordinary checkout pins server consent and locale bef
     try {
       expect((await request({...body,earlyStartRequested:false})).status).toBe(400);
       expect((await request({...body,withdrawalKnowledgeAccepted:true})).status).toBe(400);
+      expect((await request({...body,creditPackPerformanceConsent:false})).status).toBe(400);
       const oldClient=await request({...body,termsVersion:'2026-10-23'});
       expect(oldClient.status).toBe(409);expect(await oldClient.json()).toMatchObject({code:'terms_version_outdated'});
       expect((await request({...body,termsVersion:'2030-01-01'})).status).toBe(400);
@@ -741,7 +754,10 @@ test('Q2 consumer contract: ordinary checkout pins server consent and locale bef
       expect(row.accepted_at).toBe(new Date().toISOString());expect(row.locale).toBe('de');
       const snapshot=JSON.parse(row.snapshot_json);expect(snapshot.consent.earlyStartRequested).toBe(true);
       expect(snapshot.terms.version).toBe('2026-10-24');expect(snapshot.offer.contractSummary).toContain('Einmaliger Credit-Kauf');
-      expect(snapshot.consent.withdrawalKnowledgeAccepted).toBe(false);
+      expect(snapshot.consent.version).toBe('credit-pack-356-v1');
+      expect(snapshot.consent.withdrawalKnowledgeAccepted).toBe(true);
+      expect(snapshot.consent.wording.performanceLoss).toBe(performanceLoss);
+      expect(new URLSearchParams(calls[0].init.body).get('metadata[credit_pack_consent_text]')).toBe(performanceLoss);
       expect(snapshot.customer.accountEmail).toBe('pack-member@example.invalid');
       expect(new URLSearchParams(calls[0].init.body).get('metadata[accepted_at]')).toBe(row.accepted_at);
       expect(state(f).ledger).toHaveLength(0);
@@ -860,11 +876,14 @@ test('Q2 consumer contract: missing new acceptance evidence cannot grant, while 
     await f.db.prepare('UPDATE billing_member_checkout_sessions SET metadata_json=? WHERE id=?').bind(JSON.stringify({termsVersion:'2026-10-24'}),f.checkout.id).run();
     expect((await deliver(f,payload(f.checkout))).response.status).toBeGreaterThanOrEqual(500);
     expect(state(f).ledger).toHaveLength(0);
+    await f.db.prepare('UPDATE billing_member_checkout_sessions SET metadata_json=? WHERE id=?').bind(JSON.stringify({termsVersion:'2026-10-24',locale:'de',creditPackPerformanceConsent:true,creditPackConsentVersion:'credit-pack-356-v1',creditPackConsentText:'forged wording'}),f.checkout.id).run();
+    expect((await deliver(f,payload(f.checkout,'evt_q2_forged_consent'))).response.status).toBeGreaterThanOrEqual(500);
+    expect(state(f).ledger).toHaveLength(0);
     Object.assign(f.env,{ENABLE_LIVE_STRIPE_CREDIT_PACKS:'true',STRIPE_LIVE_SECRET_KEY:'sk_live_synthetic_contract_only',
       STRIPE_LIVE_CHECKOUT_SUCCESS_URL:'https://bitbi.ai/pricing.html?checkout=success',STRIPE_LIVE_CHECKOUT_CANCEL_URL:'https://bitbi.ai/pricing.html?checkout=cancel'});
     f.db.exec("CREATE TRIGGER contract_snapshot_fault BEFORE INSERT ON consumer_contract_snapshots BEGIN SELECT RAISE(ABORT,'snapshot fixture fault'); END");
     const response=await f.http.request('/api/account/billing/checkout/live-credit-pack',{method:'POST',headers:{'Content-Type':'application/json',Origin:'https://bitbi.ai',Cookie:f.memberCookie,'Idempotency-Key':'consumer-snapshot-fault','CF-Connecting-IP':'192.0.2.56'},
-      body:JSON.stringify({pack_id:'live_credits_5000',termsAccepted:true,termsVersion:'2026-10-24',consentVersion:'consumer-v1',locale:'en',earlyStartRequested:true})});
+      body:JSON.stringify({pack_id:'live_credits_5000',termsAccepted:true,termsVersion:'2026-10-24',consentVersion:'consumer-v1',locale:'en',earlyStartRequested:true,creditPackPerformanceConsent:true,creditPackConsentVersion:'credit-pack-356-v1'})});
     expect(response.status).toBeGreaterThanOrEqual(500);
     expect(f.db.database.prepare('SELECT COUNT(*) AS n FROM billing_member_checkout_sessions').get().n).toBe(1);
     expect(f.db.database.prepare('SELECT COUNT(*) AS n FROM consumer_contract_snapshots').get().n).toBe(0);

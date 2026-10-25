@@ -1885,6 +1885,10 @@ test.describe('Bilingual locale pages', () => {
       expect(html, `${englishFile} terms link`).toMatch(/href="(?:\/legal\/terms\.html|(?:\.\.\/)?terms\.html|legal\/terms\.html)"/);
       expect(visibleHtmlText(html)).not.toContain('AGB');
     }
+    expect(visibleHtmlText(repoFile('legal/imprint.html'))).toContain('VAT ID pursuant to § 27a UStG: DE462787956');
+    expect(visibleHtmlText(repoFile('de/legal/imprint.html'))).toContain('Umsatzsteuer-Identifikationsnummer gemäß § 27a UStG: DE462787956');
+    expect(visibleHtmlText(repoFile('legal/imprint.html'))).not.toContain('Umsatzsteuer-Identifikationsnummer gemäß § 27a UStG');
+    expect(visibleHtmlText(repoFile('de/legal/imprint.html'))).not.toContain('VAT ID pursuant to § 27a UStG');
 
     for (const germanFile of ['de/index.html', 'de/pricing.html', 'legal/datenschutz.html', 'de/legal/datenschutz.html', 'de/legal/privacy.html', 'de/legal/imprint.html', 'de/legal/terms.html']) {
       const html = repoFile(germanFile);

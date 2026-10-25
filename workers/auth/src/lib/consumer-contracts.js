@@ -1,4 +1,4 @@
-import { CONSUMER_TERMS_VERSION, CONSUMER_CONSENT_VERSION, CONSUMER_SNAPSHOT_TERMS_VERSIONS, consumerConsentText } from '../../../../js/shared/consumer-contract.mjs';
+import { CONSUMER_TERMS_VERSION, CONSUMER_CONSENT_VERSION, CONSUMER_SNAPSHOT_TERMS_VERSIONS, CREDIT_PACK_PERFORMANCE_CONSENT_VERSION, consumerConsentText, creditPackPerformanceConsentText } from '../../../../js/shared/consumer-contract.mjs';
 import { CONSUMER_TERMS_CONTENT } from './consumer-terms-content.js';
 import { prepareTransactionalMessage } from './transactional-messages.js';
 import { nowIso, sha256Hex } from './tokens.js';
@@ -22,9 +22,17 @@ function validateAcceptedSnapshot(row, snapshot, checkout, termsVersion) {
     || snapshot.organizationId!==(checkout.organization_id || null) || row.checkout_scope!==scope || snapshot.scope!==scope
     || !['en','de'].includes(row.locale) || snapshot.locale!==row.locale || snapshot.acceptedAt!==row.accepted_at
     || snapshot.terms?.version!==termsVersion || typeof snapshot.terms.text!=='string' || !snapshot.terms.text.trim()
-    || snapshot.consent?.version!==(termsVersion==='2026-10-23'?'consumer-v1':CONSUMER_CONSENT_VERSION) || snapshot.consent.termsAccepted!==true
-    || snapshot.consent.earlyStartRequested!==true || snapshot.consent.withdrawalKnowledgeAccepted!==false
-    || snapshot.consent.extinction!=='not_determined' || !snapshot.offer || !snapshot.customer?.accountEmail
+    || snapshot.consent?.termsAccepted!==true || snapshot.consent.earlyStartRequested!==true
+    || !snapshot.offer || !snapshot.customer?.accountEmail)
+    throw new Error('contract_snapshot_binding_mismatch');
+  if (snapshot.consent.version === CREDIT_PACK_PERFORMANCE_CONSENT_VERSION) {
+    if (!['member','organization'].includes(scope) || snapshot.consent.withdrawalKnowledgeAccepted!==true
+      || snapshot.consent.extinction!=='on_performance_start'
+      || snapshot.consent.wording?.performanceLoss!==creditPackPerformanceConsentText(row.locale)
+      || snapshot.consent.wording?.terms!==consumerConsentText(row.locale).terms)
+      throw new Error('contract_snapshot_binding_mismatch');
+  } else if (snapshot.consent?.version!==(termsVersion==='2026-10-23'?'consumer-v1':CONSUMER_CONSENT_VERSION)
+    || snapshot.consent.withdrawalKnowledgeAccepted!==false || snapshot.consent.extinction!=='not_determined'
     || !['terms','earlyStart','rights'].every(key=>typeof snapshot.consent.wording?.[key]==='string' && snapshot.consent.wording[key].trim()))
     throw new Error('contract_snapshot_binding_mismatch');
   if (snapshot.offer.contractSummary===undefined && termsVersion!=='2026-10-23') throw new Error('contract_offer_summary_missing');
@@ -39,11 +47,20 @@ export async function prepareConsumerContractSnapshot(env, { checkoutId, userId,
   if (!user?.email) throw Object.assign(new Error('Contract contact is unavailable.'),{code:'contract_contact_unavailable',status:409});
   const locale=acceptance.locale, content=CONSUMER_TERMS_CONTENT[locale],acceptedAt=acceptance.acceptedAt||now;
   if (content.version !== acceptance.termsVersion) throw new Error('contract_document_version_mismatch');
+  const performance=acceptance.creditPackPerformanceConsent===true;
+  if (performance && (acceptance.creditPackConsentVersion!==CREDIT_PACK_PERFORMANCE_CONSENT_VERSION
+    || acceptance.creditPackConsentText!==creditPackPerformanceConsentText(locale) || offer.interval))
+    throw new Error('contract_consent_wording_mismatch');
+  const consent=performance
+    ? {version:CREDIT_PACK_PERFORMANCE_CONSENT_VERSION,termsAccepted:true,earlyStartRequested:true,withdrawalKnowledgeAccepted:true,
+      classification:'acknowledged_loss_on_performance',extinction:'on_performance_start',
+      wording:{terms:consumerConsentText(locale).terms,performanceLoss:acceptance.creditPackConsentText}}
+    : {version:CONSUMER_CONSENT_VERSION,termsAccepted:true,earlyStartRequested:true,withdrawalKnowledgeAccepted:false,
+      classification:'review_required',extinction:'not_determined',wording:consumerConsentText(locale)};
   const snapshot={version:1,checkoutId,userId,organizationId,scope,locale,acceptedAt,
     supplier:{name:'Stefan van Ark',tradingName:'BITBI',address:'Schwarzwaldstraße 20, 78647 Trossingen, Germany',email:'bit@bitbi.ai'},
     customer:{accountEmail:user.email},offer:{...offer,contractSummary:versionOneOfferSummary(locale,offer.interval)},
-    consent:{version:CONSUMER_CONSENT_VERSION,termsAccepted:true,earlyStartRequested:true,withdrawalKnowledgeAccepted:false,
-      classification:'review_required',extinction:'not_determined',wording:consumerConsentText(locale)},
+    consent,
     terms:{version:content.version,text:content.text},
     performance:{startsAfterVerifiedPayment:true,confirmationAvailability:'immutable_account_document',emailDelivery:'separately_observed'},
   };
@@ -57,6 +74,45 @@ export async function persistConsumerContractSnapshot(env,input) {
   const prepared=await prepareConsumerContractSnapshot(env,input);
   if(prepared)await prepared.statement.run();
   return prepared?.snapshot || null;
+}
+
+const IMPRINT_VAT_ID = 'DE462787956';
+
+function legalDateTime(iso, locale) {
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime())) return String(iso || '');
+  return new Intl.DateTimeFormat(locale === 'de' ? 'de-DE' : 'en-GB', {
+    timeZone: 'Europe/Berlin', day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23', timeZoneName: 'short',
+  }).format(date);
+}
+
+function euroAmount(cents, locale) {
+  return (Number(cents) / 100).toLocaleString(locale === 'de' ? 'de-DE' : 'en-GB', {
+    minimumFractionDigits: 2, maximumFractionDigits: 2,
+  });
+}
+
+function paymentMethodLabel(raw) {
+  const type = Array.isArray(raw?.payment_method_types) ? raw.payment_method_types[0] : '';
+  return typeof type === 'string' && /^[a-z0-9_]{1,40}$/.test(type) ? type : 'card';
+}
+
+function creditPackConfirmationText(snapshot, payment, createdAt, checkout) {
+  const de = snapshot.locale === 'de';
+  const name = payment.name || snapshot.customer.accountEmail;
+  const orderedAt = legalDateTime(checkout.created_at || snapshot.acceptedAt, snapshot.locale);
+  const consentedAt = legalDateTime(snapshot.acceptedAt, snapshot.locale);
+  const grantedAt = legalDateTime(createdAt, snapshot.locale);
+  const price = euroAmount(payment.amountTotal, snapshot.locale);
+  const provider = `${snapshot.supplier.name}, ${snapshot.supplier.address}, ${snapshot.supplier.email}`;
+  const documents = de
+    ? `AGB und Widerrufsbelehrung samt Muster-Widerrufsformular\nFassung: ${snapshot.terms.version}\n\n${snapshot.terms.text}`
+    : `Terms and withdrawal instructions, including the model withdrawal form\nVersion: ${snapshot.terms.version}\n\n${snapshot.terms.text}`;
+  const body = de
+    ? `Hallo ${name},\n\nvielen Dank für deinen Kauf. Hiermit bestätigen wir den Vertrag:\n\nProdukt: ${snapshot.offer.name} (${snapshot.offer.credits} Credits)\nPreis: ${price} € (Endpreis; gemäß § 19 UStG wird keine Umsatzsteuer berechnet)\nBestelldatum: ${orderedAt}\nZahlungsart: ${payment.method}\n\nDeine Zustimmung zum sofortigen Beginn: Du hast am ${consentedAt} ausdrücklich verlangt, dass wir vor Ablauf der Widerrufsfrist mit der Vertragsausführung beginnen. Du hast bestätigt, dass dir bekannt ist, dass du damit dein Widerrufsrecht mit Beginn der Vertragsausführung verlierst. Die Credits wurden deinem Konto am ${grantedAt} gutgeschrieben.\n\nIm Anhang findest du unsere AGB und die Widerrufsbelehrung samt Muster-Widerrufsformular in der Fassung, die zum Zeitpunkt deiner Bestellung galt.\n\nAnbieter: ${provider}, USt-IdNr. ${IMPRINT_VAT_ID}`
+    : `Hello ${name},\n\nthank you for your purchase. We hereby confirm the contract:\n\nProduct: ${snapshot.offer.name} (${snapshot.offer.credits} credits)\nPrice: ${price} € (final price; pursuant to § 19 UStG, no VAT is charged)\nOrder date: ${orderedAt}\nPayment method: ${payment.method}\n\nYour consent to immediate performance: On ${consentedAt} you expressly requested that we begin performing the contract before the withdrawal period expires. You confirmed that you are aware that you thereby lose your right of withdrawal when performance of the contract begins. The credits were credited to your account on ${grantedAt}.\n\nOur terms and the withdrawal instructions, including the model withdrawal form, in the version that applied when you ordered, are included in full below.\n\nProvider: ${provider}, VAT ID pursuant to § 27a UStG: ${IMPRINT_VAT_ID}`;
+  return `${body}\n\n${documents}`;
 }
 
 function confirmationText(snapshot,payment,createdAt) {
@@ -105,11 +161,16 @@ export async function prepareConsumerConfirmation(env,{checkout,payload,provider
   const details=raw.customer_details || {}, address=details.address || raw.customer_address;
   const payment={sessionId,providerEventId,eventType:payload.type,providerEventTime:Number.isSafeInteger(payload.created)?new Date(payload.created*1000).toISOString():null,
     amountTotal:amount,currency:raw.currency.toLowerCase(),taxAmount:Number.isSafeInteger(raw.total_details?.amount_tax)?raw.total_details.amount_tax:null,
+    method:paymentMethodLabel(raw),
     name:clean(details.name || raw.customer_name),address:address && typeof address==='object' ? Object.fromEntries(['line1','line2','city','state','postal_code','country'].map(key=>[key,clean(address[key])])) : null};
-  const document={version:1,snapshot,payment,createdAt:now,text:confirmationText(snapshot,payment,now)};
+  const creditPack=snapshot.consent?.version===CREDIT_PACK_PERFORMANCE_CONSENT_VERSION;
+  const document={version:1,snapshot,payment,createdAt:now,text:creditPack?creditPackConfirmationText(snapshot,payment,now,checkout):confirmationText(snapshot,payment,now)};
   const json=JSON.stringify(document),hash=await sha256Hex(json);
+  const subject=creditPack
+    ? (snapshot.locale==='de'?`Deine Bestellung bei bitbi.ai – Vertragsbestätigung Nr. ${snapshot.checkoutId}`:`Your order at bitbi.ai – contract confirmation no. ${snapshot.checkoutId}`)
+    : (snapshot.locale==='de'?'BITBI – Ihre Vertragsbestätigung':'BITBI — Your contract confirmation');
   const message=await prepareTransactionalMessage(env,{id:`contract:${checkout.id}`,sourceId:checkout.id,kind:'contract_confirmation',recipientEmail:snapshot.customer.accountEmail,
-    subject:snapshot.locale==='de'?'BITBI – Ihre Vertragsbestätigung':'BITBI — Your contract confirmation',text:document.text,now});
+    subject,text:document.text,now});
   return [env.DB.prepare(`INSERT INTO consumer_contract_confirmations(checkout_id,provider_session_id,provider_event_id,document_json,document_hash,created_at)
     VALUES (?,?,?,?,?,?) ON CONFLICT(checkout_id) DO NOTHING`).bind(checkout.id,sessionId,providerEventId,json,hash,now),message.statement];
 }
