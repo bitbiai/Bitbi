@@ -111,12 +111,24 @@ rerun its passed suites on the Mac or GitHub. See the [local validation procedur
 Scheduled Full and Memvid remain independent; do not dispatch Full for each release.
 This entry point grants no additional publication, credential or paid-call authority.
 
-Other bots regularly submit PRs that the owner merges on GitHub. Codex on this Mac
-integrates those merges with local work and owns local release validation; routine
-integration needs no separate approval. Reassess the complete unpublished range by
-actual impact, including merges during validation. Reuse only verifier-accepted
-evidence, validate changed inputs, and publish the final tested combined candidate.
-A merge alone does not require Full; use the current selection and task authority.
+### External-agent PR handoff (all coding agents)
+
+External agents, including `Systemingenieur`, regularly submit PRs. Their changes
+are expected contributions: review the delta and reuse valid evidence, rather than
+reimplementing or auditing the whole repository by default.
+
+PR-authoring/cloud agents may commit and push their task branches and hand off PRs,
+but must not merge, enable auto-merge, push `main`, publish/deploy, or run production
+operations. This role-specific limit overrides the ordinary direct-main default below.
+
+Local Codex owns integration and local acceptance. For external PR authoring,
+intake, merge or release-only tasks, read the
+[compact handoff procedure](docs/runbooks/EXTERNAL_AGENT_PR_HANDOFF.md).
+Preparation alone never authorizes remote merge, `main` push or publication.
+Explicit owner authorization for named PRs may include merge/release without
+additional feature work; local validation, hooks and protected review remain mandatory.
+Reassess the complete unpublished range and reuse only verifier-accepted evidence
+for unchanged inputs. Do not automatically duplicate reviews, audits or Full runs.
 
 ## Git workflow and completion
 
