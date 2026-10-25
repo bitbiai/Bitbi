@@ -705,7 +705,7 @@ test('Q2 consumer contract: signed paid checkout atomically saves immutable full
       paymentReads+=1;
       expect(String(url)).toContain('/v1/payment_intents/pi_live_q2_pack_fixture?expand[]=latest_charge');
       expect(init.method||'GET').toBe('GET');
-      expect(init.headers.Authorization).toBe('Bearer sk_live_synthetic_contract_only');
+      expect(init.headers.Authorization).toBe(`Bearer ${f.env.STRIPE_LIVE_SECRET_KEY}`);
       return Response.json({id:'pi_live_q2_pack_fixture',latest_charge:{payment_method_details:{type:'sepa_debit'}}});
     };
     expect((await deliver(f,event)).response.status).toBe(202);
@@ -823,9 +823,9 @@ test('Q2 consumer contract: a stored 2026-10-24 credit-pack purchase keeps that 
     const contracts=await load('workers/auth/src/lib/consumer-contracts.js');
     const doc=await contracts.readOwnedContractConfirmation(f.env,{checkoutId:f.checkout.id,userId:MEMBER});
     expect(doc.document.snapshot.terms).toEqual(stored);
+    expect(doc.document.snapshot.consent.wording.terms).toBe(storedLine);
     expect(doc.document.text).toContain('Fassung vom 24. Oktober 2026');
     expect(doc.document.text).toContain('Früher Leistungsbeginn ist kein automatischer Rechtsverlust');
-    expect(doc.document.text).toContain(storedLine);
     expect(doc.document.text).not.toContain('Fassung vom 25. Oktober 2026');
     expect(doc.document.text).not.toContain('§ 356 Abs. 6 Nr. 2 BGB');
     expect(state(f).ledger).toHaveLength(1);
