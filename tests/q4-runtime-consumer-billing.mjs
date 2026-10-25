@@ -9,7 +9,7 @@ import { expectNativeRejection } from './helpers/q2-runtime/assertions.mjs';
 // checkout evidence. All commits, triggers and mail claims use native workerd D1.
 export async function runConsumerContractBillingTests(f,{seed}) {
   const {db,sql,rows,scalar,test}=f;
-  const acceptance={termsVersion:'2026-10-24',locale:'de',termsAccepted:true,earlyStartRequested:true,consentVersion:'consumer-v1'};
+  const acceptance={termsVersion:'2026-10-25',locale:'de',termsAccepted:true,earlyStartRequested:true,consentVersion:'consumer-v1'};
   async function accepted(index) {
     const s=await seed(index);
     await sql('UPDATE billing_member_subscription_checkout_sessions SET metadata_json=? WHERE id=?',JSON.stringify(acceptance),s.id).run();

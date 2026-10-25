@@ -96,11 +96,12 @@ confirmation-before-performance boundary below. The owner confirmed Pro's
 top-up-to-6,000 intent; the general credit-bucket balance/consumption discrepancy
 still needs a separate implementation and acquired-rights decision.
 
-New checkout admission uses `2026-10-24`. Fulfillment separately recognizes the
-immutable `2026-10-23` snapshot protocol, validates its owner/scope/version/hash,
-and uses its original text and consent. The old text bundle is retained in
-`consumer-terms-content-2026-10-23.js`; completed documents and unknown mail
-payloads are never regenerated. Old cached clients receive an explicit refresh
+New checkout admission uses provisional `2026-10-25` until the publication day
+replaces that version. Fulfillment separately recognizes the immutable
+`2026-10-23` and `2026-10-24` snapshots, validates owner, scope, version and hash,
+and uses the text and consent stored at purchase. Those bundles stay in
+`consumer-terms-content-2026-10-23.js` and `consumer-terms-content-2026-10-24.js`.
+Completed documents and unknown mail payloads are never regenerated. Old cached clients receive an explicit refresh
 response before a new Stripe checkout. The `2026-10-22` creation cutoff is
 unchanged. A new website version does not replace existing customer contracts.
 

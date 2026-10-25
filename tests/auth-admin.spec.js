@@ -8372,7 +8372,7 @@ test.describe('Pricing credit-pack rollout', () => {
     await expect(page.locator('main')).not.toContainText('Compare options');
     await expect(page.locator('body')).not.toContainText(/Test ?mode/i);
     await require('./helpers/pricing-cards.cjs').assertEnglishPricingCards(page, expect);
-    await expect(page.locator('.pricing-legal')).toContainText('I accept the BITBI Terms of Service dated 24 October 2026.');
+    await expect(page.locator('.pricing-legal')).toContainText('I accept the BITBI Terms of Service dated 25 October 2026.');
     await expect(page.locator('.pricing-legal')).toContainText('begins performance before the withdrawal period ends');
     await expect(page.locator('.pricing-legal a[href="/legal/terms.html"]')).toHaveAttribute('rel', /noopener/);
     const pricingTitles = await page.locator('.pricing-card__title').evaluateAll((nodes) =>
@@ -8478,7 +8478,7 @@ test(`@consumer-contract ${locale} documents`,({page})=>cUI.contractDocuments({p
     expect(checkoutRequests[0].body).toEqual(expect.objectContaining({
       pack_id: 'live_credits_12000',
       terms_accepted: true,
-      terms_version: '2026-10-24',
+      terms_version: '2026-10-25',
 consentVersion:'consumer-v1',locale:'en',earlyStartRequested:true,withdrawalKnowledgeAccepted:false,
       creditPackPerformanceConsent: true,
       creditPackConsentVersion: 'credit-pack-356-v1',
@@ -8687,7 +8687,7 @@ test.describe('Credits dashboard live credit packs', () => {
     expect(checkoutRequests[0].body).toEqual(expect.objectContaining({
       pack_id: 'live_credits_5000',
       terms_accepted: true,
-      terms_version: '2026-10-24',
+      terms_version: '2026-10-25',
 consentVersion:'consumer-v1',locale:'en',earlyStartRequested:true,withdrawalKnowledgeAccepted:false,
       creditPackPerformanceConsent: true,
       creditPackConsentVersion: 'credit-pack-356-v1',

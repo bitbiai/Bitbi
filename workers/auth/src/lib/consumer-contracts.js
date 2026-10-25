@@ -16,6 +16,15 @@ function versionOneOfferSummary(locale, interval) {
     : (de?'Einmaliger Credit-Kauf, kein Abonnement.':'One-time credit purchase, not a subscription.');
 }
 
+function acceptedTermsLine(termsVersion, locale) {
+  if (termsVersion === CONSUMER_TERMS_VERSION) return consumerConsentText(locale).terms;
+  // Purchases accepted on 2026-10-24 keep the checkbox sentence stored that day.
+  if (termsVersion === '2026-10-24') return locale === 'de'
+    ? 'Ich akzeptiere die BITBI-Nutzungsbedingungen vom 24.10.2026.'
+    : 'I accept the BITBI Terms of Service dated 24 October 2026.';
+  return null;
+}
+
 function validateAcceptedSnapshot(row, snapshot, checkout, termsVersion) {
   const scope=checkout.plan_id ? 'member_subscription' : checkout.organization_id ? 'organization' : 'member';
   if (row.terms_version!==termsVersion || snapshot.version!==1 || snapshot.checkoutId!==checkout.id || snapshot.userId!==checkout.user_id
@@ -29,7 +38,7 @@ function validateAcceptedSnapshot(row, snapshot, checkout, termsVersion) {
     if (!['member','organization'].includes(scope) || snapshot.consent.withdrawalKnowledgeAccepted!==true
       || snapshot.consent.extinction!=='on_performance_start'
       || snapshot.consent.wording?.performanceLoss!==creditPackPerformanceConsentText(row.locale)
-      || snapshot.consent.wording?.terms!==consumerConsentText(row.locale).terms)
+      || snapshot.consent.wording?.terms!==acceptedTermsLine(termsVersion, row.locale))
       throw new Error('contract_snapshot_binding_mismatch');
   } else if (snapshot.consent?.version!==(termsVersion==='2026-10-23'?'consumer-v1':CONSUMER_CONSENT_VERSION)
     || snapshot.consent.withdrawalKnowledgeAccepted!==false || snapshot.consent.extinction!=='not_determined'

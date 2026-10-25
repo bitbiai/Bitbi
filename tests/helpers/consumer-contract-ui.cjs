@@ -250,7 +250,7 @@ async function checkoutConsent({page,expect,locale,mockPricingAccount}) {
       await page.unroute('**/api/account/billing/checkout/subscription', stale);
       await page.locator('.pricing-legal__checkout').click();
       await expect.poll(()=>checkoutRequests.length).toBe(1);
-      expect(checkoutRequests[0].body).toMatchObject({terms_version:'2026-10-24',consentVersion:'consumer-v1',locale,earlyStartRequested:true,withdrawalKnowledgeAccepted:false});
+      expect(checkoutRequests[0].body).toMatchObject({terms_version:'2026-10-25',consentVersion:'consumer-v1',locale,earlyStartRequested:true,withdrawalKnowledgeAccepted:false});
 }
 module.exports.checkoutConsent=checkoutConsent;
 
