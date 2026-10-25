@@ -247,12 +247,22 @@ export function buildBillingEvidenceStatus(env = {}) {
       noRawCustomerIdsReturned: true,
     },
     taxInvoice: {
-      status: automaticTaxFlag.enabled || taxIdCollectionFlag.enabled || invoiceCreationFlag.enabled
-        ? "configured_pending_operator_accounting_review"
-        : "disabled_by_default",
+      status: automaticTaxFlag.enabled || taxIdCollectionFlag.enabled
+        ? "credit_pack_invoices_enabled_tax_flags_pending_review"
+        : "credit_pack_invoices_enabled_tax_flags_off",
       automaticTax: automaticTaxFlag,
       taxIdCollection: taxIdCollectionFlag,
-      oneTimeInvoiceCreation: invoiceCreationFlag,
+      oneTimeInvoiceCreation: {
+        name: "credit_pack_checkout_invoice_creation",
+        present: true,
+        enabled: true,
+        expected: "always_on_for_credit_pack_payment_checkout",
+        status: "enabled_for_credit_pack_checkout",
+        valueExposed: false,
+        source: "checkout_session_code",
+        footerAndAccountTaxIds: "stripe_account_defaults",
+        envFlag: invoiceCreationFlag,
+      },
       operatorReviewRequired: true,
     },
     failClosedFacts: [
@@ -264,7 +274,7 @@ export function buildBillingEvidenceStatus(env = {}) {
       "Refund, dispute, and payment-failure events are review-only and do not claw back credits automatically.",
       "Raw Stripe payloads, signatures, and secret values are not returned by admin billing evidence endpoints.",
       "Customer Portal session creation is member-triggered only and does not allow Admin to mutate arbitrary Stripe customers.",
-      "Stripe Tax, tax ID collection, and invoice creation stay disabled unless explicit operator env flags are set.",
+      "Stripe Tax and tax ID collection stay disabled unless explicit operator env flags are set. Credit-pack Checkout always requests a Stripe invoice and does not grant credits from invoice events.",
       "Live billing readiness remains blocked until operator canary evidence is attached and reviewed.",
     ],
     evidenceRequired: [

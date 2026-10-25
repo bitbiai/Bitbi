@@ -687,7 +687,7 @@
         "name": "ENABLE_STRIPE_INVOICE_CREATION",
         "requiredForRelease": false,
         "documentation": "docs/production-readiness/LIVE_BILLING_RUNBOOK.md",
-        "summary": "Optional Stripe Checkout invoice_creation flag for one-time live credit-pack payment sessions. Defaults off and remains pending operator/accounting review before any readiness claim."
+        "summary": "Retained env name. Credit-pack payment Checkout Sessions always set invoice_creation.enabled and do not consult this flag. Subscription Checkout is unchanged. Invoice footer and account tax ID come from Stripe account defaults. Not a production-readiness or live-billing-readiness claim."
       },
       {
         "id": "ai-service-auth-secret",

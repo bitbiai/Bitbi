@@ -404,7 +404,7 @@ function getStripeLiveCheckoutConfig(env) {
   return {
     mode: STRIPE_MODE_LIVE,
     secretKey: normalizeStripeLiveSecretKey(env),
-    ...liveStripeOptionalCheckoutOptions(env, { allowInvoiceCreation: true }),
+    ...liveStripeOptionalCheckoutOptions(env),
     successUrl: normalizeHttpsUrl(
       env?.STRIPE_LIVE_CHECKOUT_SUCCESS_URL,
       "Stripe live checkout success URL",
@@ -442,11 +442,10 @@ function optionalLiveStripeFlag(env, name) {
   return safeString(env?.[name], 16) === "true";
 }
 
-function liveStripeOptionalCheckoutOptions(env, { allowInvoiceCreation = false } = {}) {
+function liveStripeOptionalCheckoutOptions(env) {
   return {
     automaticTaxEnabled: optionalLiveStripeFlag(env, "ENABLE_STRIPE_AUTOMATIC_TAX"),
     taxIdCollectionEnabled: optionalLiveStripeFlag(env, "ENABLE_STRIPE_TAX_ID_COLLECTION"),
-    invoiceCreationEnabled: allowInvoiceCreation && optionalLiveStripeFlag(env, "ENABLE_STRIPE_INVOICE_CREATION"),
   };
 }
 
@@ -1119,9 +1118,6 @@ function applyOptionalLiveCheckoutFormOptions(body, config) {
   if (config?.taxIdCollectionEnabled === true) {
     body.set("tax_id_collection[enabled]", "true");
   }
-  if (config?.invoiceCreationEnabled === true) {
-    body.set("invoice_creation[enabled]", "true");
-  }
 }
 
 async function postStripeCheckoutSession({ env, config, body, idempotencyKey }) {
@@ -1280,6 +1276,31 @@ async function postStripeSubscriptionCancelAtPeriodEnd({
   }
 }
 
+const CHECKOUT_CUSTOMER_EMAIL_PATTERN = /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
+
+function normalizeCheckoutCustomerEmail(value) {
+  const email = safeString(value, 254);
+  if (!email) return null;
+  const normalized = email.toLowerCase();
+  if (normalized.length > 254 || !CHECKOUT_CUSTOMER_EMAIL_PATTERN.test(normalized)) return null;
+  return normalized;
+}
+
+async function activeUserCheckoutEmail(env, userId) {
+  const row = await env.DB.prepare(
+    "SELECT id, email, role, status, created_at, updated_at FROM users WHERE id = ? LIMIT 1"
+  ).bind(userId).first();
+  if (!row || row.status !== "active") return null;
+  return normalizeCheckoutCustomerEmail(row.email);
+}
+
+function setCreditPackIdentityMetadata(body, key, value) {
+  const text = safeString(value, 500);
+  if (!text) return;
+  body.set(`metadata[${key}]`, text);
+  body.set(`invoice_creation[invoice_data][metadata][${key}]`, text);
+}
+
 function buildCheckoutForm({
   config,
   pack,
@@ -1290,6 +1311,7 @@ function buildCheckoutForm({
   checkoutScope = null,
   source = null,
   legalAcceptance = null,
+  customerEmail = null,
 }) {
   const body = new URLSearchParams();
   body.set("mode", "payment");
@@ -1299,26 +1321,30 @@ function buildCheckoutForm({
   body.set("success_url", config.successUrl);
   body.set("cancel_url", config.cancelUrl);
   applyOptionalLiveCheckoutFormOptions(body, config);
+  // Payment-mode Checkout does not invoice unless this is set. Footer and
+  // account tax IDs stay on the Stripe account defaults.
+  body.set("invoice_creation[enabled]", "true");
+  body.set("customer_creation", "always");
+  const email = normalizeCheckoutCustomerEmail(customerEmail);
+  if (email) body.set("customer_email", email);
+  const description = safeString(`One-time purchase: ${pack.name}`, 200);
+  if (description) body.set("invoice_creation[invoice_data][description]", description);
   body.set("client_reference_id", checkoutId);
   body.set("line_items[0][quantity]", "1");
   body.set("line_items[0][price_data][currency]", pack.currency);
   body.set("line_items[0][price_data][unit_amount]", String(pack.amountCents));
   body.set("line_items[0][price_data][product_data][name]", pack.name);
-  if (organizationId) {
-    body.set("metadata[organization_id]", organizationId);
-  }
-  body.set("metadata[user_id]", userId);
-  body.set("metadata[pack_id]", pack.id);
-  body.set("metadata[credit_pack_id]", pack.id);
-  body.set("metadata[credits]", String(pack.credits));
-  body.set("metadata[internal_checkout_session_id]", checkoutId);
-  body.set("metadata[stripe_mode]", config.mode);
-  body.set("metadata[mode]", config.mode);
-  if (checkoutScope) body.set("metadata[checkout_scope]", checkoutScope);
-  if (source) body.set("metadata[source]", source);
-  if (authorizationScope) {
-    body.set("metadata[authorization_scope]", authorizationScope);
-  }
+  if (organizationId) setCreditPackIdentityMetadata(body, "organization_id", organizationId);
+  setCreditPackIdentityMetadata(body, "user_id", userId);
+  setCreditPackIdentityMetadata(body, "pack_id", pack.id);
+  setCreditPackIdentityMetadata(body, "credit_pack_id", pack.id);
+  setCreditPackIdentityMetadata(body, "credits", String(pack.credits));
+  setCreditPackIdentityMetadata(body, "internal_checkout_session_id", checkoutId);
+  setCreditPackIdentityMetadata(body, "stripe_mode", config.mode);
+  setCreditPackIdentityMetadata(body, "mode", config.mode);
+  if (checkoutScope) setCreditPackIdentityMetadata(body, "checkout_scope", checkoutScope);
+  if (source) setCreditPackIdentityMetadata(body, "source", source);
+  if (authorizationScope) setCreditPackIdentityMetadata(body, "authorization_scope", authorizationScope);
   if (legalAcceptance) {
     body.set("metadata[terms_accepted]", legalAcceptance.termsAccepted ? "true" : "false");
     body.set("metadata[terms_version]", legalAcceptance.termsVersion);
@@ -1342,10 +1368,8 @@ function buildSubscriptionCheckoutForm({
   body.set("payment_method_types[0]", "card");
   body.set("success_url", config.successUrl);
   body.set("cancel_url", config.cancelUrl);
-  applyOptionalLiveCheckoutFormOptions(body, {
-    ...config,
-    invoiceCreationEnabled: false,
-  });
+  // Subscription Checkout already creates invoices. Do not set invoice_creation here.
+  applyOptionalLiveCheckoutFormOptions(body, config);
   body.set("client_reference_id", checkoutId);
   body.set("line_items[0][quantity]", "1");
   body.set("line_items[0][price]", config.priceId);
@@ -1415,6 +1439,7 @@ export async function createStripeCreditPackCheckout({
   }
 
   const id = checkoutSessionId();
+  const customerEmail = await activeUserCheckoutEmail(env, normalizedUserId);
   const stripeSession = await postStripeCheckoutSession({
     env,
     config,
@@ -1424,6 +1449,7 @@ export async function createStripeCreditPackCheckout({
       organizationId: orgId,
       userId: normalizedUserId,
       checkoutId: id,
+      customerEmail,
     }),
     idempotencyKey: `bitbi-${keyHash.slice(0, 48)}`,
   });
@@ -1676,6 +1702,7 @@ export async function createStripeLiveCreditPackCheckout({
   await env.DB.batch([checkoutStatement,...(contract?[contract.statement]:[])]);
 
   try {
+    const customerEmail = await activeUserCheckoutEmail(env, normalizedUserId);
     const stripeSession = await postStripeCheckoutSession({
       env,
       config,
@@ -1689,6 +1716,7 @@ export async function createStripeLiveCreditPackCheckout({
         checkoutScope: LIVE_ORGANIZATION_CHECKOUT_SCOPE,
         source: "pricing_page",
         legalAcceptance: acceptance,
+        customerEmail,
       }),
       idempotencyKey: `bitbi-live-${keyHash.slice(0, 43)}`,
     });
@@ -1909,6 +1937,7 @@ export async function createStripeLiveMemberCreditPackCheckout({
   await env.DB.batch([checkoutStatement,...(contract?[contract.statement]:[])]);
 
   try {
+    const customerEmail = await activeUserCheckoutEmail(env, normalizedUserId);
     const stripeSession = await postStripeCheckoutSession({
       env,
       config,
@@ -1921,6 +1950,7 @@ export async function createStripeLiveMemberCreditPackCheckout({
         checkoutScope: LIVE_MEMBER_CHECKOUT_SCOPE,
         source: "pricing_page",
         legalAcceptance: acceptance,
+        customerEmail,
       }),
       idempotencyKey: `bitbi-live-member-${keyHash.slice(0, 36)}`,
     });
@@ -2751,6 +2781,36 @@ function getInvoiceSubscriptionMetadata(invoice, line = null) {
   };
 }
 
+function invoiceMetadataSources(invoice) {
+  const lines = Array.isArray(invoice?.lines?.data) ? invoice.lines.data : [];
+  return [
+    metadataObject(invoice?.metadata),
+    metadataObject(invoice?.subscription_details?.metadata),
+    metadataObject(invoice?.parent?.subscription_details?.metadata),
+    ...lines.map((line) => metadataObject(line?.metadata)),
+  ];
+}
+
+function oneTimeCreditPackInvoiceReason(invoice) {
+  const sources = invoiceMetadataSources(invoice);
+  const scopes = sources
+    .map((metadata) => safeString(metadata.checkout_scope || metadata.checkoutScope, 32))
+    .filter(Boolean);
+  const packIds = sources
+    .map((metadata) => safeString(metadata.credit_pack_id || metadata.creditPackId || metadata.pack_id || metadata.packId, 64))
+    .filter(Boolean);
+  const subscriptionScoped = scopes.includes(LIVE_MEMBER_SUBSCRIPTION_CHECKOUT_SCOPE);
+  const packScoped = scopes.some((scope) => scope === LIVE_MEMBER_CHECKOUT_SCOPE || scope === LIVE_ORGANIZATION_CHECKOUT_SCOPE);
+  const hasPack = packIds.length > 0 || packScoped;
+  if (hasPack && subscriptionScoped) {
+    return "Stripe invoice mixes credit-pack and subscription metadata and does not grant credits.";
+  }
+  if (hasPack) {
+    return "Stripe invoice is a one-time credit-pack invoice and does not grant credits.";
+  }
+  return null;
+}
+
 function normalizeLiveInvoicePaidEvent(payload) {
   if (payload?.type !== "invoice.paid" && payload?.type !== "invoice.payment_succeeded") return null;
   if (payload.livemode !== true) {
@@ -2772,6 +2832,16 @@ function normalizeLiveInvoicePaidEvent(payload) {
       status: 400,
       code: "stripe_invoice_invalid",
     });
+  }
+  const creditPackReason = oneTimeCreditPackInvoiceReason(invoice);
+  if (creditPackReason) {
+    return {
+      ignored: true,
+      reason: creditPackReason,
+      invoiceId,
+      subscriptionId: null,
+      customer: safeString(invoice.customer, 128),
+    };
   }
   if (invoice.status && invoice.status !== "paid") {
     throw new StripeBillingError("Stripe live invoice is not paid.", {
@@ -3850,6 +3920,16 @@ export async function handleVerifiedStripeWebhookEvent({
     };
   }
 
+  if (payload?.type === "invoice.created" || payload?.type === "invoice.finalized" || payload?.type === "invoice.paid" || payload?.type === "invoice.payment_succeeded") {
+    return markLiveStripeEventIgnored(env, {
+      stored,
+      payload,
+      reason: "Testmode Stripe invoice events do not grant credits.",
+      summary: { invoiceId: safeString(getOptionalStripeEventObject(payload).id, 128) },
+      errorCode: "stripe_invoice_no_credit_side_effect",
+    });
+  }
+
   if (payload?.type !== "checkout.session.completed") {
     return {
       ...stored,
@@ -3927,10 +4007,12 @@ export async function handleVerifiedStripeWebhookEvent({
   }
 }
 
-async function markLiveStripeEventIgnored(env, { stored, payload, reason, summary = {} }) {
+async function markLiveStripeEventIgnored(env, { stored, payload, reason, summary = {}, errorCode = null }) {
   const event = await updateBillingProviderEventProcessing(env, {
     eventId: stored.event.id,
     processingStatus: "ignored",
+    errorCode,
+    errorMessage: errorCode ? reason : null,
     actionType: payload.type,
     actionStatus: "ignored",
     actionDryRun: false,
@@ -4053,6 +4135,16 @@ export async function handleVerifiedStripeLiveWebhookEvent({
       checkout: null,
       subscription: null,
     };
+  }
+
+  if (payload?.type === "invoice.created" || payload?.type === "invoice.finalized") {
+    return markLiveStripeEventIgnored(env, {
+      stored,
+      payload,
+      reason: "Stripe invoice lifecycle event has no BITBI credit side effects.",
+      summary: { invoiceId: safeString(getOptionalStripeEventObject(payload).id, 128) },
+      errorCode: "stripe_invoice_lifecycle_ignored",
+    });
   }
 
   if (LIVE_OPERATOR_REVIEW_POLICIES[payload?.type]) {

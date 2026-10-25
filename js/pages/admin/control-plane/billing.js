@@ -1223,7 +1223,7 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
                 'Configure live webhook endpoint: /api/billing/webhooks/stripe/live.',
                 'Attach events: checkout.session.completed, invoice.paid/payment_succeeded, customer.subscription.*, invoice.payment_failed/action_required, checkout.session.expired, refund.*, charge.refunded, charge.dispute.*.',
                 'Configure Customer Portal if STRIPE_LIVE_CUSTOMER_PORTAL_RETURN_URL is set.',
-                'Review Stripe Tax, tax ID collection, and invoice settings with accounting before claiming readiness.',
+                'Credit-pack Checkout requests invoices. Confirm the account invoice footer, default tax ID, and finalized-invoice emails. Keep Stripe Tax and tax ID collection off until accounting review.',
                 'Collect sanitized canary evidence; never paste raw payloads, signatures, secrets, cards, cookies, or tokens.',
             ].join('\n'));
             notify(copied ? 'Stripe Dashboard checklist copied.' : 'Checklist copy failed.', copied ? 'success' : 'error');
@@ -1464,7 +1464,7 @@ ${checklist || '| pending | pending_operator_evidence | Operator evidence requir
             title: 'Tax / Invoice Review',
             badgeLabel: taxInvoice.status || 'disabled_by_default',
             badgeVariant: String(taxInvoice.status || '').includes('configured') ? 'legacy' : 'user',
-            copy: 'Optional Stripe Tax, tax ID collection, and invoice creation remain operator/accounting review items.',
+            copy: 'Credit-pack Checkout requests a Stripe invoice and uses the account invoice footer and tax ID. Stripe Tax and tax ID collection stay off unless enabled after accounting review.',
             rows: [
                 ['Automatic Tax', taxInvoice.automaticTax?.status || 'missing'],
                 ['Tax ID collection', taxInvoice.taxIdCollection?.status || 'missing'],

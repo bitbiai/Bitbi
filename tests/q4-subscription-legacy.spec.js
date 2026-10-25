@@ -14,6 +14,24 @@ function createContractUser({ id='admin-ai-user', role='admin', email, created_a
   return { id, email:email || `${id}@example.com`, password_hash:'unused', created_at:created_at || nowIso(), status:'active',role,email_verified_at:nowIso(),verification_method:'email_verified' };
 }
 const createAdminUser = id => createContractUser({ id, role:'admin' });
+function expectCreditPackInvoiceForm(form, { email, packId, credits, description, checkoutScope, organizationId } = {}) {
+  expect(form.mode).toBe('payment');
+  expect(form['invoice_creation[enabled]']).toBe('true');
+  expect(form.customer_creation).toBe('always');
+  if (email) expect(form.customer_email).toBe(email);
+  else expect(form.customer_email).toBeUndefined();
+  expect(form['invoice_creation[invoice_data][description]']).toBe(description);
+  expect(form['invoice_creation[invoice_data][metadata][credit_pack_id]']).toBe(packId);
+  expect(form['invoice_creation[invoice_data][metadata][pack_id]']).toBe(packId);
+  expect(form['invoice_creation[invoice_data][metadata][credits]']).toBe(String(credits));
+  expect(form['invoice_creation[invoice_data][metadata][user_id]']).toBe(form['metadata[user_id]']);
+  expect(form['invoice_creation[invoice_data][metadata][internal_checkout_session_id]']).toBe(form['metadata[internal_checkout_session_id]']);
+  if (checkoutScope) expect(form['invoice_creation[invoice_data][metadata][checkout_scope]']).toBe(checkoutScope);
+  if (organizationId) expect(form['invoice_creation[invoice_data][metadata][organization_id]']).toBe(organizationId);
+  expect(form['invoice_creation[invoice_data][footer]']).toBeUndefined();
+  expect(form['invoice_creation[invoice_data][account_tax_ids][0]']).toBeUndefined();
+  expect(Object.keys(form).filter((key) => key.startsWith('invoice_creation')).some((key) => /footer|account_tax|ustg/i.test(key))).toBe(false);
+}
 function authJsonRequest(pathname,method,body,headers={}) {
   const requestHeaders=new Headers(headers);if(body!==undefined)requestHeaders.set('Content-Type','application/json');
   return new Request(`https://bitbi.ai${pathname}`,{method,headers:requestHeaders,body:body!==undefined?JSON.stringify(body):undefined});
@@ -382,6 +400,10 @@ test.describe('BITBI Pro member subscriptions', () => {
     expect(calls[0].form.mode).toBe('subscription');
     expect(calls[0].form['line_items[0][price]']).toBe('price_member_pro_123456');
     expect(calls[0].form['metadata[checkout_scope]']).toBe('member_subscription');
+    expect(calls[0].form['invoice_creation[enabled]']).toBeUndefined();
+    expect(calls[0].form.customer_creation).toBeUndefined();
+    expect(calls[0].form.customer_email).toBeUndefined();
+    expect(Object.keys(calls[0].form).some((key) => key.startsWith('invoice_creation'))).toBe(false);
     expect(calls[0].form['subscription_data[metadata][user_id]']).toBe(member.id);
     expect(env.DB.state.memberCreditLedger).toHaveLength(0);
     expect(env.DB.state.memberCreditBuckets).toHaveLength(0);
@@ -429,6 +451,185 @@ test.describe('BITBI Pro member subscriptions', () => {
     expect(calls).toHaveLength(1);
     expect(env.DB.state.memberCreditLedger).toHaveLength(0);
     expect(env.DB.state.memberCreditBuckets).toHaveLength(0);
+  });
+
+  test('credit-pack checkout sessions request a Stripe invoice and prefill the buyer email', async () => {
+    const worker = await loadWorker('workers/auth/src/index.js');
+    const orgId = 'org_22222222222222222222222222222222';
+    const createdAt = '2026-04-26T10:00:00.000Z';
+    const terms = { terms_accepted: true, terms_version: '2026-10-22', immediate_delivery_accepted: true };
+    const checkoutFetch = (calls, { live }) => async (url, init = {}) => {
+      const form = Object.fromEntries(new URLSearchParams(String(init.body || '')));
+      calls.push({ url, form });
+      const id = `${live ? 'cs_live' : 'cs_test'}_invoice_${String(calls.length).padStart(2, '0')}`;
+      return new Response(JSON.stringify({
+        id,
+        object: 'checkout.session',
+        livemode: live,
+        mode: form.mode || 'payment',
+        url: `https://checkout.stripe.com/c/pay/${id}`,
+        payment_intent: live ? `pi_live_invoice_${calls.length}` : `pi_test_invoice_${calls.length}`,
+        customer: `cus_invoice_${calls.length}`,
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    };
+
+    const admin = createAdminUser('credit-pack-invoice-admin');
+    const testCalls = [];
+    const testEnv = createAuthTestEnv({
+      ENABLE_ADMIN_STRIPE_TEST_CHECKOUT: 'true',
+      STRIPE_MODE: 'test',
+      STRIPE_SECRET_KEY: 'sk_test_credit_pack_invoice_1234567890',
+      STRIPE_WEBHOOK_SECRET: 'whsec_credit_pack_invoice_1234567890',
+      STRIPE_CHECKOUT_SUCCESS_URL: 'https://bitbi.ai/account/billing/success',
+      STRIPE_CHECKOUT_CANCEL_URL: 'https://bitbi.ai/account/billing/cancel',
+      ENABLE_STRIPE_INVOICE_CREATION: 'false',
+      users: [admin],
+      organizations: [{
+        id: orgId, name: 'Invoice Org', slug: 'invoice-org', status: 'active',
+        created_by_user_id: admin.id, created_at: createdAt, updated_at: createdAt,
+      }],
+      organizationMemberships: [{
+        id: 'om_credit_pack_invoice_admin', organization_id: orgId, user_id: admin.id,
+        role: 'admin', status: 'active', created_by_user_id: admin.id, created_at: createdAt, updated_at: createdAt,
+      }],
+      fetch: checkoutFetch(testCalls, { live: false }),
+    });
+    const adminToken = await seedSession(testEnv, admin.id);
+    const testCheckout = await worker.fetch(
+      authJsonRequest(`/api/orgs/${orgId}/billing/checkout/credit-pack`, 'POST', { pack_id: 'credits_5000' }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${adminToken}`,
+        'Idempotency-Key': 'credit-pack-invoice-testmode',
+      }),
+      testEnv,
+      createExecutionContext().execCtx
+    );
+    expect(testCheckout.status).toBe(201);
+    expectCreditPackInvoiceForm(testCalls[0].form, {
+      email: 'credit-pack-invoice-admin@example.com',
+      packId: 'credits_5000',
+      credits: 5000,
+      description: 'One-time purchase: 5000 Credit Pack',
+      organizationId: orgId,
+    });
+    expect(testEnv.DB.state.creditLedger).toHaveLength(0);
+
+    const owner = createContractUser({ id: 'credit-pack-invoice-owner', role: 'user' });
+    const liveCalls = [];
+    const liveEnv = createAuthTestEnv({
+      ENABLE_LIVE_STRIPE_CREDIT_PACKS: 'true',
+      STRIPE_LIVE_SECRET_KEY: 'sk_live_credit_pack_invoice_1234567890',
+      STRIPE_LIVE_WEBHOOK_SECRET: 'whsec_credit_pack_invoice_live_1234567890',
+      STRIPE_LIVE_CHECKOUT_SUCCESS_URL: 'https://bitbi.ai/pricing.html?checkout=success',
+      STRIPE_LIVE_CHECKOUT_CANCEL_URL: 'https://bitbi.ai/pricing.html?checkout=cancel',
+      users: [owner],
+      organizations: [{
+        id: orgId, name: 'Invoice Org', slug: 'invoice-org', status: 'active',
+        created_by_user_id: owner.id, created_at: createdAt, updated_at: createdAt,
+      }],
+      organizationMemberships: [{
+        id: 'om_credit_pack_invoice_owner', organization_id: orgId, user_id: owner.id,
+        role: 'owner', status: 'active', created_by_user_id: owner.id, created_at: createdAt, updated_at: createdAt,
+      }],
+      fetch: checkoutFetch(liveCalls, { live: true }),
+    });
+    const ownerToken = await seedSession(liveEnv, owner.id);
+    const orgCheckout = await worker.fetch(
+      authJsonRequest(`/api/orgs/${orgId}/billing/checkout/live-credit-pack`, 'POST', { pack_id: 'live_credits_12000', ...terms }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${ownerToken}`,
+        'Idempotency-Key': 'credit-pack-invoice-live-org',
+      }),
+      liveEnv,
+      createExecutionContext().execCtx
+    );
+    expect(orgCheckout.status).toBe(201);
+    expectCreditPackInvoiceForm(liveCalls[0].form, {
+      email: 'credit-pack-invoice-owner@example.com',
+      packId: 'live_credits_12000',
+      credits: 12000,
+      description: 'One-time purchase: 12000 Credit Pack',
+      checkoutScope: 'organization',
+      organizationId: orgId,
+    });
+    expect(liveCalls[0].form['payment_method_types[0]']).toBe('card');
+    expect(liveEnv.DB.state.creditLedger).toHaveLength(0);
+
+    const member = createContractUser({ id: 'credit-pack-invoice-member', role: 'user', email: 'Buyer.Member@example.com' });
+    const memberCalls = [];
+    const memberEnv = createAuthTestEnv({
+      ENABLE_LIVE_STRIPE_CREDIT_PACKS: 'true',
+      ENABLE_STRIPE_INVOICE_CREATION: 'false',
+      STRIPE_LIVE_SECRET_KEY: 'sk_live_credit_pack_invoice_1234567890',
+      STRIPE_LIVE_WEBHOOK_SECRET: 'whsec_credit_pack_invoice_live_1234567890',
+      STRIPE_LIVE_CHECKOUT_SUCCESS_URL: 'https://bitbi.ai/pricing.html?checkout=success',
+      STRIPE_LIVE_CHECKOUT_CANCEL_URL: 'https://bitbi.ai/pricing.html?checkout=cancel',
+      users: [member],
+      fetch: checkoutFetch(memberCalls, { live: true }),
+    });
+    const memberToken = await seedSession(memberEnv, member.id);
+    const memberCheckout = await worker.fetch(
+      authJsonRequest('/api/account/billing/checkout/live-credit-pack', 'POST', { pack_id: 'live_credits_5000', ...terms }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${memberToken}`,
+        'Idempotency-Key': 'credit-pack-invoice-live-member',
+      }),
+      memberEnv,
+      createExecutionContext().execCtx
+    );
+    expect(memberCheckout.status).toBe(201);
+    expectCreditPackInvoiceForm(memberCalls[0].form, {
+      email: 'buyer.member@example.com',
+      packId: 'live_credits_5000',
+      credits: 5000,
+      description: 'One-time purchase: 5000 Credit Pack',
+      checkoutScope: 'member',
+    });
+    expect(memberCalls[0].form['metadata[organization_id]']).toBeUndefined();
+    expect(memberEnv.DB.state.memberCreditLedger).toHaveLength(0);
+
+    const invalid = createContractUser({ id: 'credit-pack-invoice-invalid-email', role: 'user', email: 'not an email' });
+    const invalidCalls = [];
+    const invalidEnv = createAuthTestEnv({
+      ENABLE_LIVE_STRIPE_CREDIT_PACKS: 'true',
+      STRIPE_LIVE_SECRET_KEY: 'sk_live_credit_pack_invoice_1234567890',
+      STRIPE_LIVE_WEBHOOK_SECRET: 'whsec_credit_pack_invoice_live_1234567890',
+      STRIPE_LIVE_CHECKOUT_SUCCESS_URL: 'https://bitbi.ai/pricing.html?checkout=success',
+      STRIPE_LIVE_CHECKOUT_CANCEL_URL: 'https://bitbi.ai/pricing.html?checkout=cancel',
+      users: [invalid],
+      fetch: checkoutFetch(invalidCalls, { live: true }),
+    });
+    const invalidToken = await seedSession(invalidEnv, invalid.id);
+    const invalidCheckout = await worker.fetch(
+      authJsonRequest('/api/account/billing/checkout/live-credit-pack', 'POST', { pack_id: 'live_credits_5000', ...terms }, {
+        Origin: 'https://bitbi.ai',
+        Cookie: `bitbi_session=${invalidToken}`,
+        'Idempotency-Key': 'credit-pack-invoice-invalid-email',
+      }),
+      invalidEnv,
+      createExecutionContext().execCtx
+    );
+    expect(invalidCheckout.status).toBe(201);
+    expectCreditPackInvoiceForm(invalidCalls[0].form, {
+      email: null,
+      packId: 'live_credits_5000',
+      credits: 5000,
+      description: 'One-time purchase: 5000 Credit Pack',
+      checkoutScope: 'member',
+    });
+
+    const evidence = await moduleAt('workers/auth/src/lib/billing-evidence.js');
+    const status = evidence.buildBillingEvidenceStatus({ ENABLE_STRIPE_INVOICE_CREATION: 'false' });
+    expect(status.taxInvoice.oneTimeInvoiceCreation).toEqual(expect.objectContaining({
+      enabled: true,
+      status: 'enabled_for_credit_pack_checkout',
+      footerAndAccountTaxIds: 'stripe_account_defaults',
+    }));
+    expect(status.taxInvoice.automaticTax.enabled).toBe(false);
+    expect(status.config.flags.invoiceCreation.enabled).toBe(false);
+    expect(status.failClosedFacts).toEqual(expect.arrayContaining([
+      'Stripe Tax and tax ID collection stay disabled unless explicit operator env flags are set. Credit-pack Checkout always requests a Stripe invoice and does not grant credits from invoice events.',
+    ]));
   });
 
   test('paid subscription invoice webhook is idempotent and tops up subscription credits only', async () => withSubscription(async f => {
@@ -581,6 +782,137 @@ test.describe('BITBI Pro member subscriptions', () => {
       purchasedCredits: 4000,
       totalCredits: 6300,
     });
+  });
+
+  test('one-time credit-pack invoices do not grant credits even when they resemble a Pro invoice', async () => withSubscription(async f => {
+    const packMetadata = {
+      user_id: MEMBER,
+      credit_pack_id: 'live_credits_5000',
+      pack_id: 'live_credits_5000',
+      credits: '5000',
+      checkout_scope: 'member',
+      authorization_scope: 'member',
+      internal_checkout_session_id: 'bcs_q4_credit_pack_invoice',
+    };
+    const shaped = invoiceEvent('evt_q4_credit_pack_invoice_paid', { invoice: 'in_q4_credit_pack_invoice' });
+    shaped.data.object.metadata = packMetadata;
+    shaped.data.object.parent.subscription_details.metadata = packMetadata;
+    shaped.data.object.lines.data[0].metadata = packMetadata;
+    const paid = await f.deliver(shaped);
+    expect(paid.status).toBe(202);
+    expect(paid.body.creditGrant).toBeNull();
+    expect(paid.body.subscription).toBeNull();
+    expect(paid.body.actionPlanned).toBe(false);
+    expect(nativeState(f).events.at(-1)).toMatchObject({
+      event_type: 'invoice.paid',
+      processing_status: 'ignored',
+    });
+    expect(JSON.parse(nativeState(f).actions.at(-1).summary_json).reason).toContain('one-time credit-pack invoice');
+
+    const succeeded = invoiceEvent('evt_q4_credit_pack_invoice_succeeded', { invoice: 'in_q4_credit_pack_succeeded' });
+    succeeded.type = 'invoice.payment_succeeded';
+    succeeded.data.object.billing_reason = 'manual';
+    succeeded.data.object.metadata = packMetadata;
+    delete succeeded.data.object.parent;
+    succeeded.data.object.lines = {
+      has_more: false,
+      data: [{
+        id: 'il_q4_credit_pack_manual',
+        amount: 999,
+        currency: 'eur',
+        quantity: 1,
+        description: '5000 Credit Pack',
+        metadata: packMetadata,
+      }],
+    };
+    const manual = await f.deliver(succeeded);
+    expect(manual.status).toBe(202);
+    expect(manual.body.creditGrant).toBeNull();
+    expect(manual.body.subscription).toBeNull();
+
+    for (const type of ['invoice.created', 'invoice.finalized']) {
+      const lifecycle = invoiceEvent(`evt_q4_credit_pack_${type.replaceAll('.', '_')}`, {
+        invoice: `in_q4_${type.replaceAll('.', '_')}`,
+      });
+      lifecycle.type = type;
+      lifecycle.data.object.status = type === 'invoice.created' ? 'draft' : 'open';
+      lifecycle.data.object.metadata = packMetadata;
+      const result = await f.deliver(lifecycle);
+      expect(result.status).toBe(202);
+      expect(result.body.creditGrant).toBeNull();
+      expect(result.body.subscription).toBeNull();
+      expect(result.body.actionPlanned).toBe(false);
+      expect(nativeState(f).events.at(-1)).toMatchObject({
+        event_type: type,
+        processing_status: 'ignored',
+        error_code: 'stripe_invoice_lifecycle_ignored',
+      });
+    }
+
+    const duplicate = await f.deliver(shaped);
+    expect(duplicate.status).toBe(200);
+    expect(duplicate.body.duplicate).toBe(true);
+    expect(duplicate.body.creditGrant).toBeNull();
+    expect(nativeState(f).ledger).toHaveLength(0);
+    expect(nativeState(f).buckets).toHaveLength(0);
+    expect(nativeState(f).subscriptions).toHaveLength(0);
+  }));
+
+  test('testmode credit-pack invoice events do not grant credits', async () => {
+    const { handleVerifiedStripeWebhookEvent } = await loadStripeBillingModule();
+    const env = createAuthTestEnv({
+      users: [createContractUser({ id: 'testmode-credit-pack-invoice-user', role: 'user' })],
+    });
+    const ledgerCount = env.DB.state.memberCreditLedger.length;
+    const packMetadata = {
+      user_id: 'testmode-credit-pack-invoice-user',
+      credit_pack_id: 'credits_5000',
+      pack_id: 'credits_5000',
+      credits: '5000',
+      organization_id: 'org_22222222222222222222222222222222',
+    };
+    for (const [type, id] of [
+      ['invoice.created', 'evt_testmode_credit_pack_invoice_created'],
+      ['invoice.finalized', 'evt_testmode_credit_pack_invoice_finalized'],
+      ['invoice.paid', 'evt_testmode_credit_pack_invoice_paid'],
+      ['invoice.payment_succeeded', 'evt_testmode_credit_pack_invoice_succeeded'],
+    ]) {
+      const payload = {
+        id,
+        object: 'event',
+        type,
+        livemode: false,
+        data: {
+          object: {
+            id: `in_testmode_${type.replaceAll('.', '_')}`,
+            object: 'invoice',
+            livemode: false,
+            status: type === 'invoice.paid' || type === 'invoice.payment_succeeded' ? 'paid' : 'draft',
+            billing_reason: 'manual',
+            amount_paid: 4900,
+            currency: 'eur',
+            metadata: packMetadata,
+            lines: { data: [{ amount: 4900, currency: 'eur', quantity: 1, metadata: packMetadata }] },
+          },
+        },
+      };
+      const result = await handleVerifiedStripeWebhookEvent({
+        env,
+        rawBody: JSON.stringify(payload),
+        payload,
+        verificationStatus: 'verified_test_signature',
+      });
+      expect(result.creditGrant).toBeNull();
+      expect(result.subscription).toBeNull();
+      expect(result.actionPlanned).toBe(false);
+      expect(env.DB.state.billingProviderEvents.at(-1)).toMatchObject({
+        event_type: type,
+        processing_status: 'ignored',
+        error_code: 'stripe_invoice_no_credit_side_effect',
+      });
+    }
+    expect(env.DB.state.memberCreditLedger).toHaveLength(ledgerCount);
+    expect(env.DB.state.memberCreditBuckets).toHaveLength(0);
   });
 
   test('paid subscription invoice can safely provision before a subscription lifecycle event', async () => withSubscription(async f => {

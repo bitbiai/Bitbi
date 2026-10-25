@@ -245,8 +245,8 @@ function liveBillingEvidenceOverride(id) {
       nextAction: "Portal works through pay.bitbi.ai; do not store full portal session URLs.",
     },
     tax_invoice_configuration_review: {
-      status: "disabled_by_default_operator_review_pending",
-      nextAction: "Keep tax, tax ID, and invoice flags false until separate accounting/legal approval.",
+      status: "credit_pack_invoices_enabled_tax_flags_pending_review",
+      nextAction: "Credit-pack Checkout requests Stripe invoices from account defaults. Keep automatic tax and tax ID collection false until separate accounting/legal approval.",
     },
   }[id] || null;
 }
@@ -319,9 +319,9 @@ async function buildAdminLiveBillingReadinessStatus(env) {
     },
     {
       id: "keep_tax_invoice_flags_disabled",
-      label: "Keep Stripe Tax, tax ID collection, and invoice creation flags disabled until separate approval.",
-      inspect: "Cloudflare Worker vars and Stripe Dashboard accounting/tax settings.",
-      safeAction: "Optional tax/invoice settings remain false by default.",
+      label: "Keep Stripe Tax and tax ID collection disabled until separate approval. Credit-pack Checkout requests Stripe invoices.",
+      inspect: "Cloudflare Worker vars and Stripe Dashboard invoice email, footer, and account tax ID settings.",
+      safeAction: "Automatic tax and tax ID collection remain false by default. Credit-pack invoices use Stripe account defaults and do not grant credits.",
     },
     {
       id: "confirm_live_flags",
@@ -411,7 +411,7 @@ async function buildAdminLiveBillingReadinessStatus(env) {
         "Full duplicate webhook replay/idempotency artifact.",
         "Wrong Price ID live rejection artifact.",
         "Refund/dispute/failure live review-only artifact.",
-        "Tax/invoice accounting/legal review remains separate and disabled by default.",
+        "Automatic tax and tax ID collection remain disabled until separate accounting/legal review. Credit-pack Checkout requests Stripe invoices using account invoice defaults.",
       ],
     },
     boundedResponse: true,

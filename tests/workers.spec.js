@@ -9362,7 +9362,7 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
     expect(conflict.status).toBe(409);
   });
 
-  test('optional live Stripe tax and invoice checkout options are disabled by default and gated by explicit flags', async () => {
+  test('optional live Stripe tax checkout options are disabled by default and gated by explicit flags', async () => {
     const worker = await loadWorker('workers/auth/src/index.js');
 
     const makeCheckoutFetch = (calls) => async (url, init = {}) => {
@@ -9400,7 +9400,6 @@ test.describe('Phase 2-L Live Stripe credit packs and credits dashboard', () => 
       expect(form['automatic_tax[enabled]']).toBeUndefined();
       expect(form.billing_address_collection).toBeUndefined();
       expect(form['tax_id_collection[enabled]']).toBeUndefined();
-      expect(form['invoice_creation[enabled]']).toBeUndefined();
     };
 
     const defaultCalls = [];

@@ -41,7 +41,7 @@ const REQUIRED_EVIDENCE = Object.freeze([
 const NEXT_OPERATOR_ACTIONS = Object.freeze([
   "Deploy Auth Worker and Static Pages after validation passes; do not enable live flags yet.",
   "Export Admin -> Finance -> Live Billing redacted status before changing live billing flags.",
-  "Configure Cloudflare Stripe secrets and vars with optional tax/invoice flags false until review.",
+  "Configure Cloudflare Stripe secrets and vars with automatic tax and tax ID collection false until review. Credit-pack Checkout requests invoices in code.",
   "Refresh Admin Live Billing and verify configured shapes only; no raw values should render.",
   "Run controlled canary purchases only when the operator intentionally triggers real payment.",
   "Attach sanitized evidence under docs/production-readiness/evidence/ and keep readiness blocked until reviewed.",

@@ -32,15 +32,14 @@ Configure values only in Cloudflare dashboard or approved secret tooling. Never 
 - `ENABLE_LIVE_STRIPE_SUBSCRIPTIONS`
 - `ENABLE_STRIPE_AUTOMATIC_TAX`
 - `ENABLE_STRIPE_TAX_ID_COLLECTION`
-- `ENABLE_STRIPE_INVOICE_CREATION`
+- `ENABLE_STRIPE_INVOICE_CREATION` (retained name; credit-pack Checkout does not consult it)
 
-Recommended initial optional flag values until legal, tax, and accounting review approves them:
+Recommended optional tax flag values until legal, tax, and accounting review approves them:
 
 - `ENABLE_STRIPE_AUTOMATIC_TAX=false`
 - `ENABLE_STRIPE_TAX_ID_COLLECTION=false`
-- `ENABLE_STRIPE_INVOICE_CREATION=false`
 
-Optional tax and invoice flags being configured is not legal, tax, accounting, or production-readiness proof.
+Credit-pack payment Checkout always sends `invoice_creation[enabled]=true`. Setting `ENABLE_STRIPE_INVOICE_CREATION` does not turn that off. Subscription Checkout is unchanged and does not send `invoice_creation`. Invoice footer text and the account tax ID come from Stripe account invoice settings, not from Worker code. This is not legal, tax, accounting, or production-readiness proof.
 
 ## Stripe Dashboard Checklist
 
@@ -65,7 +64,10 @@ Optional tax and invoice flags being configured is not legal, tax, accounting, o
 - Confirm live one-time credit-pack Prices match the public BITBI catalog exactly.
 - Confirm the BITBI Pro live Price ID is a 9.99 EUR monthly subscription and matches `STRIPE_LIVE_SUBSCRIPTION_PRICE_ID`.
 - Configure Stripe Customer Portal in Stripe Dashboard before enabling portal usage.
-- Enable Stripe Tax, tax ID collection, and invoice options only after operator, legal, tax, and accounting review.
+- Confirm Stripe emails finalized invoices to customers, and that the account invoice footer and default tax ID are the values credit-pack invoices should show. Checkout does not send a footer or account tax ID.
+- `invoice.paid` and `invoice.payment_succeeded` for one-time credit-pack invoices are acknowledged and do not grant credits. Credits still require verified `checkout.session.completed`.
+- `invoice.created` and `invoice.finalized`, if the endpoint receives them, are stored with no credit side effects.
+- Enable Stripe Tax and tax ID collection only after operator, legal, tax, and accounting review.
 
 ## Admin Starting Point
 
@@ -113,7 +115,7 @@ Each evidence item must be sanitized and reviewed before any live billing readin
 
 1. Deploy Auth Worker and Static Pages after validation passes.
 2. Open Admin -> Finance -> Live Billing and export redacted status before enabling live flags.
-3. Configure Cloudflare secrets/vars with optional tax and invoice flags false.
+3. Configure Cloudflare secrets/vars with automatic tax and tax ID collection false. Credit-pack invoices are requested by Checkout code.
 4. Verify Admin status shows configured shapes, not secrets.
 5. Use a dedicated canary member account and perform a controlled live credit-pack purchase only when the operator intentionally triggers a real payment.
 6. Confirm no credit before verified webhook, then exactly-one credit grant after `checkout.session.completed`.
@@ -129,6 +131,7 @@ Each evidence item must be sanitized and reviewed before any live billing readin
 - Checkout creation does not grant credits.
 - Credit-pack grants require verified live `checkout.session.completed` payment evidence.
 - BITBI Pro monthly credits are topped up only after verified paid subscription invoice evidence.
+- One-time credit-pack `invoice.created`, `invoice.finalized`, `invoice.paid`, and `invoice.payment_succeeded` events do not grant credits.
 - Duplicate provider events must not double-grant.
 - Wrong Price ID, wrong provider mode, testmode live endpoint events, refunds, disputes, payment failures, and action-required invoices do not automatically grant or claw back credits.
 - Refunds, disputes, and payment failures are review-only operator records.
