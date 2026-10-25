@@ -649,6 +649,8 @@ const EXACT_WORKER_TEST_FILES = new Set([
   'tests/helpers/release-transition-legacy-contract.cjs',
   'tests/q2-canvas-agent-readiness.spec.js',
   'tests/helpers/canvas-agent-readiness-control.mjs',
+  // Contact mail header policy. Exact path only; unreviewed neighbors stay full.
+  'tests/contact-mail.spec.js',
 ]);
 
 const WORKER_TEST_PREFIXES = [

@@ -617,6 +617,23 @@ for (const file of ['tests/helpers/model-help-contract.cjs', 'tests/helpers/gene
 }
 
 {
+  const config = createRequire(import.meta.url)("../playwright.workers.config.js");
+  assert(config.testMatch.includes("**/contact-mail.spec.js"));
+  const contactFiles = [
+    "workers/contact/src/index.js",
+    "workers/contact/src/lib/contact-mail.js",
+    "tests/contact-mail.spec.js",
+  ];
+  const result = selection(contactFiles);
+  assert.equal(result.workers, true);
+  assert.equal(result.auth, false);
+  assert.equal(result.static, false);
+  assert.equal(result.full, false);
+  assert.equal(selection(["tests/contact-mail.spec.js.unreviewed"]).full, true);
+  assert.equal(selection(["tests/contact-mail-other.spec.js"]).full, true);
+}
+
+{
   const result = selection(["workers/auth/src/routes/admin.js"]);
   assert.equal(result.workers, true);
   assert.equal(result.auth, true);
