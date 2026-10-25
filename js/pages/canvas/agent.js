@@ -279,9 +279,9 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
         if (!id || !await flush() || current !== epoch) return;
         await openProject(id);
     }
-    function schedule(delay=4000,catchup=false) {
+    function schedule(delay=4000,catchup=false,connect=true) {
         clearTimeout(timer);
-        catchingUp=catchup;connectEvents();
+        catchingUp=catchup;if(connect)connectEvents();
         if (!visible || stopped || !projectId || (run && TERMINAL.has(run.status)&&!catchup)) return;
         timer = setTimeout(() => void observe(), delay);
     }
@@ -304,8 +304,9 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
         render(); schedule(response.ok&&response.data?.hasMore?100:4000,Boolean(response.ok&&response.data?.hasMore));
     }
     // WebKit can reject navigation-cancelled reads before pagehide. Mark only
-    // this observer's read as cancelled; keep polling if navigation is declined.
-    window.addEventListener('beforeunload', () => { controller?.abort(); schedule(); });
+    // this observer's read as cancelled. Close SSE without opening a new stream
+    // during unload; a declined navigation resumes reads and SSE on the timer.
+    window.addEventListener('beforeunload', () => { controller?.abort();closeStream();schedule(4000,false,false); });
     window.addEventListener('pagehide', () => { stopped = true; clearTimeout(timer); controller?.abort();closeStream(); });
     window.addEventListener('pageshow',()=>{stopped=false;placeHelp();if(visible)void observe();});
     render();

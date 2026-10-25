@@ -2180,6 +2180,12 @@ before `pagehide`; the application then persists a false connection notice.
 Drained reads pass without the extra notice. Abort the agent/inbox observer's own
 GET at `beforeunload`, before projecting its rejection. Keep ordinary scheduling
 for a declined navigation; `pagehide`/`pageshow` still own suspension/restoration.
+The next `eb3d5254` Core attempt exposed a synchronous SSE reconnect inside
+`schedule()` during unload: retry traces place WebKit access-control page errors
+2–3ms after reload. This was a lifecycle side effect, not backend CORS evidence.
+Close the stream at `beforeunload` and rearm only the observation timer; reconnect
+after a declined navigation through the normal read path. The native EventSource
+countercheck must reject construction during unload and retain genuine errors.
 Do not abort paid mutations or suppress genuine failures. Existing activity and
 navigation cases in `tests/canvas.spec.js` cover held/late replies, cancelled
 navigation, resumed reads, real 503 notices and unchanged production identities
