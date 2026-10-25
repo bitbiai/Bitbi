@@ -303,6 +303,9 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
         }
         render(); schedule(response.ok&&response.data?.hasMore?100:4000,Boolean(response.ok&&response.data?.hasMore));
     }
+    // WebKit can reject navigation-cancelled reads before pagehide. Mark only
+    // this observer's read as cancelled; keep polling if navigation is declined.
+    window.addEventListener('beforeunload', () => { controller?.abort(); schedule(); });
     window.addEventListener('pagehide', () => { stopped = true; clearTimeout(timer); controller?.abort();closeStream(); });
     window.addEventListener('pageshow',()=>{stopped=false;placeHelp();if(visible)void observe();});
     render();

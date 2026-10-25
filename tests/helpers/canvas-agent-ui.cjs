@@ -335,14 +335,89 @@ exports.activity=async({page,expect,locale,info,mockSharedAuth,createCanvasApiMo
     await page.locator('#canvasNotificationsToggle').click();await expect(items).toHaveCount(3);
     await expect(inbox).not.toContainText('Synthetic thoughts');await expect(panel).not.toContainText('Synthetic thoughts');
     await inbox.getByRole('button',{name:de?'Meldungen schließen':'Close notifications',exact:true}).click();await check.click();
-    state.run={...state.run,status:'taken_over'};await check.click();
-    await page.reload();await page.locator('#canvasAgentToggle').click();await showProject(panel,locale);
+    state.run={...state.run,status:'taken_over'};state.holdRead=true;
+    await check.click();await expect.poll(()=>Boolean(state.pendingRead)).toBe(true);
+    const finalRead=state.pendingRead;delete state.pendingRead;
+    // Keep a real read pending at navigation: WebKit may reject it before
+    // pagehide. Its late reply cannot create a persisted connection incident.
+    await page.reload();
+    await finalRead.fulfill({json:{ok:true,data:{availability:{available:true},run:state.run,events:state.events}}});
+    await page.locator('#canvasAgentToggle').click();await showProject(panel,locale);
     await page.locator('#canvasNotificationsToggle').click();await expect(items).toHaveCount(3);
+    expect(await page.evaluate(()=>JSON.parse(sessionStorage.getItem('bitbi:canvas-notifications:canvas-member')||'[]'))).toEqual([]);
+    expect(canvas.notificationClients).toEqual([]);expect(state.controls).toEqual([]);
     await inbox.getByRole('button',{name:de?'Meldungen schließen':'Close notifications',exact:true}).click();
     await expect(panel.locator('.canvas-agent__plan')).toContainText('House and ducks');
     expect(state.posts).toEqual([]);expect(state.budgetPosts).toEqual([]);
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
     await panel.screenshot({path:info.outputPath(`canvas-agent-activity-${locale}.png`)});
+};
+
+exports.navigation=async({page,expect,locale,mockSharedAuth,createCanvasApiMock})=>{
+    const {state,panel,project,canvas}=await fixture({page,locale,mockSharedAuth,createCanvasApiMock}),de=locale==='de';
+    state.run={id:'a'.repeat(32),projectId:project,status:'running',phase:'generating',completed:0,total:3,budgetCredits:300,chargedCredits:0,reservedCredits:0};
+    await page.locator('#canvasAgentToggle').click();await page.locator('#canvasAgentToggle').click();await showProject(panel,locale);
+    const check=panel.getByRole('button',{name:de?'Status prüfen':'Check status',exact:true});
+    await expect(panel.locator('.canvas-agent__counts')).toContainText('0 / 3');
+    let holdInbox=true,pendingInbox=null,inboxReads=0,failInbox=false;
+    const pattern='**/api/account/canvas/notifications?*';
+    const notificationRoute=async route=>{
+        inboxReads++;
+        if(holdInbox){holdInbox=false;pendingInbox=route;return;}
+        if(failInbox){failInbox=false;return route.fulfill({status:503,json:{ok:false,code:'synthetic_notification_unavailable'}});}
+        return route.fallback();
+    };
+    await page.route(pattern,notificationRoute);
+    try{
+        state.holdRead=true;await check.click();await expect.poll(()=>Boolean(state.pendingRead)).toBe(true);
+        const oldAgent=state.pendingRead;delete state.pendingRead;
+        const toggle=page.locator('#canvasNotificationsToggle'),inbox=page.locator('#canvasNotificationsPanel');
+        await toggle.click();await expect.poll(()=>Boolean(pendingInbox)).toBe(true);
+        const oldInbox=pendingInbox;pendingInbox=null;
+        const currentUrl=page.url();
+        // A consumer cancels beforeunload; no pagehide/pageshow follows. Both
+        // read observers must remain usable and keep their normal schedules.
+        const cancelled=await page.evaluate(()=>{
+            window.__navigationPageHides=0;window.addEventListener('pagehide',()=>window.__navigationPageHides++);
+            window.addEventListener('beforeunload',event=>event.preventDefault(),{once:true});
+            return !window.dispatchEvent(new Event('beforeunload',{cancelable:true}));
+        });
+        expect(cancelled).toBe(true);expect(page.url()).toBe(currentUrl);
+        await oldAgent.fulfill({json:{ok:true,data:{availability:{available:true},run:{...state.run,completed:3}}}});
+        await oldInbox.fulfill({json:{ok:true,data:{items:[{id:'late-cancelled-read',source:'event',code:'canvas_export_ready',createdAt:new Date().toISOString(),readAt:null}],viewerId:'canvas-member',unreadCount:1,totalCount:1,inboxRevision:0}}});
+        await expect(panel.locator('.canvas-agent__counts')).toContainText('0 / 3');
+        await expect(inbox.locator('.canvas-notifications__item')).toHaveCount(0);
+
+        await inbox.getByRole('button',{name:de?'Meldungen schließen':'Close notifications',exact:true}).click();
+        const manualAgent=page.waitForResponse(response=>response.request().method()==='GET'&&new URL(response.url()).pathname.endsWith('/agent'));
+        await check.click();await (await manualAgent).finished();
+        const manualInbox=page.waitForResponse(response=>response.request().method()==='GET'&&new URL(response.url()).pathname==='/api/account/canvas/notifications');
+        await toggle.click();await (await manualInbox).finished();
+        await expect(inbox.getByRole('button',{name:de?'Aktualisieren':'Refresh',exact:true})).toBeEnabled();
+        const readsAfterManual=state.reads,inboxAfterManual=inboxReads;
+        state.run={...state.run,completed:1};
+        // Wait on actual responses/UI effects, not a guessed sleep. The inbox
+        // normally polls every ten seconds while it is open.
+        await expect.poll(()=>state.reads,{timeout:7000}).toBeGreaterThan(readsAfterManual);
+        await expect(panel.locator('.canvas-agent__counts')).toContainText('1 / 3');
+        await expect.poll(()=>inboxReads,{timeout:15000}).toBeGreaterThan(inboxAfterManual);
+        await expect(inbox.locator('.canvas-notifications__item')).toHaveCount(0);
+        expect(await page.evaluate(()=>window.__navigationPageHides)).toBe(0);
+        expect(await page.evaluate(()=>JSON.parse(sessionStorage.getItem('bitbi:canvas-notifications:canvas-member')||'[]'))).toEqual([]);
+        expect(canvas.notificationClients).toEqual([]);
+
+        // Genuine service failures still produce an actionable notification.
+        failInbox=true;const unavailable=page.waitForResponse(response=>response.status()===503&&new URL(response.url()).pathname==='/api/account/canvas/notifications');
+        await inbox.getByRole('button',{name:de?'Aktualisieren':'Refresh',exact:true}).click();await (await unavailable).finished();
+        const notice=inbox.locator('[data-code="canvas_connection_interrupted"]');await expect(notice).toHaveCount(1);
+        await notice.locator('summary').click();await expect(notice).toContainText('synthetic_notification_unavailable');
+        const pending=await page.evaluate(()=>JSON.parse(sessionStorage.getItem('bitbi:canvas-notifications:canvas-member')||'[]'));
+        expect(pending).toHaveLength(1);expect(pending[0].body).toMatchObject({code:'canvas_connection_interrupted',errorCode:'synthetic_notification_unavailable',status:503});
+        expect(state.posts).toEqual([]);expect(state.controls).toEqual([]);expect(state.budgetPosts).toEqual([]);expect(state.chatPosts).toEqual([]);
+    }finally{
+        await page.unroute(pattern,notificationRoute);
+        if(pendingInbox)await pendingInbox.abort();
+    }
 };
 
 exports.budget=async({page,expect,locale,mockSharedAuth,createCanvasApiMock})=>{

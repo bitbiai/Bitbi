@@ -233,6 +233,9 @@ export function createCanvasNotifications({button,panel,german,getProject=()=>nu
     clear.addEventListener('click',()=>{confirmation.hidden=false;cancel.focus({preventScroll:true});});cancel.addEventListener('click',()=>{confirmation.hidden=true;clear.focus({preventScroll:true});});yes.addEventListener('click',()=>void removeItems([...items.values()],true));more.addEventListener('click',()=>void observe(true));refresh.addEventListener('click',()=>{readBlocked=false;void observe();});
     document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'){clearTimeout(timer);clearTimeout(readTimer);presented.clear();observer.disconnect();}else{paint();void observe();}});
     window.addEventListener('online',()=>{failures=0;readBlocked=false;void observe();});window.addEventListener('offline',()=>{status.textContent=copy.offline;});
+    // Navigation may cancel WebKit reads before pagehide; do not persist that
+    // expected abort as an outage. A declined navigation keeps normal polling.
+    window.addEventListener('beforeunload',()=>{controller?.abort();reading=false;schedule();});
     window.addEventListener('pagehide',()=>{suspended=true;controller?.abort();reading=false;clearTimeout(timer);clearTimeout(readTimer);presented.clear();observer.disconnect();});
     window.addEventListener('pageshow',()=>{suspended=false;paint();void observe();});
     document.addEventListener('bitbi:auth-change',event=>{const auth=event.detail||getAuthState();if(auth.sessionConfirmed){const next=auth.loggedIn?auth.user?.id||null:null;if(!next||actor&&actor!==next||viewer&&viewer!==next){reset();active=Boolean(next);}actor=next;if(active)void observe();}});

@@ -2170,6 +2170,21 @@ no read before 650ms, no hidden polling, the original geometry bounds and zero
 inference before dispatch. All 12 EN/DE Chromium/WebKit cases passed without
 retries in 31.5s through `playwright.assets.config.js`; original failed reports
 remain in the private local-release checkpoint. Product code is unchanged.
+
+Navigation follow-up, 2026-10-25: local candidate `538ffbff` passed the Core
+browser group but its Assets WebKit activity case saw four inbox rows instead of
+three after reload. That attempt retained no network trace, so its exact failing
+request remains unproven. A bounded held-GET countercontrol reproduced the same
+local-notice boundary in EN/DE: WebKit rejects the read after `beforeunload` and
+before `pagehide`; the application then persists a false connection notice.
+Drained reads pass without the extra notice. Abort the agent/inbox observer's own
+GET at `beforeunload`, before projecting its rejection. Keep ordinary scheduling
+for a declined navigation; `pagehide`/`pageshow` still own suspension/restoration.
+Do not abort paid mutations or suppress genuine failures. Existing activity and
+navigation cases in `tests/canvas.spec.js` cover held/late replies, cancelled
+navigation, resumed reads, real 503 notices and unchanged production identities
+through both Core and `playwright.assets.config.js`. Private diagnostic success
+is not a passing release receipt; retain failed attempts and validate final bytes.
 Browser acceptance also exposed a panel-only Escape listener: disabling a focused
 read/refresh control can move focus outside the panel. Close the open menu from
 the document and test explicit outside focus; Escape cannot acknowledge anything.
