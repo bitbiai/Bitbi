@@ -194,7 +194,7 @@ for(const file of ['js/shared/member-model-exposure.mjs','workers/shared/website
       'node_modules/undici': {version: number, dev: true, resolved: `https://registry.npmjs.org/undici/-/undici-${number}.tgz`, integrity: 'sha512-YWJjZA=='},
       'node_modules/miniflare': {version: '5.20260903.0-alpha.0', dev: true, dependencies: {undici: '7.29.0'}},
       'node_modules/wrangler': {version: '4.129.0', dev: true, dependencies: {miniflare: '5.20260903.0-alpha.0'}}}}});
-  const before = version('7.29.0'), after = version('7.29.1');
+  const before = version('7.29.1'), after = version('7.30.1');
   const files = ['workers/auth/package.json', 'workers/auth/package-lock.json'];
   const allFiles = ['auth', 'ai', 'contact'].flatMap(worker => [`workers/${worker}/package.json`, `workers/${worker}/package-lock.json`]);
   const writePair = (value, worker = 'auth') => {write(`workers/${worker}/package.json`, value.manifest); write(`workers/${worker}/package-lock.json`, value.lock);};
@@ -211,7 +211,7 @@ for(const file of ['js/shared/member-model-exposure.mjs','workers/shared/website
     }
     const base = commit('base');
     for (const worker of ['auth', 'ai', 'contact']) writePair(after, worker);
-    commit('reviewed tool patch');
+    const toolingHead=commit('reviewed security leaf');
     write('docs/fixture.md', 'Later validation-only input\n');
     write('js/pages/canvas/music-preview.js', 'export const fixture = true;\n');
     write('js/shared/frontend-only-fixture.mjs', 'export const presentation = true;\n');
@@ -226,6 +226,30 @@ for(const file of ['js/shared/member-model-exposure.mjs','workers/shared/website
     assert(plan.recommendedChecks.includes('npm run test:workers'));
     const {backendContinuationSupported} = await import('./lib/backend-continuation.mjs');
     const {evaluateStaticDeploySafety} = await import('./lib/release-plan.mjs');
+    // This is the combined billing release boundary: only Auth's runtime
+    // changes; the reviewed 7.29.1 -> 7.30.1 development leaf is shared by all
+    // three Worker tools but must not acquire AI/Contact deployments.
+    git(['checkout','-q',toolingHead]);
+    write('workers/auth/src/lib/consumer-contracts.js','export const confirmation = true;\n');
+    write('workers/auth/src/index.js',"export {confirmation} from './lib/consumer-contracts.js';\n");
+    write('legal/terms.html','<main>Reviewed billing fixture</main>\n');
+    const billingHead=commit('billing runtime with security leaf');
+    const billingFiles=git(['diff','--name-only',`${base}...${billingHead}`]).split('\n');
+    const billingPlan=createReleasePlan(context,{changedFiles:billingFiles,source:{...source,head:billingHead}});
+    assert.deepEqual(billingPlan.workerDeploys.map(step=>step.worker),['auth']);
+    assert.deepEqual(billingPlan.reviewedToolingPatchFiles.sort(),allFiles.sort());
+    assert.deepEqual(billingPlan.toolingOnlyWorkerPackageFiles.sort(),allFiles.filter(file=>!file.startsWith('workers/auth/')).sort());
+    assert(backendContinuationSupported(billingPlan));
+    assert.equal(evaluateStaticDeploySafety(billingPlan,{eventName:'push'}).allowed,false);
+    assert.equal(evaluateStaticDeploySafety(billingPlan,{eventName:'push',dependenciesVerified:true}).mode,'verified_backend_dependencies');
+    writePair(version('7.31.0'),'contact');
+    const neighborHead=commit('unreviewed neighboring minor');
+    const neighborPlan=createReleasePlan(context,{changedFiles:billingFiles,source:{...source,head:neighborHead}});
+    assert(neighborPlan.workerDeploys.some(step=>step.worker==='contact'));
+    assert(!neighborPlan.reviewedToolingPatchFiles.some(file=>file.startsWith('workers/contact/')));
+    assert(!backendContinuationSupported(neighborPlan));
+    assert.equal(evaluateStaticDeploySafety(neighborPlan,{eventName:'push',dependenciesVerified:true}).allowed,false);
+    git(['checkout','-q',head]);
     const mixedFiles = git(['diff', '--name-only', `${base}...${head}`]).split('\n');
     const mixed = createReleasePlan(context, {changedFiles: mixedFiles, source});
     assert.deepEqual(mixed.toolingOnlyWorkerPackageFiles.sort(), allFiles.sort());
@@ -282,7 +306,7 @@ for(const file of ['js/shared/member-model-exposure.mjs','workers/shared/website
     assert.deepEqual(toolingOnlyWorkerPackages(root, {...source, head: runtimeHead}, files), []);
     assert.deepEqual(workerToolingPatchEvidence(root, {...source, head: runtimeHead}, files).reviewedToolingPatchFiles, []);
     // Even unchanged direct runtime use denies the exception for a later patch.
-    writePair(version('7.29.2'));const directUse = commit('later patch with runtime use');
+    writePair(version('7.30.2'));const directUse = commit('later patch with runtime use');
     assert.deepEqual(toolingOnlyWorkerPackages(root, {mode: 'git-diff', base: runtimeHead, head: directUse}, files), []);
     git(['checkout', '-q', head]);
     write('package-lock.json', {packages: {'': {}, 'node_modules/runtime': {version: '1.0.1'}}});
@@ -330,10 +354,10 @@ for(const file of ['js/shared/member-model-exposure.mjs','workers/shared/website
       ['npm build hook', value => {value.manifest.scripts = {prepare: 'node generate.js'};}],
     ]) {
       git(['checkout', '-q', head]);
-      const previous = structuredClone(after);configure(previous);writePair(previous);
+      const previous = structuredClone(before);configure(previous);writePair(previous);
       const unsafeBase = commit(`preexisting ${label}`);
-      const next = version('7.29.2');
-      next.manifest = {...previous.manifest, overrides: {...previous.manifest.overrides, undici: '7.29.2'}};
+      const next = structuredClone(after);
+      next.manifest = {...previous.manifest, overrides: {...previous.manifest.overrides, undici: '7.30.1'}};
       next.lock = {...previous.lock, packages: {...previous.lock.packages, 'node_modules/undici': next.lock.packages['node_modules/undici']}};
       writePair(next);const unsafeHead = commit(`patch with ${label}`);
       assert.deepEqual(toolingOnlyWorkerPackages(root, {mode: 'git-diff', base: unsafeBase, head: unsafeHead}, files), [], label);
@@ -353,11 +377,17 @@ for(const file of ['js/shared/member-model-exposure.mjs','workers/shared/website
       value => {value.lock.packages['node_modules/wrangler'].version = '4.130.0';},
       value => {value.manifest.scripts = {build: 'different-build'};},
       value => {value.lock.packages['node_modules/undici'].resolved = 'https://untrusted.invalid/package.tgz';},
+      value => {delete value.lock.packages['node_modules/undici'].integrity;},
     ]) {
       const changed = structuredClone(after);mutate(changed);assert.equal(isUndiciToolingPatch(before, changed), false);
     }
     assert.equal(isUndiciToolingPatch(before, version('7.30.0')), false);
+    assert.equal(isUndiciToolingPatch(before, version('7.30.2')), false);
+    assert.equal(isUndiciToolingPatch(before, version('7.31.0')), false);
+    assert.equal(isUndiciToolingPatch(version('7.29.0'), after), false);
     assert.equal(isUndiciToolingPatch(before, version('7.28.9')), false);
+    assert.equal(isUndiciToolingPatch(version('7.29.0'), before), true,'Existing forward-patch rule remains supported');
+    assert.equal(isUndiciToolingPatch(after, version('7.30.2')), true,'The exception does not replace the general forward-patch rule');
     console.log('Immutable Worker tooling proof: unreferenced shared input, exact reachable blobs, affected Auth continuation and unsafe import/build/config/compiler counterchecks passed.');
   } finally {fs.rmSync(root, {recursive: true, force: true});}
 }

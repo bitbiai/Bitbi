@@ -319,6 +319,10 @@ it does not authorize new production operations, paid calls or protection change
    continuation, durable receipt and authorized live verification. Reuse matching
    candidate evidence where supported; never redeploy unchanged components for a green run.
 
+The explicitly reviewed Undici7.29.1 →7.30.1 security update is also admitted
+under the same unchanged-dev-leaf/runtime-input proof; other minor jumps remain
+unsupported. This changes deployment impact, never test/evidence requirements.
+
 The reviewed Undici and exact Sharp 0.35.4 → 0.35.5 security-patch exceptions
 change deployment classification only. `scripts/lib/worker-tooling-impact.mjs`
 requires immutable Git base/head evidence: the compatible Undici leaf, or Sharp

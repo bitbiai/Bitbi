@@ -6,7 +6,7 @@ import {normalizeCanvasAgentConfigDelta} from './canvas-agent-release.mjs';
 import {validateSharpLock} from './worker-sharp.mjs';
 
 // Undici is the reviewed Wrangler/Miniflare HTTP client, not a compiler or an
-// application dependency. Only compatible leaf patches with unchanged runtime
+// application dependency. Only reviewed leaf changes with unchanged runtime
 // inputs can avoid an unnecessary deployment. Audits and Worker tests still run.
 const git = (root, args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 const read = (root, ref, file) => JSON.parse(git(root, ['show', `${ref}:${file}`]));
@@ -22,7 +22,11 @@ function forwardPatch(before, after) {
 }
 export function isUndiciToolingPatch(before, after) {
   const [a, b] = [before, after].map(({ manifest, lock }) => ({ manifest, lock, entry: lock.packages?.['node_modules/undici'] }));
-  if (a.entry?.dev !== true || b.entry?.dev !== true || !forwardPatch(a.entry.version, b.entry.version)) return false;
+  // Exact reviewed GHSA-4qv8-2p9j-2685 / GHSA-f72v-6w45-q472 /
+  // GHSA-xjj6-f33q-929c remediation; this is not a general minor-upgrade rule.
+  const securityRemediation=a.entry?.version==='7.29.1'&&b.entry?.version==='7.30.1';
+  if (a.entry?.dev !== true || b.entry?.dev !== true
+      || !(forwardPatch(a.entry.version, b.entry.version)||securityRemediation)) return false;
   if (a.manifest.overrides?.undici !== a.entry.version || b.manifest.overrides?.undici !== b.entry.version) return false;
   if (!isDeepStrictEqual(without(a.manifest, 'overrides'), without(b.manifest, 'overrides'))
       || !isDeepStrictEqual(without(a.manifest.overrides, 'undici'), without(b.manifest.overrides, 'undici'))) return false;
