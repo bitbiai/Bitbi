@@ -345,6 +345,9 @@ jobs:
       - name: Validate candidate references before backend publication
         run: node scripts/validate-site-references.mjs --root candidate/site
       - name: Apply verified candidate backend prerequisites
+        # Includes Contact-only and Auth+Contact plans under this same environment
+        # approval/write lock. The publisher verifies active bytes and stores one
+        # backend receipt; unselected Auth/AI/media/frontend are not deployed.
         # A closed frontend-only continuation imports and reads back its
         # authenticated backend receipt; it never reactivates that backend.
         if: success() && (needs.release-compatibility.outputs.backend_continuation == 'true' || needs.reuse-candidate.outputs.backend_continuation == 'true') && env.HOSTING_PROVIDER == 'cloudflare'

@@ -215,6 +215,14 @@ write lock; an acknowledgement is neither authority nor evidence. See
 `scripts/lib/backend-continuation.mjs`, `scripts/pages-candidate.mjs` and the current
 workflow before execution. Do not redeploy unchanged components.
 
+Contact-only and Auth+Contact changes use the same protected deploy job and backend
+receipt. `contact-publication.mjs` admits only the existing Contact configuration,
+secret and rate-limiter namespace; it uploads/deploys a version without changing
+routes, then verifies active traffic, bundle bytes and triggers. Contact-only skips
+Auth/schema/media publication. Pending Auth migrations must be both supported and
+present in the candidate delta. `test:release-plan` executes the Contact publisher
+and protected-caller counterchecks; a listed plan is not deployment support.
+
 The following CI procedure governs ordinary delivery and explicitly requested
 acceptance; the numbered operator readiness checklist is for a separately scoped
 broad readiness review, not a blanket suite or deployment authorization for every edit.

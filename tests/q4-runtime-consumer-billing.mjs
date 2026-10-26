@@ -106,6 +106,7 @@ async function runPackMailTests(f) {
       id,session,user,await sha256Hex(id),await sha256Hex(`request:${id}`),JSON.stringify(acceptance),now,now).run();
     const snapshot=await persistConsumerContractSnapshot({DB:db},{checkoutId:id,userId:user,scope:'member',acceptance,
       offer:{id:'live_credits_5000',name:'Starter Credits',credits:5000,amountCents:999,currency:'eur'}});
+    provider.customers.set(`cus_native_pack_${suffix}`,{id:`cus_native_pack_${suffix}`,object:'customer',preferred_locales:['de']});
     const payload={id:`evt_native_pack_${suffix}`,object:'event',type:'checkout.session.completed',livemode:true,created:Math.floor(Date.now()/1000),data:{object:{
       id:session,object:'checkout.session',livemode:true,mode:'payment',payment_status:'paid',amount_total:999,currency:'eur',
       customer:`cus_native_pack_${suffix}`,payment_intent:`pi_native_pack_${suffix}`,payment_method_details:{type:'card'},
@@ -156,6 +157,7 @@ async function runPackMailTests(f) {
     // another contract document; the signed checkout remains the authority.
     const invoice={...s.payload,id:`evt_native_pack_invoice_${locale}`,type:'invoice.paid',data:{object:{id:`in_native_pack_${locale}`,object:'invoice',livemode:true,
       customer:s.payload.data.object.customer,amount_paid:999,currency:'eur',status:'paid',metadata:s.payload.data.object.metadata,lines:{data:[]}}}};
+    provider.invoices.set(invoice.data.object.id,{...invoice.data.object,rendering:{pdf:{page_size:'a4'}}});
     const ignored=await s.deliver(invoice);assert.ok([200,202].includes(ignored.status));assert.equal(await s.grants(),1);assert.equal(sends(s.id).length,1);
     if(locale==='de'){
       provider.observationRedirect=true;await runMail(6);provider.observationRedirect=false;

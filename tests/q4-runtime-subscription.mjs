@@ -1,3 +1,4 @@
+import {runCreditPackCustomerTests} from './helpers/q2-runtime/credit-pack-customers.mjs';
 import {runConsumerContractBillingTests} from './q4-runtime-consumer-billing.mjs';
 import {runConsumerDeclarationTests} from './q4-runtime-consumer-declarations.mjs';
 import assert from 'node:assert/strict';
@@ -37,11 +38,21 @@ export async function runSubscriptionTests(f) {
   await test('q4_0085_actual_migration_preserves_sources_and_distinguishes_customer_relations',async()=>{
     const before=await rows('SELECT * FROM billing_member_subscription_checkout_sessions');
     await db.batch(migration.statements.map(s=>db.prepare(s)));
-    for(const m of migrations.filter(m=>Number(m.path.slice(0,4))>85))await db.batch(m.statements.map(s=>db.prepare(s)));
+    for(const m of migrations.filter(m=>Number(m.path.slice(0,4))>85&&Number(m.path.slice(0,4))<118))await db.batch(m.statements.map(s=>db.prepare(s)));
     assert.deepEqual(await rows('SELECT * FROM billing_member_subscription_checkout_sessions'),before);
     assert.equal((await rows('PRAGMA table_info(billing_customers)')).find(r=>r.name==='organization_id').notnull,1);
     assert.ok((await rows('PRAGMA foreign_key_list(billing_provider_events)')).some(r=>r.from==='member_billing_customer_id'&&r.table==='billing_member_customers'));
     assert.deepEqual(await rows('PRAGMA foreign_key_check'),[]);
+  });
+  await test('q4_0118_native_populated_migration_rolls_back_then_preserves_customer_and_checkout_identity',async()=>{
+    await sql("INSERT INTO billing_member_customers(id,user_id,provider,provider_mode,provider_customer_ref,created_at) VALUES('bmc_native_0118',?,'stripe','live',?,?)",baseline.user,baseline.customer,now.toISOString()).run();
+    const before=await rows('SELECT * FROM billing_member_customers'),checkouts=await rows('SELECT * FROM billing_member_subscription_checkout_sessions');
+    const schema=await rows('SELECT type,name,sql FROM sqlite_schema ORDER BY type,name'),add=migrations.find(m=>m.path.startsWith('0118_'));
+    await expectNativeRejection(()=>db.batch([...add.statements.map(s=>db.prepare(s)),db.prepare('INSERT INTO billing_member_customers(id) VALUES(NULL)')]),'NOT NULL constraint failed');
+    assert.deepEqual(await rows('SELECT type,name,sql FROM sqlite_schema ORDER BY type,name'),schema);assert.deepEqual(await rows('SELECT * FROM billing_member_customers'),before);
+    await db.batch(add.statements.map(s=>db.prepare(s)));
+    assert.deepEqual(await rows('SELECT * FROM billing_member_customers'),before.map(row=>({...row,retired_at:null})));
+    assert.deepEqual(await rows('SELECT * FROM billing_member_subscription_checkout_sessions'),checkouts);assert.deepEqual(await rows('PRAGMA foreign_key_check'),[]);
   });
   await test('q4_actual_Wrangler_checkout_uses_local_member_customer_FK_and_never_grants',async()=>{
     assert.equal((await baseline.deliver(baseline.checkout())).status,202);
@@ -114,5 +125,6 @@ export async function runSubscriptionTests(f) {
 
   await runConsumerContractBillingTests(f,{seed,worker});
   await runConsumerDeclarationTests(f);
+  await runCreditPackCustomerTests(f);
 
 }

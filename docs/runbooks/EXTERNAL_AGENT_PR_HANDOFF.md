@@ -25,6 +25,13 @@ Keep the PR description compact; link evidence instead of pasting transcripts:
 - Known risks, existing failures with baseline evidence, required deployment,
   configuration/migration dependencies, rollback limits and remaining approvals.
 
+Before declaring a PR ready for local acceptance, verify that the actual protected
+publisher supports every affected component and migration, not only that the
+planner lists them. SQL/runtime changes need native target-runtime cases; if the
+author cannot execute them, hand over runnable cases explicitly marked unexecuted.
+Address known review findings directly and name remaining gaps rather than giving
+a blanket completion claim.
+
 Use the existing PR description when sufficient. Ask only for a missing material
 field, not a second full report. Never put secrets or private test data in the PR.
 
@@ -41,6 +48,9 @@ Assess the whole unpublished range from the verified published baseline, includi
 other merges/local work, and use the existing selector. Review newly changed deltas
 rather than rereading unchanged files. Keep required accounting/auth/security and
 runtime-specific coverage; small diffs are not automatically low risk.
+
+The local release owner assembles the final scoped candidate before long acceptance
+where possible, and reuses valid evidence through the existing verifier.
 
 Author claims guide test selection but cannot replace required local acceptance.
 Reuse only evidence the existing verifier accepts for matching source/base,

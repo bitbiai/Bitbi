@@ -13,6 +13,7 @@ module.exports = defineConfig({
     '**/grok-chat-workers.spec.js',
     '**/q2-*.spec.js',
     '**/q4-*.spec.js',
+    '**/contact-mail.spec.js',
   ],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,

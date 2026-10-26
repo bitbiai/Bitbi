@@ -75,10 +75,24 @@ export default {
     const path=new URL(request.url).pathname;
     const body=await request.json();
     if(path==='/consumer-mail'&&!body.syntheticDelivery)return Response.json(await processTransactionalMessages(env));
-    if((path==='/consumer-pack-webhook'||path==='/consumer-mail'||path==='/consumer-mail-redirect-contract')&&env.Q2_CONSUMER_MAIL_FIXTURE==='true'){
+    if((path==='/consumer-pack-checkout'||path==='/consumer-pack-webhook'||path==='/consumer-mail'||path==='/consumer-mail-redirect-contract')&&env.Q2_CONSUMER_MAIL_FIXTURE==='true'){
       // Actual Worker.fetch, native D1 and real signature verification; only the
       // mail environment/boundary is synthetic. No live keys or recipients.
       const scoped={...env,RESEND_API_KEY:'test-native-consumer-mail',RESEND_FROM_EMAIL:'receipts@example.invalid',STRIPE_LIVE_SECRET_KEY:'sk_live_example_native_consumer_mail'};
+      if(path==='/consumer-pack-checkout'){
+        if(!/^q4-native-pack-[a-z0-9-]+$/.test(body.userId||'')||!/^native-pack-[a-z0-9-]+$/.test(body.key||'')
+          ||(body.organizationId&&!/^org_c{32}$/.test(body.organizationId)))return new Response(null,{status:400});
+        const session=await createSession(scoped,body.userId),pending=[];
+        Object.assign(scoped,{ENABLE_LIVE_STRIPE_CREDIT_PACKS:'true',
+          STRIPE_LIVE_CHECKOUT_SUCCESS_URL:'https://bitbi.ai/pricing.html?checkout=success',
+          STRIPE_LIVE_CHECKOUT_CANCEL_URL:'https://bitbi.ai/pricing.html?checkout=cancel'});
+        const route=body.organizationId?`/api/orgs/${body.organizationId}/billing/checkout/live-credit-pack`:'/api/account/billing/checkout/live-credit-pack';
+        const response=await worker.fetch(new Request(`https://bitbi.ai${route}`,{method:'POST',headers:{
+          Origin:'https://bitbi.ai','Content-Type':'application/json','CF-Connecting-IP':'192.0.2.183',
+          Cookie:`${SECURE_SESSION_COOKIE_NAME}=${session.sessionToken}`,'Idempotency-Key':body.key,
+        },body:JSON.stringify(body.input)}),scoped,{waitUntil(promise){pending.push(promise);}});
+        await Promise.all(pending);return Response.json({status:response.status,body:await response.json()});
+      }
       if(path==='/consumer-mail-redirect-contract'){
         try {await fetch('https://api.resend.com/emails',{redirect:'error'});}
         catch(error){return Response.json({name:error.name,invalidRedirect:error instanceof TypeError&&error.message.includes('Invalid redirect value')});}

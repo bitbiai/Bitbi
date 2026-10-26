@@ -745,8 +745,17 @@ test.describe('BITBI Pro member subscriptions', () => {
     const { handleVerifiedStripeLiveWebhookEvent } = await loadStripeBillingModule();
     const member = createContractUser({ id: 'credit-pack-new-customer', role: 'user' });
     const calls = [];
-    let invoiceUpdates = 0;
-    let invoicePageSize = 'letter';
+    let invoiceUpdates = 0, localeUpdates = 0;
+    let invoicePageSize = 'letter', preferredLocales = [];
+    const cachedReplies = new Map();
+    const presentationReply = (target, init, execute) => {
+      const key = new Headers(init.headers).get('Idempotency-Key');
+      expect(key).toBeTruthy();
+      const identity = `${target}:${key}`;
+      if (!cachedReplies.has(identity)) cachedReplies.set(identity, execute());
+      const { body, status } = cachedReplies.get(identity);
+      return Response.json(body, { status });
+    };
     const env = createAuthTestEnv({
       ENABLE_LIVE_STRIPE_CREDIT_PACKS: 'true',
       STRIPE_LIVE_SECRET_KEY: 'sk_live_credit_pack_customer_1234567890',
@@ -757,7 +766,7 @@ test.describe('BITBI Pro member subscriptions', () => {
       fetch: async (url, init = {}) => {
         const target = String(url);
         const form = Object.fromEntries(new URLSearchParams(String(init.body || '')));
-        calls.push({ url: target, method: init.method || 'GET', form });
+        calls.push({ url: target, method: init.method || 'GET', form, key: new Headers(init.headers).get('Idempotency-Key') });
         if (target.endsWith('/v1/checkout/sessions')) {
           return Response.json({
             id: 'cs_live_credit_pack_new_customer',
@@ -769,18 +778,25 @@ test.describe('BITBI Pro member subscriptions', () => {
         }
         if (target.includes('/v1/customers/')) {
           if ((init.method || 'GET') === 'GET') {
-            return Response.json({ id: 'cus_credit_pack_new', object: 'customer', preferred_locales: [] });
+            return Response.json({ id: 'cus_credit_pack_new', object: 'customer', preferred_locales: preferredLocales });
           }
-          return Response.json({ id: 'cus_credit_pack_new', object: 'customer', preferred_locales: ['de'] });
+          return presentationReply(target, init, () => {
+            localeUpdates += 1;
+            if (localeUpdates === 1) return { body: { error: { code: 'customer_update_failed' } }, status: 500 };
+            preferredLocales = ['de'];
+            return { body: { id: 'cus_credit_pack_new', object: 'customer', preferred_locales: preferredLocales }, status: 200 };
+          });
         }
         if (target.includes('/v1/invoices/')) {
           if ((init.method || 'GET') === 'GET') {
             return Response.json({ id: 'in_credit_pack_new', object: 'invoice', rendering: { pdf: { page_size: invoicePageSize } } });
           }
-          invoiceUpdates += 1;
-          if (invoiceUpdates === 1) return Response.json({ error: { code: 'invoice_update_failed' } }, { status: 500 });
-          invoicePageSize = 'a4';
-          return Response.json({ id: 'in_credit_pack_new', object: 'invoice', rendering: { pdf: { page_size: 'a4' } } });
+          return presentationReply(target, init, () => {
+            invoiceUpdates += 1;
+            if (invoiceUpdates === 1) return { body: { error: { code: 'invoice_update_failed' } }, status: 500 };
+            invoicePageSize = 'a4';
+            return { body: { id: 'in_credit_pack_new', object: 'invoice', rendering: { pdf: { page_size: 'a4' } } }, status: 200 };
+          });
         }
         return Response.json({ error: { message: 'unexpected stripe call' } }, { status: 500 });
       },
@@ -852,6 +868,7 @@ test.describe('BITBI Pro member subscriptions', () => {
     expect(env.DB.state.billingMemberCustomers.map((row) => row.provider_customer_ref)).toEqual(['cus_credit_pack_new']);
     expect(calls.some((call) => call.method === 'POST' && call.form['preferred_locales[0]'] === 'de')).toBe(true);
     expect(invoiceUpdates).toBe(1);
+    expect(localeUpdates).toBe(1);
 
     const repeated = await handleVerifiedStripeLiveWebhookEvent({
       env,
@@ -863,6 +880,15 @@ test.describe('BITBI Pro member subscriptions', () => {
     expect(env.DB.state.billingMemberCustomers).toHaveLength(1);
     expect(invoiceUpdates).toBe(2);
     expect(invoicePageSize).toBe('a4');
+    expect(localeUpdates).toBe(2);
+    expect(preferredLocales).toEqual(['de']);
+    for (const resource of ['/v1/invoices/', '/v1/customers/']) {
+      const updates = calls.filter(call => call.method === 'POST' && call.url.includes(resource));
+      expect(updates).toHaveLength(2);
+      expect(new Set(updates.map(call => call.key)).size).toBe(2);
+      for (const update of updates) expect(calls[calls.indexOf(update) - 1]).toEqual(expect.objectContaining({ url: update.url, method: 'GET' }));
+    }
+    expect(calls.filter(call => call.url.endsWith('/v1/checkout/sessions'))).toHaveLength(1);
 
     env.DB.state.billingMemberCustomers.push({
       id: 'bmc_credit_pack_kept',
@@ -885,6 +911,62 @@ test.describe('BITBI Pro member subscriptions', () => {
       'cus_credit_pack_new',
     ]);
   });
+
+  for (const scenario of ['lost acknowledgement', 'failed read', 'wrong identity', 'malformed read']) {
+    test(`credit-pack presentation ${scenario} cannot create a payment or repeat a completed update`, async () => {
+      const { handleVerifiedStripeLiveWebhookEvent } = await loadStripeBillingModule();
+      const calls = [], applied = new Set();
+      const objects = {
+        '/v1/customers/cus_presentation': { id: 'cus_presentation', object: 'customer', preferred_locales: [] },
+        '/v1/invoices/in_presentation': { id: 'in_presentation', object: 'invoice', rendering: { pdf: { page_size: 'letter' } } },
+      };
+      const env = createAuthTestEnv({
+        STRIPE_LIVE_SECRET_KEY: 'sk_live_presentation_test_1234567890',
+        fetch: async (url, init = {}) => {
+          const pathname = new URL(url).pathname, method = init.method || 'GET';
+          calls.push({ pathname, method });
+          expect(Object.keys(objects)).toContain(pathname);
+          const object = objects[pathname];
+          if (method === 'GET') {
+            if (scenario === 'failed read') return Response.json({ error: { code: 'api_error' } }, { status: 503 });
+            if (scenario === 'wrong identity') return Response.json({ ...object, id: 'other_object' });
+            if (scenario === 'malformed read') return new Response('not-json', { status: 200 });
+            return Response.json(object);
+          }
+          expect(scenario).toBe('lost acknowledgement');
+          expect(method).toBe('POST');
+          expect(applied.has(pathname)).toBe(false);
+          expect(calls.at(-2)).toEqual({ pathname, method: 'GET' });
+          const form = Object.fromEntries(new URLSearchParams(String(init.body)));
+          if (object.object === 'customer') {
+            expect(form).toEqual({ 'preferred_locales[0]': 'de' });
+            object.preferred_locales = ['de'];
+          } else {
+            expect(form).toEqual({ 'rendering[pdf][page_size]': 'a4' });
+            object.rendering.pdf.page_size = 'a4';
+          }
+          applied.add(pathname);
+          throw new TypeError('Synthetic response lost after Stripe applied the update');
+        },
+      });
+      for (const type of ['invoice.created', 'invoice.finalized', 'invoice.paid']) {
+        const payload = { id: `evt_presentation_${type.replace('.', '_')}`, object: 'event', type, livemode: true,
+          data: { object: { ...objects['/v1/invoices/in_presentation'], livemode: true, customer: 'cus_presentation',
+            metadata: { credit_pack_id: 'live_credits_5000', checkout_scope: 'member' } } } };
+        const result = await handleVerifiedStripeLiveWebhookEvent({ env, rawBody: JSON.stringify(payload), payload,
+          verificationStatus: 'verified_live_signature' });
+        expect(result.creditGrant).toBeNull();
+      }
+      const reads = Object.keys(objects).map(pathname => ({ pathname, method: 'GET' }));
+      const firstObservation = scenario === 'lost acknowledgement'
+        ? reads.flatMap(read => [read, { ...read, method: 'POST' }]) : reads;
+      expect(calls).toEqual([...firstObservation, ...reads, ...reads]);
+      expect(calls.filter(call => call.method === 'POST')).toHaveLength(scenario === 'lost acknowledgement' ? 2 : 0);
+      expect(env.DB.state.memberCreditLedger).toHaveLength(0);
+      expect(env.DB.state.billingMemberCheckoutSessions).toHaveLength(0);
+      expect(env.DB.state.billingMemberCustomers).toHaveLength(0);
+    });
+  }
 
   test('missing linked Stripe customer falls back to customer creation', async () => {
     const worker = await loadWorker('workers/auth/src/index.js');

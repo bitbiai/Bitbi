@@ -649,6 +649,8 @@ const EXACT_WORKER_TEST_FILES = new Set([
   'tests/helpers/release-transition-legacy-contract.cjs',
   'tests/q2-canvas-agent-readiness.spec.js',
   'tests/helpers/canvas-agent-readiness-control.mjs',
+  // Contact mail header policy. Exact path only; unreviewed neighbors stay full.
+  'tests/contact-mail.spec.js',
 ]);
 
 const WORKER_TEST_PREFIXES = [
@@ -706,6 +708,7 @@ const RELEASE_TOOLING_FILES = new Set([
   'scripts/lib/release-plan.mjs', 'scripts/lib/worker-tooling-impact.mjs', 'scripts/test-release-plan.mjs',
   'scripts/check-static-deploy-safety.mjs', 'scripts/release-apply.mjs', 'scripts/frontend-release.mjs',
   'scripts/lib/media-repair-source.mjs', 'scripts/lib/frontend-receipts.mjs', 'scripts/private-media-image.mjs',
+  'scripts/lib/contact-publication.mjs', 'scripts/test-contact-publication.mjs', 'scripts/test-contact-release.mjs',
   'scripts/lib/backend-continuation.mjs', 'scripts/lib/backend-publication.mjs', 'scripts/lib/image-delivery-acceptance.mjs', 'scripts/lib/media-publication.mjs',
   'scripts/lib/media-activation-reuse.mjs', 'scripts/test-media-activation-reuse.mjs',
   'scripts/lib/completed-media-continuation.mjs', 'scripts/test-completed-media-continuation.mjs',

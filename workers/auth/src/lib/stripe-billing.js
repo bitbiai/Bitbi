@@ -1330,7 +1330,9 @@ async function ensureCreditPackCustomerPreferredLocale(env, config, customerId) 
     url: `${STRIPE_CUSTOMERS_API_URL}/${encodeURIComponent(id)}`,
     method: "POST",
     body,
-    idempotencyKey: `bitbi-credit-pack-locale-${id}`,
+    // A fresh read precedes each absolute presentation assignment. Stripe caches
+    // execution failures too; do not pin all later events to the same failed key.
+    idempotencyKey: `bitbi-credit-pack-locale-${randomTokenHex(16)}`,
   });
   if (!updated.ok || updated.body?.object !== "customer" || updated.body.id !== id) {
     logCreditPackStripeNotice("credit_pack_customer_locale_failed", "stripe_customer_locale_update_failed");
@@ -1351,16 +1353,22 @@ async function ensureCreditPackInvoicePageSize(env, config, invoiceId) {
     logCreditPackStripeNotice("credit_pack_invoice_page_size_failed", "stripe_invoice_missing");
     return;
   }
-  if (current.ok && current.body?.rendering?.pdf?.page_size === CREDIT_PACK_INVOICE_PAGE_SIZE) return;
+  if (!current.ok || current.body?.object !== "invoice" || current.body.id !== id) {
+    logCreditPackStripeNotice("credit_pack_invoice_page_size_failed", "stripe_invoice_read_failed");
+    return;
+  }
+  if (current.body.rendering?.pdf?.page_size === CREDIT_PACK_INVOICE_PAGE_SIZE) return;
   const updated = await stripeApiRequest({
     env,
     secretKey: config.secretKey,
     url: `${STRIPE_INVOICES_API_URL}/${encodeURIComponent(id)}`,
     method: "POST",
     body: new URLSearchParams({ "rendering[pdf][page_size]": CREDIT_PACK_INVOICE_PAGE_SIZE }),
-    idempotencyKey: `bitbi-invoice-a4-${id}`,
+    // One attempt per observed event, only after reading the current invoice.
+    idempotencyKey: `bitbi-invoice-a4-${randomTokenHex(16)}`,
   });
-  if (!updated.ok || updated.body?.rendering?.pdf?.page_size !== CREDIT_PACK_INVOICE_PAGE_SIZE) {
+  if (!updated.ok || updated.body?.object !== "invoice" || updated.body.id !== id
+      || updated.body.rendering?.pdf?.page_size !== CREDIT_PACK_INVOICE_PAGE_SIZE) {
     logCreditPackStripeNotice("credit_pack_invoice_page_size_failed", "stripe_invoice_page_size_failed");
   }
 }

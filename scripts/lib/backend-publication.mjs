@@ -1,3 +1,4 @@
+import {publishContact,verifyContactReceipt} from './contact-publication.mjs';
 import {assertCanvasAgentAiConfig,canvasAgentActivationFlags,canvasAgentFlagArguments,verifyCanvasAgentActivationFlags} from './canvas-agent-release.mjs';
 import os from 'node:os';
 import {verifyCanvasExportSchema} from './canvas-export-readiness.mjs';
@@ -200,6 +201,17 @@ function context() {
   return {sha,base,plan,config,db:config.d1_databases.find(b=>b.binding==='DB').database_id,runId:process.env.GITHUB_RUN_ID,attempt:process.env.GITHUB_RUN_ATTEMPT,
     ...(acceptedSource?{acceptedSource}:{}),...(recoverySource?{recoverySource}:{})};
 }
+
+function contactSelected(c) {return c.plan.workerDeploys.some(step=>step.worker==='contact');}
+function contactOnly(c) {return c.plan.workerDeploys.length===1&&contactSelected(c);}
+const contactServices=()=>({read:readBackend,current,command:args=>backendCommand(args,execFileSync,undefined,'workers/contact'),
+  verifyBundle:digest=>verifyAuthBundle(digest,undefined,'bitbi-contact')});
+async function publishSelectedContact(c) {
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-contact-bundle-'));
+  try{return await publishContact(c,{...contactServices(),directory});}
+  finally{fs.rmSync(directory,{recursive:true,force:true});}
+}
+
 async function current(sha) {assert.equal((await readGithub('main-ref',()=>api('git/ref/heads/main'))).object.sha,sha,'Superseded backend candidate');}
 async function active() {
   const deployment=(await readBackend(`workers/scripts/${worker}/deployments`)).deployments[0];
@@ -521,6 +533,12 @@ export async function reconcileImageDeliveryBackend(c) {
 export async function verifyBackendReceipt(file=process.env.BACKEND_RELEASE_RECEIPT) {
   const publication=context();await current(publication.sha);let c=backendReceiptContext(publication);
   const receipt=JSON.parse(fs.readFileSync(file));
+  if(contactOnly(c)) {
+    assert.equal(c.sha,publication.sha,'Contact cannot reuse cross-source publication');
+    await verifyContactReceipt(receipt,c,contactServices());return receipt;
+  }
+  if(contactSelected(c))await verifyContactReceipt(receipt.contact,c,contactServices());
+  else assert(!receipt.contact,'Unexpected Contact activation evidence');
   if(c.completedMediaSource) {
     await verifyRepairSource(process.env,{complete:true});
     const retained=await completedMediaComponents(c);
@@ -606,8 +624,9 @@ export async function advanceBackend({sha,pending,activeVersion,assertCurrent,ap
   const state=await readActive();if(verifyConfiguration)await verifyConfiguration();if(verifyMedia)await verifyMedia();return state;
 }
 
-export function assertSupportedBackendMigrations(pending) {
+export function assertSupportedBackendMigrations(pending,plan) {
   const allowed=['0088_add_canvas_video_processing.sql','0089_add_private_media_services.sql','0090_add_canvas_private_outputs.sql','0091_separate_thumbnail_processing.sql','0092_pin_video_source_inputs.sql','0093_add_private_video_references.sql','0094_model_pricing.sql','0095_retained_image_delivery.sql','0096_canvas_export_versions.sql','0097_canvas_preview_base.sql','0098_model_area_availability.sql','0099_seedance_25_custom_tariffs.sql','0100_canvas_asset_audio_exports.sql','0101_canvas_smooth_join_previews.sql','0102_canvas_workspace_dimensions.sql','0103_canvas_assembly.sql','0104_canvas_agent.sql','0105_canvas_media_inspections.sql','0106_canvas_agent_model_operations.sql','0107_canvas_agent_autonomy.sql','0108_canvas_creative_export_retention.sql','0109_canvas_agent_conversations.sql','0110_canvas_agent_conversation_actions.sql','0111_canvas_agent_settlement_reviews.sql','0112_canvas_assistant_models_and_scheduling.sql','0113_canvas_notifications_and_lifecycle.sql','0114_canvas_incident_explanations.sql','0115_canvas_notification_inbox_removal.sql','0116_canvas_agent_media_policy.sql','0117_consumer_contracts.sql','0118_retire_missing_member_stripe_customers.sql'];
+  if(plan)assert(pending.every(f=>plan.changedFiles.includes(`workers/auth/migrations/${f}`)),'Pending migration is outside this candidate');
   assert(pending.every(f=>allowed.includes(f)),`Unexpected pending migrations: ${pending.filter(f=>!allowed.includes(f)).map(f=>String(f).replace(/[^a-zA-Z0-9_.-]/g,'').slice(0,100)).join(', ')}`);
 }
 export function assertModelAreaSchemaResume(version,sha,env=process.env) {
@@ -618,6 +637,12 @@ export function assertModelAreaSchemaResume(version,sha,env=process.env) {
 export async function publishBackend() {
   fs.mkdirSync('test-results',{recursive:true});fs.rmSync('test-results/backend-diagnostics.jsonl',{force:true});
   const c=context();await verifyUploadSource();await current(c.sha);
+  if(contactOnly(c)) {
+    assert(!process.env.REPAIR_SOURCE_SHA&&!c.acceptedSource&&!c.recoverySource,'Contact requires its own candidate evidence');
+    const receipt=await publishSelectedContact(c);await current(c.sha);
+    storeBackendReceipt(receipt);await verifyBackendReceipt('test-results/backend-release.json');
+    console.log(JSON.stringify(receipt));return;
+  }
   const original=backendReceiptContext(c);
   if(original.completedMediaSource)return completeStoredMediaPublication(original);
   if(original.publicationSha) {
@@ -642,7 +667,7 @@ export async function publishBackend() {
   const pending=fs.readdirSync('workers/auth/migrations').filter(f=>f.endsWith('.sql')&&!applied.has(f));
   // Reviewed additive migrations only. The contract/admission alignment is
   // checked by test:release-plan before any protected publication is possible.
-  assertSupportedBackendMigrations(pending);
+  assertSupportedBackendMigrations(pending,c.plan);
   const mediaReuse=mediaRequired?await resolveActiveMediaSource(c,{readCloudflare:readBackend}):null;
   if(c.acceptedSource)assert(!mediaReuse,'Unexpected prior media activation; reconcile before fresh-source continuation');
   const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-backend-secret-'));
@@ -675,7 +700,8 @@ export async function publishBackend() {
   prerequisites(c.plan,state.version,c.config);
   await verifyCanvasAgentActivationFlags(featureFlags,c.config,state.version,'auth',id=>readBackend(`workers/scripts/bitbi-auth/versions/${id}`));
   const imageDelivery=c.plan.changedFiles.includes('workers/auth/src/lib/image-delivery-recovery.js')?await verifyImageDeliveryRecovery(imageTargets,{query:(sql,params)=>query(c.db,sql,params),object:imageDeliveryObject,current:()=>current(c.sha)}):undefined;
-  const receipt={sha:c.sha,base:c.base,run:c.runId,attempt:c.attempt,worker,migration,version:state.version.id,deployment:state.deployment.id,featureFlags,
+  const contact=contactSelected(c)?await publishSelectedContact(c):null;
+  const receipt={sha:c.sha,base:c.base,run:c.runId,attempt:c.attempt,worker,migration,version:state.version.id,deployment:state.deployment.id,featureFlags,...(contact?{contact}:{}),
     ...(c.acceptedSource?{acceptedSource:c.acceptedSource}:{}),
     ...(media?{media,smoke,...(mediaReuse?{mediaAcceptance:{publicationSha:c.sha,run:c.runId,attempt:c.attempt}}:{})}:{}),...(ai?{ai}:{}),...(c.plan.changedFiles.includes('workers/auth/src/lib/image-delivery-recovery.js')?{imageDelivery}:{}),mediaSourceSha,authBundleDigest:c.authBundleDigest,processorRef:c.sha,sourceTree:execFileSync('git',['rev-parse',`${c.sha}:workers/auth`],{encoding:'utf8'}).trim()};
   verifyBackendActivation(receipt,{...c,...state,migration,processorSha:c.sha});

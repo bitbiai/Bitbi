@@ -101,7 +101,7 @@ function createContext() {
   assert.deepEqual(plan.workerDeploys.map(step=>step.worker),['ai','auth']);
   assert.equal(plan.schemaApplies[0].latestMigration,JSON.parse(fs.readFileSync('config/release-compat.json')).release.schemaCheckpoints.auth.latest);
   assert.equal(plan.deploySteps[0].type,'schema-checkpoint');assert.equal(plan.deploySteps.at(-1).type,'static');
-  for(const file of ['workers/contact/src/index.js','workers/ai/src/routes/unreviewed.js'])assert(!backendContinuationSupported(createReleasePlanFromRepo(repoRoot,{files:[...files,file]})));
+  for(const file of ['workers/contact/src/unreviewed.js','workers/ai/src/routes/unreviewed.js'])assert(!backendContinuationSupported(createReleasePlanFromRepo(repoRoot,{files:[...files,file]})));
   console.log('Seedance: reviewed custom tariff migration, AI then Auth then frontend; unchanged media/contact excluded.');
 }
 
@@ -457,7 +457,7 @@ for(const file of ['js/shared/member-model-exposure.mjs','workers/shared/website
     git(['checkout','-q',head]);write('workers/contact/src/index.js','export const changed = true;\n');const contactHead=commit('changed contact runtime');
     const contactFiles=git(['diff','--name-only',base,contactHead]).split('\n');
     const contactPlan=createReleasePlan(context,{changedFiles:contactFiles,source:{...source,head:contactHead}});
-    assert(contactPlan.workerDeploys.some(step=>step.worker==='contact'));assert(!backendContinuationSupported(contactPlan));
+    assert(contactPlan.workerDeploys.some(step=>step.worker==='contact'));assert(!backendContinuationSupported(contactPlan), 'Unreviewed Contact package changes remain blocked');
     console.log('Sharp security patch: actual native family, paired Auth/AI deployment, unchanged Contact and unsafe native/import/config evidence counterchecks passed.');
   }finally{fs.rmSync(root,{recursive:true,force:true});}
 }
@@ -1601,7 +1601,7 @@ await import('./test-canvas-agent-release.mjs');
  const plan=createReleasePlanFromRepo(repoRoot,{files});
  assert(backendContinuationSupported(plan));assert.deepEqual(plan.workerDeploys.map(w=>w.worker),['ai','auth']);
  assert.deepEqual(plan.schemaApplies,[]);assert.equal(plan.deploySteps.at(-1).type,'static');
- for(const extra of ['workers/ai/wrangler.jsonc','workers/ai/src/routes/unknown.js','workers/contact/src/index.js'])assert(!backendContinuationSupported(createReleasePlanFromRepo(repoRoot,{files:[...files,extra]})));
+ for(const extra of ['workers/ai/wrangler.jsonc','workers/ai/src/routes/unknown.js','workers/contact/src/unreviewed.js'])assert(!backendContinuationSupported(createReleasePlanFromRepo(repoRoot,{files:[...files,extra]})));
  console.log('Member music: reviewed AI route then Auth then exact frontend; no schema/media or broader continuation.');
 }
 
@@ -1713,3 +1713,6 @@ print(json.dumps([dict(r) for r in c.execute(sys.argv[1],json.loads(sys.argv[3])
 
 await import('./test-media-activation-reuse.mjs');
 await import('./test-completed-media-continuation.mjs');
+
+await import('./test-contact-publication.mjs');
+await import('./test-contact-release.mjs');

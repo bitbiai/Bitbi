@@ -1,5 +1,10 @@
 import { evaluateSharedRateLimit, getClientIp } from './lib/rate-limit.js';
 import {
+    buildContactEmailPayload,
+    isValidContactEmail,
+    sanitizeHeaderValue,
+} from './lib/contact-mail.js';
+import {
     getCorrelationId,
     getDurationMs,
     getErrorFields,
@@ -21,17 +26,11 @@ export { ContactPublicRateLimiterDurableObject } from './lib/public-rate-limiter
 
 const ALLOWED_ORIGIN = 'https://bitbi.ai';
 const TO_EMAIL = 'bit@bitbi.ai';
-const FROM_EMAIL = 'contact@contact.bitbi.ai';
 const CONTACT_BURST_LIMIT = 3;
 const CONTACT_BURST_WINDOW_MS = 10 * 60 * 1000;
 const CONTACT_HOURLY_LIMIT = 5;
 const CONTACT_HOURLY_WINDOW_MS = 60 * 60 * 1000;
 const CONTACT_JSON_MAX_BYTES = 16 * 1024;
-
-/* Strip control characters (CR, LF, NUL, etc.) from values used in email headers */
-function sanitizeHeaderValue(str) {
-    return str.replace(/[\x00-\x1f\x7f]/g, '').trim();
-}
 
 function corsHeaders(origin) {
     return {
@@ -204,13 +203,9 @@ export default {
                 });
             }
 
-            /* Sanitize header-bound fields (prevent CR/LF header injection) */
-            const safeName = sanitizeHeaderValue(trimName);
+            /* Reject visitor addresses that fail the existing contact email check. */
             const safeEmail = sanitizeHeaderValue(trimEmail);
-            const safeSubject = sanitizeHeaderValue(trimSubject);
-
-            /* Basic email format validation */
-            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(safeEmail)) {
+            if (!isValidContactEmail(safeEmail)) {
                 return new Response(JSON.stringify({ error: 'Invalid email format' }), {
                     status: 400,
                     headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
@@ -225,13 +220,13 @@ export default {
                         'Authorization': `Bearer ${env.RESEND_API_KEY}`,
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({
-                        from: `${safeName} <${FROM_EMAIL}>`,
-                        to: [TO_EMAIL],
-                        replyTo: [safeEmail],
-                        subject: safeSubject || `Contact from ${safeName}`,
-                        text: `Name: ${safeName}\nEmail: ${safeEmail}\nSubject: ${safeSubject || '(none)'}\n\n${trimMessage}`,
-                    }),
+                    body: JSON.stringify(buildContactEmailPayload({
+                        to: TO_EMAIL,
+                        name: trimName,
+                        email: trimEmail,
+                        subject: trimSubject,
+                        message: trimMessage,
+                    })),
                 });
             } catch (error) {
                 logDiagnostic({
