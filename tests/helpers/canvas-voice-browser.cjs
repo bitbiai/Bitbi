@@ -119,12 +119,14 @@ function registerCanvasVoiceTests(test, expect, { mockSharedAuth, createCanvasAp
         await dialog.getByRole('checkbox').check(); await expect(dialog.getByRole('button', { name: 'Allow microphone and start', exact: true })).toBeDisabled();
         expect(calls.some(call => call.pathname.endsWith('/sessions'))).toBe(false); expect(await page.evaluate(() => window.micCalls)).toBe(0);
     });
-    for (const locale of ['en', 'de']) test(`Canvas Voice actual Canvas ${locale} stops recording on unconfirmed auth without losing the text draft`, async ({ page }) => {
+    for (const locale of ['en', 'de']) test(`Canvas Voice actual Canvas ${locale} stops recording on unconfirmed auth without losing the text draft`, async ({ page }, info) => {
         let channel, closeCount = 0; const frames = [], calls = [];
         await page.routeWebSocket(/\/agent\/voice\/sessions\/[^/]+\/socket$/, socket => { channel = socket; socket.onMessage(data => frames.push(JSON.parse(data))); socket.onClose(() => closeCount++); socket.send(JSON.stringify({ type: 'voice.state', state: 'listening' })); });
         const { canvasVoiceSettings } = await import('../../js/shared/canvas-voice-settings.mjs');
         const settings = canvasVoiceSettings(), config = { settings, revision: 1, capabilities: { voiceIds: ['eve'], inputCodecs: ['audio/pcm'], outputCodecs: ['audio/pcm'], tools: ['canvas'], resumption: false }, availability: { available: true, maxDurationSeconds: 7200 } };
         const { state, canvas, panel, composer } = await require('./canvas-agent-ui.cjs').fixture({ page, locale, mockSharedAuth, createCanvasApiMock });
+        const size = locale === 'de' ? { width: 430, height: 560 } : { width: 1280, height: 600 };
+        await page.setViewportSize(size);
         state.conversation.allowance = { capCredits: 5000, committedCredits: 0, remainingCredits: 5000, tariffRevision: 29 };
         await page.route('**/api/account/canvas/projects/**/agent/voice**', async route => {
             const request = route.request(), pathname = new URL(request.url()).pathname, input = request.postDataJSON(); calls.push({ pathname, method: request.method() }); let data = config;
@@ -142,6 +144,22 @@ function registerCanvasVoiceTests(test, expect, { mockSharedAuth, createCanvasAp
         await expect(approval.getByRole('status')).toContainText(locale === 'de' ? '60 Credits' : '60 credits');
         await approval.getByRole('checkbox').check(); await approval.getByRole('button', { name: locale === 'de' ? 'Mikrofon freigeben und starten' : 'Allow microphone and start', exact: true }).click();
         await expect(panel.locator('.canvas-voice__status')).toHaveText(locale === 'de' ? 'Hört zu' : 'Listening');
+        channel.send(JSON.stringify({ type: 'voice.transcript', text: 'A long, unsaved spoken contribution. '.repeat(80) }));
+        await expect(panel.locator('.canvas-voice__interim')).toContainText('unsaved spoken contribution');
+        {
+            const bounds = await panel.evaluate(node => {
+                const transcript = node.querySelector('.canvas-agent__transcript'), composer = node.querySelector('.canvas-agent__composer').getBoundingClientRect(), voice = node.querySelector('.canvas-agent__voice'), interim = node.querySelector('.canvas-voice__interim');
+                return { transcriptHeight: transcript.clientHeight, composerBottom: composer.bottom, panelBottom: node.getBoundingClientRect().bottom, voiceHeight: voice.clientHeight, voiceScroll: voice.scrollHeight, interimHeight: interim.clientHeight, interimScroll: interim.scrollHeight, overflow: document.documentElement.scrollWidth > innerWidth };
+            });
+            expect(bounds.transcriptHeight).toBeGreaterThan(40); expect(bounds.composerBottom).toBeLessThanOrEqual(bounds.panelBottom); expect(bounds.composerBottom).toBeLessThanOrEqual(size.height); expect(bounds.overflow).toBe(false);
+            expect(bounds.interimScroll).toBeGreaterThan(bounds.interimHeight); expect(bounds.voiceScroll).toBeGreaterThan(bounds.voiceHeight);
+            await info.attach(`voice-active-layout-${locale}-${size.width}`, { contentType: 'application/json', body: JSON.stringify({ size, ...bounds }) });
+            await panel.getByRole('button', { name: locale === 'de' ? 'Stummschalten' : 'Mute', exact: true }).click();
+            await panel.getByRole('button', { name: locale === 'de' ? 'Mikrofon einschalten' : 'Unmute', exact: true }).click();
+            await panel.getByRole('button', { name: locale === 'de' ? 'Sitzung beenden' : 'End session', exact: true }).click({ trial: true });
+            await composer.locator('textarea').click(); await expect(composer.locator('textarea')).toHaveValue('Retained text draft');
+            await panel.screenshot({ path: info.outputPath(`voice-active-${locale}-${size.width}.png`) });
+        }
         await panel.getByRole('button', { name: 'Settings', exact: true }).click(); const settingsDialog = page.getByRole('dialog', { name: locale === 'de' ? 'Voice-Einstellungen' : 'Voice settings', exact: true }); await expect(settingsDialog).toBeVisible();
         await page.evaluate(() => document.dispatchEvent(new CustomEvent('bitbi:auth-change', { detail: { ready: true, loggedIn: false, user: null, sessionConfirmed: false } })));
         await expect(settingsDialog).not.toBeVisible(); await expect(page.locator('.canvas-layout')).toHaveAttribute('inert', '');

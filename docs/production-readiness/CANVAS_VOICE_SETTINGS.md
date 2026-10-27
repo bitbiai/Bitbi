@@ -275,6 +275,10 @@ Auth fetch route and canonical tools. Existing conversation/provider and Canvas
 layout cases remain independent regression controls. Native macOS workerd is
 not Linux release evidence; synthetic capture is not a physical microphone or
 live xAI conversation. Private logs retain earlier failures and later fixes.
+Short windows keep a bounded, independently scrollable Voice track. The existing
+budget, immediate-approval and viewport cases protect transcript height and real
+click targets; the active Voice fixture also exercises long interim text, Mute,
+Stop and the retained composer in Chromium and WebKit.
 
 The native owner fixtures cover normal PCM audio and canonical brief application,
 Stop during pending dispatch, missing/late close acknowledgement, concurrent text,
