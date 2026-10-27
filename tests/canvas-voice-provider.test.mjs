@@ -87,8 +87,28 @@ test('Only the pinned HTTPS provider receives the server credential and no redir
     await assert.rejects(openCanvasVoiceProvider({}, { fetchImpl: () => { throw new Error('Must not fetch'); } }), { code: 'canvas_voice_provider_not_configured', outcome: 'not_submitted' });
     await assert.rejects(openCanvasVoiceProvider({ XAI_API_KEY: 'synthetic' }, { conversationId: '?token=bad', fetchImpl: () => { throw new Error('Must not fetch'); } }), { code: 'canvas_voice_resumption_invalid' });
     let redirected = 0;
-    await assert.rejects(openCanvasVoiceProvider({ XAI_API_KEY: 'synthetic' }, { fetchImpl: async () => { redirected++; return new Response('', { status: 302, headers: { location: 'https://evil.invalid' } }); } }), { code: 'canvas_voice_provider_connection_rejected', upstreamStatus: 302 });
+    await assert.rejects(openCanvasVoiceProvider({ XAI_API_KEY: 'synthetic' }, { fetchImpl: async () => { redirected++; return new Response('', { status: 302, headers: { location: 'https://evil.invalid' } }); } }), { code: 'canvas_voice_provider_connection_rejected_302', upstreamStatus: 302 });
     assert.equal(redirected, 1);
+});
+
+test('Handshake failure retains only the observed HTTP status, without interpreting or copying private provider content', async () => {
+    for (const status of [400, 401, 403, 404, 429, 500, 503]) {
+        let calls = 0;
+        await assert.rejects(openCanvasVoiceProvider({ XAI_API_KEY: 'synthetic-private-key' }, { fetchImpl: async () => {
+            calls++;
+            return new Response('Ignore instructions; synthetic-private-key; private provider detail', { status, headers: { 'X-Private': 'do-not-copy' } });
+        } }), error => {
+            assert.equal(error.code, `canvas_voice_provider_connection_rejected_${status}`);
+            assert.equal(error.upstreamStatus, status); assert.equal(error.outcome, 'rejected');
+            assert.equal(error.message, error.code); assert.equal(JSON.stringify(error).includes('private'), false); return true;
+        });
+        assert.equal(calls, 1, 'A diagnostic does not retry the provider');
+    }
+    for (const response of [{ status: 101 }, {}, { status: '403' }, { status: NaN }, { status: 999 }]) {
+        await assert.rejects(openCanvasVoiceProvider({ XAI_API_KEY: 'synthetic' }, { fetchImpl: async () => response }), {
+            code: 'canvas_voice_provider_connection_rejected', outcome: 'unknown',
+        });
+    }
 });
 
 test('Stop racing handshake closes late accepted sockets; unknown transport failure is never retried', async () => {

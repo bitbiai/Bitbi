@@ -288,6 +288,16 @@ function invoked as a relay method. A cleanup failure must not prevent socket
 closure or settlement. Terminal usage replay repairs a missing session projection
 without another debit; the native lost-acknowledgement cases exercise that boundary.
 
+The first live handshake at `de87714e` was rejected before audio, with its
+reservation released and no debit. The generic code discarded the observed HTTP
+status, so the cause of that historical rejection remains unknown. Non-101 HTTP
+failures now retain the numeric status in the existing scoped usage error code
+and timestamp; response bodies, headers and credentials remain excluded. The
+native `canvas_voice_owner_handshake_rejected` case checks this through the real
+Auth route, DO and D1, including zero debit and duplicate-delivery protection.
+A 101 without a usable socket or an unobserved transport outcome remains unknown;
+an HTTP status alone does not prove a particular account or permission defect.
+
 The proposed release plan selects schema `0119_canvas_voice_sessions.sql`, Auth
 and frontend, in that order. No AI, Contact or media processor deployment is
 currently selected. The complete candidate must still use `release:local` and

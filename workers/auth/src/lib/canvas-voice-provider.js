@@ -142,8 +142,11 @@ export async function openCanvasVoiceProvider(env, options = {}) {
         }
         if (response?.status !== 101 || !response.webSocket || typeof response.webSocket.accept !== 'function') {
             try { await response?.body?.cancel(); } catch { /* Error bodies are intentionally not retained. */ }
-            fail('canvas_voice_provider_connection_rejected', { status: 502, upstreamStatus: Number.isInteger(response?.status) ? response.status : null,
-                outcome: !Number.isInteger(response?.status) || response.status === 101 ? 'unknown' : 'rejected' });
+            // The existing scoped usage error record retains this bounded HTTP
+            // observation. Never infer account permissions or retain error bodies.
+            const httpStatus = Number.isInteger(response?.status) && response.status >= 100 && response.status <= 599 && response.status !== 101 ? response.status : null;
+            fail(httpStatus ? `canvas_voice_provider_connection_rejected_${httpStatus}` : 'canvas_voice_provider_connection_rejected', { status: 502, upstreamStatus: Number.isInteger(response?.status) ? response.status : null,
+                outcome: httpStatus ? 'rejected' : 'unknown' });
         }
         // Install relay listeners before accept(), then send the verified
         // server-built session.update. A handshake alone is not voice success.

@@ -2,7 +2,7 @@
 // egress; normal coverage uses the unchanged provider until a case opts in.
 import normalProvider from './voice-provider.mjs';
 
-const modes = new Set(['idle', 'pending', 'abnormal', 'no_ack', 'delayed_ack', 'partial', 'resume']);
+const modes = new Set(['idle', 'pending', 'abnormal', 'no_ack', 'delayed_ack', 'partial', 'resume', 'rejected']);
 let current = null;
 const snapshot = state => state ? { enabled: true, mode: state.mode, attempts: state.attempts,
   connections: state.connections, appends: state.appends, responses: state.responses,
@@ -35,6 +35,7 @@ const handler = {
       || request.headers.get('Upgrade') !== 'websocket'
       || request.headers.get('Authorization') !== 'Bearer test-key') throw new Error('Unexpected native lifecycle outbound request');
     const state = current; state.attempts++;
+    if (state.mode === 'rejected') return Response.json({ error: 'synthetic-private-detail must not be retained' }, { status: 403 });
     const resumedId = url.searchParams.get('conversation_id');
     if (resumedId && (state.mode !== 'resume' || resumedId !== state.conversationId)
       || state.mode === 'resume' && state.connections > 0 && !resumedId) throw new Error('Unexpected native provider resumption identity');

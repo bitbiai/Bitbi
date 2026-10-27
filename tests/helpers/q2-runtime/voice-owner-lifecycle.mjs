@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 
 export const CANVAS_VOICE_OWNER_LIFECYCLE_CASES = Object.freeze([
   'pending_fetch_stop', 'abnormal_close', 'no_close_ack', 'delayed_close_ack', 'concurrent_text',
-  'partial_stop', 'projection_after_stop', 'replacement_isolation', 'optin_resumption',
+  'partial_stop', 'projection_after_stop', 'replacement_isolation', 'optin_resumption', 'handshake_rejected',
 ]);
 const pause = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 const hash = value => createHash('sha256').update(value).digest('hex').slice(0, 32);
@@ -20,7 +20,7 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
       body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     assert.equal(response.status, 200, await response.clone().text()); return response.json();
   };
-  const mode = name === 'delayed_close_ack' ? 'delayed_ack' : name === 'optin_resumption' ? 'resume' : name === 'pending_fetch_stop' ? 'pending' : name === 'abnormal_close' ? 'abnormal'
+  const mode = name === 'handshake_rejected' ? 'rejected' : name === 'delayed_close_ack' ? 'delayed_ack' : name === 'optin_resumption' ? 'resume' : name === 'pending_fetch_stop' ? 'pending' : name === 'abnormal_close' ? 'abnormal'
     : name === 'no_close_ack' ? 'no_ack' : ['partial_stop', 'projection_after_stop'].includes(name) ? 'partial' : 'idle';
   await command('control', { mode });
   const seeded = await f.control('/canvas-voice-owner-seed', { name: 'life-' + name.replaceAll('_', '-') });
@@ -56,6 +56,23 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
     return client;
   };
   try {
+    if (name === 'handshake_rejected') {
+      const rejected = await request(`/sessions/${sessionId}/socket`, undefined, { Upgrade: 'websocket' });
+      assert.equal(rejected.status, 502);
+      assert.deepEqual(await rejected.json(), { ok: false, code: 'canvas_voice_provider_connection_rejected_403' });
+      const row = await usage();
+      assert.equal(row.provider_outcome, 'failed'); assert.equal(row.billing_status, 'released');
+      assert(row.reservation_released_at); assert.equal(row.metadata_json.includes('synthetic-private-detail'), false);
+      const diagnostic = await f.db.prepare('SELECT error_code,updated_at FROM member_ai_usage_attempts_v2 WHERE idempotency_key=? AND user_id=?')
+        .bind('canvas-voice-' + sessionId, userId).first();
+      assert.equal(diagnostic.error_code, 'canvas_voice_provider_connection_rejected_403');
+      assert(Number.isFinite(Date.parse(diagnostic.updated_at)));
+      assert.equal((await debit()).n, 0);
+      for (let replay = 0; replay < 2; replay++) await json(await stop(sessionId));
+      assert.notEqual((await request(`/sessions/${sessionId}/socket`, undefined, { Upgrade: 'websocket' })).status, 101);
+      assert.equal((await command('state')).attempts, 1, 'Rejected identity is observed, never resubmitted');
+      assert.equal((await debit()).n, 0); return;
+    }
     if (name === 'pending_fetch_stop') {
       const connecting = request(`/sessions/${sessionId}/socket`, undefined, { Upgrade: 'websocket' });
       await until(() => command('state'), state => state.pending && state.attempts === 1, 'Native provider fetch entered');
