@@ -35,7 +35,7 @@ const handler = {
       || request.headers.get('Upgrade') !== 'websocket'
       || request.headers.get('Authorization') !== 'Bearer test-key') throw new Error('Unexpected native lifecycle outbound request');
     const state = current; state.attempts++;
-    if (state.mode === 'rejected') return Response.json({ error: 'synthetic-private-detail must not be retained' }, { status: 403 });
+    if (state.mode === 'rejected') return Response.json({ error: 'Incorrect API key provided: synthetic-private-detail must not be retained' }, { status: 400 });
     const resumedId = url.searchParams.get('conversation_id');
     if (resumedId && (state.mode !== 'resume' || resumedId !== state.conversationId)
       || state.mode === 'resume' && state.connections > 0 && !resumedId) throw new Error('Unexpected native provider resumption identity');

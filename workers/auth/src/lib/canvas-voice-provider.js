@@ -1,4 +1,5 @@
 import { CANVAS_VOICE_MODEL, canvasVoiceSettings, assertCanvasVoiceSettingsCapabilities } from '../../../../js/shared/canvas-voice-settings.mjs';
+import { readTextBodyLimited } from '../../../../js/shared/request-body.mjs';
 
 export const CANVAS_VOICE_PROVIDER_ENDPOINT = 'https://api.x.ai/v1/realtime';
 const plain = value => value && typeof value === 'object' && !Array.isArray(value) && [Object.prototype, null].includes(Object.getPrototypeOf(value));
@@ -124,6 +125,36 @@ function closeUnacceptedSocket(socket) {
     try { socket.accept?.(); } finally { socket.close?.(1000, 'Stopped'); }
 }
 
+async function rejectionReason(response, controller) {
+    // Before session.update there is no conversation payload. Still treat the
+    // error body as untrusted: retain only fixed categories, never its text,
+    // provider IDs, headers or a possibly echoed credential.
+    let timer;
+    try {
+        const body = await Promise.race([readTextBodyLimited(response, { maxBytes: 4096 }).catch(() => null),
+            new Promise(resolve => { timer = setTimeout(() => { controller.abort(); resolve(null); }, 1000); })]);
+        if (!body) return '';
+        let value; try { value = JSON.parse(body); } catch { return ''; }
+        if (!plain(value)) return '';
+        const detail = plain(value.error) ? value.error : value;
+        const codes = { invalid_api_key: 'invalid_key', unauthenticated: 'auth', 'permission-denied': 'permission',
+            'resource-exhausted': 'quota', 'not-found': 'not_found', 'invalid-argument': 'argument',
+            insufficient_quota: 'quota', rate_limit_exceeded: 'rate_limit' };
+        if (typeof detail.code === 'string' && Object.hasOwn(codes, detail.code)) return codes[detail.code];
+        const message = typeof value.error === 'string' ? value.error : detail.message;
+        if (typeof message !== 'string') return '';
+        if (/^(?:incorrect|invalid) api key(?: provided)?\b/i.test(message)) return 'invalid_key';
+        if (/^the model .{1,180} does not exist or your team\b/i.test(message)) return 'model_access';
+        if (/^(?:insufficient credits|your (?:team|account) has (?:no|insufficient) credits)\b/i.test(message)) return 'quota';
+        if (/^(?:websocket protocol error|missing (?:required )?websocket header)\b/i.test(message)) return 'handshake';
+        return '';
+    } finally {
+        clearTimeout(timer);
+        controller.abort(); // Bound the remaining HTTP body even after a read/size failure.
+        try { void Promise.resolve(response?.body?.cancel()).catch(() => {}); } catch { /* An aborted/locked body is not retained. */ }
+    }
+}
+
 export async function openCanvasVoiceProvider(env, options = {}) {
     if (!text(env?.XAI_API_KEY, 8000)) fail('canvas_voice_provider_not_configured', { status: 503, outcome: 'not_submitted' });
     if (options.conversationId !== undefined && !safeId(options.conversationId)) fail('canvas_voice_resumption_invalid', { outcome: 'not_submitted' });
@@ -141,11 +172,11 @@ export async function openCanvasVoiceProvider(env, options = {}) {
             fail('canvas_voice_stopped', { outcome: response?.status === 101 ? 'accepted' : 'unknown' });
         }
         if (response?.status !== 101 || !response.webSocket || typeof response.webSocket.accept !== 'function') {
-            try { await response?.body?.cancel(); } catch { /* Error bodies are intentionally not retained. */ }
             // The existing scoped usage error record retains this bounded HTTP
             // observation. Never infer account permissions or retain error bodies.
             const httpStatus = Number.isInteger(response?.status) && response.status >= 100 && response.status <= 599 && response.status !== 101 ? response.status : null;
-            fail(httpStatus ? `canvas_voice_provider_connection_rejected_${httpStatus}` : 'canvas_voice_provider_connection_rejected', { status: 502, upstreamStatus: Number.isInteger(response?.status) ? response.status : null,
+            const reason = httpStatus ? await rejectionReason(response, controller) : '';
+            fail(httpStatus ? `canvas_voice_provider_connection_rejected_${httpStatus}${reason ? '_' + reason : ''}` : 'canvas_voice_provider_connection_rejected', { status: 502, upstreamStatus: Number.isInteger(response?.status) ? response.status : null,
                 outcome: httpStatus ? 'rejected' : 'unknown' });
         }
         // Install relay listeners before accept(), then send the verified

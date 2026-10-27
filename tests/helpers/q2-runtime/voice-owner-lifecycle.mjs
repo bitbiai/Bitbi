@@ -59,13 +59,13 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
     if (name === 'handshake_rejected') {
       const rejected = await request(`/sessions/${sessionId}/socket`, undefined, { Upgrade: 'websocket' });
       assert.equal(rejected.status, 502);
-      assert.deepEqual(await rejected.json(), { ok: false, code: 'canvas_voice_provider_connection_rejected_403' });
+      assert.deepEqual(await rejected.json(), { ok: false, code: 'canvas_voice_provider_connection_rejected_400_invalid_key' });
       const row = await usage();
       assert.equal(row.provider_outcome, 'failed'); assert.equal(row.billing_status, 'released');
       assert(row.reservation_released_at); assert.equal(row.metadata_json.includes('synthetic-private-detail'), false);
       const diagnostic = await f.db.prepare('SELECT error_code,updated_at FROM member_ai_usage_attempts_v2 WHERE idempotency_key=? AND user_id=?')
         .bind('canvas-voice-' + sessionId, userId).first();
-      assert.equal(diagnostic.error_code, 'canvas_voice_provider_connection_rejected_403');
+      assert.equal(diagnostic.error_code, 'canvas_voice_provider_connection_rejected_400_invalid_key');
       assert(Number.isFinite(Date.parse(diagnostic.updated_at)));
       assert.equal((await debit()).n, 0);
       for (let replay = 0; replay < 2; replay++) await json(await stop(sessionId));

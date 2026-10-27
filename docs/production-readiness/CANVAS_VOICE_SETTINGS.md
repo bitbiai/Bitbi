@@ -297,6 +297,12 @@ native `canvas_voice_owner_handshake_rejected` case checks this through the real
 Auth route, DO and D1, including zero debit and duplicate-delivery protection.
 A 101 without a usable socket or an unobserved transport outcome remains unknown;
 an HTTP status alone does not prove a particular account or permission defect.
+The follow-up live attempt at `4f856428` established HTTP400, still before audio
+and with zero debit. A calibrated local HTTP-wire probe verified the actual
+workerd upgrade headers and101 path, but cannot establish the upstream cause.
+Known provider-reported rejection reasons are reduced to fixed categories after
+a maximum 4,096-byte/one-second read; arbitrary body text, keys and identifiers
+are discarded. An unknown message remains an unexplained HTTP rejection.
 
 The proposed release plan selects schema `0119_canvas_voice_sessions.sql`, Auth
 and frontend, in that order. No AI, Contact or media processor deployment is
