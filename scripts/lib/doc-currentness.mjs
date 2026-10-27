@@ -128,6 +128,7 @@ const ACTIVE_RUNBOOK_POLICY_DOCS = new Set([
   "docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md",
   "docs/production-readiness/WEBSITE_ASSISTANT.md",
   "docs/production-readiness/CANVAS_AGENT.md",
+  "docs/production-readiness/CANVAS_VOICE_SETTINGS.md",
   "workers/shared/canvas-agent/README.md",
 ]);
 

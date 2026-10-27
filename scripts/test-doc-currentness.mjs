@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { scanDocCurrentness } from "./lib/doc-currentness.mjs";
+import { scanDocCurrentness, classifyFirstPartyMarkdownPath } from "./lib/doc-currentness.mjs";
+
+assert.equal(classifyFirstPartyMarkdownPath('docs/production-readiness/CANVAS_VOICE_SETTINGS.md'),'active_runbook_policy');
+assert.equal(classifyFirstPartyMarkdownPath('docs/production-readiness/CANVAS_VOICE_UNREVIEWED.md'),'unknown_needs_review');
 
 const latest = "0060_add_app_settings.sql";
 const releaseContract = "config/release-compat.json";
