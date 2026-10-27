@@ -1881,4 +1881,4 @@ for(const locale of ['en','de'])test(`Canvas Seedance 2.5 ${locale} ordered refe
  expect(state.requests.filter(r=>r.pathname.endsWith('/run'))).toEqual([]);expect(errors).toEqual([]);
 });
 
-require('./helpers/canvas-voice-browser.cjs').registerCanvasVoiceTests(test, expect, { mockSharedAuth, createCanvasApiMock });
+require('./helpers/canvas-voice-browser.cjs').registerCanvasVoiceTests((name,body)=>test(name,body), expect, { mockSharedAuth, createCanvasApiMock });
