@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {execFileSync} from 'node:child_process';
 
-export const CANVAS_AGENT_RELEASE_FLAGS=Object.freeze({auth:['CANVAS_AGENT_ENABLED','ENABLE_GROK_4_7'],ai:['ENABLE_GROK_4_7']});
+export const CANVAS_AGENT_RELEASE_FLAGS=Object.freeze({auth:['CANVAS_AGENT_ENABLED','ENABLE_GROK_4_7','CANVAS_VOICE_ENABLED'],ai:['ENABLE_GROK_4_7']});
 // This release introduces exact defaults only. Existing switches, including an
 // explicit disable, cannot be changed through this exception.
 export function normalizeCanvasAgentConfigDelta(before,after,worker) {

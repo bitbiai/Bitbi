@@ -1880,3 +1880,5 @@ for(const locale of ['en','de'])test(`Canvas Seedance 2.5 ${locale} ordered refe
  await page.setViewportSize({width:390,height:844});await page.locator('#canvasInspectorToggle').click();await expect(root).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  expect(state.requests.filter(r=>r.pathname.endsWith('/run'))).toEqual([]);expect(errors).toEqual([]);
 });
+
+require('./helpers/canvas-voice-browser.cjs').registerCanvasVoiceTests(test, expect, { mockSharedAuth, createCanvasApiMock });

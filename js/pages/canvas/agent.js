@@ -57,7 +57,7 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
     const help = create('details', 'canvas-disclosure'); help.append(create('summary', '', copy.inspect), create('p', 'canvas-muted', copy.editHint));
     const conversationRoot = create('div','canvas-agent__mount');
     root.append(projectHint, conversationRoot);
-    const conversation = createCanvasAgentConversation({root:conversationRoot,german,flush,getRun:()=>run,canProduce:()=>!modelHeld(),canControl:action=>!busy&&canControl(action),onControl:control,onEffect:applyConversationEffect,onRun:next=>{acceptRun(next);clearStart();message('');render();schedule();}});
+    const conversation = createCanvasAgentConversation({root:conversationRoot,german,flush,getRun:()=>run,getProjectRevision:()=>getState().project?.revision??null,canProduce:()=>!modelHeld(),canControl:action=>!busy&&canControl(action),onControl:control,onEffect:applyConversationEffect,onRun:next=>{acceptRun(next);clearStart();message('');render();schedule();}});
 
     conversation.appendProduction(status);
     conversation.appendDetails(availabilityNote,availabilityDetails,help);
@@ -311,6 +311,7 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
     window.addEventListener('pageshow',()=>{stopped=false;placeHelp();if(visible)void observe();});
     render();
     return {
+        stopVoice() { conversation.stopVoice(); },
         setVisible(value) { const changed = visible !== value; visible = value;placeHelp(); conversation.setVisible(value); if (visible && changed) void observe(); else if (!visible){clearTimeout(timer);closeStream();} },
         projectChanged() {
             const id = getState().project?.id || null; if (id === projectId) return;

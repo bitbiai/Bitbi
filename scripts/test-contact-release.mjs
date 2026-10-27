@@ -14,7 +14,11 @@ const contactFiles=['workers/contact/src/index.js','workers/contact/src/lib/cont
 const combinedFiles=[...contactFiles,'workers/auth/src/lib/stripe-billing.js',`workers/auth/migrations/${migration}`];
 const contact=createReleasePlanFromRepo(root,{files:contactFiles}),combined=createReleasePlanFromRepo(root,{files:combinedFiles});
 assert.deepEqual(contact.workerDeploys.map(s=>s.worker),['contact']);assert.deepEqual(contact.schemaApplies,[]);
-assert.deepEqual(combined.workerDeploys.map(s=>s.worker),['auth','contact']);assert.equal(combined.schemaApplies[0].latestMigration,migration);
+assert.deepEqual(combined.workerDeploys.map(s=>s.worker),['auth','contact']);
+// The pending historical migration stays 0118; the required schema checkpoint
+// is the current release contract, which may also contain later migrations.
+assert.equal(combined.schemaApplies[0].latestMigration,JSON.parse(fs.readFileSync('config/release-compat.json','utf8')).release.schemaCheckpoints.auth.latest);
+assert(combined.changedFiles.includes(`workers/auth/migrations/${migration}`));
 for(const plan of [contact,combined]){assert(backendContinuationSupported(plan));assert.equal(plan.staticDeploy.required,false);}
 assertSupportedBackendMigrations([migration],combined);
 assert.throws(()=>assertSupportedBackendMigrations(['0117_consumer_contracts.sql'],combined),/outside this candidate/);

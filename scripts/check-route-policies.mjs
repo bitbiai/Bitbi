@@ -51,6 +51,7 @@ const MUTATING_DISPATCH_FILES = [
   "workers/auth/src/routes/canvas-agent.js",
   "workers/auth/src/routes/canvas-agent-media-policy.js",
   "workers/auth/src/routes/canvas-agent-conversation.js",
+  "workers/auth/src/routes/canvas-voice.js",
   "workers/auth/src/routes/canvas-media-inspections.js",
   "workers/auth/src/routes/canvas-video-processing.js",
   "workers/auth/src/routes/private-video-references.js",

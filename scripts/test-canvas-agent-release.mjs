@@ -6,7 +6,7 @@ import {assertMediaAuthConfig} from './lib/media-publication.mjs';
 import {backendContinuationSupported} from './lib/backend-continuation.mjs';
 import {createReleasePlan,evaluateStaticDeploySafety} from './lib/release-plan.mjs';
 import {loadReleaseCompatibilityContext} from './lib/release-compat.mjs';
-import {activateAuthVersion,verifyAiActivation,assertSupportedBackendMigrations} from './lib/backend-publication.mjs';
+import {activateAuthVersion,verifyAiActivation,assertSupportedBackendMigrations,verifyAuthPrerequisites} from './lib/backend-publication.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const load=worker=>JSON.parse(fs.readFileSync(path.join(root,`workers/${worker}/wrangler.jsonc`)));
 {
@@ -75,7 +75,7 @@ if(process.argv.includes('--documentation-mapping-only')) {
  assert.equal(creative.schemaApplies[0].latestMigration,checkpoint);
 }
 for(const worker of ['auth','ai']) {
- const after=load(worker),before=structuredClone(after);for(const key of worker==='auth'?['CANVAS_AGENT_ENABLED','ENABLE_GROK_4_7']:['ENABLE_GROK_4_7'])delete before.vars[key];
+ const after=load(worker),before=structuredClone(after);for(const key of worker==='auth'?['CANVAS_AGENT_ENABLED','ENABLE_GROK_4_7','CANVAS_VOICE_ENABLED']:['ENABLE_GROK_4_7'])delete before.vars[key];
  const verify=worker==='auth'?assertMediaAuthConfig:assertCanvasAgentAiConfig;
  verify(before,after);verify(after,structuredClone(after));
  for(const value of ['false','TRUE',true,null,undefined]){const bad=structuredClone(after);bad.vars.ENABLE_GROK_4_7=value;assert.throws(()=>verify(before,bad));}
@@ -117,7 +117,21 @@ try {
  const sha='a'.repeat(40),id='12345678-1234-1234-1234-123456789abc',commands=[];
  const config=load('auth'),flags=canvasAgentActivationFlags(config,{id:'prior',resources:{bindings:[{name:'CANVAS_AGENT_ENABLED',type:'plain_text',text:'false'}]}},'auth');
  await activateAuthVersion({sha,secretFile:'/private/synthetic.json',featureFlags:flags,assertCurrent:async()=>{},command:args=>{commands.push(args);return `Worker Version ID: ${id}`;}});
- assert(commands[0].includes('--keep-vars'));assert(commands[0].includes('CANVAS_AGENT_ENABLED:false'));assert(commands[0].includes('ENABLE_GROK_4_7:true'));
+ assert(commands[0].includes('--keep-vars'));assert(commands[0].includes('CANVAS_AGENT_ENABLED:false'));assert(commands[0].includes('ENABLE_GROK_4_7:true'));assert(commands[0].includes('CANVAS_VOICE_ENABLED:true'));
+ const disabled={id:'voice-kill-version',resources:{bindings:[{name:'CANVAS_VOICE_ENABLED',type:'plain_text',text:'false'}]}};
+ const offFlags=canvasAgentActivationFlags(config,disabled,'auth');assert.equal(offFlags.CANVAS_VOICE_ENABLED.value,'false');assert.equal(offFlags.CANVAS_VOICE_ENABLED.preservedFrom,disabled.id);
+ const published={resources:{bindings:Object.entries(offFlags).map(([name,setting])=>({name,type:'plain_text',text:setting.value}))}};
+ await verifyCanvasAgentActivationFlags(offFlags,config,published,'auth',async()=>disabled);
+ const unexpected=structuredClone(published);unexpected.resources.bindings.find(binding=>binding.name==='CANVAS_VOICE_ENABLED').text='true';
+ await assert.rejects(()=>verifyCanvasAgentActivationFlags(offFlags,config,unexpected,'auth',async()=>disabled),'Active Voice enable cannot override preserved kill-switch evidence');
+ const voicePlan=createReleasePlan({...loadReleaseCompatibilityContext(root),repoRoot:root},{changedFiles:['workers/auth/src/lib/canvas-voice-accounting.js','workers/auth/migrations/0119_canvas_voice_sessions.sql','workers/auth/wrangler.jsonc','config/release-compat.json','js/pages/canvas/voice.js']});
+ assert(backendContinuationSupported(voicePlan));assert.deepEqual(voicePlan.workerDeploys.map(step=>step.worker),['auth']);
+ assert.deepEqual(voicePlan.deploySteps.map(step=>step.type),['schema-checkpoint','worker','static']);
+ const prerequisite=voicePlan.manualPrerequisites.required.find(item=>item.id==='auth-xai-voice-api-key');assert(prerequisite&&prerequisite.name==='XAI_API_KEY'&&prerequisite.worker==='auth');
+ const prerequisitePlan={manualPrerequisites:{required:[prerequisite]}},secrets=['XAI_API_KEY','MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET','GITHUB_ACTIONS_DISPATCH_TOKEN'];
+ const active={resources:{bindings:secrets.map(name=>({name,type:'secret_text'}))}};verifyAuthPrerequisites(prerequisitePlan,active,{vars:{}},false);
+ assert.throws(()=>verifyAuthPrerequisites(prerequisitePlan,{resources:{bindings:active.resources.bindings.filter(binding=>binding.name!=='XAI_API_KEY')}},{vars:{}},false),'Missing Voice credential blocks protected activation');
+ assert.throws(()=>verifyAuthPrerequisites(prerequisitePlan,{resources:{bindings:active.resources.bindings.map(binding=>binding.name==='XAI_API_KEY'?{...binding,type:'plain_text'}:binding)}},{vars:{}},false),'A public variable is not a Voice secret');
  const aiConfig=load('ai'),aiFlags=canvasAgentActivationFlags(aiConfig,{resources:{bindings:[]}},'ai');
  const receipt={sha,version:id,deployment:'synthetic-deployment',featureFlags:aiFlags};
  const version={id,annotations:{'workers/message':`bitbi-ai:${sha}`},resources:{bindings:[{name:'AI',type:'ai'},{name:'SERVICE_AUTH_REPLAY',type:'durable_object_namespace'},{name:'AI_SERVICE_AUTH_SECRET',type:'secret_text'},{name:'ENABLE_GROK_4_6',text:'true'},{name:'ENABLE_GROK_4_7',type:'plain_text',text:'true'}]}};

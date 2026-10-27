@@ -557,6 +557,7 @@ const AUTH_SHARED_PATTERNS = [
 ];
 
 const HOMEPAGE_CORE_TEST_FILES = new Set([
+  "tests/helpers/canvas-voice-browser.cjs",
   "tests/helpers/canvas-media-policy-ui.cjs", "tests/helpers/canvas-workspace-ux-ui.cjs",
   "tests/helpers/canvas-notifications-ui.cjs", "tests/helpers/canvas-export-lifecycle-ui.cjs", "tests/helpers/canvas-inspector-ui.cjs",
   "tests/helpers/canvas-completion-ui.cjs", "tests/helpers/canvas-smooth-ui.cjs", "tests/helpers/canvas-workspace-transitions-ui.cjs",
@@ -637,6 +638,14 @@ const AUTH_TEST_FILES = new Set([
 // the other via tests/release-transition/workers.spec.js. Keep these identities
 // exact; an unreviewed neighboring fixture must retain full selection.
 const EXACT_WORKER_TEST_FILES = new Set([
+  'tests/q2-canvas-voice-contract.spec.js', 'tests/q2-canvas-voice-conversation.spec.js',
+  'tests/helpers/canvas-voice-conversation-control.mjs', 'tests/helpers/canvas-voice-settings-control.mjs',
+  'tests/helpers/canvas-voice-text-control.mjs', 'tests/helpers/canvas-voice-route-control.mjs',
+  'tests/helpers/canvas-voice-tools-control.mjs',
+  'tests/q2-canvas-voice-accounting.spec.js','tests/helpers/canvas-voice-accounting-control.mjs',
+  'tests/helpers/canvas-voice-allowance-control.mjs','tests/helpers/canvas-voice-owner-control.mjs','tests/helpers/canvas-voice-resumption-control.mjs',
+  'tests/canvas-voice-settings.test.mjs', 'tests/canvas-voice-audio.test.mjs',
+  'tests/canvas-voice-provider.test.mjs', 'tests/canvas-voice-relay.test.mjs',
   'tests/q2-billing-pack.spec.js',
   'tests/q2-canvas-media-policy.spec.js', 'tests/helpers/canvas-agent-media-policy-control.mjs',
   'tests/q2-canvas-media-action-policy.spec.js', 'tests/helpers/canvas-agent-media-action-policy-control.mjs',
@@ -694,6 +703,7 @@ const WORKER_TEST_PREFIXES = [
 // These exact release-only inputs are exercised by the always-required release
 // contract tests and native static-host runtime check. Unknown automation is broad.
 const RELEASE_TOOLING_FILES = new Set([
+  'scripts/lib/canvas-agent-release.mjs',
   'scripts/lib/doc-currentness.mjs', 'scripts/test-doc-currentness.mjs',
   'scripts/test-canvas-agent-release.mjs',
   'config/release-validation.yml', 'scripts/local-release.mjs', 'scripts/local-release.Dockerfile', 'scripts/release-preflight.mjs',

@@ -1,4 +1,9 @@
+import {CANVAS_VOICE_ACCOUNTING_CASES,canvasVoiceAccountingCase} from '../canvas-voice-accounting-control.mjs';
+import {seedCanvasVoiceOwner} from '../canvas-voice-owner-control.mjs';
 import {processTransactionalMessages} from '../../../workers/auth/src/lib/transactional-messages.js';
+import {CANVAS_VOICE_CONVERSATION_CASES,canvasVoiceConversationCase} from '../canvas-voice-conversation-control.mjs';
+import {canvasVoiceRouteCase} from '../canvas-voice-route-control.mjs';
+import {CANVAS_VOICE_SETTINGS_CASES,canvasVoiceSettingsCase,seedCanvasVoiceMigration,verifyCanvasVoiceMigration} from '../canvas-voice-settings-control.mjs';
 import {CANVAS_MEDIA_ACTION_POLICY_CASES,canvasMediaActionPolicyCase} from '../canvas-agent-media-action-policy-control.mjs';
 import {CANVAS_MEDIA_POLICY_CASES,canvasMediaPolicyCase} from '../canvas-agent-media-policy-control.mjs';
 import {MEDIA_COMPLETION_CASES,canvasMediaCompletionCase} from '../canvas-agent-media-completion-control.mjs';
@@ -74,6 +79,13 @@ export default {
     if (request.method !== 'POST' || request.headers.get('x-q2-control') !== env.Q2_CONTROL_TOKEN) return new Response(null,{status:403});
     const path=new URL(request.url).pathname;
     const body=await request.json();
+    if(path==='/canvas-voice-conversation'&&CANVAS_VOICE_CONVERSATION_CASES.includes(body.name))return Response.json(await canvasVoiceConversationCase(env,body.name));
+    if(path==='/canvas-voice-accounting'&&CANVAS_VOICE_ACCOUNTING_CASES.includes(body.name))return Response.json(await canvasVoiceAccountingCase(env,body.name));
+    if(path==='/canvas-voice-owner-seed')return Response.json(await seedCanvasVoiceOwner(env,body));
+    if(path==='/canvas-voice-routes')return Response.json(await canvasVoiceRouteCase({...env,CANVAS_VOICE_ENABLED:'false'}));
+    if(path==='/canvas-voice-settings'&&CANVAS_VOICE_SETTINGS_CASES.includes(body.name))return Response.json(await canvasVoiceSettingsCase(env,body.name));
+    if(path==='/canvas-voice-migration-seed')return Response.json(await seedCanvasVoiceMigration(env));
+    if(path==='/canvas-voice-migration-verify')return Response.json(await verifyCanvasVoiceMigration(env,body));
     if(path==='/consumer-mail'&&!body.syntheticDelivery)return Response.json(await processTransactionalMessages(env));
     if((path==='/consumer-pack-checkout'||path==='/consumer-pack-webhook'||path==='/consumer-mail'||path==='/consumer-mail-redirect-contract')&&env.Q2_CONSUMER_MAIL_FIXTURE==='true'){
       // Actual Worker.fetch, native D1 and real signature verification; only the

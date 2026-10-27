@@ -191,7 +191,13 @@ if(process.argv.includes('--canvas-readiness-only')) {
   assert(selected.workers&&selected.auth&&!selected.docsOnly,`${file} is executable policy, not documentation`);
   assert.equal(selected.full,false,'Known runtime inputs retain ordinary affected selection');
  }
- for(const file of ['tests/q2-canvas-agent-conversation.spec.js','tests/q2-canvas-agent-dialogue-provider.spec.js','tests/q2-canvas-agent-action-recovery.spec.js']) {
+ for(const file of ['tests/q2-canvas-agent-conversation.spec.js','tests/q2-canvas-agent-dialogue-provider.spec.js','tests/q2-canvas-agent-action-recovery.spec.js',
+   'tests/q2-canvas-voice-contract.spec.js','tests/q2-canvas-voice-conversation.spec.js','tests/helpers/canvas-voice-conversation-control.mjs','tests/helpers/canvas-voice-settings-control.mjs',
+   'tests/helpers/canvas-voice-text-control.mjs','tests/helpers/canvas-voice-route-control.mjs',
+   'tests/helpers/canvas-voice-tools-control.mjs',
+  'tests/q2-canvas-voice-accounting.spec.js','tests/helpers/canvas-voice-accounting-control.mjs',
+  'tests/helpers/canvas-voice-allowance-control.mjs','tests/helpers/canvas-voice-owner-control.mjs','tests/helpers/canvas-voice-resumption-control.mjs',
+   ...['settings','audio','provider','relay'].map(part=>`tests/canvas-voice-${part}.test.mjs`)]) {
   const selected=selectCiTests([file]);assert(selected.workers&&!selected.full,'New dialogue regressions use the real Worker test caller');
  }
  const shared=selectCiTests(['tests/helpers/canvas-agent-conversation-control.mjs']);
@@ -204,6 +210,9 @@ if(process.argv.includes('--canvas-readiness-only')) {
  assert(browser.homepage&&!browser.full,'Persisted conversation UI uses the existing EN/DE Chromium/WebKit Canvas caller');
  const observer=selectCiTests(['tests/helpers/canvas-conversation-observer-ui.cjs','tests/helpers/canvas-conversation-natural-ui.cjs']);
  assert(observer.homepage&&!observer.full,'Automatic reply acceptance uses the actual browser observer and authenticated endpoint projection');
+ const voice=selectCiTests(['tests/helpers/canvas-voice-browser.cjs']);
+ assert(voice.homepage&&!voice.full,'Voice browser checks execute through the existing Canvas entrypoint');
+ assert(selectCiTests(['tests/helpers/canvas-voice-unreviewed.cjs']).full,'An unknown Voice fixture does not inherit a narrow mapping');
  assert(selectCiTests(['tests/unknown-conversation-regression.fixture']).full,'Unknown test inputs still fail closed to full selection');
 }
 
@@ -332,7 +341,7 @@ assert.equal(selection(['playwright.config.js'], {forceFull: true}).full, true);
     'workers/ai/src/lib/canvas-agent-plan.js','js/pages/canvas/agent.js','js/pages/canvas/agent-copy.js',
     'tests/grok-chat-workers.spec.js','tests/q2-canvas-agent-provider.spec.js','tests/q2-canvas-agent-model-operation.spec.js','tests/helpers/canvas-agent-model-operation-cases.mjs','tests/helpers/canvas-agent-ui.cjs',
     'tests/helpers/canvas-agent-model-operation-control.mjs','tests/helpers/canvas-agent-model-recovery-ui.cjs',
-    'scripts/test-canvas-agent-release.mjs'];
+    'scripts/test-canvas-agent-release.mjs','scripts/lib/canvas-agent-release.mjs'];
   const chosen=selection(files);
   for(const flag of ['workers','auth','homepage','static','runtime'])assert.equal(chosen[flag],true);
   for(const flag of ['full','canvasText','carousel','assets'])assert.equal(Boolean(chosen[flag]),false);
@@ -344,6 +353,8 @@ assert.equal(selection(['playwright.config.js'], {forceFull: true}).full, true);
     const shared=selection([file]);assert(shared.workers&&shared.homepage&&!shared.full);
   }
   assert(fs.readFileSync(path.join(repoRoot,'scripts/test-release-plan.mjs'),'utf8').includes("import('./test-canvas-agent-release.mjs')"));
+  assert(fs.readFileSync(path.join(repoRoot,'scripts/test-canvas-agent-release.mjs'),'utf8').includes("from './lib/canvas-agent-release.mjs'"), 'The mapped release helper is exercised by the protected release-plan caller');
+  assert.equal(selection(['scripts/lib/canvas-agent-release-unreviewed.mjs']).full,true,'An unknown release helper cannot inherit the exact mapping');
   const workerConfig=fs.readFileSync(path.join(repoRoot,'playwright.workers.config.js'),'utf8');
   assert(workerConfig.includes("'**/q2-*.spec.js'"),'New provider case must be discovered by the actual Worker entrypoint');
 }

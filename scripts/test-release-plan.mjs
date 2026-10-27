@@ -814,13 +814,19 @@ for (const file of ["workers/auth/recovery/c-entry.mjs", "workers/auth/recovery/
   assert.deepEqual(plan.impacts.uncategorizedFiles,[]);
   assert.equal(plan.impacts.static.required,false);
   assert((await import('./lib/backend-continuation.mjs')).backendContinuationSupported(plan));
-  for(const shared of ['canvas-agent-contract','canvas-assembly','canvas-generation-settings']) {
+  for(const shared of ['canvas-agent-contract','canvas-assembly','canvas-generation-settings','canvas-voice-settings','canvas-voice-audio']) {
     const current=createReleasePlanFromRepo(repoRoot,{files:[`js/shared/${shared}.mjs`]});
     assert.deepEqual(current.workerDeploys.map(step=>step.worker),['auth']);
     assert.equal(current.impacts.static.required,true);
   }
   const unknown=createReleasePlanFromRepo(repoRoot,{files:['workers/shared/unreviewed-canvas-agent.mjs']});
   assert.deepEqual(unknown.impacts.uncategorizedFiles,['workers/shared/unreviewed-canvas-agent.mjs']);
+  const voice=createReleasePlanFromRepo(repoRoot,{files:['workers/shared/canvas-agent/voice.mjs']});
+  assert.deepEqual(voice.workerDeploys.map(step=>step.worker),['auth']);
+  assert.deepEqual(voice.impacts.uncategorizedFiles,[]);
+  assert.equal(voice.impacts.static.required,false);
+  assert(fs.readFileSync(path.join(repoRoot,'workers/auth/src/lib/canvas-voice-conversation.js'),'utf8').includes('shared/canvas-agent/voice.mjs'), 'Voice policy has an actual Auth consumer');
+  assert.deepEqual(createReleasePlanFromRepo(repoRoot,{files:['workers/shared/canvas-agent/voice-unreviewed.mjs']}).impacts.uncategorizedFiles,['workers/shared/canvas-agent/voice-unreviewed.mjs']);
 }
 
 {

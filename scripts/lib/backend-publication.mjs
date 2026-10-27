@@ -220,10 +220,12 @@ async function active() {
 }
 function prerequisites(plan,version,config,settings=true) {
   const bindings=version.resources?.bindings||[];
-  for(const p of plan.manualPrerequisites.required.filter(p=>p.worker==='auth')) assert(bindings.some(b=>b.name===(p.name||p.binding)),`Missing active prerequisite ${p.id}`);
+  for(const p of plan.manualPrerequisites.required.filter(p=>p.worker==='auth')) assert(bindings.some(b=>b.name===(p.name||p.binding)
+    && (p.kind!=='secret'||b.type==='secret_text')),`Missing active prerequisite ${p.id}`);
   for(const name of ['MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET','GITHUB_ACTIONS_DISPATCH_TOKEN'])assert(bindings.some(b=>b.name===name&&b.type==='secret_text'),`Missing processor credential ${name}`);
   if(settings)for(const [key,value] of Object.entries(config.vars).filter(([k])=>k.startsWith('GITHUB_ACTIONS_DISPATCH_')||k==='ENABLE_MEMVID_STREAM_PREVIEW_AUTO_DISPATCH'))assert(bindings.some(b=>b.name===key&&b.text===value),`Processor setting mismatch ${key}`);
 }
+export {prerequisites as verifyAuthPrerequisites};
 export async function verifyAiActivation(receipt,sha,read=readBackend,config=null) {
   assert.equal(receipt.sha,sha,'Wrong AI source');
   const deployment=(await read('workers/scripts/bitbi-ai/deployments')).deployments[0];
@@ -625,7 +627,7 @@ export async function advanceBackend({sha,pending,activeVersion,assertCurrent,ap
 }
 
 export function assertSupportedBackendMigrations(pending,plan) {
-  const allowed=['0088_add_canvas_video_processing.sql','0089_add_private_media_services.sql','0090_add_canvas_private_outputs.sql','0091_separate_thumbnail_processing.sql','0092_pin_video_source_inputs.sql','0093_add_private_video_references.sql','0094_model_pricing.sql','0095_retained_image_delivery.sql','0096_canvas_export_versions.sql','0097_canvas_preview_base.sql','0098_model_area_availability.sql','0099_seedance_25_custom_tariffs.sql','0100_canvas_asset_audio_exports.sql','0101_canvas_smooth_join_previews.sql','0102_canvas_workspace_dimensions.sql','0103_canvas_assembly.sql','0104_canvas_agent.sql','0105_canvas_media_inspections.sql','0106_canvas_agent_model_operations.sql','0107_canvas_agent_autonomy.sql','0108_canvas_creative_export_retention.sql','0109_canvas_agent_conversations.sql','0110_canvas_agent_conversation_actions.sql','0111_canvas_agent_settlement_reviews.sql','0112_canvas_assistant_models_and_scheduling.sql','0113_canvas_notifications_and_lifecycle.sql','0114_canvas_incident_explanations.sql','0115_canvas_notification_inbox_removal.sql','0116_canvas_agent_media_policy.sql','0117_consumer_contracts.sql','0118_retire_missing_member_stripe_customers.sql'];
+  const allowed=['0088_add_canvas_video_processing.sql','0089_add_private_media_services.sql','0090_add_canvas_private_outputs.sql','0091_separate_thumbnail_processing.sql','0092_pin_video_source_inputs.sql','0093_add_private_video_references.sql','0094_model_pricing.sql','0095_retained_image_delivery.sql','0096_canvas_export_versions.sql','0097_canvas_preview_base.sql','0098_model_area_availability.sql','0099_seedance_25_custom_tariffs.sql','0100_canvas_asset_audio_exports.sql','0101_canvas_smooth_join_previews.sql','0102_canvas_workspace_dimensions.sql','0103_canvas_assembly.sql','0104_canvas_agent.sql','0105_canvas_media_inspections.sql','0106_canvas_agent_model_operations.sql','0107_canvas_agent_autonomy.sql','0108_canvas_creative_export_retention.sql','0109_canvas_agent_conversations.sql','0110_canvas_agent_conversation_actions.sql','0111_canvas_agent_settlement_reviews.sql','0112_canvas_assistant_models_and_scheduling.sql','0113_canvas_notifications_and_lifecycle.sql','0114_canvas_incident_explanations.sql','0115_canvas_notification_inbox_removal.sql','0116_canvas_agent_media_policy.sql','0117_consumer_contracts.sql','0118_retire_missing_member_stripe_customers.sql','0119_canvas_voice_sessions.sql'];
   if(plan)assert(pending.every(f=>plan.changedFiles.includes(`workers/auth/migrations/${f}`)),'Pending migration is outside this candidate');
   assert(pending.every(f=>allowed.includes(f)),`Unexpected pending migrations: ${pending.filter(f=>!allowed.includes(f)).map(f=>String(f).replace(/[^a-zA-Z0-9_.-]/g,'').slice(0,100)).join(', ')}`);
 }

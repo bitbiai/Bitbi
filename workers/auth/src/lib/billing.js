@@ -7,6 +7,7 @@ import {
 
 export const BILLING_FEATURES = Object.freeze([
   "ai.text.generate",
+  "ai.voice.realtime",
   "ai.image.generate",
   "ai.video.generate",
   "ai.music.generate",

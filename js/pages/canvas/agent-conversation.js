@@ -6,6 +6,7 @@ import { CANVAS_AGENT_LIMITS } from '../../shared/canvas-agent-contract.mjs?v=__
 import { detectCanvasDirectControl, canvasImmediateStartRequested,canvasConversationReadIntent } from '../../shared/canvas-agent-control-intent.mjs?v=__ASSET_VERSION__';
 import {canvasConversationDecisionIntent} from '../../shared/canvas-conversation-decision-intent.mjs?v=__ASSET_VERSION__';
 import {createCanvasMediaPolicy} from './agent-media-policy.js?v=__ASSET_VERSION__';
+import {createCanvasVoice} from './voice.js?v=__ASSET_VERSION__';
 import {canvasMediaPolicyError} from '../../shared/canvas-notification-contract.mjs?v=__ASSET_VERSION__';
 import {canvasNotice,refreshCanvasNotifications,canvasLocalErrorNotices,observeCanvasLocalNotices,retireCanvasLocalExplanations} from './notifications.js?v=__ASSET_VERSION__';
 
@@ -20,7 +21,7 @@ const displayValue = value => Array.isArray(value) ? value.filter(item => typeof
 // This view sends member input and explicit decisions only. The server supplies
 // every accepted message, creative brief and allowance; no transcript is trusted
 // from the browser or production events.
-export function createCanvasAgentConversation({ root, german, flush, getRun, canProduce, onRun, canControl=()=>false, onControl=()=>{}, onEffect=()=>{} }) {
+export function createCanvasAgentConversation({ root, german, flush, getRun, canProduce, onRun, canControl=()=>false, onControl=()=>{}, onEffect=()=>{}, getProjectRevision=()=>null }) {
     const copy = canvasConversationCopy(german);
     let projectId = null, epoch = 0, visible = false, busy = false, snapshot = null, availability = null;
     let pending = null, timer = null, controller = null, closed = false, briefKey = '', draftDirty = false, activeTab = 'chat';
@@ -113,7 +114,9 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
     const productionArea=create('div','canvas-agent__production-area'),manualProduction=create('details','canvas-disclosure canvas-agent__manual-production');manualProduction.append(create('summary','',copy.productionOptions),production);
     const advanced=create('details','canvas-disclosure canvas-agent__advanced'),finance=create('details','canvas-disclosure canvas-agent__finance'),allowanceSettings=button(copy.allowanceSettings,()=>showAllowance());finance.append(create('summary','',copy.briefingFinance),allowance,allowanceLedger,allowanceSettings,diagnosticsRevoke);
     advanced.append(create('summary','',copy.advanced),finance,options,modelExclusions,privacy);projectPane.append(projectNotice,brief,productionArea,manualProduction,advanced);
-    section.append(modelHeader,tabs,chatPane,projectPane); root.append(section);
+    const voiceRoot=create('div','canvas-agent__voice');
+    section.append(modelHeader,voiceRoot,tabs,chatPane,projectPane); root.append(section);
+    const voice=createCanvasVoice({root:voiceRoot,german,onChanged:()=>void observe(true),getSnapshot:()=>snapshot?{revision:snapshot.revision,briefRevision:snapshot.briefRevision,projectRevision:getProjectRevision()}:null});
     const transcriptView=createCanvasTranscript({viewport,list:transcript,welcome,newest,copy,content});
     const footerObserver=new ResizeObserver(()=>chatPane.style.setProperty('--canvas-chat-footer-height',`${footer.getBoundingClientRect().height}px`));footerObserver.observe(footer);
     const actionView=createCanvasConversationActions({parent:decisions,copy,confirm:confirmAction,effect:onEffect,changed:()=>transcriptView.changed()});
@@ -451,14 +454,16 @@ export function createCanvasAgentConversation({ root, german, flush, getRun, can
     render();
     return {
         refresh: render,
+        stopVoice() { voice.suspend(); },
         focus() { selectTab('chat');input.focus({preventScroll:true}); },
         appendProduction(...nodes){productionArea.append(...nodes);},
         appendDetails(...nodes) { advanced.append(...nodes); },
-        setVisible(value) { const changed = visible !== value; visible = value; mediaPolicy.setVisible(value); if (visible && changed) { observationIdentity=null;transcriptView.show();void observe(true); } else if (!visible) { clearTimeout(timer); controller?.abort(); }render(); },
+        setVisible(value) { const changed = visible !== value; visible = value; mediaPolicy.setVisible(value); voice.setVisible(value); if (visible && changed) { observationIdentity=null;transcriptView.show();void observe(true); } else if (!visible) { clearTimeout(timer); controller?.abort(); }render(); },
         projectChanged(id) {
             if (id === projectId) return;
             epoch++; projectId = id; snapshot = null; availability = null; pending = null; busy = false; briefKey = '';immediateKey='';actionView.reset();finance.insertBefore(allowance,allowanceLedger); observationIdentity=null;observationStarted=0;observationCount=0;observationFailures=0;disconnected=false;transcriptView.reset();selectTab('chat'); draftDirty = false;
             mediaPolicy.projectChanged(id);
+            voice.projectChanged(id);
             controller?.abort(); clearTimeout(timer); input.value = ''; allowanceCap.value = ''; editingAllowance=false; diagnostics.checked=false; cap.value = ''; approval.checked = false; confirmation.hidden = true;
             try { const saved = JSON.parse(sessionStorage.getItem(storageKey()) || 'null'); if (saved && (['/messages','/allowance','/control','/start','/immediate','/immediate/approve','/immediate/control'].includes(saved.suffix)||/^\/actions\/[a-f0-9]{32}\/confirm$/.test(saved.suffix)) && saved.body && typeof saved.key === 'string' && typeof saved.fingerprint === 'string') pending = saved; } catch { /* The server remains authoritative. */ }
             notify(pending ? copy.unsent : copy.loading); render(); if (visible) void observe(true);

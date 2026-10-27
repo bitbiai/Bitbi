@@ -48,6 +48,9 @@ const AGENT_INSTRUCTION_FILES = new Set([
 ]);
 
 const SHARED_WORKER_FILE_MAP = Object.freeze({
+  'workers/shared/canvas-agent/voice.mjs': ['auth'],
+  'js/shared/canvas-voice-settings.mjs': ['auth'],
+  'js/shared/canvas-voice-audio.mjs': ['auth'],
   'config/website-assistant.json': ['auth'],
   'js/shared/consumer-contract.mjs': ['auth'],
   'workers/shared/website-assistant-knowledge.mjs': ['auth'],

@@ -53,9 +53,9 @@ export function parseRuntimeArgs(args, env = {}) {
     if (args[i] === '--preflight' && !result.preflight) result.preflight = true;
     else if (args[i] === '--artifacts' && !explicitArtifacts && args[i + 1] && !args[i + 1].startsWith('--')) {
       result.artifacts = args[++i]; explicitArtifacts = true;
-    } else if (args[i] === '--suite' && !result.suite && ['member-generation','model-status','model-pricing','appearance','canvas','canvas-settlement-continuation','canvas-settlement-recovery','canvas-assistant-continuation','canvas-assistant-tail','canvas-assistant-rate-tail','canvas-export-delivery','canvas-notification-migration','canvas-notification-controls','canvas-reliability','canvas-readiness-recovery','canvas-policy-tail','canvas-actions-tail','canvas-completion','canvas-audio','canvas-audio-fit','canvas-transitions','canvas-retention','q4-stream','q4-subscription','website-assistant'].includes(args[i+1])) {
+    } else if (args[i] === '--suite' && !result.suite && ['member-generation','model-status','model-pricing','appearance','canvas','canvas-settlement-continuation','canvas-settlement-recovery','canvas-assistant-continuation','canvas-assistant-tail','canvas-assistant-rate-tail','canvas-export-delivery','canvas-notification-migration','canvas-notification-controls','canvas-reliability','canvas-voice','canvas-readiness-recovery','canvas-policy-tail','canvas-actions-tail','canvas-completion','canvas-audio','canvas-audio-fit','canvas-transitions','canvas-retention','q4-stream','q4-subscription','website-assistant'].includes(args[i+1])) {
       result.suite = args[++i];
-    } else throw new Error('Usage: test-q2-runtime [--preflight] [--suite member-generation|model-status|model-pricing|appearance|canvas|canvas-settlement-continuation|canvas-settlement-recovery|canvas-assistant-continuation|canvas-assistant-tail|canvas-assistant-rate-tail|canvas-export-delivery|canvas-notification-migration|canvas-notification-controls|canvas-reliability|canvas-readiness-recovery|canvas-policy-tail|canvas-actions-tail|canvas-completion|canvas-audio|canvas-audio-fit|canvas-transitions|canvas-retention|q4-stream|q4-subscription|website-assistant] [--artifacts <outside-repository-directory>]');
+    } else throw new Error('Usage: test-q2-runtime [--preflight] [--suite member-generation|model-status|model-pricing|appearance|canvas|canvas-settlement-continuation|canvas-settlement-recovery|canvas-assistant-continuation|canvas-assistant-tail|canvas-assistant-rate-tail|canvas-export-delivery|canvas-notification-migration|canvas-notification-controls|canvas-reliability|canvas-voice|canvas-readiness-recovery|canvas-policy-tail|canvas-actions-tail|canvas-completion|canvas-audio|canvas-audio-fit|canvas-transitions|canvas-retention|q4-stream|q4-subscription|website-assistant] [--artifacts <outside-repository-directory>]');
   }
   return result;
 }
@@ -105,6 +105,8 @@ export function stageInputPlan() {
     'tests/helpers/canvas-agent-h3-recovery-control.mjs','tests/helpers/canvas-agent-media-completion-control.mjs','tests/helpers/canvas-agent-media-policy-control.mjs','tests/helpers/canvas-agent-media-action-policy-control.mjs','tests/helpers/canvas-assistant-migration-control.mjs','tests/helpers/canvas-assistant-model-control.mjs',
     'tests/helpers/canvas-conversation-decisions-control.mjs',
     'tests/helpers/canvas-agent-conversation-control.mjs',
+    'tests/helpers/canvas-voice-accounting-control.mjs','tests/helpers/canvas-voice-allowance-control.mjs','tests/helpers/canvas-voice-owner-control.mjs','tests/helpers/canvas-voice-resumption-control.mjs',
+    'tests/helpers/canvas-voice-conversation-control.mjs','tests/helpers/canvas-voice-settings-control.mjs','tests/helpers/canvas-voice-text-control.mjs','tests/helpers/canvas-voice-tools-control.mjs','tests/helpers/canvas-voice-route-control.mjs',
     'tests/helpers/canvas-agent-conversation-recovery-control.mjs',
     'tests/helpers/canvas-agent-natural-control.mjs',
     'tests/helpers/canvas-agent-action-recovery-control.mjs',

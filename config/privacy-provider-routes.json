@@ -23,6 +23,31 @@
       ]
     },
     {
+      "id": "xai-canvas-voice-direct",
+      "models": [
+        "grok-voice-3.0"
+      ],
+      "recipient": "xAI; public enterprise entity SpaceXAI LLC (US); account-specific recipient and contract coverage unverified",
+      "transport": "direct",
+      "primary": true,
+      "source": "workers/auth/src/lib/canvas-voice-provider.js",
+      "additionalSources": [
+        "workers/auth/src/lib/canvas-voice-owner.js",
+        "workers/auth/src/lib/canvas-voice-conversation.js"
+      ],
+      "host": "api.x.ai",
+      "condition": "explicit owned Canvas Voice session, configured Bitbi XAI_API_KEY, enabled Voice admission, current conversation allowance and bounded server relay",
+      "data": [
+        "microphone audio",
+        "relevant project brief and conversation context",
+        "voice and transcription settings",
+        "validated function calls and results",
+        "generated audio and transcripts"
+      ],
+      "reviewedAt": "2026-10-27",
+      "runtimeActivation": "release-dependent"
+    },
+    {
       "id": "cloudflare-hosted",
       "models": [
         "@cf/meta/llama-3.1-8b-instruct-fast",

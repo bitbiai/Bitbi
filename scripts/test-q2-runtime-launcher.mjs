@@ -1225,9 +1225,9 @@ test('Canvas reliability runs additive native callers with the complete staged h
 test('Canvas notification migration continuation retains only independent completed suites',async()=>{
   const {selectedRuntimeSuites,runtimeSuites}=await import('../tests/helpers/q2-runtime/runner.mjs');
   const alias='canvas-notification-migration',selected=selectedRuntimeSuites(alias);
-  assert.equal(runtimeSuites.length,15);assert.deepEqual(selectedRuntimeSuites(),runtimeSuites);
+  assert.equal(runtimeSuites.length,16);assert.deepEqual(selectedRuntimeSuites(),runtimeSuites);
   assert.deepEqual(selected,runtimeSuites.filter(([name])=>!['references','q4-memory'].includes(name)));
-  assert.equal(selected.length,13);assert(selected.every(row=>runtimeSuites.includes(row)),'Original callbacks/options/setup must be retained');
+  assert.equal(selected.length,14);assert(selected.every(row=>runtimeSuites.includes(row)),'Original callbacks/options/setup must be retained');
   assert.equal(parseRuntimeArgs(['--suite',alias],{}).suite,alias);
   assert.throws(()=>parseRuntimeArgs(['--suite',alias,'--suite','canvas'],{}));
   for(const invalid of [alias+'-other','references,q4-memory']){
@@ -1298,7 +1298,7 @@ test('Canvas notification controls continuation pins original discovery and refr
   assert.equal(selected[0][1],runCanvasNotificationControlTests);
   assert.equal(selected[1],runtimeSuites.find(([name])=>name==='canvas-reliability'));
   assert.equal(selected[1][1],runCanvasReliabilityTests);assert.equal(selectedRuntimeSuites('canvas')[0][1],runCanvasTests);
-  assert.equal(runtimeSuites.length,15);assert.deepEqual(selectedRuntimeSuites(),runtimeSuites);
+  assert.equal(runtimeSuites.length,16);assert.deepEqual(selectedRuntimeSuites(),runtimeSuites);
   assert(!runtimeSuites.some(([,run])=>run===runCanvasNotificationControlTests),'Full retains every original Canvas callback');
   assert.match(read('tests/helpers/q2-runtime/linux-bootstrap.py'),/\+ \["canvas-notification-controls"\]/);
   const required=['tests/helpers/q2-runtime','tests/helpers/canvas-notifications-control.mjs','tests/helpers/canvas-conversation-decisions-control.mjs','tests/helpers/canvas-agent-natural-control.mjs'],plan=stageInputPlan();
@@ -1356,4 +1356,23 @@ test('Canvas notification controls continuation pins original discovery and refr
       else{await assert.rejects(module.evaluate());assert(!calls.includes('./runner.mjs'));if(fault)assert(!calls.includes('boundary'));}
     }
   `],{cwd:root,encoding:'utf8',timeout:15000});assert.equal(child.status,0,child.stderr);
+});
+
+test('Canvas Voice native entry stages real canonical/settings cases and rejects unknown suites',async()=>{
+ const {runtimeSuites,selectedRuntimeSuites}=await import('../tests/helpers/q2-runtime/runner.mjs');
+ const {runCanvasVoiceTests,canvasVoiceInventory}=await import('../tests/helpers/q2-runtime/canvas-voice.mjs');
+ assert.deepEqual(parseRuntimeArgs(['--suite','canvas-voice'],{}),{preflight:false,artifacts:null,suite:'canvas-voice'});
+ assert.equal(selectedRuntimeSuites('canvas-voice')[0][1],runCanvasVoiceTests);
+ assert.equal(runtimeSuites.filter(([name])=>name==='canvas-voice').length,1);
+ assert.equal(canvasVoiceInventory.length,41);assert.equal(new Set(canvasVoiceInventory).size,41);
+ const plan=stageInputPlan();
+ for(const file of ['tests/helpers/canvas-voice-conversation-control.mjs','tests/helpers/canvas-voice-settings-control.mjs',
+  'tests/helpers/canvas-voice-accounting-control.mjs','tests/helpers/canvas-voice-allowance-control.mjs','tests/helpers/canvas-voice-owner-control.mjs',
+  'tests/helpers/q2-runtime'])assert(plan.includes(file),file+' is staged');
+ assert.match(read('tests/helpers/q2-runtime/linux-bootstrap.py'),/\+ \["canvas-voice"\]/);
+ assert.match(read('tests/helpers/q2-runtime/linux-runtime-child.mjs'),/'canvas-voice'/);
+ assert.match(read('tests/helpers/q2-runtime/control.mjs'),/canvasVoiceConversationCase\(env,body.name\)/);
+ assert.match(read('tests/helpers/q2-runtime/control.mjs'),/canvasVoiceSettingsCase\(env,body.name\)/);
+ assert.throws(()=>parseRuntimeArgs(['--suite','canvas-voice-untrusted'],{}));
+ assert.throws(()=>selectedRuntimeSuites('canvas-voice-untrusted'));
 });

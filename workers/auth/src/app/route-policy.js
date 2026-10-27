@@ -89,6 +89,12 @@ const adminJsonWrite = (id, method, path, owner, bodyMaxBytesName, rateLimitId, 
 });
 
 export const ROUTE_POLICIES = Object.freeze([
+  safeRead('account.canvas.voice.read','GET','/api/account/canvas/projects/:projectId/agent/voice','canvas'),
+  userJsonWrite('account.canvas.voice.settings','POST','/api/account/canvas/projects/:projectId/agent/voice/settings','canvas','smallJson','canvas-voice-user'),
+  userJsonWrite('account.canvas.voice.quote','POST','/api/account/canvas/projects/:projectId/agent/voice/quote','canvas','smallJson','canvas-voice-user'),
+  userJsonWrite('account.canvas.voice.session','POST','/api/account/canvas/projects/:projectId/agent/voice/sessions','canvas','smallJson','canvas-voice-user'),
+  userJsonWrite('account.canvas.voice.stop','POST','/api/account/canvas/projects/:projectId/agent/voice/sessions/:sessionId/stop','canvas','smallJson','canvas-voice-user'),
+  safeRead('account.canvas.voice.socket','GET','/api/account/canvas/projects/:projectId/agent/voice/sessions/:sessionId/socket','canvas',{csrf:'same-origin-required',rateLimit:{id:'canvas-voice-user',failClosed:true}}),
   safeRead('consumer.declarations.config','GET','/api/consumer/declarations/config','consumer-declarations',{auth:'anonymous'}),
   policy({id:'consumer.declarations.create',method:'POST',path:'/api/consumer/declarations',auth:'optional-user',owner:'consumer-declarations',csrf:'same-origin-required',body:{kind:'json',maxBytesName:'smallJson',contentType:'application/json'},rateLimit:{id:'consumer-declaration-ip-and-contact',failClosed:true},config:REQUIRED_CONFIG.authPublicLimiter,audit:{event:'consumer.declaration.received'},sensitivity:'high'}),
   safeRead('account.billing.contracts.read','GET','/api/account/billing/contracts/:checkoutId','consumer-declarations'),

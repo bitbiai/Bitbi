@@ -9,6 +9,7 @@ import { CONSUMER_TERMS_VERSION, consumerConsentText } from '../js/shared/consum
 import { CONSUMER_TERMS_CONTENT, HISTORICAL_CONSUMER_TERMS_CONTENT } from '../workers/auth/src/lib/consumer-terms-content.js';
 import { listAdminAiCatalog } from '../js/shared/admin-ai-contract.mjs';
 import { CANVAS_ASSISTANT_MODELS } from '../js/shared/canvas-assistant-models.mjs';
+import { CANVAS_VOICE_MODEL } from '../js/shared/canvas-voice-settings.mjs';
 import { ASSISTANT_MODELS } from '../workers/auth/src/lib/website-assistant-policy.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -92,6 +93,7 @@ function requiredModelIds() {
     for (const model of models) ids.add(model.id);
   }
   for (const model of CANVAS_ASSISTANT_MODELS) ids.add(model.modelId);
+  ids.add(CANVAS_VOICE_MODEL);
   for (const id of Object.keys(ASSISTANT_MODELS)) ids.add(id);
   const grokChat = read('workers/ai/src/lib/grok-chat.js');
   const search = grokChat.match(/export const GROK_SEARCH_MODEL_ID = "([^"]+)"/);
@@ -102,7 +104,7 @@ function requiredModelIds() {
 
 const { ids, catalog } = requiredModelIds();
 
-test('privacy pages disclose every catalog, assistant, and private-search model route', () => {
+test('privacy pages disclose every catalog, text/voice assistant, and private-search model route', () => {
   assert.ok(ids.size >= 35, `expected the verified recipient set, found ${ids.size}`);
   for (const [file, html] of Object.entries(pages)) {
     const listed = modelIds(html);
@@ -125,15 +127,15 @@ test('privacy pages name every catalog vendor', () => {
 
 test('privacy copies retain route language, aliases, metadata and current publication version', () => {
   const english = pages['legal/privacy.html'];
-  assert.match(visibleText(english), /Version dated 24 October 2026/);
-  assert.match(english, /Last updated: October 24, 2026/);
+  assert.match(visibleText(english), /Version dated 27 October 2026/);
+  assert.match(english, /Last updated: October 27, 2026/);
   assert.match(english, /<link rel="canonical" href="https:\/\/bitbi\.ai\/legal\/privacy\.html">/);
   assert.match(english, /<html lang="en"/);
   assert.doesNotMatch(markupOutsideScripts(english), /AGB/);
   const german = pages['de/legal/datenschutz.html'];
   for (const file of ['de/legal/datenschutz.html', 'de/legal/privacy.html', 'legal/datenschutz.html']) {
-    assert.match(visibleText(pages[file]), /Stand: 24\. Oktober 2026/);
-    assert.match(pages[file], /<p class="last-updated">Stand: 24\. Oktober 2026<\/p>/);
+    assert.match(visibleText(pages[file]), /Stand: 27\. Oktober 2026/);
+    assert.match(pages[file], /<p class="last-updated">Stand: 27\. Oktober 2026<\/p>/);
     assert.match(pages[file], /<html lang="de"/);
     assert.deepEqual(legalBlocks(pages[file]), legalBlocks(german), `${file} German alias content drift`);
   }
@@ -208,10 +210,15 @@ test('analytics and retention disclosures do not turn missing proof into opt-out
 
 const inventory = JSON.parse(read('config/privacy-provider-routes.json'));
 function verifyRoutes(routes, required, documents, sources = read) {
-  const primary = routes.filter(route => ['hosted', 'gateway'].includes(route.transport));
+  const primary = routes.filter(route => ['hosted', 'gateway'].includes(route.transport)
+    || route.transport === 'direct' && route.primary === true);
   const mapped = primary.flatMap(route => route.models);
   assert.equal(new Set(mapped).size, mapped.length, 'a model has competing primary routes');
   assert.deepEqual(new Set(mapped), required, 'new or removed model needs an explicit route review');
+  const voice = primary.find(route => route.models.includes(CANVAS_VOICE_MODEL));
+  assert.equal(voice?.transport, 'direct', 'Canvas Voice is a direct xAI route, not hosted or Gateway inference');
+  assert.equal(voice?.host, 'api.x.ai');
+  assert.equal(voice?.source, 'workers/auth/src/lib/canvas-voice-provider.js');
   for (const [file, html] of Object.entries(documents)) {
     assert.deepEqual(modelIds(html), required, `${file} model disclosure is incomplete`);
     for (const route of routes) {
@@ -246,10 +253,40 @@ test('route guard covers the actual catalog and direct callers, with drift count
   assert.throws(() => verifyRoutes(wrongRecipient, ids, pages));
   const withoutFallback = inventory.routes.filter(route => route.id !== 'vidu-admin-direct');
   assert.throws(() => verifyRoutes(withoutFallback, ids, pages), /unreviewed API recipient api.vidu.com/);
+  const withoutVoice = inventory.routes.filter(route => route.id !== 'xai-canvas-voice-direct');
+  assert.throws(() => verifyRoutes(withoutVoice, ids, pages), /explicit route review/);
+  const voiceAsGateway = structuredClone(inventory.routes);
+  voiceAsGateway.find(route => route.id === 'xai-canvas-voice-direct').transport = 'gateway';
+  assert.throws(() => verifyRoutes(voiceAsGateway, ids, pages), /direct xAI route/);
+  const missingVoiceDisclosure = { ...pages, 'legal/privacy.html': pages['legal/privacy.html'].replace(`data-model="${CANVAS_VOICE_MODEL}"`, 'data-removed-model="voice"') };
+  assert.throws(() => verifyRoutes(inventory.routes, ids, missingVoiceDisclosure), /incomplete/);
   assert.throws(() => verifyRoutes(inventory.routes, ids, pages, file => read(file) + (file === 'workers/ai/src/lib/invoke-ai-video.js' ? '\nconst unexpected = "https://api.new-provider.example/run";' : '')), /unreviewed API recipient/);
   assert.throws(() => verifyRoutes(inventory.routes, ids, pages, file => read(file) + (file === 'workers/auth/src/lib/canvas-agent-model-operations.js' ? '\nconst unexpected = "https://api.unreviewed-assistant.example/run";' : '')), /unreviewed API recipient/);
   const removed = { ...pages, 'legal/privacy.html': pages['legal/privacy.html'].replace('data-model="xai/grok-4.7"', 'data-removed-model="xai/grok-4.7"') };
   assert.throws(() => verifyRoutes(inventory.routes, ids, removed), /incomplete/);
+});
+
+test('Canvas Voice discloses direct audio/context transmission without inventing storage or contract assurances', () => {
+  const english = visibleText(pages['legal/privacy.html']);
+  assert.match(english, /explicitly start a Voice session and permit microphone access/);
+  assert.match(english, /microphone audio through its Cloudflare infrastructure to xAI at api\.x\.ai/);
+  assert.match(english, /project brief and conversation context/);
+  assert.match(english, /Transcripts, settings and confirmed brief changes are stored with the project/);
+  assert.match(english, /BITBI does not store an audio recording by default/);
+  assert.match(english, /history expires after 30 minutes of inactivity/);
+  assert.match(english, /opt-in is off by default and does not establish a general retention limit/);
+  assert.match(english, /not AI Gateway/);
+  assert.match(english, /transfer safeguards for this direct route have not yet been fully confirmed/);
+  for (const file of ['de/legal/datenschutz.html', 'de/legal/privacy.html', 'legal/datenschutz.html']) {
+    const german = visibleText(pages[file]);
+    assert.match(german, /Voice-Sitzung ausdrücklich starten und den Mikrofonzugriff erlauben/);
+    assert.match(german, /Mikrofonaudio über seine Cloudflare-Infrastruktur/);
+    assert.match(german, /Projektbriefing und den Gesprächskontext/);
+    assert.match(german, /BITBI speichert standardmäßig keine Audioaufzeichnung/);
+    assert.match(german, /Verlauf nach 30 Minuten Inaktivität ab/);
+    assert.match(german, /nicht AI Gateway/);
+    assert.match(german, /Übermittlungsgarantien dieses direkten Wegs sind noch nicht vollständig bestätigt/);
+  }
 });
 
 test('persistent assistant and conditional direct routes are distinguished from hosted model authors', () => {

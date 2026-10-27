@@ -4,7 +4,7 @@
     "schemaCheckpoints": {
       "auth": {
         "migrationDirectory": "workers/auth/migrations",
-        "latest": "0118_retire_missing_member_stripe_customers.sql",
+        "latest": "0119_canvas_voice_sessions.sql",
         "databaseName": "bitbi-auth-db"
       }
     },
@@ -37,10 +37,11 @@
       "auth": {
         "name": "bitbi-auth",
         "wranglerPath": "workers/auth/wrangler.jsonc",
-        "vars": ["APP_BASE_URL", "APP_ALLOWED_ORIGINS", "RESEND_FROM_EMAIL", "BITBI_ENV", "ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET", "ENABLE_GROK_4_6", "CLOUDFLARE_ACCOUNT_ID", "WEBSITE_ASSISTANT_ENABLED", "ENABLE_GROK_4_7", "CANVAS_AGENT_ENABLED"],
+        "vars": ["APP_BASE_URL", "APP_ALLOWED_ORIGINS", "RESEND_FROM_EMAIL", "BITBI_ENV", "ENABLE_ADMIN_AI_XAI_IMAGE_BUDGET", "ENABLE_GROK_4_6", "CLOUDFLARE_ACCOUNT_ID", "WEBSITE_ASSISTANT_ENABLED", "ENABLE_GROK_4_7", "CANVAS_AGENT_ENABLED", "CANVAS_VOICE_ENABLED"],
         "expectedVars": {
           "WEBSITE_ASSISTANT_ENABLED": "false",
           "CANVAS_AGENT_ENABLED": "true",
+          "CANVAS_VOICE_ENABLED": "true",
           "APP_BASE_URL": "https://bitbi.ai",
           "APP_ALLOWED_ORIGINS": "https://bitbi.ai,https://van-ark.com",
           "RESEND_FROM_EMAIL": "BITBI <noreply@contact.bitbi.ai>",
@@ -401,6 +402,15 @@
       ]
     },
     "manualPrerequisites": [
+      {
+        "id": "auth-xai-voice-api-key",
+        "kind": "secret",
+        "worker": "auth",
+        "name": "XAI_API_KEY",
+        "requiredForRelease": true,
+        "documentation": "docs/production-readiness/CANVAS_VOICE_SETTINGS.md",
+        "summary": "Existing Bitbi-authorized direct xAI Voice credential. The protected publisher verifies the secret binding before and after activation without reading/exporting its value. The reference Worker's credentials are not a substitute. Voice additionally requires the reviewed activation flag and server-owned allowance reservation."
+      },
       {
         "id": "auth-h3-cloudflare-api-token",
         "kind": "secret",

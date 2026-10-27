@@ -173,6 +173,10 @@ async function budgetDecision(ctx,session,projectId,id) {
     return respond({run:await publicAgentRun(env,await env.DB.prepare('SELECT * FROM canvas_agent_runs WHERE id=?').bind(id).first())});
 }
 export async function handleCanvasAgent(ctx,session) {
+    if(ctx.pathname.includes('/agent/voice')) {
+        const {handleCanvasVoice}=await import('./canvas-voice.js');
+        return handleCanvasVoice(ctx,session);
+    }
     if(ctx.pathname.endsWith('/agent/media-policy')) {
         const {handleCanvasMediaPolicy}=await import('./canvas-agent-media-policy.js');
         return handleCanvasMediaPolicy(ctx,session);

@@ -37,7 +37,7 @@ export async function ensureConversation(env,projectId,userId) {
 export async function conversationCosts(env,projectId) {
     return env.DB.prepare(`SELECT COALESCE(SUM(c.committed),0) AS committed,COALESCE(SUM(c.charged),0) AS charged,
         COALESCE(SUM(c.reserved),0) AS reserved,COALESCE(SUM(c.pending),0) AS pending
-        FROM canvas_agent_step_costs c JOIN canvas_agent_runs r ON r.id=c.run_id WHERE c.project_id=? AND r.purpose='briefing'`).bind(projectId).first();
+        FROM canvas_conversation_costs c WHERE c.project_id=?`).bind(projectId).first();
 }
 // Existing approval/start receipts identify application acknowledgements. Their
 // text is not a discriminator; pending questions have no consumed receipt.
@@ -61,7 +61,8 @@ export async function conversationView(env,projectId,userId) {
         WHEN (SELECT status FROM canvas_agent_runs WHERE id=run_id) IN ('cancelled','taken_over') THEN 'cancelled' ELSE 'failed' END,
         error_code=(SELECT error_code FROM canvas_agent_runs WHERE id=run_id),updated_at=?
         WHERE project_id=? AND state='pending' AND run_id IN (SELECT id FROM canvas_agent_runs WHERE status IN ('blocked','review_required','cancelled','taken_over'))`).bind(nowIso(),projectId).run();
-    const turns=(await env.DB.prepare(`SELECT t.*,r.model_id AS reply_model_id,s.receipt_json AS dialogue_receipt,s.input_json AS dialogue_input,${applicationReceiptSelect}
+    const turns=(await env.DB.prepare(`SELECT t.*,r.model_id AS reply_model_id,s.receipt_json AS dialogue_receipt,s.input_json AS dialogue_input,${applicationReceiptSelect},
+        (SELECT json_object('modelId',v.model_id,'interrupted',v.interrupted,'heardAudioMs',v.heard_audio_ms,'retainedText',v.retained_text,'locale',(SELECT locale FROM canvas_projects WHERE id=t.project_id)) FROM canvas_voice_turns v WHERE v.turn_id=t.id) AS voice_json
         FROM canvas_agent_turns t LEFT JOIN canvas_agent_runs r ON r.id=t.run_id
         LEFT JOIN canvas_agent_steps s ON s.run_id=t.run_id AND s.step_key='dialogue'
         WHERE t.project_id=? AND t.state!='deleted'
@@ -72,7 +73,8 @@ export async function conversationView(env,projectId,userId) {
     const evidence=await canvasDialogueProjectEvidence(env,projectId),byTurn=new Map(evidence.map(item=>[item.turn_id,item]));
     const blockers=evidence.map(item=>({...canvasDialogueDelivery(item),turnId:item.turn_state==='deleted'?null:item.turn_id})).filter(item=>item.blocking);
     for(const turn of turns)turn.incident_explanation=incidentTurns.get(turn.id)||null;
-    const messages=turns.flatMap(t=>[...(t.user_text?[{id:t.id,role:'user',text:t.user_text,status:'completed',provenance:'user',kind:'message'}]:[]),...(t.assistant_text?[{id:`${t.id}:reply`,role:'assistant',text:canvasConversationReplyText(t),status:'completed'}]
+    const messages=turns.flatMap(t=>[...(t.user_text?[{id:t.id,role:'user',text:t.user_text,status:'completed',provenance:'user',kind:'message',...(t.voice_json?{channel:'voice'}:{})}]:[]),...(t.assistant_text?[{id:`${t.id}:reply`,role:'assistant',text:canvasConversationReplyText(t),status:'completed'}]
+        :t.voice_json?[]
         :[{id:`${t.id}:reply`,role:'assistant',text:'',status:t.state,code:t.error_code||null}])].map(message=>message.role==='assistant'
             ?{...message,...canvasConversationReplySource(t,actions),delivery:canvasDialogueDelivery(byTurn.get(t.id))}:message));
     const costs=await conversationCosts(env,projectId),tariff=await getModelTariff(env);
@@ -103,6 +105,8 @@ export async function conversationView(env,projectId,userId) {
 // whose old UI projection replaced it with a generic action acknowledgement.
 const historicalOperationAcknowledgement=turn=>['Dein Auftrag ist gespeichert. Die Ergebnisse erscheinen hier.','Your request is saved. Its results will appear here.'].some(text=>turn.assistant_text?.startsWith(text));
 export function canvasConversationReplyText(turn) {
+    if(turn.voice_json){const voice=JSON.parse(turn.voice_json);if(voice.interrupted===1)return voice.retainedText||
+        (voice.locale==='de'?'Antwort unterbrochen; gesprochener Anteil nicht bestätigt.':'Reply interrupted; spoken portion not confirmed.');}
     const replaced=historicalOperationAcknowledgement(turn);
     if(replaced&&turn.run_id&&turn.dialogue_receipt&&turn.dialogue_input){try{
         const input=JSON.parse(turn.dialogue_input),receipt=JSON.parse(turn.dialogue_receipt);
@@ -115,6 +119,9 @@ export function canvasConversationReplyText(turn) {
     return turn.assistant_text;
 }
 export function canvasConversationReplySource(turn,actions=[]) {
+    if(turn.voice_json){const voice=JSON.parse(turn.voice_json);return {...(voice.interrupted===1&&!voice.retainedText
+        ?{provenance:'application',kind:'voice_interruption',originalModelId:voice.modelId}:{provenance:'model',kind:'answer',modelId:voice.modelId}),channel:'voice',
+        interrupted:voice.interrupted===1,playback:'not_verified',...(voice.interrupted===1?{deliveryNote:'voice_interrupted'}:{})};}
     if(!turn.incident_explanation&&turn.incident_explanation_json){try{turn.incident_explanation=JSON.parse(turn.incident_explanation_json);}catch{/* Malformed derived attribution is never promoted to model output. */}}
     if(turn.incident_explanation){const incident=turn.incident_explanation;return {
         provenance:incident.state==='model'?'model':'application',kind:'incident_explanation',incidentId:incident.incident_id,
@@ -306,6 +313,7 @@ export async function createConversationTurn(env,view,row,input,key) {
     const askDuration=!readIntent&&!brief.duration.choice&&!brief.duration.asked;
     if(askDuration)brief.duration.asked=true;
     const recent=(await env.DB.prepare(`SELECT t.id,t.run_id,t.user_text,t.assistant_text,r.model_id AS reply_model_id,
+        (SELECT json_object('modelId',v.model_id,'interrupted',v.interrupted,'heardAudioMs',v.heard_audio_ms,'retainedText',v.retained_text,'locale',(SELECT locale FROM canvas_projects WHERE id=t.project_id)) FROM canvas_voice_turns v WHERE v.turn_id=t.id) AS voice_json,
         (SELECT json_object('incident_id',x.incident_id,'state',x.state,'source_notification_id',i.source_notification_id,'incident_state',i.state)
           FROM canvas_agent_incident_explanations x JOIN canvas_agent_incidents i ON i.id=x.incident_id WHERE x.turn_id=t.id) AS incident_explanation_json,
         s.receipt_json AS dialogue_receipt,s.input_json AS dialogue_input,${applicationReceiptSelect} FROM canvas_agent_turns t

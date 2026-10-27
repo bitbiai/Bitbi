@@ -1281,7 +1281,7 @@ function bindEvents() {
     document.addEventListener('bitbi:auth-change',event=>{
         graphActions.close();
         const auth=event.detail||getAuthState();
-        if(!auth.sessionConfirmed){suspendCanvasSession(true);document.querySelector('.canvas-layout').inert=true;dom.title.disabled=true;dom.organization.disabled=true;return;}
+        if(!auth.sessionConfirmed){agentPanel?.stopVoice();suspendCanvasSession(true);document.querySelector('.canvas-layout').inert=true;dom.title.disabled=true;dom.organization.disabled=true;return;}
         const actor=auth.loggedIn&&typeof auth.user?.id==='string'?auth.user.id:null;
         if(workspaceActor&&actor!==workspaceActor){
             sessionInvalidated=true;invalidateCanvasSession();notifications.stop();videoObservation.abort();inspectorAbort.abort();agentPanel?.setVisible(false);

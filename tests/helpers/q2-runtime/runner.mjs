@@ -6,6 +6,7 @@ import { runModelPricingTests } from '../../model-pricing-runtime.mjs';
 import { runCanvasTests, runCanvasCompletionTests, runCanvasAudioTests, runCanvasAudioFitTests, runCanvasTransitionTests, runCanvasRetentionTests } from './canvas.mjs';
 import { runCanvasPolicyTailTests, runCanvasActionsTailTests, runCanvasSettlementContinuationTests, runCanvasSettlementRecoveryTests, runCanvasAssistantContinuationTests, runCanvasAssistantTailTests, runCanvasAssistantRateTailTests, runCanvasNotificationControlTests } from './canvas-policy-tail.mjs';
 import {runCanvasReadinessRecoveryTests} from './canvas-readiness-recovery.mjs';
+import {runCanvasVoiceTests} from './canvas-voice.mjs';
 import { runModelStatusTests } from '../../admin-model-status-runtime.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -26,6 +27,7 @@ export const runtimeSuites = Object.freeze([
   ['website-assistant', runWebsiteAssistantTests, { q4Control: 'website-assistant-control.mjs' }],
   ['canvas', runCanvasTests, {}],
   ['canvas-reliability', runCanvasReliabilityTests, {}],
+  ['canvas-voice', runCanvasVoiceTests, {}],
   ['model-status', runModelStatusTests, {}],
   ['model-pricing', runModelPricingTests, {}],
   ['appearance', runAppearanceTests, {}],
@@ -44,7 +46,7 @@ export const runtimeSuites = Object.freeze([
 // invented attestation of that external OS boundary.
 export function selectedRuntimeSuites(suite) {
   if(suite==='canvas-notification-controls')return [['canvas',runCanvasNotificationControlTests,{}],runtimeSuites.find(([name])=>name==='canvas-reliability')];
-  // Closed continuation after the 0113 native migration failure. Full retains all 15 suites.
+  // Closed continuation after the 0113 native migration failure. Full retains every suite.
   if(suite==='canvas-notification-migration')return runtimeSuites.filter(([name])=>!['references','q4-memory'].includes(name));
   // Preserve the normal Canvas D1/Images/AI bindings and result identity.
   if(suite==='canvas-export-delivery')return [['canvas',runCanvasExportDeliveryTests,{}]];
@@ -62,7 +64,7 @@ export function selectedRuntimeSuites(suite) {
   if (suite === 'canvas-audio-fit') return [['canvas-audio-fit', runCanvasAudioFitTests, {}]];
   if (suite === 'canvas-audio') return [['canvas-audio', runCanvasAudioTests, {}]];
   if (suite === 'canvas-completion') return [['canvas-completion', runCanvasCompletionTests, {}]];
-  if (suite && !['member-generation','model-status','model-pricing','appearance','canvas','canvas-reliability','q4-stream','q4-subscription','website-assistant'].includes(suite)) throw new Error('Unsupported native suite');
+  if (suite && !['member-generation','model-status','model-pricing','appearance','canvas','canvas-reliability','canvas-voice','q4-stream','q4-subscription','website-assistant'].includes(suite)) throw new Error('Unsupported native suite');
   return suite ? runtimeSuites.filter(([name]) => name === suite) : runtimeSuites;
 }
 
