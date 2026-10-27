@@ -1364,7 +1364,8 @@ test('Canvas Voice native entry stages real canonical/settings cases and rejects
  assert.deepEqual(parseRuntimeArgs(['--suite','canvas-voice'],{}),{preflight:false,artifacts:null,suite:'canvas-voice'});
  assert.equal(selectedRuntimeSuites('canvas-voice')[0][1],runCanvasVoiceTests);
  assert.equal(runtimeSuites.filter(([name])=>name==='canvas-voice').length,1);
- assert.equal(canvasVoiceInventory.length,41);assert.equal(new Set(canvasVoiceInventory).size,41);
+ assert.equal(canvasVoiceInventory.length,42);assert.equal(new Set(canvasVoiceInventory).size,42);
+ assert.equal(canvasVoiceInventory.filter(name=>name==='canvas_voice_owner_handshake_rejected').length,1);
  const plan=stageInputPlan();
  for(const file of ['tests/helpers/canvas-voice-conversation-control.mjs','tests/helpers/canvas-voice-settings-control.mjs',
   'tests/helpers/canvas-voice-accounting-control.mjs','tests/helpers/canvas-voice-allowance-control.mjs','tests/helpers/canvas-voice-owner-control.mjs',
