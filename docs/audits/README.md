@@ -66,6 +66,7 @@ These files must stay aligned with `config/release-compat.json` and must not cla
 | `docs/ai-image-derivatives-runbook.md` | AI derivative operational runbook. |
 | `docs/production-readiness/WEBSITE_ASSISTANT.md` | Website assistant/Admin operation, approved knowledge maintenance, disabled release and separately gated model activation. |
 | `docs/production-readiness/CANVAS_AGENT.md` | Canvas production, ordinary editing, capability limits, execution/accounting and separate deployment/live-provider evidence. |
+| `docs/production-readiness/CANVAS_VOICE_SETTINGS.md` | Realtime Voice settings, canonical project integration, bounded accounting, native/audio acceptance and protected activation/recovery. |
 
 ## Historical / Frozen Evidence
 
