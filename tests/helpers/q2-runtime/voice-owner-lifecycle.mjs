@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 export const CANVAS_VOICE_OWNER_LIFECYCLE_CASES = Object.freeze([
   'pending_fetch_stop', 'abnormal_close', 'no_close_ack', 'delayed_close_ack', 'concurrent_text',
   'partial_stop', 'projection_after_stop', 'replacement_isolation', 'optin_resumption', 'handshake_rejected',
-  'startup_order', 'startup_audio', 'startup_tool', 'startup_error_envelope',
+  'startup_order', 'startup_audio', 'startup_tool', 'startup_error_envelope', 'startup_ping',
 ]);
 const pause = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 const hash = value => createHash('sha256').update(value).digest('hex').slice(0, 32);
@@ -62,7 +62,7 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
       assert.equal(upgraded.status, 101, upgraded.status === 101 ? '' : await upgraded.text());
       const events = [], socket = upgraded.webSocket; sockets.push(socket);
       socket.addEventListener('message', event => events.push(JSON.parse(event.data))); socket.accept();
-      if (name === 'startup_order') {
+      if (['startup_order', 'startup_ping'].includes(name)) {
         await until(() => events, list => list.some(event => event.type === 'voice.state' && event.state === 'listening'), 'Conversation-first startup reaches listening');
         const active = await f.db.prepare('SELECT state,active_at FROM canvas_voice_sessions WHERE id=?').bind(sessionId).first();
         assert.equal(active.state, 'active'); assert(active.active_at);
@@ -75,7 +75,7 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
       }
       const settled = await until(usage, row => row?.billing_status === 'finalized', 'Startup session settles original zero-audio manual identity');
       assert.equal(JSON.parse(settled.metadata_json).canvas_voice_receipt.credits, 0);
-      if (name !== 'startup_order') assert.equal(JSON.parse(settled.metadata_json).canvas_voice_receipt.code,
+      if (!['startup_order', 'startup_ping'].includes(name)) assert.equal(JSON.parse(settled.metadata_json).canvas_voice_receipt.code,
         name === 'startup_error_envelope' ? 'canvas_voice_provider_not_ready_u_s0a0_o_m_k04_n0_rpermission'
           : 'canvas_voice_provider_not_ready_' + (name === 'startup_audio' ? 'audio_delta' : 'function_call'));
       for (let replay = 0; replay < 2; replay++) await json(await stop(sessionId));

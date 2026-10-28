@@ -150,6 +150,8 @@ export class CanvasVoiceRelay {
             if (this.providerEvents.size >= 20000) fail('canvas_voice_event_limit');
             this.providerEvents.add(event.event_id);
         }
+        // Observed xAI JSON heartbeat: no reply, readiness, activity or deadline effect.
+        if (type === 'ping') return;
         if (type === 'session.created') { this.configure(); return; }
         if (type === 'conversation.created') {
             if (!id(event.conversation?.id)) fail('canvas_voice_provider_identity_invalid');

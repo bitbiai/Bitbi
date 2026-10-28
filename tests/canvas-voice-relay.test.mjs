@@ -48,6 +48,29 @@ test('either startup event configures once; duplicate and reordered startup hist
         await f.relay.stop();
     }
 });
+test('observed JSON ping is inert before and after acknowledgement and never extends the session', async () => {
+    assert.equal(createHash('sha256').update('ping').digest('hex').slice(0, 16), '758d61f26a444483', 'Matches the retained live startup type fingerprint');
+    const f = fixture(), deadline = f.relay.deadline, activity = f.relay.lastInputAt;
+    const ping = { type: 'ping', event_id: 'heartbeat_1', data: { type: 'session.updated', instructions: 'private' },
+        name: 'canvas_update_brief', arguments: '{"private":"must not execute"}', audio: 'AAA=' };
+    await f.provider(ping); await f.provider(ping);
+    assert.equal(f.relay.active, false); assert.equal(f.relay.configurationSent, false);
+    assert.equal(f.upstream.length, 0); assert.equal(f.sent.length, 0); assert.equal(f.calls.length, 0);
+    await f.provider({ type: 'session.created' }); f.advance(1000);
+    await f.provider({ ...ping, event_id: 'heartbeat_2' });
+    assert.equal(f.relay.active, false); assert.equal(f.upstream.length, 1); assert.equal(f.calls.length, 0);
+    await f.provider({ type: 'session.updated', session: { instructions: 'trusted' } });
+    const prior = JSON.stringify({ sent: f.sent, upstream: f.upstream, calls: f.calls });
+    f.advance(59000); await f.provider({ ...ping, event_id: 'heartbeat_3' });
+    assert.equal(JSON.stringify({ sent: f.sent, upstream: f.upstream, calls: f.calls }), prior);
+    assert.equal(f.relay.active, true); assert.equal(f.relay.lastInputAt, activity);
+    assert.equal(f.relay.deadline, deadline); assert.equal(f.timers.length, 1);
+    assert.equal(f.relay.inputSamples, 0); assert.equal(f.relay.outputBytes, 0);
+    f.timers[0](); await new Promise(resolve => setImmediate(resolve));
+    assert.equal(f.relay.closed, true); assert.equal(f.calls.at(-1)[1].code, 'canvas_voice_session_limit');
+    assert.equal(f.upstream.some(event => event.type === 'pong' || event.type === 'response.create'), false);
+    assert.equal(JSON.stringify(f.sent).includes('private'), false);
+});
 test('pre-ack audio, tools and unknown events remain fenced with content-free diagnostic categories', async () => {
     const cases = [
         [{ type: 'response.output_audio.delta', delta: 'AAA=' }, 'audio_delta'],
@@ -79,6 +102,8 @@ test('unexpected startup frames retain only fixed envelope facts and a type dige
         [{ error: { code: 'permission-denied', message: 'private provider detail' } }, 'o_m_k04_n0_rpermission'],
         [{ type: privateType, message: 'private content' }, `o_s_k10_n0_rnone_h${digest(privateType)}`],
         [{ type: '__proto__' }, `o_s_k00_n0_rnone_h${digest('__proto__')}`],
+        [{ type: 'pong' }, `o_s_k00_n0_rnone_h${digest('pong')}`],
+        [{ type: 'ping.extra' }, `o_s_k00_n0_rnone_h${digest('ping.extra')}`],
         [{ type: ['session.created'], data: { type: 'session.updated', secret: 'private context' } }, 'o_n_k01_n13_rnone'],
         [{ type: null, event: 'session.created' }, 'o_n_k02_n21_rnone'],
         [{ data: { type: 'private nested token' }, event: { type: 'conversation.created' } }, 'o_m_k03_n22_rnone'],
@@ -221,17 +246,20 @@ test('late function call retains the original response source, and conflicting c
 });
 
 test('queued traffic is bounded before asynchronous authority checks finish', async () => {
-    let release; const wait = new Promise(resolve => { release = resolve; });
-    const f = fixture({ authorize: () => wait });
-    const pending = Array.from({ length: 65 }, (_, sequence) => f.client({ type: 'voice.mute', sequence, muted: true }));
-    assert.equal(f.relay.closed, true);
-    assert.equal(f.calls.find(c => c[0] === 'ended')[1].code, 'canvas_voice_backpressure');
-    release(true); await Promise.all(pending);
-    assert.equal(f.upstream.length, 0);
-    const g = fixture();
-    await g.relay.clientMessage('x'.repeat(280001));
-    assert.equal(g.relay.closed, true);
-    assert.equal(g.calls.find(c => c[0] === 'ended')[1].code, 'canvas_voice_backpressure');
+    for (const source of ['client', 'provider']) {
+        let release; const wait = new Promise(resolve => { release = resolve; });
+        const f = fixture({ authorize: () => wait });
+        const pending = Array.from({ length: 65 }, (_, sequence) => source === 'client'
+            ? f.client({ type: 'voice.mute', sequence, muted: true }) : f.provider({ type: 'ping', event_id: 'heartbeat_' + sequence }));
+        assert.equal(f.relay.closed, true);
+        assert.equal(f.calls.find(c => c[0] === 'ended')[1].code, 'canvas_voice_backpressure');
+        release(true); await Promise.all(pending);
+        assert.equal(f.upstream.length, 0);
+        const g = fixture();
+        await g.relay[source + 'Message']('x'.repeat(280001));
+        assert.equal(g.relay.closed, true);
+        assert.equal(g.calls.find(c => c[0] === 'ended')[1].code, 'canvas_voice_backpressure');
+    }
 });
 
 test('cancelled or incomplete responses are never persisted as fully heard completion', async () => {

@@ -321,8 +321,15 @@ stopped before configuration confirmation with an unrecognized JSON event
 was observed. The historical envelope was not retained. The next bounded
 diagnostic records only fixed envelope/type categories, known-key presence,
 allowlisted nested event/error categories and a digest of an unknown type. It
-does not unwrap or ignore unexpected messages, relax the acknowledgement,
-retain provider payloads, or establish live speech acceptance.
+does not unwrap unexpected messages, relax the acknowledgement or retain
+provider payloads. The subsequent `1a38584a` live receipt identified an object
+with string type `ping`: its stored type digest matched SHA-256(`ping`) while
+configuration was sent but not acknowledged. This exact heartbeat is inert,
+consistent with the reference and official xAI web-agent event handler: it
+does not activate the session, extend deadlines, send an invented JSON `pong`,
+or authorize audio/tools. Other unknown frames still fail closed. Native
+`canvas_voice_owner_startup_ping` exercises the real socket, ACK and settlement
+boundary. Passing this repair does not establish live speech acceptance.
 
 Schema `0119_canvas_voice_sessions.sql` and the Voice frontend are published.
 The startup correction requires Auth publication only; compute the complete
