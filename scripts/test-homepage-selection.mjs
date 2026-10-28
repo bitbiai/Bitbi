@@ -66,10 +66,11 @@ try {
   const verifyVoiceDiscovery = rows => {
     for (const project of ['chromium','webkit-canvas']) {
       const cases=rows.filter(row=>row.project===project&&['canvas.spec.js','canvas-voice-browser.cjs'].includes(row.file)&&row.title.startsWith('Canvas Voice '));
-      assert.equal(cases.length,25,'Every Voice browser case must be discovered by the existing Canvas entrypoint');
+      assert.equal(cases.length,26,'Every Voice browser case must be discovered by the existing Canvas entrypoint');
       assert(cases.every(row=>row.file==='canvas.spec.js'&&row.expectedStatus==='passed'),'Voice helper cases retain their owning entrypoint and execute');
       for(const locale of ['EN','DE'])assert.equal(cases.filter(row=>row.title===`Canvas Voice settings ${locale} are complete, persistent, keyboard accessible and do not start recording`).length,1);
       assert.equal(cases.filter(row=>row.title==='Canvas Voice real AudioWorklet and raw Opus browser pipeline uses synthetic audio and releases tracks').length,1);
+      assert.equal(cases.filter(row=>row.title==='Canvas Voice real AudioWorklet batches PCM and G711, flushes tails and preserves mute and manual pause').length,1);
     }
   };
   verifyVoiceDiscovery(standard);
@@ -78,6 +79,8 @@ try {
   assert.throws(()=>verifyVoiceDiscovery(standard.map(row=>row===voiceCase?{...row,file:'canvas-voice-browser.cjs'}:row)));
   assert.throws(()=>verifyVoiceDiscovery([...standard,voiceCase]));
   assert.throws(()=>verifyVoiceDiscovery(standard.map(row=>row===voiceCase?{...row,expectedStatus:'skipped'}:row)));
+  const packetCase=standard.find(row=>row.title==='Canvas Voice real AudioWorklet batches PCM and G711, flushes tails and preserves mute and manual pause');
+  assert.throws(()=>verifyVoiceDiscovery(standard.map(row=>row===packetCase?{...row,title:'replacement capture test'}:row)));
   const verifyConsumerDiscovery = rows => {
     for (const project of ['chromium','webkit-consumer']) {
       const cases = rows.filter(row=>row.project===project && row.title.includes('@consumer-contract'));

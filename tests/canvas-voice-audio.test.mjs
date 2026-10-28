@@ -3,9 +3,36 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { VoiceResampler, encodeVoiceAudio, decodeVoiceAudio } from '../js/shared/canvas-voice-audio.mjs';
-import { createCanvasVoiceAudio } from '../js/pages/canvas/voice-audio.js';
-import { createCanvasVoiceOpus, canvasVoiceOpusSupport } from '../js/pages/canvas/voice-opus.js';
 import { canvasVoiceSettings } from '../js/shared/canvas-voice-settings.mjs';
+
+// Browser .js modules are ESM, although the repository package is CommonJS.
+// Load their actual source as ESM under Node and Playwright discovery alike;
+// only exact dependency URLs and the original asset URL base are substituted.
+const moduleUrl = source => 'data:text/javascript;base64,' + Buffer.from(source).toString('base64');
+const wireUrl = new URL('../js/shared/canvas-voice-audio.mjs', import.meta.url).href;
+function browserSource(name, imports) {
+    const url = new URL('../js/pages/canvas/' + name, import.meta.url);
+    let source = fs.readFileSync(url, 'utf8');
+    for (const [specifier, target] of Object.entries(imports)) {
+        const literal = `'${specifier}'`;
+        assert.equal(source.split(literal).length, 2, `Exactly one expected browser import: ${specifier}`);
+        source = source.replace(literal, JSON.stringify(target));
+    }
+    assert.doesNotMatch(source, /\bfrom\s+['"]\./, 'Unmapped browser dependency must fail explicitly');
+    return source.replaceAll('import.meta.url', JSON.stringify(url.href));
+}
+const wireImports = { '../../shared/canvas-voice-audio.mjs?v=__ASSET_VERSION__': wireUrl };
+const opusSource = browserSource('voice-opus.js', wireImports), opusUrl = moduleUrl(opusSource);
+const { createCanvasVoiceOpus, canvasVoiceOpusSupport } = await import(opusUrl);
+const { createCanvasVoiceAudio } = await import(moduleUrl(browserSource('voice-audio.js', { ...wireImports, './voice-opus.js?v=__ASSET_VERSION__': opusUrl })));
+
+test('browser audio loader preserves actual module linkage and rejects an incompatible dependency', async () => {
+    assert.equal(typeof createCanvasVoiceAudio, 'function'); assert.equal(typeof createCanvasVoiceOpus, 'function');
+    const brokenOpus = moduleUrl(opusSource.replace('export async function createCanvasVoiceOpus(', 'export async function missingCanvasVoiceOpus('));
+    const brokenAudio = browserSource('voice-audio.js', { ...wireImports, './voice-opus.js?v=__ASSET_VERSION__': brokenOpus });
+    await assert.rejects(import(moduleUrl(brokenAudio)), /does not provide an export named 'createCanvasVoiceOpus'/);
+    assert.throws(() => browserSource('voice-audio.js', wireImports), /Unmapped browser dependency/);
+});
 
 // The real worklet, controller, resampler and encoder run together; only browser
 // resource allocation is synthetic. Transfer/delivery can be delayed explicitly.

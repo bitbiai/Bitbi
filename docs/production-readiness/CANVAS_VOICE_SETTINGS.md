@@ -284,6 +284,10 @@ Auth fetch route and canonical tools. Existing conversation/provider and Canvas
 layout cases remain independent regression controls. Native macOS workerd is
 not Linux release evidence; synthetic capture is not a physical microphone or
 live xAI conversation. Private logs retain earlier failures and later fixes.
+Node capture fixtures must also load through the actual Playwright discovery
+caller: direct Node execution alone does not establish browser-module loader
+compatibility. The protected inventory names the packetization case and rejects
+its removal, substitution or skipped execution.
 Short windows keep a bounded, independently scrollable Voice track. The existing
 budget, immediate-approval and viewport cases protect transcript height and real
 click targets; the active Voice fixture also exercises long interim text, Mute,
