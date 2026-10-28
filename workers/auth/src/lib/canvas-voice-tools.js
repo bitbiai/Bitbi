@@ -26,9 +26,13 @@ const allowedErrors=new Set(['canvas_voice_tool_forbidden','canvas_voice_tool_ar
  'canvas_voice_read_only_turn','canvas_voice_source_changed','canvas_voice_turn_unavailable','canvas_agent_conversation_changed','canvas_agent_conversation_stopped','idempotency_conflict']);
 
 export function canvasVoiceFunctionDefinitions(){return structuredClone(definitions);}
+export function canvasVoiceToolDiagnostic(name,result){
+ return {name:names.has(name)?name:'unknown',ok:result?.ok===true,
+  ...(result?.ok===true?{}:{code:allowedErrors.has(result?.code)?result.code:'canvas_voice_tool_failed'})};
+}
 // Trusted scope is captured by the authenticated server/relay. Provider arguments
 // cannot name another owner/project/session, source turn or durable call identity.
-export function createCanvasVoiceToolDispatcher(env,trustedScope){
+export function createCanvasVoiceToolDispatcher(env,trustedScope,{conversationRevision=()=>undefined}={}){
  const scope=Object.freeze({sessionId:trustedScope.sessionId,projectId:trustedScope.projectId,userId:trustedScope.userId});
  return async invocation=>{
   try{
@@ -48,7 +52,7 @@ export function createCanvasVoiceToolDispatcher(env,trustedScope){
    const required=Object.keys(definitions[1].parameters.properties);
    if(required.some(key=>!Object.hasOwn(args,key))||Object.keys(args).some(key=>!required.includes(key)))fail('canvas_voice_tool_arguments_invalid');
    if(!plain(invocation.turn)||!/^[a-f0-9]{32}$/.test(invocation.turn.turnId||''))fail('canvas_voice_transcript_pending');
-   return {ok:true,data:await applyCanvasVoiceBrief(env,scope,{...args,turnId:invocation.turn.turnId,callId:invocation.callId})};
+   return {ok:true,data:await applyCanvasVoiceBrief(env,scope,{...args,turnId:invocation.turn.turnId,callId:invocation.callId},conversationRevision(args))};
   }catch(error){
    if(!allowedErrors.has(error?.code))throw error;
    return {ok:false,code:error.code,requiresContextRefresh:['canvas_voice_source_changed','canvas_agent_conversation_changed'].includes(error.code)};

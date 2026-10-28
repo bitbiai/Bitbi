@@ -180,12 +180,15 @@ function validateProposal(input) {
     || new Set(input.updates.map(update => update.field)).size !== input.updates.length
     || !Array.isArray(input.questions) || input.questions.length > 2 || input.questions.some(question => !text(question, 800, 1))) fail('canvas_voice_brief_invalid', 400);
 }
-export async function applyCanvasVoiceBrief(env, scope, input) {
+export async function applyCanvasVoiceBrief(env, scope, input, trustedConversationRevision) {
   validateProposal(input);
+  // Only the server Owner may supply this projection-only fence. Keep the
+  // original model arguments immutable for exact call replay/provenance.
+  if (trustedConversationRevision !== undefined && (!Number.isSafeInteger(trustedConversationRevision) || trustedConversationRevision < 0)) fail('canvas_voice_brief_invalid', 400);
   const { row, session } = await owned(env, scope), serialized = stablePricingJson(input);
   const previous = await env.DB.prepare('SELECT input_json,result_json FROM canvas_voice_calls WHERE session_id=? AND call_id=?').bind(scope.sessionId, input.callId).first();
   if (previous) { if (previous.input_json !== serialized) fail('idempotency_conflict'); return { ...JSON.parse(previous.result_json), replay: true }; }
-  if (row.revision !== input.expectedConversationRevision || row.brief_revision !== input.expectedBriefRevision || session.current_project_revision !== input.expectedProjectRevision) fail('canvas_agent_conversation_changed');
+  if (row.revision !== (trustedConversationRevision ?? input.expectedConversationRevision) || row.brief_revision !== input.expectedBriefRevision || session.current_project_revision !== input.expectedProjectRevision) fail('canvas_agent_conversation_changed');
   const turn = await ownedTurn(env, scope, input.turnId), brief = validateCanvasAgentBrief(JSON.parse(row.brief_json));
   if (canvasConversationReadIntent(turn.user_text)) fail('canvas_voice_read_only_turn', 400);
   const latest = await env.DB.prepare("SELECT id FROM canvas_agent_turns WHERE project_id=? AND state!='deleted' AND user_text!='' ORDER BY rowid DESC LIMIT 1").bind(scope.projectId).first();

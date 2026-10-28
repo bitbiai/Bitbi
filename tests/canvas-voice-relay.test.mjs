@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { CanvasVoiceRelay } from '../workers/auth/src/lib/canvas-voice-relay.js';
+import { CanvasVoiceOwner } from '../workers/auth/src/lib/canvas-voice-owner.js';
 import { canvasVoiceSettings } from '../js/shared/canvas-voice-settings.mjs';
 
 function fixture(patch = {}, clock = {}) {
@@ -22,6 +23,30 @@ function fixture(patch = {}, clock = {}) {
         advance: ms => { time += ms; }, revoke: () => { authority = false; },
         ready: async () => { await provider({ type: 'session.created', session: { id: 'session_1' } }); await provider({ type: 'conversation.created', conversation: { id: 'conversation_1' } }); await provider({ type: 'session.updated', session: { instructions: 'trusted' } }); } };
 }
+test('only own conversation projections bridge a known presented context, never a changed semantic fence', () => {
+    const owner = new CanvasVoiceOwner({}, {}), a = { revision: 5 };
+    const context = { conversationRevision: 5, briefRevision: 2, projectRevision: 7 };
+    const args = { expectedConversationRevision: 5, expectedBriefRevision: 2, expectedProjectRevision: 7 };
+    owner.presentContext(a, context); owner.adoptRevision(a, { conversationRevision: 6 }, false, true);
+    owner.adoptRevision(a, { conversationRevision: 7 }, false, true);
+    assert.equal(owner.toolConversationRevision(a, args), 7);
+    for (const patch of [{ expectedConversationRevision: 6 }, { expectedConversationRevision: 999 }, { expectedBriefRevision: 1 }, { expectedProjectRevision: 6 }])
+        assert.equal(owner.toolConversationRevision(a, { ...args, ...patch }), undefined);
+    owner.adoptRevision(a, { conversationRevision: 8 });
+    assert.equal(owner.toolConversationRevision(a, args), undefined, 'A non-projection write invalidates the old context fence');
+    assert.throws(() => owner.presentContext(a, context), error => error.code === 'canvas_voice_context_changed');
+});
+test('tool outcomes expose only fixed diagnostic fields on the existing change event', async () => {
+    for (const [result, expected] of [[{ ok: true, data: { private: 'content' } }, { name: 'canvas_context', ok: true }],
+        [{ ok: false, code: 'canvas_agent_conversation_changed', private: 'content' }, { name: 'canvas_context', ok: false, code: 'canvas_agent_conversation_changed' }],
+        [{ ok: false, code: 'private_provider_token', private: 'content' }, { name: 'canvas_context', ok: false, code: 'canvas_voice_tool_failed' }]]) {
+        const f = fixture({ tool: async () => result }); await f.ready();
+        await f.provider({ type: 'response.created', response: { id: 'context_response' } });
+        await f.provider({ type: 'response.function_call_arguments.done', response_id: 'context_response', call_id: 'context_call', name: 'canvas_context', arguments: '{}' });
+        assert.deepEqual(f.sent.at(-1), { type: 'voice.changed', tool: expected });
+        assert.equal(JSON.stringify(f.sent).includes('private'), false); await f.relay.stop();
+    }
+});
 test('either startup event configures once; duplicate and reordered startup history cannot execute actions', async () => {
     const startup = [
         { type: 'session.created', session: { id: 'session_1' } },

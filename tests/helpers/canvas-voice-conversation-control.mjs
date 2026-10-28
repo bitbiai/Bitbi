@@ -61,9 +61,12 @@ export async function canvasVoiceConversationCase(env, name) {
   } else if (name === 'replay') {
     const duplicate = await recordCanvasVoiceUserTurn(env, scope, { itemId: 'item-cat-1', text: 'Ein Katzenvideo, ungefähr 45 Sekunden lang, im realistischen Stil.' });
     check(duplicate.replay && duplicate.turnId === transcript.turnId, 'Duplicate final transcript does not create another turn');
-    const saved = await applyCanvasVoiceBrief(env, scope, proposal), replay = await applyCanvasVoiceBrief(env, scope, proposal);
+    const original = { ...proposal, expectedConversationRevision: 0 };
+    const saved = await applyCanvasVoiceBrief(env, scope, original, transcript.conversationRevision), replay = await applyCanvasVoiceBrief(env, scope, original, saved.conversationRevision);
     check(replay.replay && replay.briefRevision === saved.briefRevision, 'Call replay returns original result even after revision advanced');
-    await reject(() => applyCanvasVoiceBrief(env, scope, { ...proposal, questions: ['Changed'] }), 'idempotency_conflict');
+    const receipt = await DB.prepare('SELECT input_json FROM canvas_voice_calls WHERE session_id=? AND call_id=?').bind(sessionId, original.callId).first();
+    check(JSON.parse(receipt.input_json).expectedConversationRevision === 0, 'Projection fence preserves original model input for durable replay');
+    await reject(() => applyCanvasVoiceBrief(env, scope, { ...original, questions: ['Changed'] }, saved.conversationRevision), 'idempotency_conflict');
     const reply = { turnId: transcript.turnId, responseId: 'response-1', text: 'Gespeichert.', interrupted: false };
     await recordCanvasVoiceReply(env, scope, reply);
     check((await recordCanvasVoiceReply(env, scope, reply)).replay, 'Duplicate response is not a new assistant answer');

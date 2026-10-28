@@ -3,6 +3,7 @@
 // credits. Browser messages are NOT arbitrary xAI messages.
 import { opusPacketDuration } from '../../../../js/shared/canvas-voice-audio.mjs';
 import { canvasVoiceProviderRejectionCategory } from './canvas-voice-provider.js';
+import { canvasVoiceToolDiagnostic } from './canvas-voice-tools.js';
 import { sha256Hex } from './tokens.js';
 const parse = value => { if (typeof value !== 'string' || value.length > 280000) throw new Error('canvas_voice_frame_invalid'); return JSON.parse(value); };
 const fail = code => { throw Object.assign(new Error(code), { code }); };
@@ -260,7 +261,7 @@ export class CanvasVoiceRelay {
             const result = !response.turn && event.name === 'canvas_update_brief' ? { ok: false, code: 'canvas_voice_transcript_pending', retry: false }
                 : await this.services.tool({ callId: event.call_id, turn: response.turn, name: event.name, arguments: JSON.parse(event.arguments) });
             this.functionCalls.set(event.call_id, { fingerprint, result });
-            response.calls.push({ callId: event.call_id, result }); this.send({ type: 'voice.changed' }); return;
+            response.calls.push({ callId: event.call_id, result }); this.send({ type: 'voice.changed', tool: canvasVoiceToolDiagnostic(event.name, result) }); return;
         }
         if (event.type === 'conversation.item.truncated') {
             if (!id(event.item_id)) fail('canvas_voice_provider_event_invalid');

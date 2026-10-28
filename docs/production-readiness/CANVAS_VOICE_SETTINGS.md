@@ -258,7 +258,13 @@ Saving an ordinary spoken turn or reply adopts its canonical conversation
 revision without rebuilding and echoing the entire context already known to
 the provider. Explicit context reads, successful brief changes and response
 continuations still read the current authoritative state; model-supplied stale
-revisions cannot bypass validation.
+revisions cannot bypass validation. The Owner may translate the last context
+revision actually presented to the provider across its own transcript/reply
+projections only. Brief and project revisions must still match that snapshot;
+external changes invalidate the Owner's authority. The canonical mutation keeps
+the original tool arguments for replay and checks the trusted comparison revision
+inside its existing atomic guards. This does not rebase creative edits, refresh
+authority from model arguments or make a failed call successful retrospectively.
 
 Cumulative transcription replaces the interim value. Late response IDs stay
 associated with their original source turn. Interruption preserves original
@@ -393,9 +399,21 @@ at the cadence above. Retain bounded diagnostic categories for frame-size,
 queued-event and queued-byte rejection. Local delayed-context and capture
 checks establish this boundary separately from live provider acceptance.
 
+The `ea301d8a` follow-up exchanged real audio and retained complete user/model
+turns without backpressure, but did not confirm a brief change. Failed tool
+outputs were not retained, so that attempt's precise rejection remains unknown.
+The actual caller reproduces a separate integration defect: projecting the
+spoken turn advances the conversation revision while automatic VAD still uses
+the previously presented context. Native tests now exercise that first update
+without forcing an intervening model context-read, with stale creative/external
+revision, replay and invalid-argument counterchecks. Existing `voice.changed`
+events expose only the allowlisted tool name, success flag and fixed error code;
+no arguments, private result content or provider identifiers are included.
+
 Schema `0119_canvas_voice_sessions.sql` and the Voice frontend are published.
-The capture/relay correction affects Auth and frontend; compute the complete
-unpublished selection before release and verify both active identities.
+The context-revision correction affects Auth; the published frontend consumes
+the existing event unchanged. Compute the complete unpublished selection before
+release and verify active identities independently.
 Use `release:local` with its existing protection, verification and publication
 lock. A published component or accepted WebSocket alone is not live speech
 acceptance. Preserve the owner's encrypted secret and existing session receipts.

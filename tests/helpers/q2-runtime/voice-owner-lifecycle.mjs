@@ -7,6 +7,7 @@ export const CANVAS_VOICE_OWNER_LIFECYCLE_CASES = Object.freeze([
   'startup_order', 'startup_audio', 'startup_tool', 'startup_error_envelope', 'startup_ping', 'startup_partial_ack', 'startup_wrapped_tools', 'startup_wrapped_extra',
   'transcript_commit_after', 'transcript_commit_before', 'transcript_abandoned', 'transcript_final_conflict',
   'latency_pcm', 'latency_opus', 'latency_legacy', 'latency_stop',
+  'revision_direct', 'revision_stale', 'revision_forged', 'revision_external',
 ]);
 const pause = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 const hash = value => createHash('sha256').update(value).digest('hex').slice(0, 32);
@@ -23,7 +24,7 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
       body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     assert.equal(response.status, 200, await response.clone().text()); return response.json();
   };
-  const mode = name.startsWith('startup_') ? name : name.startsWith('latency_') ? 'latency' : name.startsWith('transcript_') ? 'transcript' : name === 'handshake_rejected' ? 'rejected' : name === 'delayed_close_ack' ? 'delayed_ack' : name === 'optin_resumption' ? 'resume' : name === 'pending_fetch_stop' ? 'pending' : name === 'abnormal_close' ? 'abnormal'
+  const mode = name.startsWith('startup_') ? name : name.startsWith('revision_') ? 'revision' : name.startsWith('latency_') ? 'latency' : name.startsWith('transcript_') ? 'transcript' : name === 'handshake_rejected' ? 'rejected' : name === 'delayed_close_ack' ? 'delayed_ack' : name === 'optin_resumption' ? 'resume' : name === 'pending_fetch_stop' ? 'pending' : name === 'abnormal_close' ? 'abnormal'
     : name === 'no_close_ack' ? 'no_ack' : ['partial_stop', 'projection_after_stop'].includes(name) ? 'partial' : 'idle';
   await command('control', { mode });
   const seeded = await f.control('/canvas-voice-owner-seed', { name: 'life-' + name.replaceAll('_', '-') });
@@ -35,7 +36,7 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
       'Content-Type': 'application/json', ...extra }, ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const json = async response => { assert.equal(response.status, 200, await response.clone().text()); return (await response.json()).data; };
-  await json(await request('/settings', { settings: { ...((name.startsWith('startup_wrapped_') || mode === 'latency') ? { tools: { canvas: { enabled: true } } } : {}),
+  await json(await request('/settings', { settings: { ...((name.startsWith('startup_wrapped_') || ['latency', 'revision'].includes(mode)) ? { tools: { canvas: { enabled: true } } } : {}),
     ...(name === 'latency_opus' ? { audio: { input: { format: { type: 'audio/opus', rate: 24000 } } } } : {}),
     turn_detection: { type: null }, resumption: { enabled: name === 'optin_resumption' } }, expectedRevision: 0 }, { 'Idempotency-Key': 'life-settings-' + name }));
   const admit = async id => {
@@ -126,6 +127,54 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
     }
     const client = await open(sessionId);
     assert.equal((await command('state')).configurations, 1, 'Early session.created survived the durable acceptance fence');
+    if (mode === 'revision') {
+      const conversation = () => f.db.prepare('SELECT revision,brief_revision,brief_json FROM canvas_agent_conversations WHERE project_id=?').bind(projectId).first();
+      const calls = async () => (await f.db.prepare('SELECT input_json,result_json FROM canvas_voice_calls WHERE session_id=?').bind(sessionId).all()).results;
+      await command('emit', { command: 'turn' }); await client.wait(event => event.type === 'voice.changed');
+      await command('emit', { command: 'answer' });
+      await until(conversation, row => row.revision === 2, 'Real transcript and reply advance only conversation revision');
+      assert.equal((await command('state')).configurations, 1, 'Provider still has original revision0 from initial context');
+      if (name === 'revision_external') {
+        await f.db.prepare('UPDATE canvas_agent_conversations SET revision=revision+1 WHERE project_id=?').bind(projectId).run();
+        await command('emit', { command: 'apply' });
+        await client.wait(event => event.type === 'voice.ended' && event.code === 'canvas_voice_context_changed');
+        assert.deepEqual(await calls(), []); assert.equal((await conversation()).brief_revision, 0);
+      } else if (name === 'revision_forged') {
+        for (const [operation, code] of [['forged', 'canvas_agent_conversation_changed'], ['injected', 'canvas_voice_tool_arguments_invalid']]) {
+          await command('emit', { command: operation });
+          await client.wait(event => event.type === 'voice.changed' && event.tool?.name === 'canvas_update_brief' && event.tool.code === code);
+        }
+        assert.deepEqual(await calls(), []); assert.equal((await conversation()).brief_revision, 0);
+      } else {
+        await command('emit', { command: 'apply' });
+        await client.wait(event => event.type === 'voice.changed' && event.tool?.name === 'canvas_update_brief' && event.tool.ok === true);
+        await until(conversation, row => row.revision === 4, 'Applied brief and final reply complete through real Owner');
+        const saved = await calls(); assert.equal(saved.length, 1);
+        assert.equal(JSON.parse(saved[0].input_json).expectedConversationRevision, 0, 'Immutable receipt retains the actual model argument, not a rewritten revision');
+        assert.equal(JSON.parse(saved[0].result_json).conversationRevision, 3);
+        assert.equal(JSON.parse((await conversation()).brief_json).fields.story.value, 'Eine Katze erkundet den Garten.');
+        await command('emit', { command: 'replay' });
+        // Processed after replay: an observable provider event, not a timed assumption.
+        const prior = client.events.filter(event => event.type === 'voice.state' && event.state === 'processing').length;
+        await command('emit', { command: 'turn' });
+        await until(() => client.events, events => events.filter(event => event.type === 'voice.state' && event.state === 'processing').length > prior, 'Exact tool replay passes relay queue');
+        assert.deepEqual(await calls(), saved); assert.equal((await conversation()).revision, 4);
+        assert.equal((await command('state')).responses, 1, 'Same original call never schedules another provider response');
+        if (name === 'revision_stale') {
+          await command('emit', { command: 'stale' });
+          await client.wait(event => event.type === 'voice.changed' && event.tool?.code === 'canvas_agent_conversation_changed');
+          assert.deepEqual(await calls(), saved); assert.equal((await conversation()).brief_revision, 1);
+        }
+      }
+      await json(await stop(sessionId));
+      const settled = await until(usage, row => row?.billing_status === 'finalized', 'Revision fence settles original accepted usage');
+      const receipt = JSON.parse(settled.metadata_json).canvas_voice_receipt, once = await debit();
+      assert.deepEqual(once, { n: 1, amount: -receipt.credits });
+      for (let replay = 0; replay < 2; replay++) await json(await stop(sessionId));
+      assert.deepEqual(await debit(), once); assert.equal((await command('state')).connections, 1);
+      assert.equal((await f.db.prepare('SELECT COUNT(*) AS n FROM canvas_agent_runs WHERE project_id=?').bind(projectId).first()).n, 0);
+      return;
+    }
     if (mode === 'latency') {
       const latency = async delayMs => {
         const response = await f.control('/canvas-voice-owner-latency', { userId, ...(delayMs === undefined ? {} : { delayMs }) });
