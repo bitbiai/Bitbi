@@ -81,6 +81,7 @@ async function ownerInterruption(f,fault){
    const ready=events.filter(event=>event.type==='voice.turn'&&event.state==='ready').length;
    message({type:'audio.append',audio});message({type:'audio.commit'});
    await wait(()=>events.filter(event=>event.type==='voice.turn'&&event.state==='ready').length>ready);
+   assert.deepEqual(events.filter(event=>event.type==='voice.speech_started'),[{type:'voice.speech_started'}],'The next speech signal never reactivates the already interrupted answer IDs');
    const following=(await f.db.prepare('SELECT user_text,assistant_text FROM canvas_agent_turns WHERE project_id=? ORDER BY rowid').bind(projectId).all()).results;
    assert.equal(following.length,2);assert.deepEqual(following[0],turns[0]);
    assert.equal(following[1].user_text,'Welche Auflösung ist möglich?');assert.equal(following[1].assistant_text,'Wir können die passende Auflösung gemeinsam auswählen.');
@@ -100,6 +101,7 @@ async function ownerInterruption(f,fault){
   assert.deepEqual(diagnostics,fault?[]:['canvas_voice_retained_text_unverified'],'Only the specific correlation-safe mismatch receives a bounded diagnostic');
   const original=await storedReply();assert.equal(original.assistant_text,turns[0].assistant_text);
   assert.equal(original.retained_text,fault?null:'Welche Auflösung');
+  assert.equal(original.heard_audio_ms,50,'Following speech and response preserve the original confirmed interruption position');
   assert.equal((await f.db.prepare('SELECT COUNT(*) AS n FROM canvas_agent_runs WHERE project_id=?').bind(projectId).first()).n,0,'Voice cannot silently launch text or production');
  }finally{try{socket.close(1000);}catch{}}
 }

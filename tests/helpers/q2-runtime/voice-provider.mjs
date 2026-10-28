@@ -33,6 +33,7 @@ export default {
    else if(item.type==='input_audio_buffer.commit'){
     const item_id=++commits===1?'spoken_cat':'spoken_followup';
     if(commits>2)throw new Error('Unexpected extra user turn');
+    if(commits===2)emit({type:'input_audio_buffer.speech_started',item_id});
     emit({type:'input_audio_buffer.committed',item_id});
     emit({type:'conversation.item.input_audio_transcription.updated',item_id,transcript:'Ein Katzenvideo'});
     emit({type:'conversation.item.input_audio_transcription.completed',item_id,transcript:commits===1?'Ein Katzenvideo, 45 Sekunden lang, im Cartoon-Stil und 16:9.':'Welche Auflösung ist möglich?'});

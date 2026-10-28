@@ -227,7 +227,10 @@ export class CanvasVoiceRelay {
             // xAI identifies the user item before its audio commit. Pin responses
             // now, but grant no turn until this exact item is committed and final.
             this.source(event.item_id || null); this.turn = null;
-            this.send({ type: 'voice.speech_started', responseId: this.output?.responseId, itemId: this.output?.itemId }); return;
+            // Do not restore a playback identity that the client already cleared
+            // on interruption; a second empty playback would truncate it to zero.
+            const interruptible = this.output?.interrupted ? null : this.output;
+            this.send({ type: 'voice.speech_started', responseId: interruptible?.responseId, itemId: interruptible?.itemId }); return;
         }
         if (event.type === 'input_audio_buffer.committed') {
             if (!id(event.item_id)) fail('canvas_voice_provider_event_invalid');

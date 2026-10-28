@@ -489,6 +489,15 @@ audio commit, one connection/debit and the negative controls. Removing only the
 Owner recovery reproduces the stop through the same native caller; local
 synthetic execution does not establish the historical discarded payload.
 
+The subsequent live interruption/continuation on `3f6b19b7` (protected run
+`40744845011/1`) completed two spoken turns and settled once. Its next VAD event
+nevertheless reintroduced the already interrupted response identity: the browser
+had cleared playback, so its second truncation changed 3,472 ms to zero. Retain
+the old response for late-event validation/accounting, but omit its identity
+from new speech-start notifications once interrupted. A new, uninterrupted
+response still supports ordinary barge-in. Relay and native Owner controls
+verify both paths, retaining the confirmed prefix through the following turn.
+
 Schema `0119_canvas_voice_sessions.sql` and the Voice frontend are published.
 The context/source association corrections affect Auth; the published frontend consumes
 the existing event unchanged. Compute the complete unpublished selection before

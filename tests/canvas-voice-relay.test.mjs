@@ -717,6 +717,8 @@ test('interrupt cancels only an in-progress provider response while completed qu
         await f.provider({ type: 'response.output_item.added', response_id: 'interrupt_response', item: { type: 'message', id: 'interrupt_item' } });
         await f.provider({ type: 'response.output_audio.delta', response_id: 'interrupt_response', item_id: 'interrupt_item', delta: Buffer.alloc(48000).toString('base64') });
         if (done) await f.provider({ type: 'response.done', response: { id: 'interrupt_response', status: 'completed' } });
+        await f.provider({ type: 'input_audio_buffer.speech_started', item_id: 'first_barge_in' });
+        assert.deepEqual(f.sent.at(-1), { type: 'voice.speech_started', responseId: 'interrupt_response', itemId: 'interrupt_item' }, 'Uninterrupted active or queued output still identifies the response to stop');
         await f.client({ type: 'voice.interrupt', sequence: 0, responseId: 'interrupt_response', itemId: 'interrupt_item', audioEndMs: 750 });
         assert.deepEqual(f.upstream.filter(event => event.type === 'response.cancel'), done ? [] : [{ type: 'response.cancel', response_id: 'interrupt_response' }]);
         assert.deepEqual(f.upstream.filter(event => event.type === 'conversation.item.truncate'), [{ type: 'conversation.item.truncate', item_id: 'interrupt_item', content_index: 0, audio_end_ms: 750 }]);
@@ -726,6 +728,18 @@ test('interrupt cancels only an in-progress provider response while completed qu
         await f.provider({ type: 'response.output_audio.delta', response_id: 'interrupt_response', item_id: 'interrupt_item', delta: 'AAA=' });
         assert.equal(f.sent.filter(event => event.type === 'voice.audio').length, 1, 'Interrupted late audio remains suppressed');
         assert.equal(f.relay.outputSamples, 24001, 'Actually received late audio remains metered');
+        await f.provider({ type: 'input_audio_buffer.speech_started', item_id: 'next_barge_in' });
+        assert.deepEqual(f.sent.at(-1), { type: 'voice.speech_started' }, 'Later speech cannot resurrect the already interrupted response identity');
+        assert.equal(f.calls.filter(call => call[0] === 'interrupted').length, 1);
+        await f.provider({ type: 'response.created', response: { id: 'next_response' } });
+        await f.provider({ type: 'response.output_item.added', response_id: 'next_response', item: { type: 'message', id: 'next_item' } });
+        await f.provider({ type: 'response.output_audio.delta', response_id: 'next_response', item_id: 'next_item', delta: 'AAA=' });
+        await f.provider({ type: 'input_audio_buffer.speech_started', item_id: 'future_barge_in' });
+        assert.deepEqual(f.sent.at(-1), { type: 'voice.speech_started', responseId: 'next_response', itemId: 'next_item' });
+        await f.client({ type: 'voice.interrupt', sequence: 1, responseId: 'next_response', itemId: 'next_item', audioEndMs: 0 });
+        assert.deepEqual(f.upstream.filter(event => event.type === 'response.cancel').at(-1), { type: 'response.cancel', response_id: 'next_response' });
+        assert.deepEqual(f.upstream.filter(event => event.type === 'conversation.item.truncate').at(-1), { type: 'conversation.item.truncate', item_id: 'next_item', content_index: 0, audio_end_ms: 0 });
+        assert.equal(f.calls.filter(call => call[0] === 'interrupted')[0][1].audioEndMs, 750, 'A new output interruption cannot replace the earlier heard position');
         assert.equal(f.relay.closed, false); await f.relay.stop();
     }
 });
