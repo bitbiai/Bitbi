@@ -315,6 +315,15 @@ neither event authorizes audio, tools or activation without a verified settings
 acknowledgement. Unexpected pre-ack events retain a fixed diagnostic category,
 never arbitrary event names, contents, identifiers or credentials.
 
+Protected startup release `5d1823f8` subsequently accepted a live connection but
+stopped before configuration confirmation with an unrecognized JSON event
+(`canvas_voice_provider_not_ready_unknown_event`); no audio or briefing change
+was observed. The historical envelope was not retained. The next bounded
+diagnostic records only fixed envelope/type categories, known-key presence,
+allowlisted nested event/error categories and a digest of an unknown type. It
+does not unwrap or ignore unexpected messages, relax the acknowledgement,
+retain provider payloads, or establish live speech acceptance.
+
 Schema `0119_canvas_voice_sessions.sql` and the Voice frontend are published.
 The startup correction requires Auth publication only; compute the complete
 unpublished selection before release and retain unchanged frontend provenance.

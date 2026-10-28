@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { CanvasVoiceRelay } from '../workers/auth/src/lib/canvas-voice-relay.js';
 import { canvasVoiceSettings } from '../js/shared/canvas-voice-settings.mjs';
 
@@ -52,8 +53,6 @@ test('pre-ack audio, tools and unknown events remain fenced with content-free di
         [{ type: 'response.output_audio.delta', delta: 'AAA=' }, 'audio_delta'],
         [{ type: 'response.function_call_arguments.done', arguments: '{"private":"do not log"}' }, 'function_call'],
         [{ type: 'input_audio_buffer.cleared' }, 'input_cleared'],
-        [{ type: 'synthetic_private_event', private: 'do not log' }, 'unknown_event'],
-        [{ type: '__proto__' }, 'unknown_event'],
     ];
     for (const [event, category] of cases) {
         const f = fixture(); await f.provider({ type: 'conversation.created', conversation: { id: 'conversation_1' } });
@@ -71,6 +70,37 @@ test('pre-ack audio, tools and unknown events remain fenced with content-free di
         { type: 'session.updated', session: { instructions: 'trusted' } }]) {
         const f = fixture(); await f.provider(event);
         assert.equal(f.relay.closed, true); assert.equal(f.relay.active, false); assert.equal(f.upstream.length, 0);
+    }
+});
+test('unexpected startup frames retain only fixed envelope facts and a type digest, never private fields', async () => {
+    const privateType = 'private_provider_token_and_type';
+    const digest = value => createHash('sha256').update(value).digest('hex').slice(0, 16);
+    const cases = [
+        [{ error: { code: 'permission-denied', message: 'private provider detail' } }, 'o_m_k04_n0_rpermission'],
+        [{ type: privateType, message: 'private content' }, `o_s_k10_n0_rnone_h${digest(privateType)}`],
+        [{ type: '__proto__' }, `o_s_k00_n0_rnone_h${digest('__proto__')}`],
+        [{ type: ['session.created'], data: { type: 'session.updated', secret: 'private context' } }, 'o_n_k01_n13_rnone'],
+        [{ type: null, event: 'session.created' }, 'o_n_k02_n21_rnone'],
+        [{ data: { type: 'private nested token' }, event: { type: 'conversation.created' } }, 'o_m_k03_n22_rnone'],
+        [{ data: {}, event: {}, error: {}, code: 'private', message: 'private', session: {}, conversation: {} }, 'o_m_k7f_n0_rnone'],
+        [JSON.parse('{"__proto__":{"type":"session.created"},"constructor":"private"}'), 'o_m_k00_n0_rnone'],
+        [{ type: privateType, error: 'The model private-model does not exist or your team has no access' }, `o_s_k04_n0_rmodel_access_h${digest(privateType)}`],
+        [[], 'a_m_k00_n0_rnone'], [null, 'p_m_k00_n0_rnone'], ['private primitive', 'p_m_k00_n0_rnone'], [17, 'p_m_k00_n0_rnone'],
+    ];
+    for (const configured of [false, true]) for (const [event, suffix] of cases) {
+        const f = fixture();
+        if (configured) await f.provider({ type: 'session.created' });
+        await f.provider(event);
+        const code = `canvas_voice_provider_not_ready_u_s${configured ? 1 : 0}a0_${suffix}`;
+        assert.equal(f.calls.at(-1)[1].code, code); assert.match(code, /^[a-z0-9_]{1,100}$/);
+        assert.equal(f.sent.at(-1).code, 'canvas_voice_configuration_unconfirmed');
+        assert.equal(f.relay.closed, true); assert.equal(f.relay.active, false);
+        assert.equal(JSON.stringify(f.sent).includes('private'), false); assert.equal(JSON.stringify(f.calls).includes('private'), false);
+        assert.equal(f.calls.some(call => ['tool', 'user', 'reply', 'exposure', 'active'].includes(call[0])), false);
+        assert.equal(f.upstream.length, configured ? 1 : 0, 'No wrapper is unwrapped into configuration or a paid response');
+        await f.provider(event); await f.provider({ type: 'session.updated', session: { instructions: 'trusted' } });
+        assert.equal(f.calls.filter(call => call[0] === 'ended').length, 1); assert.equal(f.relay.active, false);
+        assert.deepEqual(f.closed, ['provider', 'client']);
     }
 });
 test('configuration diagnostics retain their safe receipt code while the browser receives the localized category', async () => {

@@ -2,6 +2,8 @@
 // admission, accounting and lifecycle services; this core does not reserve
 // credits. Browser messages are NOT arbitrary xAI messages.
 import { opusPacketDuration } from '../../../../js/shared/canvas-voice-audio.mjs';
+import { canvasVoiceProviderRejectionCategory } from './canvas-voice-provider.js';
+import { sha256Hex } from './tokens.js';
 const parse = value => { if (typeof value !== 'string' || value.length > 280000) throw new Error('canvas_voice_frame_invalid'); return JSON.parse(value); };
 const fail = code => { throw Object.assign(new Error(code), { code }); };
 const exact = (value, keys) => value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).every(k => keys.includes(k));
@@ -25,6 +27,27 @@ const beforeReadyEvents = Object.freeze({
     'response.mcp_call_arguments.delta': 'mcp_arguments', 'response.mcp_call_arguments.done': 'mcp_arguments_done',
     'response.mcp_call.in_progress': 'mcp_call', 'response.mcp_call.completed': 'mcp_completed', 'response.mcp_call.failed': 'mcp_call_failed',
 });
+const startupKeys = Object.freeze(['data', 'event', 'error', 'code', 'message', 'session', 'conversation']);
+// Positional diagnostic IDs only: append new names without renumbering existing entries.
+const startupTypes = Object.freeze(['session.created', 'conversation.created', 'session.updated',
+    'conversation.item.created', 'conversation.item.added', 'error', ...Object.keys(beforeReadyEvents)]);
+async function startupFrameCode(event, configured) {
+    const object = event !== null && typeof event === 'object' && !Array.isArray(event);
+    const shape = object ? 'o' : Array.isArray(event) ? 'a' : 'p';
+    const type = object && Object.hasOwn(event, 'type') ? event.type : undefined;
+    const kind = !object || !Object.hasOwn(event, 'type') ? 'm' : typeof type === 'string' ? 's' : 'n';
+    let mask = 0, nested = '0';
+    if (object) startupKeys.forEach((key, i) => {
+        if (!Object.hasOwn(event, key)) return;
+        mask |= 1 << i;
+        const value = event[key], candidate = typeof value === 'string' ? value : value?.type;
+        const known = typeof candidate === 'string' ? startupTypes.indexOf(candidate) : -1;
+        if (nested === '0' && known >= 0) nested = `${i + 1}${(known + 1).toString(36)}`;
+    });
+    const reason = canvasVoiceProviderRejectionCategory(event) || 'none';
+    const digest = kind === 's' ? '_h' + (await sha256Hex(type)).slice(0, 16) : '';
+    return `canvas_voice_provider_not_ready_u_s${configured ? 1 : 0}a0_${shape}_${kind}_k${mask.toString(16).padStart(2, '0')}_n${nested}_r${reason}${digest}`;
+}
 const bytesOf = value => {
     if (typeof value !== 'string' || value.length > 256000 || value.length % 4 || !/^[A-Za-z0-9+/]*={0,2}$/.test(value)) fail('canvas_voice_audio_invalid');
     return Uint8Array.from(atob(value), c => c.charCodeAt(0));
@@ -120,23 +143,23 @@ export class CanvasVoiceRelay {
             if (!this.active || !this.output || this.session.settings.audio.output.transport !== 'binary') fail('canvas_voice_audio_unassociated');
             await this.audio(new Uint8Array(raw)); return;
         }
-        const event = parse(raw);
-        if (event.event_id) {
+        const event = parse(raw), type = event?.type;
+        if (event?.event_id) {
             if (!id(event.event_id)) fail('canvas_voice_provider_event_invalid');
             if (this.providerEvents.has(event.event_id)) return;
             if (this.providerEvents.size >= 20000) fail('canvas_voice_event_limit');
             this.providerEvents.add(event.event_id);
         }
-        if (event.type === 'session.created') { this.configure(); return; }
-        if (event.type === 'conversation.created') {
+        if (type === 'session.created') { this.configure(); return; }
+        if (type === 'conversation.created') {
             if (!id(event.conversation?.id)) fail('canvas_voice_provider_identity_invalid');
             await this.services.conversation?.(event.conversation.id); this.configure(); return;
         }
         // Opt-in resumption replays historical items, including tool calls and
         // outputs. They condition the provider, never create a fresh local turn,
         // execute a tool or resend a chargeable conversation.item.create.
-        if (event.type === 'conversation.item.created' || event.type === 'conversation.item.added') return;
-        if (event.type === 'session.updated') {
+        if (type === 'conversation.item.created' || type === 'conversation.item.added') return;
+        if (type === 'session.updated') {
             if (!this.configurationSent) fail('canvas_voice_provider_not_ready_session_updated');
             await this.services.verifyConfiguration(event.session);
             if (this.closed) return;
@@ -146,8 +169,9 @@ export class CanvasVoiceRelay {
             }
             this.send({ type: 'voice.state', state: this.muted ? 'muted' : 'listening' }); return;
         }
-        if (event.type === 'error') fail('canvas_voice_provider_error');
-        if (!this.active) fail('canvas_voice_provider_not_ready_' + (Object.hasOwn(beforeReadyEvents, event.type) ? beforeReadyEvents[event.type] : 'unknown_event'));
+        if (type === 'error') fail('canvas_voice_provider_error');
+        if (!this.active) fail(typeof type === 'string' && Object.hasOwn(beforeReadyEvents, type)
+            ? 'canvas_voice_provider_not_ready_' + beforeReadyEvents[type] : await startupFrameCode(event, this.configurationSent));
         if (event.type === 'input_audio_buffer.timeout_triggered') {
             this.send({ type: 'voice.state', state: 'processing' }); return; // Provider follow-up, not a local session expiry.
         }

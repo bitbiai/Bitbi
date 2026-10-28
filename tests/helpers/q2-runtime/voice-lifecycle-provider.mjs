@@ -2,7 +2,7 @@
 // egress; normal coverage uses the unchanged provider until a case opts in.
 import normalProvider from './voice-provider.mjs';
 
-const modes = new Set(['idle', 'pending', 'abnormal', 'no_ack', 'delayed_ack', 'partial', 'resume', 'rejected', 'startup_order', 'startup_audio', 'startup_tool']);
+const modes = new Set(['idle', 'pending', 'abnormal', 'no_ack', 'delayed_ack', 'partial', 'resume', 'rejected', 'startup_order', 'startup_audio', 'startup_tool', 'startup_error_envelope']);
 let current = null;
 const snapshot = state => state ? { enabled: true, mode: state.mode, attempts: state.attempts,
   connections: state.connections, appends: state.appends, responses: state.responses,
@@ -81,7 +81,9 @@ const handler = {
     });
     // Emitted before the owner's durable acceptance write. The owner must have
     // attached listeners and must not execute this event ahead of that fence.
-    if (state.mode.startsWith('startup_')) {
+    if (state.mode === 'startup_error_envelope') {
+      emit({ error: { code: 'permission-denied', message: 'synthetic-private-error-must-not-be-retained' } });
+    } else if (state.mode.startsWith('startup_')) {
       emit({ type: 'conversation.created', event_id: 'startup_conversation', conversation: { id: conversationId } });
       if (state.mode === 'startup_order') emit({ type: 'conversation.item.added', item: { id: 'historical_call', type: 'function_call',
         name: 'canvas_update_brief', arguments: '{"private":"must remain inert"}' } });

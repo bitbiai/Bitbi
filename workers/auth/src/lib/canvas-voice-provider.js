@@ -148,29 +148,32 @@ function closeUnacceptedSocket(socket) {
     try { socket.accept?.(); } finally { socket.close?.(1000, 'Stopped'); }
 }
 
+// Shared by HTTP rejection bodies and pre-ACK JSON error envelopes. It reports
+// only fixed observations, never provider text, IDs or echoed credentials.
+export function canvasVoiceProviderRejectionCategory(value) {
+    if (!plain(value)) return '';
+    const detail = plain(value.error) ? value.error : value;
+    const codes = { invalid_api_key: 'invalid_key', unauthenticated: 'auth', 'permission-denied': 'permission',
+        'resource-exhausted': 'quota', 'not-found': 'not_found', 'invalid-argument': 'argument',
+        insufficient_quota: 'quota', rate_limit_exceeded: 'rate_limit' };
+    if (typeof detail.code === 'string' && Object.hasOwn(codes, detail.code)) return codes[detail.code];
+    const message = typeof value.error === 'string' ? value.error : detail.message;
+    if (typeof message !== 'string' || message.length > 4096) return '';
+    if (/^(?:incorrect|invalid) api key(?: provided)?\b/i.test(message)) return 'invalid_key';
+    if (/^the model .{1,180} does not exist or your team\b/i.test(message)) return 'model_access';
+    if (/^(?:insufficient credits|your (?:team|account) has (?:no|insufficient) credits)\b/i.test(message)) return 'quota';
+    if (/^(?:websocket protocol error|missing (?:required )?websocket header)\b/i.test(message)) return 'handshake';
+    return '';
+}
+
 async function rejectionReason(response, controller) {
-    // Before session.update there is no conversation payload. Still treat the
-    // error body as untrusted: retain only fixed categories, never its text,
-    // provider IDs, headers or a possibly echoed credential.
     let timer;
     try {
         const body = await Promise.race([readTextBodyLimited(response, { maxBytes: 4096 }).catch(() => null),
             new Promise(resolve => { timer = setTimeout(() => { controller.abort(); resolve(null); }, 1000); })]);
         if (!body) return '';
         let value; try { value = JSON.parse(body); } catch { return ''; }
-        if (!plain(value)) return '';
-        const detail = plain(value.error) ? value.error : value;
-        const codes = { invalid_api_key: 'invalid_key', unauthenticated: 'auth', 'permission-denied': 'permission',
-            'resource-exhausted': 'quota', 'not-found': 'not_found', 'invalid-argument': 'argument',
-            insufficient_quota: 'quota', rate_limit_exceeded: 'rate_limit' };
-        if (typeof detail.code === 'string' && Object.hasOwn(codes, detail.code)) return codes[detail.code];
-        const message = typeof value.error === 'string' ? value.error : detail.message;
-        if (typeof message !== 'string') return '';
-        if (/^(?:incorrect|invalid) api key(?: provided)?\b/i.test(message)) return 'invalid_key';
-        if (/^the model .{1,180} does not exist or your team\b/i.test(message)) return 'model_access';
-        if (/^(?:insufficient credits|your (?:team|account) has (?:no|insufficient) credits)\b/i.test(message)) return 'quota';
-        if (/^(?:websocket protocol error|missing (?:required )?websocket header)\b/i.test(message)) return 'handshake';
-        return '';
+        return canvasVoiceProviderRejectionCategory(value);
     } finally {
         clearTimeout(timer);
         controller.abort(); // Bound the remaining HTTP body even after a read/size failure.
