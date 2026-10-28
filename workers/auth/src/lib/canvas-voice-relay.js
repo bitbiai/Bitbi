@@ -104,7 +104,8 @@ export class CanvasVoiceRelay {
     }
     enqueue(work, size = 0) {
         if (this.closed) return Promise.resolve();
-        if (size > 280000 || this.queuedCount >= 64 || this.queuedBytes + size > 2 * 1024 * 1024) return this.stop('canvas_voice_backpressure');
+        const pressure = size > 280000 ? 'frame' : this.queuedCount >= 64 ? 'count' : this.queuedBytes + size > 2 * 1024 * 1024 ? 'bytes' : null;
+        if (pressure) return this.stop('canvas_voice_backpressure_' + pressure);
         this.queuedCount++; this.queuedBytes += size;
         this.queue = this.queue.then(async () => { if (!this.closed) await work(); }).catch(error => this.stop(error.code || 'canvas_voice_protocol_failed'))
             .finally(() => { this.queuedCount--; this.queuedBytes -= size; });
@@ -312,7 +313,8 @@ export class CanvasVoiceRelay {
         if (this.closed) return;
         this.closed = true;
         const publicCode = typeof code === 'string' && (code.startsWith('canvas_voice_configuration_unconfirmed_')
-            || code.startsWith('canvas_voice_provider_not_ready_')) ? 'canvas_voice_configuration_unconfirmed' : code;
+            || code.startsWith('canvas_voice_provider_not_ready_')) ? 'canvas_voice_configuration_unconfirmed'
+            : ['canvas_voice_backpressure_frame', 'canvas_voice_backpressure_count', 'canvas_voice_backpressure_bytes'].includes(code) ? 'canvas_voice_backpressure' : code;
         try { this.clearTimer(this.deadline); } catch { /* Timer cleanup cannot block socket close or durable settlement. */ }
         try { this.provider.close(1000, 'session ended'); } catch { /* Already closed; the outcome is still recorded below. */ }
         try { this.client.send(JSON.stringify({ type: 'voice.ended', code: publicCode })); this.client.close(1000, 'session ended'); } catch { /* Disconnected browser cannot acknowledge termination. */ }

@@ -215,8 +215,12 @@ export class CanvasVoiceOwner {
             conversation: id => recordCanvasVoiceProviderConversation(this.env, a.scope, id),
             recordExposure: exposure => this.record(a, exposure),
             userTurn: async input => { await this.authority(a, true); const result = await recordCanvasVoiceUserTurn(this.env, a.scope, input);
-                this.adoptRevision(a, result); await this.refreshContext(a, true); return result; },
-            reply: async input => { await this.authority(a, true); const result = await this.reply(a, input); await this.refreshContext(a, true); return result; },
+                // The provider already owns these spoken turns. Persist their
+                // canonical projection without rebuilding the full project on
+                // the serial audio path. Tools and response creation read fresh
+                // context, and confirmed brief changes still update the session.
+                this.adoptRevision(a, result); return result; },
+            reply: async input => { await this.authority(a, true); return this.reply(a, input); },
             tool: async input => { await this.authority(a, true); const result = await dispatcher(input);
                 if (input.name === 'canvas_update_brief' && result.ok) { this.adoptRevision(a, result.data); await this.refreshContext(a, true); }
                 return result; },

@@ -162,7 +162,8 @@ export async function createRuntime(build, name, { restricted = false, reference
     outboundService: name === 'canvas-voice' ? 'q2-voice-provider' : canvasRuntime ? canvasOutput : name==='member-generation' ? h3Rest : consumerMailProvider?.fetch || deny, serviceBindings: { AI_LAB: canvasRuntime ? canvasService : denyService },
     ...(canvasRuntime ? { unsafeBindings: [{name:'AI',type:'q2-image25-ai',plugin:{name:'q2-image25-ai',package:fileURLToPath(new URL('./image25-ai-binding.mjs',import.meta.url))},options:{}}] } : {}), unsafeRegisterWorker: false };
   const limiterOwner = restricted ? 'q2-restricted' : 'q2-candidate';
-  const limiter = owner => ({ PUBLIC_RATE_LIMITER: { className: 'AuthPublicRateLimiterDurableObject', useSQLite: true, ...(owner ? { scriptName: owner } : {}) } });
+  const limiter = owner => ({ PUBLIC_RATE_LIMITER: { className: name === 'canvas-voice' ? 'CanvasVoiceLatencyTestDurableObject' : 'AuthPublicRateLimiterDurableObject', useSQLite: true,
+    ...(name === 'canvas-voice' ? { scriptName: 'q2-control' } : owner ? { scriptName: owner } : {}) } });
   const queues = { ACTIVITY_INGEST_QUEUE: `q2-${name}-activity`, AI_IMAGE_DERIVATIVES_QUEUE: `q2-${name}-derivatives`, AI_VIDEO_JOBS_QUEUE: `q2-${name}-videos` };
   const workers = [];
   if (restricted) {
@@ -185,7 +186,7 @@ export async function createRuntime(build, name, { restricted = false, reference
     assert.ok(Object.values(control.metafile.outputs).every(output => output.imports.length === 0));
     fs.writeFileSync(path.join(executionDir, 'control-metafile.json'), JSON.stringify(control.metafile, null, 2), { flag: 'wx' });
     workers.push({ ...shared, name: 'q2-control', script: control.outputFiles[0].text,
-      durableObjects: {...limiter(limiterOwner),...(canvasRuntime?{CANVAS_IMAGE_RATE_TEST:{className:'CanvasImageRateTestDurableObject',useSQLite:true}}:{})}, queueProducers:queues });
+      durableObjects: {...limiter(name === 'canvas-voice' ? null : limiterOwner),...(canvasRuntime?{CANVAS_IMAGE_RATE_TEST:{className:'CanvasImageRateTestDurableObject',useSQLite:true}}:{})}, queueProducers:queues });
   }
   if (name === 'native') workers.push({ name: 'q2-images', modules: true,
     compatibilityDate: build.config.compatibility_date, images: { binding: 'IMAGES' }, outboundService: deny,

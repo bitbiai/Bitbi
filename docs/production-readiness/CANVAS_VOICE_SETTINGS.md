@@ -230,7 +230,11 @@ The browser uses `voice.js` and one existing conversation observer, not a second
 chat instance. Microphone capture starts only after an explicit action. Native
 dialog settings, browser audio constraints and xAI options are distinct. The
 AudioWorklet pipeline keeps resampling phase across chunks, validates raw Opus
-packets and bounds capture/playback queues. Manual commit flushes the final
+packets and bounds capture/playback queues. Capture packetization is separate
+from the device's render quantum: PCM/G.711 uses approximately 100 ms packets;
+Opus uses individual 60 ms WebCodecs packets where the browser supports them.
+The relay's event-count, byte, rate and accounting limits remain unchanged.
+Manual commit flushes the final
 worklet/resampler/encoder samples before committing a turn. Stop fences pending
 microphone/admission/connection promises and releases nodes, tracks and sockets.
 
@@ -250,6 +254,11 @@ decision. None can start production or authorize spending. Revision guards and
 stable provider item/call IDs protect manual edits and duplicate delivery.
 Voice transcripts never go through the text assistant's paid `/messages` path.
 The text model preference and all accepted production receipts remain separate.
+Saving an ordinary spoken turn or reply adopts its canonical conversation
+revision without rebuilding and echoing the entire context already known to
+the provider. Explicit context reads, successful brief changes and response
+continuations still read the current authoritative state; model-supplied stale
+revisions cannot bypass validation.
 
 Cumulative transcription replaces the interim value. Late response IDs stay
 associated with their original source turn. Interruption preserves original
@@ -370,9 +379,19 @@ infer commitment from speech-stop, response creation or a timer. Preserve exact
 replays and the canonical conflicting-final guard. This closes the reproduced
 boundary; live audio output and briefing acceptance still need their own proof.
 
+The `2dd5c26c` live session stored the complete synthetic user request, then
+stopped at `canvas_voice_backpressure` without an answer or brief change. The
+original receipt does not distinguish the breached count/byte/frame limit.
+The browser emitted roughly 47 small PCM packets per second, leaving about 1.37 s
+of headroom in the unchanged 64-event queue during a blocking context read.
+Remove redundant context refreshes after ordinary turns and packetize capture
+at the cadence above. Retain bounded diagnostic categories for frame-size,
+queued-event and queued-byte rejection. Local delayed-context and capture
+checks establish this boundary separately from live provider acceptance.
+
 Schema `0119_canvas_voice_sessions.sql` and the Voice frontend are published.
-The startup correction requires Auth publication only; compute the complete
-unpublished selection before release and retain unchanged frontend provenance.
+The capture/relay correction affects Auth and frontend; compute the complete
+unpublished selection before release and verify both active identities.
 Use `release:local` with its existing protection, verification and publication
 lock. A published component or accepted WebSocket alone is not live speech
 acceptance. Preserve the owner's encrypted secret and existing session receipts.

@@ -336,7 +336,7 @@ function registerCanvasVoiceTests(test, expect, { mockSharedAuth, createCanvasAp
             const NativeAudio = AudioContext, sourceContext = new NativeAudio(), contexts = [], closings = [], encoders = [], decoders = [], errors = []; let failConfigure = false, resetCalls = 0, disconnects = 0;
             window.AudioContext = class extends NativeAudio { constructor(...args) { super(...args); contexts.push(this); } close() { const closing = super.close(); closings.push(closing); return closing; } };
             const NativeWorklet = AudioWorkletNode; window.AudioWorkletNode = class extends NativeWorklet { disconnect(...args) { super.disconnect(...args); disconnects++; throw new DOMException('Synthetic already disconnected', 'InvalidStateError'); } };
-            window.AudioEncoder = class { static async isConfigSupported() { return { supported: true }; } constructor(callbacks) { this.callbacks = callbacks; this.state = 'unconfigured'; encoders.push(this); } configure() { this.state = 'configured'; } close() { this.state = 'closed'; } };
+            window.AudioEncoder = class { static async isConfigSupported(config) { return { supported: true, config }; } constructor(callbacks) { this.callbacks = callbacks; this.state = 'unconfigured'; encoders.push(this); } configure() { this.state = 'configured'; } close() { this.state = 'closed'; } };
             window.AudioDecoder = class { static async isConfigSupported() { return { supported: true }; } constructor(callbacks) { this.callbacks = callbacks; this.state = 'unconfigured'; decoders.push(this); } configure() { if (failConfigure) throw new Error('synthetic_config_failure'); this.state = 'configured'; } close() { this.state = 'closed'; } reset() { resetCalls++; if (this.state === 'closed') throw new DOMException('Decoder closed', 'InvalidStateError'); } };
             let stream = sourceContext.createMediaStreamDestination().stream; await sourceContext.resume();
             Object.defineProperty(MediaDevices.prototype, 'getUserMedia', { configurable: true, value: async () => stream });
@@ -401,12 +401,50 @@ function registerCanvasVoiceTests(test, expect, { mockSharedAuth, createCanvasAp
             const end = performance.now() + 1500; while (samples.length < finalPackets.length && performance.now() < end) await new Promise(resolve => setTimeout(resolve, 30));
             const heard = audio.interrupt(); audio.mute(true); audio.stop(); codec.close(); oscillator.stop(); await sourceContext.close();
             const silence = []; let control; control = await createCanvasVoiceOpus({ encode: true, decode: true, onError: error => errors.push(error.message), onPacket: bytes => control.play(bytes, {}), onSamples: data => silence.push(Math.max(...data.map(Math.abs))) });
-            control.append(new Float32Array(480 * 10)); await control.flush(); const controlEnd = performance.now() + 1000; while (silence.length < 10 && performance.now() < controlEnd) await new Promise(resolve => setTimeout(resolve, 20)); control.close();
+            control.append(new Float32Array(1440 * 8)); await control.flush(); const controlEnd = performance.now() + 1000; while (silence.length < 8 && performance.now() < controlEnd) await new Promise(resolve => setTimeout(resolve, 20)); control.close();
             return { supported: await canvasVoiceOpusSupport(), packets: finalPackets.length, samples, silence, heard, errors, tracksEnded: destination.stream.getTracks().every(track => track.readyState === 'ended'), packetDuration: opusPacketDuration(Uint8Array.from(atob(packets[0] || ''), char => char.charCodeAt(0))) };
         });
         await info.attach('synthetic-audio-boundary', { body: JSON.stringify(result), contentType: 'application/json' });
         expect(result.supported).toBe(true); expect(result.errors).toEqual([]); expect(result.packets).toBeGreaterThanOrEqual(20); expect(result.samples).toHaveLength(result.packets);
-        expect(result.samples.slice(-5).every(sample => sample.count > 0 && sample.rms > .05)).toBe(true); expect(result.silence.length).toBeGreaterThanOrEqual(10); expect(Math.max(...result.silence)).toBeLessThan(.0001); expect(result.packetDuration).toBe(20); expect(result.tracksEnded).toBe(true); expect(result.heard.itemId).toBe('synthetic');
+        // The native decoder may output48k (Chromium) or24k (WebKit). Measure
+        // duration from its actual rate, independently of the requested rate.
+        expect(result.samples.every(sample => sample.count / sample.rate === .06)).toBe(true);
+        expect(result.samples.slice(-5).every(sample => sample.rms > .05)).toBe(true); expect(result.silence.length).toBeGreaterThanOrEqual(8); expect(Math.max(...result.silence)).toBeLessThan(.0001); expect(result.packetDuration).toBe(60); expect(result.tracksEnded).toBe(true); expect(result.heard.itemId).toBe('synthetic');
+    });
+    test('Canvas Voice real AudioWorklet batches PCM and G711, flushes tails and preserves mute and manual pause', async ({ page }, info) => {
+        await harness(page, false);
+        const results = await page.evaluate(async () => {
+            const { createCanvasVoiceAudio } = await import('/js/pages/canvas/voice-audio.js');
+            const { canvasVoiceSettings } = await import('/js/shared/canvas-voice-settings.mjs');
+            const { decodeVoiceAudio } = await import('/js/shared/canvas-voice-audio.mjs');
+            const results = [], wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+            for (const type of ['audio/pcm', 'audio/pcmu', 'audio/pcma']) {
+                const sourceContext = new AudioContext({ sampleRate: 48000 }), oscillator = sourceContext.createOscillator(), destination = sourceContext.createMediaStreamDestination();
+                oscillator.frequency.value = 440; oscillator.connect(destination); oscillator.start(); await sourceContext.resume();
+                Object.defineProperty(MediaDevices.prototype, 'getUserMedia', { configurable: true, value: async () => destination.stream });
+                const packets = [], errors = [], rate = type === 'audio/pcm' ? 24000 : 8000;
+                const audio = createCanvasVoiceAudio({ settings: canvasVoiceSettings({ audio: { input: { format: { type, rate } } } }), onAudio(value) { packets.push({ value, at: performance.now() }); return true; }, onError: error => errors.push(error.code || error.message) });
+                await audio.open(); audio.ready();
+                const deadline = performance.now() + 2000; while (packets.length < 3 && performance.now() < deadline) await wait(20);
+                await audio.finishTurn(); const completed = packets.slice(), pausedCount = packets.length;
+                audio.mute(true); audio.mute(false); await wait(150); const afterUnmute = packets.length;
+                audio.continueCapture(); const resumedUntil = performance.now() + 2000; while (packets.length < pausedCount + 2 && performance.now() < resumedUntil) await wait(20);
+                const beforeStop = packets.length; audio.stop(); audio.ready(); audio.continueCapture(); audio.mute(false); await wait(100);
+                results.push({ type, rate, errors, pausedCount, afterUnmute, beforeStop, afterStop: packets.length,
+                    packets: completed.map(packet => { const bytes = Uint8Array.from(atob(packet.value), char => char.charCodeAt(0)), samples = decodeVoiceAudio(bytes, type); return { count: samples.length, rms: Math.sqrt(samples.reduce((sum, value) => sum + value * value, 0) / samples.length), at: packet.at }; }),
+                    tracksEnded: destination.stream.getTracks().every(track => track.readyState === 'ended') });
+                oscillator.stop(); await sourceContext.close();
+            }
+            return results;
+        });
+        await info.attach('synthetic-pcm-g711-boundary', { body: JSON.stringify(results), contentType: 'application/json' });
+        for (const result of results) {
+            expect(result.errors).toEqual([]); expect(result.packets.length).toBeGreaterThanOrEqual(3);
+            expect(result.packets.slice(0, -1).every(packet => packet.count === result.rate / 10)).toBe(true);
+            expect(result.packets.at(-1).count).toBeGreaterThan(0); expect(result.packets.at(-1).count).toBeLessThanOrEqual(result.rate / 10);
+            expect(result.packets[1].rms).toBeGreaterThan(.05); expect(result.afterUnmute).toBe(result.pausedCount);
+            expect(result.beforeStop).toBeGreaterThanOrEqual(result.pausedCount + 2); expect(result.afterStop).toBe(result.beforeStop); expect(result.tracksEnded).toBe(true);
+        }
     });
 }
 module.exports = { registerCanvasVoiceTests };

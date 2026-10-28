@@ -1364,10 +1364,11 @@ test('Canvas Voice native entry stages real canonical/settings cases and rejects
  assert.deepEqual(parseRuntimeArgs(['--suite','canvas-voice'],{}),{preflight:false,artifacts:null,suite:'canvas-voice'});
  assert.equal(selectedRuntimeSuites('canvas-voice')[0][1],runCanvasVoiceTests);
  assert.equal(runtimeSuites.filter(([name])=>name==='canvas-voice').length,1);
- assert.equal(canvasVoiceInventory.length,54);assert.equal(new Set(canvasVoiceInventory).size,54);
+ assert.equal(canvasVoiceInventory.length,58);assert.equal(new Set(canvasVoiceInventory).size,58);
  assert.equal(canvasVoiceInventory.filter(name=>name==='canvas_voice_owner_handshake_rejected').length,1);
  for(const name of ['startup_order','startup_audio','startup_tool','startup_error_envelope','startup_ping','startup_partial_ack','startup_wrapped_tools','startup_wrapped_extra'])assert.equal(canvasVoiceInventory.filter(value=>value==='canvas_voice_owner_'+name).length,1);
  for(const name of ['transcript_commit_after','transcript_commit_before','transcript_abandoned','transcript_final_conflict'])assert.equal(canvasVoiceInventory.filter(value=>value==='canvas_voice_owner_'+name).length,1);
+ for(const name of ['latency_pcm','latency_opus','latency_legacy','latency_stop'])assert.equal(canvasVoiceInventory.filter(value=>value==='canvas_voice_owner_'+name).length,1);
  const plan=stageInputPlan();
  for(const file of ['tests/helpers/canvas-voice-conversation-control.mjs','tests/helpers/canvas-voice-settings-control.mjs',
   'tests/helpers/canvas-voice-accounting-control.mjs','tests/helpers/canvas-voice-allowance-control.mjs','tests/helpers/canvas-voice-owner-control.mjs',

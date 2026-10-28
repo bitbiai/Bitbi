@@ -6,6 +6,7 @@ export const CANVAS_VOICE_OWNER_LIFECYCLE_CASES = Object.freeze([
   'partial_stop', 'projection_after_stop', 'replacement_isolation', 'optin_resumption', 'handshake_rejected',
   'startup_order', 'startup_audio', 'startup_tool', 'startup_error_envelope', 'startup_ping', 'startup_partial_ack', 'startup_wrapped_tools', 'startup_wrapped_extra',
   'transcript_commit_after', 'transcript_commit_before', 'transcript_abandoned', 'transcript_final_conflict',
+  'latency_pcm', 'latency_opus', 'latency_legacy', 'latency_stop',
 ]);
 const pause = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 const hash = value => createHash('sha256').update(value).digest('hex').slice(0, 32);
@@ -22,7 +23,7 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
       body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     assert.equal(response.status, 200, await response.clone().text()); return response.json();
   };
-  const mode = name.startsWith('startup_') ? name : name.startsWith('transcript_') ? 'transcript' : name === 'handshake_rejected' ? 'rejected' : name === 'delayed_close_ack' ? 'delayed_ack' : name === 'optin_resumption' ? 'resume' : name === 'pending_fetch_stop' ? 'pending' : name === 'abnormal_close' ? 'abnormal'
+  const mode = name.startsWith('startup_') ? name : name.startsWith('latency_') ? 'latency' : name.startsWith('transcript_') ? 'transcript' : name === 'handshake_rejected' ? 'rejected' : name === 'delayed_close_ack' ? 'delayed_ack' : name === 'optin_resumption' ? 'resume' : name === 'pending_fetch_stop' ? 'pending' : name === 'abnormal_close' ? 'abnormal'
     : name === 'no_close_ack' ? 'no_ack' : ['partial_stop', 'projection_after_stop'].includes(name) ? 'partial' : 'idle';
   await command('control', { mode });
   const seeded = await f.control('/canvas-voice-owner-seed', { name: 'life-' + name.replaceAll('_', '-') });
@@ -34,7 +35,9 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
       'Content-Type': 'application/json', ...extra }, ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const json = async response => { assert.equal(response.status, 200, await response.clone().text()); return (await response.json()).data; };
-  await json(await request('/settings', { settings: { ...(name.startsWith('startup_wrapped_') ? { tools: { canvas: { enabled: true } } } : {}), turn_detection: { type: null }, resumption: { enabled: name === 'optin_resumption' } }, expectedRevision: 0 }, { 'Idempotency-Key': 'life-settings-' + name }));
+  await json(await request('/settings', { settings: { ...((name.startsWith('startup_wrapped_') || mode === 'latency') ? { tools: { canvas: { enabled: true } } } : {}),
+    ...(name === 'latency_opus' ? { audio: { input: { format: { type: 'audio/opus', rate: 24000 } } } } : {}),
+    turn_detection: { type: null }, resumption: { enabled: name === 'optin_resumption' } }, expectedRevision: 0 }, { 'Idempotency-Key': 'life-settings-' + name }));
   const admit = async id => {
     const conversation = await f.db.prepare('SELECT revision,brief_revision FROM canvas_agent_conversations WHERE project_id=?').bind(projectId).first();
     const input = { maxDurationSeconds: 30, settingsRevision: 1, expectedConversationRevision: conversation.revision,
@@ -123,6 +126,66 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
     }
     const client = await open(sessionId);
     assert.equal((await command('state')).configurations, 1, 'Early session.created survived the durable acceptance fence');
+    if (mode === 'latency') {
+      const latency = async delayMs => {
+        const response = await f.control('/canvas-voice-owner-latency', { userId, ...(delayMs === undefined ? {} : { delayMs }) });
+        assert.equal(response.status, 200, await response.clone().text()); return response.json();
+      };
+      const before = await latency(1600);
+      assert.equal(before.reads, 1, 'Calibrate the real initial canonical history query');
+      await command('emit', { command: 'turn' });
+      await client.wait(event => event.type === 'voice.changed');
+      await command('emit', { command: 'answer' });
+      await until(() => client.events, events => events.filter(event => event.type === 'voice.changed').length === 2, 'Both canonical conversation projections are stored');
+      assert.deepEqual(await latency(), before, 'Ordinary user/reply persistence must not repeat full context reads');
+      assert.equal((await command('state')).configurations, 1);
+      const original = await f.db.prepare('SELECT revision,brief_revision FROM canvas_agent_conversations WHERE project_id=?').bind(projectId).first();
+      assert.equal(original.revision, 2); assert.equal(original.brief_revision, 0);
+      const cadence = name === 'latency_opus' ? 60 : name === 'latency_legacy' ? 20 : 100;
+      // Opus is one structurally valid 60ms packet, not concatenated 20ms packets.
+      const packet = name === 'latency_opus' ? Buffer.from([0x18, 0]).toString('base64') : Buffer.alloc(cadence * 24 * 2).toString('base64');
+      let streaming = true, sent = 0;
+      const stream = (async () => { while (streaming && !client.events.some(event => event.type === 'voice.ended')) {
+        client.send({ type: 'audio.append', audio: packet }); sent++; await pause(cadence);
+      } })();
+      try {
+        await command('emit', { command: 'context' });
+        await until(latency, value => value.pending === 1, 'Required context tool reaches controlled native D1 latency');
+        if (name === 'latency_stop') {
+          await json(await stop(sessionId)); await client.wait(event => event.type === 'voice.ended');
+        } else if (name === 'latency_legacy') {
+          await client.wait(event => event.type === 'voice.ended' && event.code === 'canvas_voice_backpressure');
+        } else {
+          await until(() => command('state'), state => state.responses === 3, 'Context, guarded brief change and continuation complete under capture', 20000);
+          await until(() => client.events, events => events.filter(event => event.type === 'voice.changed').length >= 6, 'Final reply is durably projected after tools');
+          assert.equal(client.events.some(event => event.type === 'voice.ended'), false);
+          const state = await command('state');
+          assert.deepEqual(state.toolOutputs.map(output => output.ok), [true, true, true]);
+          assert.equal(state.toolOutputs[1].applied, true); assert.equal(state.toolOutputs[2].style, 'Cartoon');
+          assert.equal(state.toolOutputs[2].briefRevision, 1);
+          assert.deepEqual(state.responseContexts.map(context => context.briefRevision), [0, 1, 1]);
+          assert.deepEqual(state.responseContexts.slice(1).map(context => context.style), ['Cartoon', 'Cartoon']);
+          assert.equal(state.configurations, 2, 'Only the confirmed brief change refreshes session policy/context');
+          assert.equal((await latency()).delayed, 6, 'Explicit tool/response and brief-change reads remain real and fresh');
+        }
+      } finally { streaming = false; await stream; }
+      await json(await stop(sessionId));
+      await until(latency, value => value.pending === 0, 'No delayed native context read survives fixture cleanup');
+      const settled = await until(usage, row => row?.billing_status === 'finalized', 'Pressure fixture settles original accepted session');
+      const receipt = JSON.parse(settled.metadata_json).canvas_voice_receipt, state = await command('state');
+      if (name === 'latency_legacy') assert.equal(receipt.code, 'canvas_voice_backpressure_count', 'Broken old cadence still trips the unchanged queue limit');
+      if (['latency_legacy', 'latency_stop'].includes(name)) {
+        assert.equal(state.responses, 0); assert.equal(state.toolOutputs.length, 0);
+        assert.deepEqual(await f.db.prepare('SELECT revision,brief_revision FROM canvas_agent_conversations WHERE project_id=?').bind(projectId).first(), original);
+      } else assert.equal(state.appends, sent, 'No packet is silently dropped to survive latency');
+      assert.equal(receipt.inputSamples, state.appends * cadence * 24);
+      assert.equal(receipt.outputSamples, name === 'latency_pcm' || name === 'latency_opus' ? 4800 : 2400);
+      const once = await debit(); assert.deepEqual(once, { n: 1, amount: -receipt.credits });
+      for (let replay = 0; replay < 2; replay++) await json(await stop(sessionId));
+      assert.deepEqual(await debit(), once); assert.equal(state.connections, 1); assert.equal(state.attempts, 1);
+      assert.equal((await f.db.prepare('SELECT COUNT(*) AS n FROM canvas_agent_runs WHERE project_id=?').bind(projectId).first()).n, 0);
+      return;
+    }
     if (name.startsWith('transcript_')) {
       const turns = async () => (await f.db.prepare('SELECT t.user_text,t.assistant_text,v.provider_item_id FROM canvas_agent_turns t JOIN canvas_voice_turns v ON v.turn_id=t.id WHERE t.project_id=?').bind(projectId).all()).results;
       const revision = () => f.db.prepare('SELECT revision,brief_revision FROM canvas_agent_conversations WHERE project_id=?').bind(projectId).first();
@@ -150,10 +213,10 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
         const expected = [{ user_text: 'Ich möchte ein Katzenvideo erstellen.', assistant_text: null, provider_item_id: 'input:lifecycle_transcript_item' }];
         assert.deepEqual(await turns(), expected);
         const saved = await revision(); assert.equal(saved.revision, original.revision + 1); assert.equal(saved.brief_revision, original.brief_revision);
-        await until(() => command('state'), state => state.configurations === 2, 'One canonical context refresh after committed final transcript');
+        assert.equal((await command('state')).configurations, 1, 'Provider already owns the committed transcript');
         for (const event of ['commit', 'final', 'commit', 'final']) await emitted(event);
         assert.deepEqual(await turns(), expected); assert.deepEqual(await revision(), saved);
-        assert.equal((await command('state')).configurations, 2, 'Replay does not repeat context refresh');
+        assert.equal((await command('state')).configurations, 1, 'Replay does not repeat context refresh');
         if (name === 'transcript_final_conflict') {
           await command('emit', { command: 'conflict' });
           await client.wait(event => event.type === 'voice.ended' && event.code === 'idempotency_conflict');
@@ -212,7 +275,7 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
       client.send({ type: 'audio.append', audio: Buffer.alloc(960).toString('base64') });
       client.send({ type: 'audio.commit' });
       await client.wait(event => event.type === 'voice.audio');
-      await until(() => command('state'), state => state.responses === 1 && state.configurations >= 2, 'Partial response and canonical user turn');
+      await until(() => command('state'), state => state.responses === 1 && state.configurations === 1, 'Partial response retains initial configuration');
       // A real protocol event queued after the transcript proves that the
       // partial text reached the relay; elapsed time does not prove delivery.
       await client.wait(event => event.type === 'voice.state' && event.state === 'processing');

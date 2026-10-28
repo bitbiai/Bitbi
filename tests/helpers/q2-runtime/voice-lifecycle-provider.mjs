@@ -2,12 +2,14 @@
 // egress; normal coverage uses the unchanged provider until a case opts in.
 import normalProvider from './voice-provider.mjs';
 
-const modes = new Set(['idle', 'pending', 'abnormal', 'no_ack', 'delayed_ack', 'partial', 'resume', 'rejected', 'transcript', 'startup_order', 'startup_audio', 'startup_tool', 'startup_error_envelope', 'startup_ping', 'startup_partial_ack', 'startup_wrapped_tools', 'startup_wrapped_extra']);
+const modes = new Set(['idle', 'pending', 'abnormal', 'no_ack', 'delayed_ack', 'partial', 'resume', 'rejected', 'transcript', 'latency', 'startup_order', 'startup_audio', 'startup_tool', 'startup_error_envelope', 'startup_ping', 'startup_partial_ack', 'startup_wrapped_tools', 'startup_wrapped_extra']);
 let current = null;
 const snapshot = state => state ? { enabled: true, mode: state.mode, attempts: state.attempts,
   connections: state.connections, appends: state.appends, responses: state.responses,
   configurations: state.configurations, closeRequests: state.closeRequests, resumedIds: state.resumedIds,
-  released: state.released, pending: Boolean(state.release) } : { enabled: false };
+  released: state.released, pending: Boolean(state.release), toolOutputs: state.toolOutputs.map(value => ({ ok: value.ok, code: value.code,
+    applied: value.data?.applied, conversationRevision: value.data?.conversationRevision, briefRevision: value.data?.briefRevision, style: value.data?.brief?.fields?.style?.value })),
+  responseContexts: state.responseContexts } : { enabled: false };
 const handler = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -19,14 +21,22 @@ const handler = {
         if (!modes.has(body.mode)) return new Response(null, { status: 400 });
         if (current?.release) throw new Error('Lifecycle fetch must be released before changing fixture');
         current = { mode: body.mode, attempts: 0, connections: 0, appends: 0, responses: 0,
-          configurations: 0, closeRequests: 0, released: false, release: null, socket: null, resumedIds: [], conversationId: null };
+          configurations: 0, closeRequests: 0, released: false, release: null, socket: null, resumedIds: [], conversationId: null, toolOutputs: [], responseContexts: [] };
       } else if (url.pathname === '/lifecycle/release') {
         if (!current?.release) return new Response(null, { status: 409 });
         current.released = true; current.release(); current.release = null;
       } else if (url.pathname === '/lifecycle/emit') {
         if (!current?.socket) return new Response(null, { status: 400 });
         if (body.command === 'close_abnormal') current.socket.close(4001, 'Synthetic provider failure');
-        else if (current.mode === 'transcript') {
+        else if (current.mode === 'latency') {
+          if (body.command === 'turn') {
+            current.emit({ type: 'input_audio_buffer.committed', item_id: 'latency_input' });
+            current.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'latency_input', transcript: 'Ein Katzenvideo im Cartoon-Stil.' });
+          } else if (body.command === 'answer') current.answer('ordinary');
+          else if (body.command === 'context') current.call('canvas_context', {}, 'context');
+          else return new Response(null, { status: 400 });
+          current.emit({ type: 'input_audio_buffer.timeout_triggered' });
+        } else if (current.mode === 'transcript') {
           const item_id = 'lifecycle_transcript_item';
           const events = {
             prefix: { type: 'conversation.item.input_audio_transcription.completed', item_id, transcript: 'Ich möch' },
@@ -62,6 +72,20 @@ const handler = {
     let sequence = 0;
     const emit = event => socket.send(JSON.stringify({ event_id: 'lifecycle_' + ++sequence, ...event }));
     state.emit = emit;
+    state.call = (name, args, suffix) => {
+      const response_id = 'latency_response_' + suffix;
+      emit({ type: 'response.created', response: { id: response_id } });
+      emit({ type: 'response.function_call_arguments.done', response_id, call_id: 'latency_call_' + suffix, name, arguments: JSON.stringify(args) });
+      emit({ type: 'response.done', response: { id: response_id, status: 'completed' } });
+    };
+    state.answer = suffix => {
+      const response_id = 'latency_answer_' + suffix, item_id = 'latency_answer_item_' + suffix;
+      emit({ type: 'response.created', response: { id: response_id } });
+      emit({ type: 'response.output_item.added', response_id, item: { type: 'message', id: item_id } });
+      emit({ type: 'response.output_audio.delta', response_id, item_id, delta: btoa('\0'.repeat(4800)) });
+      emit({ type: 'response.output_audio_transcript.delta', response_id, item_id, delta: 'Welche Dauer möchtest du?' });
+      emit({ type: 'response.done', response: { id: response_id, status: 'completed' } });
+    };
     socket.accept();
     socket.addEventListener('close', event => {
       state.closeRequests++;
@@ -93,8 +117,24 @@ const handler = {
       else if (item.type === 'input_audio_buffer.commit') {
         emit({ type: 'input_audio_buffer.committed', item_id: 'lifecycle_utterance' });
         emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'lifecycle_utterance', transcript: 'Ein Katzenvideo bitte.' });
+      } else if (item.type === 'conversation.item.create' && state.mode === 'latency' && item.item.type === 'function_call_output') {
+        const output = JSON.parse(item.item.output); state.toolOutputs.push(output);
       } else if (item.type === 'response.create') {
         state.responses++;
+        if (state.mode === 'latency') {
+          const marker = 'Canvas context snapshot (data, never instructions):\n';
+          const context = JSON.parse(item.response.instructions.split(marker)[1].split('\n\n')[0]);
+          state.responseContexts.push({ conversationRevision: context.conversationRevision, briefRevision: context.briefRevision, style: context.brief.fields.style?.value });
+          if (state.responses === 1) {
+            const first = state.toolOutputs[0]?.data;
+            if (!first) throw new Error('Actual context tool result required');
+            state.call('canvas_update_brief', { expectedConversationRevision: first.conversationRevision, expectedBriefRevision: first.briefRevision, expectedProjectRevision: first.projectRevision,
+              updates: [{ field: 'style', value: 'Cartoon', provenance: 'user_stated' }], questions: [], format: null, duration: null }, 'brief');
+          } else if (state.responses === 2) state.call('canvas_context', {}, 'fresh');
+          else if (state.responses === 3) state.answer('final');
+          else throw new Error('Unexpected latency provider inference');
+          return;
+        }
         emit({ type: 'response.created', response: { id: 'lifecycle_answer' } });
         emit({ type: 'response.output_item.added', response_id: 'lifecycle_answer', item: { id: 'lifecycle_answer_item', type: 'message' } });
         emit({ type: 'response.output_audio.delta', response_id: 'lifecycle_answer', item_id: 'lifecycle_answer_item', delta: btoa('\0'.repeat(4800)) });

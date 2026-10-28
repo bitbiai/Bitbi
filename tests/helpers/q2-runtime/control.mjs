@@ -54,6 +54,43 @@ import { hashPassword } from '../../../workers/auth/src/lib/passwords.js';
 import { deleteUserAiImage } from '../../../workers/auth/src/routes/ai/lifecycle.js';
 import { putNewManagedR2Object } from '../../../workers/auth/src/lib/r2-cleanup.js';
 import { AuthPublicRateLimiterDurableObject } from '../../../workers/auth/src/lib/public-rate-limiter-do.js';
+import { canvasVoiceOwnerStub } from '../../../workers/auth/src/lib/canvas-voice-owner.js';
+// Native fixture only: retain the actual Owner, D1 queries/transactions and
+// route guards; delay just the canonical history read after an explicit arm.
+export class CanvasVoiceLatencyTestDurableObject extends AuthPublicRateLimiterDurableObject {
+  constructor(state, env) {
+    const latency = { delayMs: 0, reads: 0, delayed: 0, pending: 0 };
+    const wrap = statement => new Proxy(statement, { get(target, key) {
+      if (key === 'bind') return (...args) => wrap(target.bind(...args));
+      if (key === 'all') return async (...args) => {
+        latency.reads++;
+        if (latency.delayMs) {
+          latency.delayed++; latency.pending++;
+          try { await new Promise(resolve => setTimeout(resolve, latency.delayMs)); } finally { latency.pending--; }
+        }
+        return target.all(...args);
+      };
+      return typeof target[key] === 'function' ? target[key].bind(target) : target[key];
+    } });
+    const DB = new Proxy(env.DB, { get(target, key) {
+      if (key === 'prepare') return query => {
+        const statement = target.prepare(query);
+        return query.includes(' AS reply_model_id,') ? wrap(statement) : statement;
+      };
+      return typeof target[key] === 'function' ? target[key].bind(target) : target[key];
+    } });
+    super(state, { ...env, DB }); this.latency = latency;
+  }
+  async fetch(request) {
+    if (new URL(request.url).pathname !== '/q2-voice-latency') return super.fetch(request);
+    const body = await request.json();
+    if (Object.keys(body).length) {
+      if (Object.keys(body).join(',') !== 'delayMs' || ![0, 1600].includes(body.delayMs)) throw new Error('Invalid native Voice latency control');
+      this.latency.delayMs = body.delayMs;
+    }
+    return Response.json(this.latency);
+  }
+}
 const nativeRateFixtureNow=Date.now.bind(Date);
 // Only the isolated native rate fixture owns this binding. Normal /limit
 // requests use the production handler and real Durable Object storage.
@@ -82,6 +119,11 @@ export default {
     if(path==='/canvas-voice-conversation'&&CANVAS_VOICE_CONVERSATION_CASES.includes(body.name))return Response.json(await canvasVoiceConversationCase(env,body.name));
     if(path==='/canvas-voice-accounting'&&CANVAS_VOICE_ACCOUNTING_CASES.includes(body.name))return Response.json(await canvasVoiceAccountingCase(env,body.name));
     if(path==='/canvas-voice-owner-seed')return Response.json(await seedCanvasVoiceOwner(env,body));
+    if(path==='/canvas-voice-owner-latency'){
+      if(!/^voice-native-owner-life-latency-[a-z-]+$/.test(body.userId||''))throw new Error('Synthetic latency owner required');
+      const stub=await canvasVoiceOwnerStub(env,body.userId);
+      return stub.fetch(new Request('https://fixture.invalid/q2-voice-latency',{method:'POST',body:JSON.stringify(body.delayMs===undefined?{}:{delayMs:body.delayMs})}));
+    }
     if(path==='/canvas-voice-routes')return Response.json(await canvasVoiceRouteCase({...env,CANVAS_VOICE_ENABLED:'false'}));
     if(path==='/canvas-voice-settings'&&CANVAS_VOICE_SETTINGS_CASES.includes(body.name))return Response.json(await canvasVoiceSettingsCase(env,body.name));
     if(path==='/canvas-voice-migration-seed')return Response.json(await seedCanvasVoiceMigration(env));

@@ -319,13 +319,20 @@ test('queued traffic is bounded before asynchronous authority checks finish', as
         const pending = Array.from({ length: 65 }, (_, sequence) => source === 'client'
             ? f.client({ type: 'voice.mute', sequence, muted: true }) : f.provider({ type: 'ping', event_id: 'heartbeat_' + sequence }));
         assert.equal(f.relay.closed, true);
-        assert.equal(f.calls.find(c => c[0] === 'ended')[1].code, 'canvas_voice_backpressure');
+        assert.equal(f.calls.find(c => c[0] === 'ended')[1].code, 'canvas_voice_backpressure_count');
+        assert.equal(f.sent.at(-1).code, 'canvas_voice_backpressure');
         release(true); await Promise.all(pending);
         assert.equal(f.upstream.length, 0);
         const g = fixture();
         await g.relay[source + 'Message']('x'.repeat(280001));
         assert.equal(g.relay.closed, true);
-        assert.equal(g.calls.find(c => c[0] === 'ended')[1].code, 'canvas_voice_backpressure');
+        assert.equal(g.calls.find(c => c[0] === 'ended')[1].code, 'canvas_voice_backpressure_frame');
+        assert.equal(g.sent.at(-1).code, 'canvas_voice_backpressure');
+        const h = fixture({ authorize: () => wait });
+        const frames = Array.from({ length: 9 }, () => h.relay[source + 'Message']('x'.repeat(130000)));
+        assert.equal(h.calls.find(c => c[0] === 'ended')[1].code, 'canvas_voice_backpressure_bytes');
+        assert.equal(h.sent.at(-1).code, 'canvas_voice_backpressure');
+        await Promise.all(frames);
     }
 });
 
