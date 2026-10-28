@@ -19,7 +19,7 @@ const emptyExposure = settings => ({ elapsedMs: 0, inputSamples: 0, outputSample
 const exposureFields = value => Object.fromEntries(['elapsedMs', 'inputSamples', 'outputSamples', 'inputRate', 'outputRate'].map(key => [key, value[key]]));
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 const projectionCodes = new Set(['canvas_voice_turn_unavailable', 'canvas_voice_session_unavailable', 'canvas_voice_reply_invalid',
-    'canvas_voice_interruption_invalid', 'canvas_voice_context_changed', 'canvas_agent_conversation_changed',
+    'canvas_voice_interruption_invalid', 'canvas_voice_retained_text_unverified', 'canvas_voice_context_changed', 'canvas_agent_conversation_changed',
     'canvas_agent_conversation_stopped', 'idempotency_conflict', 'canvas_voice_internal_failed']);
 
 export async function canvasVoiceOwnerStub(env, userId) {
@@ -212,7 +212,20 @@ export class CanvasVoiceOwner {
         if (!previous || update.audioEndMs <= previous.audioEndMs) a.pendingInterruptions.set(input.responseId,
             { ...update, ...(previous?.audioEndMs === update.audioEndMs && update.transcript === undefined && previous.transcript !== undefined ? { transcript: previous.transcript } : {}) });
         if (a.pendingInterruptions.size > 160) fail('canvas_voice_turn_limit');
-        if (a.persistedReplies.has(input.responseId)) this.adoptRevision(a, await markCanvasVoiceReplyInterrupted(this.env, a.scope, a.pendingInterruptions.get(input.responseId)), final);
+        if (a.persistedReplies.has(input.responseId)) {
+            let result;
+            try { result = await markCanvasVoiceReplyInterrupted(this.env, a.scope, a.pendingInterruptions.get(input.responseId)); }
+            catch (error) {
+                if (error.code !== 'canvas_voice_retained_text_unverified') throw error;
+                // A correlated truncation can revise transcription. Keep its text
+                // unverified rather than inventing a heard prefix or ending Voice.
+                const { transcript, ...unverified } = a.pendingInterruptions.get(input.responseId);
+                a.pendingInterruptions.set(input.responseId, unverified);
+                if (!a.projectionErrors.includes(error.code) && a.projectionErrors.length < 10) a.projectionErrors.push(error.code);
+                result = await markCanvasVoiceReplyInterrupted(this.env, a.scope, unverified);
+            }
+            this.adoptRevision(a, result, final);
+        }
     }
     async reply(a, input, final = false) {
         const result = await (final ? recordCanvasVoiceFinalReply : recordCanvasVoiceReply)(this.env, a.scope, { turnId: input.turn.turnId, responseId: input.responseId,

@@ -475,6 +475,20 @@ model text/confirmed prefixes use `provider`; unknown-playback notes stay
 persisted browser journey cover that final projection. Attribution is not proof
 that audio was heard; preserve `playback: not_verified` and interruption evidence.
 
+Another 2026-10-28 session on `234f10b3` (protected run `40732433664/1`)
+retained its first interruption, then ended with `canvas_voice_interruption_invalid`.
+Its discarded acknowledgement text is unknown. The native Owner/D1 reproduction
+establishes a narrower defect: the optional [truncation transcript][schema] has
+no byte-identical-prefix guarantee, but a spacing difference terminated Voice.
+Keep that text unverified, preserve the original response and continue the same
+session with the bounded `canvas_voice_retained_text_unverified` diagnostic.
+Do not publish an invented heard prefix. Wrong item/time, malformed text,
+ownership and revision failures still reject. `canvas_voice_native_owner` covers
+the mismatch, subsequent verified/missing/empty acknowledgements, a real next
+audio commit, one connection/debit and the negative controls. Removing only the
+Owner recovery reproduces the stop through the same native caller; local
+synthetic execution does not establish the historical discarded payload.
+
 Schema `0119_canvas_voice_sessions.sql` and the Voice frontend are published.
 The context/source association corrections affect Auth; the published frontend consumes
 the existing event unchanged. Compute the complete unpublished selection before

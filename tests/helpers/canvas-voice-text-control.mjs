@@ -16,7 +16,8 @@ export async function canvasVoiceTextContinuation(env,scope,transcript,proposal)
  const original=await DB.prepare('SELECT assistant_text FROM canvas_agent_turns WHERE id=?').bind(transcript.turnId).first();
  check(original.assistant_text===reply.text,'Interruption retains immutable generated response evidence');
  await reject(()=>markCanvasVoiceReplyInterrupted(env,{...scope,userId:'foreign-user'},{responseId:reply.responseId,audioEndMs:150}),'canvas_voice_turn_unavailable');
- await reject(()=>markCanvasVoiceReplyInterrupted(env,scope,{responseId:reply.responseId,audioEndMs:150,transcript:'Invented provider prefix'}),'canvas_voice_interruption_invalid');
+ await reject(()=>markCanvasVoiceReplyInterrupted(env,scope,{responseId:reply.responseId,audioEndMs:150,transcript:'Invented provider prefix'}),'canvas_voice_retained_text_unverified');
+ for(const transcript of ['Bekannt.\u0000',42,'x'.repeat(8001)])await reject(()=>markCanvasVoiceReplyInterrupted(env,scope,{responseId:reply.responseId,audioEndMs:150,transcript}),'canvas_voice_interruption_invalid');
  const voice=await DB.prepare('SELECT interrupted,retained_text FROM canvas_voice_turns WHERE turn_id=?').bind(transcript.turnId).first();
  check(canvasConversationReplyText({assistant_text:original.assistant_text,voice_json:JSON.stringify({...voice,retainedText:voice.retained_text,locale:'de'})})==='Antwort unterbrochen; gesprochener Anteil nicht bestätigt.','Public unknown playback never repeats full unheard answer');
  const tariff=await getModelTariff(env);await DB.prepare('UPDATE canvas_agent_conversations SET allowance_credits=10000,allowance_tariff=? WHERE project_id=?').bind(tariff.revision,projectId).run();

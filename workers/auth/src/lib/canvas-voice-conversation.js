@@ -151,7 +151,7 @@ export async function markCanvasVoiceReplyInterrupted(env, scope, input, attempt
   const previous = await read();
   if (!previous) fail('canvas_voice_turn_unavailable');
   const retained = input.transcript || null;
-  if (retained && !previous.assistant_text?.startsWith(retained)) fail('canvas_voice_interruption_invalid', 400);
+  if (retained && !previous.assistant_text?.startsWith(retained)) fail('canvas_voice_retained_text_unverified', 400);
   if (previous.interrupted && previous.heard_audio_ms === input.audioEndMs && (previous.retained_text === retained || previous.retained_text && !retained))
     return { replyTurnId: previous.id, ...revisions(previous), replay: true };
   if (previous.interrupted && previous.heard_audio_ms != null && input.audioEndMs > previous.heard_audio_ms) fail('idempotency_conflict');

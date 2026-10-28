@@ -1,8 +1,14 @@
 import assert from 'node:assert/strict';
 
 export async function runCanvasVoiceOwnerTest(f){
- const seeded=await f.control('/canvas-voice-owner-seed',{});assert.equal(seeded.status,200,await seeded.clone().text());
- const {userId,projectId,sessionId}=await seeded.json(),provider=await f.mf.getWorker('q2-voice-provider');
+ for(const fault of [null,'item','time','control'])await ownerInterruption(f,fault);
+}
+async function ownerInterruption(f,fault){
+ const name=fault?'interrupt-'+fault:'normal',provider=await f.mf.getWorker('q2-voice-provider');
+ const configured=await provider.fetch('https://voice-fixture.invalid/control',{method:'POST',body:JSON.stringify({fault})});
+ assert.equal(configured.status,200,'Previous isolated provider connection must be closed before fixture reset');
+ const seeded=await f.control('/canvas-voice-owner-seed',{name});assert.equal(seeded.status,200,await seeded.clone().text());
+ const {userId,projectId,sessionId}=await seeded.json();
  const path=`https://bitbi.ai/api/account/canvas/projects/${projectId}/agent/voice`;
  const request=(suffix='',body,extra={})=>f.mf.dispatchFetch(path+suffix,{method:body===undefined?'GET':'POST',headers:{
   Origin:'https://bitbi.ai',Cookie:`__Host-bitbi_session=${userId}`,'Content-Type':'application/json',...extra},...(body!==undefined?{body:JSON.stringify(body)}:{})});
@@ -16,7 +22,7 @@ export async function runCanvasVoiceOwnerTest(f){
  const first=await json(await request('/sessions',body,{'Idempotency-Key':sessionId}));assert.equal(first.session.state,'admitted');
  assert.equal((await json(await request('/sessions',body,{'Idempotency-Key':sessionId}))).replay,true);
  const endpoint=`/sessions/${sessionId}/socket`;
- assert.equal((await request(endpoint,undefined,{Upgrade:'websocket',Cookie:'__Host-bitbi_session=voice-native-other-normal'})).status,404);
+ assert.equal((await request(endpoint,undefined,{Upgrade:'websocket',Cookie:'__Host-bitbi_session=voice-native-other-'+name})).status,404);
  const upgraded=await request(endpoint,undefined,{Upgrade:'websocket'});assert.equal(upgraded.status,101,upgraded.status===101?'':await upgraded.text());
  const socket=upgraded.webSocket,events=[];let sequence=0;
  const message=value=>socket.send(JSON.stringify({...value,sequence:sequence++}));
@@ -49,14 +55,51 @@ export async function runCanvasVoiceOwnerTest(f){
   assert.equal(before.connections,1);assert.equal(before.appends,100);assert.equal(before.bytes,96000);assert.equal(before.textItems,0);
   assert.equal(before.configuration.model,'grok-voice-3.0');assert.equal(before.configuration.hasCanvasRole,true);assert.equal(before.configuration.hasSyntheticPrivateContext,true);
   assert.deepEqual(before.toolOutputs.map(item=>item.ok),[true,true]);assert.equal(before.toolOutputs[1].applied,true);
-  message({type:'voice.stop'});await wait(event=>event.type==='voice.ended');
+  const storedReply=()=>f.db.prepare(`SELECT t.assistant_text,v.interrupted,v.retained_text,v.heard_audio_ms FROM canvas_agent_turns t
+    JOIN canvas_voice_turns v ON v.turn_id=t.id WHERE v.session_id=? AND v.provider_response_id='answer_3'`).bind(sessionId).first();
+  const listening=()=>events.filter(event=>event.type==='voice.state'&&event.state==='listening').length;
+  for(let acknowledgement=1;acknowledgement<=(fault?1:4);acknowledgement++){
+   const count=listening();
+   message({type:'voice.interrupt',responseId:'answer_3',itemId:'answer_item',audioEndMs:50});
+   if(fault){
+    const code=fault==='control'?'canvas_voice_interruption_invalid':'canvas_voice_truncation_unconfirmed';
+    await wait(event=>event.type==='voice.ended'&&event.code===code);break;
+   }
+   // Request/ACK each refresh the actual session; its two real configuration
+   // acknowledgements plus the provider completion fence prove ACK processing.
+   await wait(()=>listening()>=count+3);
+   const saved=await storedReply();assert.equal(saved.assistant_text,turns[0].assistant_text,'Truncation never rewrites original generated evidence');
+   assert.equal(saved.interrupted,1);assert.equal(saved.heard_audio_ms,50);
+   assert.equal(saved.retained_text,acknowledgement===1?null:'Welche Auflösung',
+    'Unverifiable text stays unknown; later valid, missing and empty acknowledgements preserve the verified prefix');
+   const view=await json(await f.mf.dispatchFetch(`https://bitbi.ai/api/account/canvas/projects/${projectId}/agent/conversation`,{headers:{Origin:'https://bitbi.ai',Cookie:`__Host-bitbi_session=${userId}`}}));
+   const projected=view.conversation.messages.find(value=>value.role==='assistant');
+   assert.equal(projected.provenance,acknowledgement===1?'application':'model');assert.equal(projected.playback,'not_verified');
+   assert.equal((await f.db.prepare('SELECT state FROM canvas_voice_sessions WHERE id=?').bind(sessionId).first()).state,'active');
+  }
+  if(!fault){
+   const ready=events.filter(event=>event.type==='voice.turn'&&event.state==='ready').length;
+   message({type:'audio.append',audio});message({type:'audio.commit'});
+   await wait(()=>events.filter(event=>event.type==='voice.turn'&&event.state==='ready').length>ready);
+   const following=(await f.db.prepare('SELECT user_text,assistant_text FROM canvas_agent_turns WHERE project_id=? ORDER BY rowid').bind(projectId).all()).results;
+   assert.equal(following.length,2);assert.deepEqual(following[0],turns[0]);
+   assert.equal(following[1].user_text,'Welche Auflösung ist möglich?');assert.equal(following[1].assistant_text,'Wir können die passende Auflösung gemeinsam auswählen.');
+   assert.equal((await f.db.prepare('SELECT brief_revision FROM canvas_agent_conversations WHERE project_id=?').bind(projectId).first()).brief_revision,1);
+   message({type:'voice.stop'});await wait(event=>event.type==='voice.ended'&&event.code==='canvas_voice_stopped');
+  }
   const deadline=Date.now()+8000;let state;
   do{state=await f.db.prepare('SELECT state FROM canvas_voice_sessions WHERE id=?').bind(sessionId).first();if(state.state==='completed')break;await new Promise(resolve=>setTimeout(resolve,25));}while(Date.now()<deadline);
   assert.equal(state.state,'completed','Observed clean provider close settles the original session');
   for(let replay=0;replay<2;replay++)await json(await request(`/sessions/${sessionId}/stop`,{},{'Idempotency-Key':sessionId}));
   const debits=(await f.db.prepare('SELECT amount FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(userId).all()).results;
-  assert.deepEqual(debits.map(row=>row.amount),[-9],'2s input and0.1s output charge one started10s block exactly once');
-  assert.equal((await (await provider.fetch('https://voice-fixture.invalid/state')).json()).connections,1);
+  assert.deepEqual(debits.map(row=>row.amount),[-9],'Original and follow-up audio remain within one started10s block, charged exactly once');
+  const finalProvider=await (await provider.fetch('https://voice-fixture.invalid/state')).json();
+  assert.equal(finalProvider.connections,1);assert.equal(finalProvider.responses,fault?3:4);assert.equal(finalProvider.appends,fault?100:101);
+  const usage=await f.db.prepare("SELECT metadata_json FROM member_ai_usage_attempts_v2 WHERE json_extract(metadata_json,'$.canvas_voice.session_id')=?").bind(sessionId).first();
+  const diagnostics=JSON.parse(usage.metadata_json).canvas_voice_projection_errors||[];
+  assert.deepEqual(diagnostics,fault?[]:['canvas_voice_retained_text_unverified'],'Only the specific correlation-safe mismatch receives a bounded diagnostic');
+  const original=await storedReply();assert.equal(original.assistant_text,turns[0].assistant_text);
+  assert.equal(original.retained_text,fault?null:'Welche Auflösung');
   assert.equal((await f.db.prepare('SELECT COUNT(*) AS n FROM canvas_agent_runs WHERE project_id=?').bind(projectId).first()).n,0,'Voice cannot silently launch text or production');
  }finally{try{socket.close(1000);}catch{}}
 }
