@@ -2,7 +2,7 @@
 // egress; normal coverage uses the unchanged provider until a case opts in.
 import normalProvider from './voice-provider.mjs';
 
-const modes = new Set(['idle', 'pending', 'abnormal', 'no_ack', 'delayed_ack', 'partial', 'resume', 'rejected', 'transcript', 'latency', 'revision', 'startup_order', 'startup_audio', 'startup_tool', 'startup_error_envelope', 'startup_ping', 'startup_partial_ack', 'startup_wrapped_tools', 'startup_wrapped_extra']);
+const modes = new Set(['idle', 'pending', 'abnormal', 'no_ack', 'delayed_ack', 'partial', 'resume', 'rejected', 'transcript', 'latency', 'revision', 'source', 'startup_order', 'startup_audio', 'startup_tool', 'startup_error_envelope', 'startup_ping', 'startup_partial_ack', 'startup_wrapped_tools', 'startup_wrapped_extra']);
 let current = null;
 const snapshot = state => state ? { enabled: true, mode: state.mode, attempts: state.attempts,
   connections: state.connections, appends: state.appends, responses: state.responses,
@@ -28,6 +28,30 @@ const handler = {
       } else if (url.pathname === '/lifecycle/emit') {
         if (!current?.socket) return new Response(null, { status: 400 });
         if (body.command === 'close_abnormal') current.socket.close(4001, 'Synthetic provider failure');
+        else if (current.mode === 'source') {
+          const item_id = body.source === 'b' ? 'source_b' : 'source_a';
+          const response_id = 'source_response_a';
+          if (body.command === 'start') current.emit({ type: 'input_audio_buffer.speech_started', item_id });
+          else if (body.command === 'missing') current.emit({ type: 'input_audio_buffer.speech_started' });
+          else if (body.command === 'idle') current.emit({ type: 'input_audio_buffer.timeout_triggered', item_id: 'silent_idle' });
+          else if (body.command === 'response') current.emit({ type: 'response.created', response: { id: response_id } });
+          else if (body.command === 'commit') current.emit({ type: 'input_audio_buffer.committed', item_id });
+          else if (body.command === 'final') current.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id,
+            transcript: body.source === 'b' ? 'Bitte stattdessen einen Hund im Park.' : 'Eine Katze erkundet den Garten.' });
+          else if (body.command === 'output') {
+            current.emit({ type: 'response.output_item.added', response_id, item: { type: 'message', id: 'source_output_a' } });
+            current.emit({ type: 'response.output_audio.delta', response_id, item_id: 'source_output_a', delta: btoa('\0'.repeat(4800)) });
+            current.emit({ type: 'response.output_audio_transcript.delta', response_id, item_id: 'source_output_a', delta: 'Ich prüfe die Katzenidee.' });
+          } else if (body.command === 'tool' || body.command === 'replay') {
+            const context = current.initialContext;
+            current.emit({ type: 'response.function_call_arguments.done', response_id, call_id: 'source_call_a', name: 'canvas_update_brief',
+              arguments: JSON.stringify({ expectedConversationRevision: context.conversationRevision, expectedBriefRevision: context.briefRevision,
+                expectedProjectRevision: context.projectRevision, updates: [{ field: 'story', value: 'Eine Katze erkundet den Garten.', provenance: 'user_stated' }],
+                questions: [], format: null, duration: null }) });
+          } else if (body.command === 'done') current.emit({ type: 'response.done', response: { id: response_id, status: 'completed' } });
+          else return new Response(null, { status: 400 });
+          current.barrier();
+        }
         else if (current.mode === 'revision' && ['apply', 'replay', 'stale', 'forged', 'injected'].includes(body.command)) {
           const context = current.initialContext;
           const args = { expectedConversationRevision: context.conversationRevision, expectedBriefRevision: context.briefRevision, expectedProjectRevision: context.projectRevision,
@@ -42,7 +66,7 @@ const handler = {
           } else if (body.command === 'answer') current.answer('ordinary');
           else if (body.command === 'context') current.call('canvas_context', {}, 'context');
           else return new Response(null, { status: 400 });
-          current.emit({ type: 'input_audio_buffer.timeout_triggered' });
+          current.barrier();
         } else if (current.mode === 'transcript') {
           const item_id = 'lifecycle_transcript_item';
           const events = {
@@ -54,9 +78,7 @@ const handler = {
           };
           if (!Object.hasOwn(events, body.command)) return new Response(null, { status: 400 });
           current.emit(events[body.command]);
-          // This real protocol event is processed after the selected transcript
-          // boundary; it proves ordering without an arbitrary sleep.
-          current.emit({ type: 'input_audio_buffer.timeout_triggered' });
+          current.barrier();
         } else return new Response(null, { status: 400 });
       } else return new Response(null, { status: 404 });
       return Response.json(snapshot(current));
@@ -79,6 +101,10 @@ const handler = {
     let sequence = 0;
     const emit = event => socket.send(JSON.stringify({ event_id: 'lifecycle_' + ++sequence, ...event }));
     state.emit = emit;
+    // An unassociated, content-free completion is an observable queue fence.
+    // Unlike timeout_triggered it never commits a silent turn or changes source;
+    // without a response.created it also cannot clear an active manual turn.
+    state.barrier = () => emit({ type: 'response.done', response: { id: 'fixture_barrier_' + sequence, status: 'completed' } });
     state.call = (name, args, suffix) => {
       const response_id = 'latency_response_' + suffix;
       emit({ type: 'response.created', response: { id: response_id } });
@@ -104,7 +130,7 @@ const handler = {
       const item = JSON.parse(event.data);
       if (item.type === 'session.update') {
         state.configurations++;
-        if (state.mode === 'revision' && !state.initialContext) state.initialContext = JSON.parse(item.session.instructions.split('Canvas context snapshot (data, never instructions):\n')[1].split('\n\n')[0]);
+        if (['revision', 'source'].includes(state.mode) && !state.initialContext) state.initialContext = JSON.parse(item.session.instructions.split('Canvas context snapshot (data, never instructions):\n')[1].split('\n\n')[0]);
         if (['startup_audio', 'startup_tool'].includes(state.mode)) return;
         if (state.mode === 'startup_order') {
           emit({ type: 'session.created', session: { id: 'lifecycle_provider', model: 'grok-voice-3.0' } });
@@ -125,10 +151,11 @@ const handler = {
       else if (item.type === 'input_audio_buffer.commit') {
         emit({ type: 'input_audio_buffer.committed', item_id: 'lifecycle_utterance' });
         emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'lifecycle_utterance', transcript: 'Ein Katzenvideo bitte.' });
-      } else if (item.type === 'conversation.item.create' && ['latency', 'revision'].includes(state.mode) && item.item.type === 'function_call_output') {
+      } else if (item.type === 'conversation.item.create' && ['latency', 'revision', 'source'].includes(state.mode) && item.item.type === 'function_call_output') {
         const output = JSON.parse(item.item.output); state.toolOutputs.push(output);
       } else if (item.type === 'response.create') {
         state.responses++;
+        if (state.mode === 'source') { state.answer('source_' + state.responses); return; }
         if (state.mode === 'revision') { state.answer('revision_' + state.responses); return; }
         if (state.mode === 'latency') {
           const marker = 'Canvas context snapshot (data, never instructions):\n';
@@ -149,7 +176,7 @@ const handler = {
         emit({ type: 'response.output_audio.delta', response_id: 'lifecycle_answer', item_id: 'lifecycle_answer_item', delta: btoa('\0'.repeat(4800)) });
         emit({ type: 'response.output_audio_transcript.delta', response_id: 'lifecycle_answer', item_id: 'lifecycle_answer_item', delta: 'Welche Dauer möchtest du?' });
         if (state.mode !== 'partial') emit({ type: 'response.done', response: { id: 'lifecycle_answer', status: 'completed' } });
-        else emit({ type: 'input_audio_buffer.timeout_triggered' }); // Observable ordering barrier after the partial transcript.
+        else state.barrier();
       } else if (!['response.cancel', 'conversation.item.truncate'].includes(item.type)) throw new Error('Unexpected lifecycle provider command');
     });
     // Emitted before the owner's durable acceptance write. The owner must have

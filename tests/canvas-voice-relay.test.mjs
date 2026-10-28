@@ -236,6 +236,7 @@ test('abandoned pre-commit captions do not become turns and repeated old commits
     await f.provider({ type: 'input_audio_buffer.speech_started', item_id: 'first' });
     await user(f, 'first'); await user(f, 'second');
     await f.provider({ type: 'input_audio_buffer.committed', item_id: 'first', event_id: 'old_commit_replay' });
+    await f.provider({ type: 'response.created', response: { id: 'answer' } });
     await f.provider({ type: 'response.output_item.added', response_id: 'answer', item: { type: 'message', id: 'answer_item' } });
     await f.provider({ type: 'response.output_audio_transcript.delta', response_id: 'answer', delta: 'Welcher Stil?' });
     await f.provider({ type: 'response.done', response: { id: 'answer', status: 'completed' } });
@@ -258,11 +259,11 @@ test('different text after final publication still reaches the immutable canonic
     assert.equal(JSON.stringify(f.calls).includes('Different private'), false);
 });
 test('pending transcript storage stays bounded and stopping cannot publish provisional captions', async () => {
-    for (const kind of ['commit', 'transcript']) {
+    for (const kind of ['commit', 'transcript', 'speech']) {
         const f = fixture(); await f.ready();
         for (let index = 0; index < 80; index++) await f.provider(kind === 'commit'
             ? { type: 'input_audio_buffer.committed', item_id: 'item_' + index }
-            : { type: 'conversation.item.input_audio_transcription.completed', item_id: 'item_' + index, transcript: 'Provisional' });
+            : kind === 'speech' ? { type: 'input_audio_buffer.speech_started', item_id: 'item_' + index } : { type: 'conversation.item.input_audio_transcription.completed', item_id: 'item_' + index, transcript: 'Provisional' });
         assert.equal(f.relay.closed, false); assert.equal(f.relay.latestTranscript.size, 80);
         await f.provider({ type: 'input_audio_buffer.committed', item_id: 'over_limit' });
         assert.equal(f.relay.closed, true); assert.equal(f.calls.at(-1)[1].code, 'canvas_voice_turn_limit');
@@ -275,6 +276,7 @@ test('pending transcript storage stays bounded and stopping cannot publish provi
 });
 test('late input transcription binds the response to its source, never an older user turn', async () => {
     const f = fixture(); await f.ready(); await f.provider({ type: 'input_audio_buffer.committed', item_id: 'audio_2' });
+    await f.provider({ type: 'response.created', response: { id: 'response_2' } });
     await f.provider({ type: 'response.output_item.added', response_id: 'response_2', item: { type: 'message', id: 'answer_2' } });
     await f.provider({ type: 'response.output_audio_transcript.delta', response_id: 'response_2', delta: 'Welcher Stil?' });
     await f.provider({ type: 'response.done', response: { id: 'response_2' } });
@@ -289,7 +291,8 @@ test('timeout_triggered asks rather than terminates; server deadline still close
     assert.equal(f.relay.closed, true); assert.equal(f.calls.find(c => c[0] === 'ended')[1].code, 'canvas_voice_session_limit');
 });
 test('interrupt truncates only matching response, late audio is dropped, stop is once', async () => {
-    const f = fixture(); await f.ready(); await f.provider({ type: 'response.output_item.added', response_id: 'r1', item: { type: 'message', id: 'i1' } });
+    const f = fixture(); await f.ready(); await f.provider({ type: 'response.created', response: { id: 'r1' } });
+    await f.provider({ type: 'response.output_item.added', response_id: 'r1', item: { type: 'message', id: 'i1' } });
     await f.client({ type: 'voice.interrupt', sequence: 0, responseId: 'other', itemId: 'i1', audioEndMs: 0 });
     assert.equal(f.calls.some(c => c[0] === 'interrupted'), false);
     await f.client({ type: 'voice.interrupt', sequence: 1, responseId: 'r1', itemId: 'i1', audioEndMs: 200 });
@@ -327,13 +330,15 @@ test('parallel tools complete once before one continuation; call replay has no n
     assert.equal(f.relay.closed, false);
 });
 
-test('late function call retains the original response source, and conflicting call replay fails closed', async () => {
+test('late function call cannot edit a superseded source, and conflicting call replay still fails closed', async () => {
     const f = fixture(); await f.ready(); await user(f, 'u1');
     await f.provider({ type: 'response.created', response: { id: 'r1' } });
     await user(f, 'u2'); await f.provider(toolCall('c1', 'r1'));
-    assert.equal(f.calls.find(c => c[0] === 'tool')[1].turn.id, 'u1');
+    assert.equal(f.relay.functionResponses.get('r1').turn.id, 'u1');
+    assert.equal(f.calls.some(c => c[0] === 'tool'), false);
+    assert.deepEqual(f.sent.at(-1).tool, { name: 'canvas_update_brief', ok: false, code: 'canvas_voice_source_changed', sourceState: 'superseded' });
     await f.provider({ ...toolCall('c1', 'r1', 'e_conflict'), arguments: '{"changed":true}' });
-    assert.equal(f.calls.filter(c => c[0] === 'tool').length, 1);
+    assert.equal(f.calls.filter(c => c[0] === 'tool').length, 0);
     assert.equal(f.relay.closed, true);
 });
 
@@ -364,6 +369,7 @@ test('queued traffic is bounded before asynchronous authority checks finish', as
 test('cancelled or incomplete responses are never persisted as fully heard completion', async () => {
     for (const status of ['cancelled', 'incomplete', 'failed']) {
         const f = fixture(); await f.ready(); await user(f, 'u1');
+        await f.provider({ type: 'response.created', response: { id: 'r1' } });
         await f.provider({ type: 'response.output_item.added', response_id: 'r1', item: { type: 'message', id: 'a1' } });
         await f.provider({ type: 'response.output_audio_transcript.delta', response_id: 'r1', delta: 'Unfinished answer' });
         await f.provider({ type: 'response.done', response: { id: 'r1', status } });
@@ -373,6 +379,7 @@ test('cancelled or incomplete responses are never persisted as fully heard compl
 
 test('late acknowledged truncation remains correlated after reply persistence and excludes unheard text', async () => {
     const f = fixture(); await f.ready(); await user(f, 'u1');
+    await f.provider({ type: 'response.created', response: { id: 'r1' } });
     await f.provider({ type: 'response.output_item.added', response_id: 'r1', item: { type: 'message', id: 'a1' } });
     await f.provider({ type: 'response.output_audio_transcript.delta', response_id: 'r1', delta: 'Heard introduction and unheard tail' });
     await f.provider({ type: 'response.done', response: { id: 'r1', status: 'completed' } });
@@ -403,6 +410,7 @@ test('stopping during asynchronous configuration acknowledgement cannot reactiva
 
 test('documented audio and text aliases follow the same associated-response validation', async () => {
     const f = fixture(); await f.ready(); await user(f, 'u1');
+    await f.provider({ type: 'response.created', response: { id: 'r1' } });
     await f.provider({ type: 'response.output_item.added', response_id: 'r1', item: { type: 'message', id: 'a1' } });
     await f.provider({ type: 'response.audio.delta', response_id: 'r1', item_id: 'a1', delta: 'AAA=' });
     await f.provider({ type: 'response.output_text.delta', response_id: 'r1', delta: 'Welcher Stil?' });
@@ -455,6 +463,7 @@ test('manual turn remains pending across a tool continuation and unlocks only at
 test('metering uses server-decoded samples and retains interrupted received audio without playback', async () => {
     const f = fixture(); await f.ready(); await user(f, 'cost_input');
     await f.client({ type: 'audio.append', sequence: 0, audio: Buffer.alloc(480).toString('base64') });
+    await f.provider({ type: 'response.created', response: { id: 'cost_reply' } });
     await f.provider({ type: 'response.output_item.added', response_id: 'cost_reply', item: { type: 'message', id: 'cost_audio' } });
     await f.provider({ type: 'response.audio.delta', response_id: 'cost_reply', item_id: 'cost_audio', delta: Buffer.alloc(960).toString('base64') });
     await f.client({ type: 'voice.interrupt', sequence: 1, responseId: 'cost_reply', itemId: 'cost_audio', audioEndMs: 0 });
@@ -465,4 +474,130 @@ test('metering uses server-decoded samples and retains interrupted received audi
     assert.equal(f.sent.filter(event => event.type === 'voice.audio').length, 1, 'Late audio is counted but never played');
     await f.provider({ type: 'response.audio.delta', response_id: 'cost_reply', item_id: 'cost_audio', delta: 'AA==' });
     assert.equal(f.relay.closed, true, 'Malformed PCM has no invented duration');
+});
+
+
+test('VAD response before commit pins its speech item but waits for both canonical transcript boundaries', async () => {
+    for (const first of ['commit', 'final']) {
+        const f = fixture(); await f.ready(); await user(f, 'old_input');
+        await f.provider({ type: 'input_audio_buffer.speech_started', item_id: 'spoken_input' });
+        await f.provider({ type: 'response.created', response: { id: 'early_response' } });
+        await f.provider(toolCall('before_both', 'early_response'));
+        assert.equal(f.sent.at(-1).tool.sourceState, 'pending_commit');
+        const commit = { type: 'input_audio_buffer.committed', item_id: 'spoken_input' };
+        const final = { type: 'conversation.item.input_audio_transcription.completed', item_id: 'spoken_input', transcript: 'Ich möchte ein Katzenvideo erstellen.' };
+        await f.provider(first === 'commit' ? commit : final);
+        await f.provider(toolCall('before_other_boundary', 'early_response'));
+        assert.equal(f.sent.at(-1).tool.sourceState, first === 'commit' ? 'pending_transcript' : 'pending_commit');
+        assert.equal(f.calls.some(call => call[0] === 'tool'), false);
+        await f.provider(first === 'commit' ? final : commit);
+        await f.provider(toolCall('after_both', 'early_response'));
+        await f.provider(toolCall('after_both', 'early_response', 'same_call_new_event'));
+        assert.deepEqual(f.calls.filter(call => call[0] === 'tool').map(call => call[1].turn), [{ id: 'spoken_input' }]);
+        assert.deepEqual(f.sent.at(-1).tool, { name: 'canvas_update_brief', ok: true, sourceState: 'ready' });
+        await f.provider({ type: 'response.output_item.added', response_id: 'early_response', item: { type: 'message', id: 'spoken_answer' } });
+        await f.provider({ type: 'response.output_audio_transcript.delta', response_id: 'early_response', delta: 'Welche Dauer?' });
+        await f.provider({ type: 'response.done', response: { id: 'early_response', status: 'completed' } });
+        assert.equal(f.calls.find(call => call[0] === 'reply')[1].turn.id, 'spoken_input');
+        assert.equal(f.calls.filter(call => call[0] === 'user' && call[1].itemId === 'spoken_input').length, 1);
+        assert.equal(f.relay.closed, false); await f.relay.stop();
+    }
+});
+
+test('missing speech identity and responses before any speech never acquire a later arbitrary source', async () => {
+    for (const missingStart of [false, true]) {
+        const f = fixture(); await f.ready();
+        if (missingStart) {
+            await user(f, 'previous_input');
+            await f.provider({ type: 'input_audio_buffer.speech_started' });
+        }
+        await f.provider({ type: 'response.created', response: { id: 'unbound_response' } });
+        await user(f, 'later_input');
+        await f.provider(toolCall('unbound_call', 'unbound_response'));
+        assert.deepEqual(f.sent.at(-1).tool, { name: 'canvas_update_brief', ok: false, code: 'canvas_voice_transcript_pending', sourceState: 'unbound' });
+        await f.provider({ type: 'response.output_item.added', response_id: 'unbound_response', item: { type: 'message', id: 'unbound_answer' } });
+        await f.provider({ type: 'response.output_audio_transcript.delta', response_id: 'unbound_response', delta: 'Unassociated answer' });
+        await f.provider({ type: 'response.done', response: { id: 'unbound_response', status: 'completed' } });
+        assert.equal(f.calls.some(call => ['tool', 'reply'].includes(call[0])), false);
+        assert.equal(f.relay.responses.get('unbound_response').sourceItemId, null);
+        await f.relay.stop();
+    }
+});
+
+test('late speech and commit replays cannot steal a newer source or rebind an existing response', async () => {
+    for (const lateCommit of [false, true]) {
+        const f = fixture(); await f.ready();
+        await f.provider({ type: 'input_audio_buffer.speech_started', item_id: 'input_a' });
+        await f.provider({ type: 'response.created', response: { id: 'response_a' } });
+        if (!lateCommit) await f.provider({ type: 'input_audio_buffer.committed', item_id: 'input_a' });
+        await f.provider({ type: 'input_audio_buffer.speech_started', item_id: 'input_b' });
+        await f.provider({ type: 'response.created', response: { id: 'response_b' } });
+        await user(f, 'input_b');
+        if (lateCommit) await f.provider({ type: 'input_audio_buffer.committed', item_id: 'input_a' });
+        await f.provider({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'input_a', transcript: 'Older utterance completing late' });
+        await f.provider({ type: 'input_audio_buffer.speech_started', item_id: 'input_a', event_id: 'old_start_replay' });
+        await f.provider({ type: 'input_audio_buffer.committed', item_id: 'input_a', event_id: 'old_commit_replay' });
+        await f.provider({ type: 'response.created', response: { id: 'response_a' }, event_id: 'old_response_replay' });
+        assert.equal(f.relay.sourceItemId, 'input_b');
+        await f.provider(toolCall('old_call', 'response_a'));
+        assert.deepEqual(f.sent.at(-1).tool, { name: 'canvas_update_brief', ok: false, code: 'canvas_voice_source_changed', sourceState: 'superseded' });
+        await f.provider(toolCall('current_call', 'response_b'));
+        assert.deepEqual(f.calls.filter(call => call[0] === 'tool').map(call => call[1].turn.id), ['input_b']);
+        for (const suffix of ['a', 'b']) {
+            await f.provider({ type: 'response.output_item.added', response_id: 'response_' + suffix, item: { type: 'message', id: 'answer_' + suffix } });
+            await f.provider({ type: 'response.output_audio_transcript.delta', response_id: 'response_' + suffix, delta: 'Response ' + suffix });
+            await f.provider({ type: 'response.done', response: { id: 'response_' + suffix, status: 'completed' } });
+        }
+        assert.deepEqual(f.calls.filter(call => call[0] === 'reply').map(call => [call[1].responseId, call[1].turn.id]), [['response_a', 'input_a'], ['response_b', 'input_b']]);
+        await f.relay.stop();
+    }
+});
+
+test('idle follow-up cannot reuse prior speech mutation authority; a new manual commit still establishes its own source', async () => {
+    const f = fixture(); await f.ready(); await user(f, 'prior_input');
+    await f.provider({ type: 'response.created', response: { id: 'prior_response' } });
+    await f.provider({ type: 'input_audio_buffer.timeout_triggered' });
+    await f.provider({ type: 'response.created', response: { id: 'idle_response' } });
+    await f.provider(toolCall('idle_call', 'idle_response'));
+    assert.equal(f.sent.at(-1).tool.sourceState, 'unbound');
+    await f.provider(toolCall('late_prior_call', 'prior_response'));
+    assert.equal(f.sent.at(-1).tool.sourceState, 'superseded');
+    assert.equal(f.calls.some(call => call[0] === 'tool'), false);
+    f.relay.session.settings.turn_detection.type = null;
+    await user(f, 'manual_input');
+    await f.provider({ type: 'response.created', response: { id: 'manual_response' } });
+    await f.provider(toolCall('manual_call', 'manual_response'));
+    assert.deepEqual(f.calls.filter(call => call[0] === 'tool').map(call => call[1].turn.id), ['manual_input']);
+    await f.relay.stop();
+});
+
+test('invalid speech identities fail closed and cannot enter the bounded source diagnostics', async () => {
+    for (const item_id of [null, [], {}, 'private invalid source', '__proto__']) {
+        const f = fixture(); await f.ready();
+        // __proto__ is a valid opaque identity, but never an object property or diagnostic value.
+        await f.provider({ type: 'input_audio_buffer.speech_started', item_id });
+        if (item_id !== '__proto__') assert.equal(f.calls.at(-1)[1].code, 'canvas_voice_provider_event_invalid');
+        else {
+            await f.provider({ type: 'response.created', response: { id: 'prototype_response' } });
+            await f.provider(toolCall('prototype_call', 'prototype_response'));
+            assert.equal(f.sent.at(-1).tool.sourceState, 'pending_commit');
+            assert.equal(JSON.stringify(f.sent.at(-1)).includes('__proto__'), false);
+        }
+        assert.equal(f.calls.some(call => call[0] === 'tool'), false); await f.relay.stop();
+    }
+});
+
+
+test('an output without response.created cannot adopt the current user or authorize a tool', async () => {
+    const f = fixture(); await f.ready(); await user(f, 'known_user');
+    await f.provider({ type: 'response.output_item.added', response_id: 'orphan_response', item: { type: 'message', id: 'orphan_item' } });
+    await f.provider({ type: 'response.output_audio_transcript.delta', response_id: 'orphan_response', delta: 'Unassociated response' });
+    await f.provider({ type: 'response.done', response: { id: 'orphan_response', status: 'completed' } });
+    assert.equal(f.relay.responses.get('orphan_response').turn, null);
+    assert.equal(f.relay.responses.get('orphan_response').sourceItemId, null);
+    assert.equal(f.calls.some(call => call[0] === 'reply'), false);
+    await f.provider(toolCall('orphan_call', 'orphan_response'));
+    assert.equal(f.calls.some(call => call[0] === 'tool'), false);
+    assert.equal(f.relay.closed, true);
+    assert.equal(f.calls.at(-1)[1].code, 'canvas_voice_tool_response_unknown');
 });

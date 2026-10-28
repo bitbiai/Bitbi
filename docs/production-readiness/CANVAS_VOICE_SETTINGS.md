@@ -267,7 +267,12 @@ inside its existing atomic guards. This does not rebase creative edits, refresh
 authority from model arguments or make a failed call successful retrospectively.
 
 Cumulative transcription replaces the interim value. Late response IDs stay
-associated with their original source turn. Interruption preserves original
+associated with their original source turn. A validated VAD `speech_started`
+item identifies that source before commit, but never confirms a transcript or
+authorizes a creative change. Both tool and spoken output use the response's
+pinned source. Only that same item's commit plus final transcription can supply
+its canonical turn. A missing identity, idle check-in or superseded utterance
+cannot borrow a different completed user turn. Interruption preserves original
 generated text as evidence and stores the provider-confirmed retained prefix
 separately. Unknown audible content is an application-attributed interruption
 note, never a fabricated Grok answer. Playback counters are not proof of hearing.
@@ -409,9 +414,19 @@ without forcing an intervening model context-read, with stale creative/external
 revision, replay and invalid-argument counterchecks. Existing `voice.changed`
 events expose only the allowlisted tool name, success flag and fixed error code;
 no arguments, private result content or provider identifiers are included.
+The next live attempt at `8f7146f1` retained the fixed
+`canvas_voice_transcript_pending` tool diagnostic even though its canonical user
+turn had already been saved. This establishes missing tool/source association;
+the original provider frame order was not retained. The official Realtime schema
+identifies VAD speech by `item_id`; native early-response cases reproduce the
+lost association when response creation precedes commit. Preserve that identity
+at speech start and bind all later response output to it without rebinding an
+unidentified response. Commit/final, source freshness and canonical revision
+guards remain mandatory. A fixed `sourceState` diagnostic distinguishes an
+unbound, uncommitted, unfinished or superseded source without exposing its ID.
 
 Schema `0119_canvas_voice_sessions.sql` and the Voice frontend are published.
-The context-revision correction affects Auth; the published frontend consumes
+The context/source association corrections affect Auth; the published frontend consumes
 the existing event unchanged. Compute the complete unpublished selection before
 release and verify active identities independently.
 Use `release:local` with its existing protection, verification and publication

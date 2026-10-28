@@ -86,6 +86,17 @@ export class CanvasVoiceRelay {
         }
         return this.latestTranscript.get(itemId);
     }
+    source(itemId) {
+        if (this.sourceItemId && this.sourceItemId !== itemId) this.transcript(this.sourceItemId).superseded = true;
+        this.sourceItemId = itemId; this.turn = this.turns.get(itemId) || null;
+    }
+    sourceState(response) {
+        if (!response.sourceItemId) return 'unbound';
+        const transcript = this.latestTranscript.get(response.sourceItemId);
+        if (response.sourceItemId !== this.sourceItemId || transcript?.superseded) return 'superseded';
+        if (!transcript?.committed) return 'pending_commit';
+        return response.turn ? 'ready' : 'pending_transcript';
+    }
     async publishTranscript(itemId) {
         const transcript = this.latestTranscript.get(itemId);
         if (!transcript?.committed || !transcript.completed || transcript.text === transcript.persistedText) return;
@@ -201,10 +212,19 @@ export class CanvasVoiceRelay {
         if (!this.active) fail(typeof type === 'string' && Object.hasOwn(beforeReadyEvents, type)
             ? 'canvas_voice_provider_not_ready_' + beforeReadyEvents[type] : await startupFrameCode(event, this.configurationSent));
         if (event.type === 'input_audio_buffer.timeout_triggered') {
+            this.source(null); // A silent idle turn cannot reuse an earlier user's mutation authority.
             this.send({ type: 'voice.state', state: 'processing' }); return; // Provider follow-up, not a local session expiry.
         }
         if (event.type === 'input_audio_buffer.speech_started') {
-            this.turn = null; // An incomplete new utterance must not edit the previous user's turn.
+            if (event.item_id !== undefined && !id(event.item_id)) fail('canvas_voice_provider_event_invalid');
+            if (event.item_id !== undefined) {
+                const transcript = this.transcript(event.item_id);
+                if (transcript.speechStarted || transcript.committed || transcript.superseded) return;
+                transcript.speechStarted = true;
+            }
+            // xAI identifies the user item before its audio commit. Pin responses
+            // now, but grant no turn until this exact item is committed and final.
+            this.source(event.item_id || null); this.turn = null;
             this.send({ type: 'voice.speech_started', responseId: this.output?.responseId, itemId: this.output?.itemId }); return;
         }
         if (event.type === 'input_audio_buffer.committed') {
@@ -212,7 +232,10 @@ export class CanvasVoiceRelay {
             const transcript = this.transcript(event.item_id);
             if (transcript.committed) return;
             transcript.committed = true;
-            this.sourceItemId = event.item_id; this.turn = this.turns.get(event.item_id) || null;
+            // Manual commits establish a source without VAD. A delayed commit
+            // for older speech must never replace a newer observed utterance.
+            const current = this.latestTranscript.get(this.sourceItemId);
+            if (!transcript.superseded && !transcript.speechStarted && !(current?.speechStarted && !current.committed)) this.source(event.item_id);
             await this.publishTranscript(event.item_id);
             if (this.manualPending && !this.manualPending.sent) {
                 this.manualPending.sent = true; this.manualPending.itemId = event.item_id; this.upstream(await this.services.response());
@@ -237,7 +260,8 @@ export class CanvasVoiceRelay {
         }
         if (event.type === 'response.output_item.added' && event.item?.type === 'message') {
             if (!id(event.response_id) || !id(event.item.id)) fail('canvas_voice_provider_event_invalid');
-            this.output = { responseId: event.response_id, itemId: event.item.id, text: '', interrupted: false, turn: this.turn, sourceItemId: this.sourceItemId };
+            const source = this.functionResponses.get(event.response_id);
+            this.output = { responseId: event.response_id, itemId: event.item.id, text: '', interrupted: false, turn: source?.turn || null, sourceItemId: source?.sourceItemId || null };
             this.responses.set(event.response_id, this.output); if (this.responses.size > 160) fail('canvas_voice_turn_limit'); return;
         }
         if (event.type === 'response.output_audio.delta' || event.type === 'response.audio.delta') {
@@ -258,10 +282,13 @@ export class CanvasVoiceRelay {
             if (previous) { if (previous.fingerprint !== fingerprint) fail('canvas_voice_replay_conflict'); return; }
             if (!response || response.continued) fail('canvas_voice_tool_response_unknown');
             if (this.functionCalls.size >= 80) fail('canvas_voice_tool_limit');
-            const result = !response.turn && event.name === 'canvas_update_brief' ? { ok: false, code: 'canvas_voice_transcript_pending', retry: false }
+            const sourceState = event.name === 'canvas_update_brief' ? this.sourceState(response) : null;
+            const result = sourceState && sourceState !== 'ready' ? { ok: false,
+                code: sourceState === 'superseded' ? 'canvas_voice_source_changed' : 'canvas_voice_transcript_pending', retry: false }
                 : await this.services.tool({ callId: event.call_id, turn: response.turn, name: event.name, arguments: JSON.parse(event.arguments) });
             this.functionCalls.set(event.call_id, { fingerprint, result });
-            response.calls.push({ callId: event.call_id, result }); this.send({ type: 'voice.changed', tool: canvasVoiceToolDiagnostic(event.name, result) }); return;
+            response.calls.push({ callId: event.call_id, result });
+            this.send({ type: 'voice.changed', tool: { ...canvasVoiceToolDiagnostic(event.name, result), ...(sourceState ? { sourceState } : {}) } }); return;
         }
         if (event.type === 'conversation.item.truncated') {
             if (!id(event.item_id)) fail('canvas_voice_provider_event_invalid');
