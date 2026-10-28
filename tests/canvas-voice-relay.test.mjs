@@ -36,6 +36,47 @@ test('only own conversation projections bridge a known presented context, never 
     assert.equal(owner.toolConversationRevision(a, args), undefined, 'A non-projection write invalidates the old context fence');
     assert.throws(() => owner.presentContext(a, context), error => error.code === 'canvas_voice_context_changed');
 });
+test('all known contexts of the same semantic brief survive own reply projections and response refreshes', () => {
+    const owner = new CanvasVoiceOwner({}, {}), a = { revision: 0 };
+    const context = revision => ({ conversationRevision: revision, briefRevision: 2, projectRevision: 7 });
+    const args = revision => ({ expectedConversationRevision: revision, expectedBriefRevision: 2, expectedProjectRevision: 7 });
+    owner.presentContext(a, context(0));
+    owner.adoptRevision(a, { conversationRevision: 1 }, false, true); // Canonical user transcript.
+    owner.presentContext(a, context(1)); // Actual canvas_context tool result.
+    owner.adoptRevision(a, { conversationRevision: 2 }, false, true); // Spoken reply stored before response.create.
+    owner.presentContext(a, context(2)); // Fresh response instructions must not revoke the tool result.
+    assert.equal(owner.toolConversationRevision(a, args(1)), 2);
+    assert.equal(owner.toolConversationRevision(a, args(0)), 2);
+    owner.adoptRevision(a, { conversationRevision: 3 }, false, true);
+    owner.presentContext(a, context(3));
+    assert.equal(owner.toolConversationRevision(a, args(1)), 3);
+    assert.equal(owner.toolConversationRevision(a, args(2)), 3);
+    assert.equal(owner.toolConversationRevision(a, args(999)), undefined);
+    for (const patch of [{ expectedBriefRevision: 1 }, { expectedProjectRevision: 8 }])
+        assert.equal(owner.toolConversationRevision(a, { ...args(1), ...patch }), undefined);
+    owner.adoptRevision(a, { conversationRevision: 4 }); // A confirmed brief edit invalidates every earlier context.
+    owner.presentContext(a, { ...context(4), briefRevision: 3 });
+    assert.equal(owner.toolConversationRevision(a, args(1)), undefined);
+    assert.equal(owner.toolConversationRevision(a, args(2)), undefined);
+    assert.equal(a.presentedContexts.length, 1);
+    assert.throws(() => owner.presentContext(a, context(5)), error => error.code === 'canvas_voice_context_changed');
+});
+test('known context retention is bounded and cannot bridge an untracked revision or changed project', () => {
+    const owner = new CanvasVoiceOwner({}, {}), a = { revision: 0 };
+    for (let revision = 0; revision <= 80; revision++) {
+        if (revision) owner.adoptRevision(a, { conversationRevision: revision }, false, true);
+        owner.presentContext(a, { conversationRevision: revision, briefRevision: 2, projectRevision: 7 });
+    }
+    const args = { expectedConversationRevision: 0, expectedBriefRevision: 2, expectedProjectRevision: 7 };
+    assert.equal(a.presentedContexts.length, 80);
+    assert.equal(owner.toolConversationRevision(a, args), undefined, 'The oldest evicted context is not implicitly trusted');
+    assert.equal(owner.toolConversationRevision(a, { ...args, expectedConversationRevision: 1 }), 80);
+    owner.presentContext(a, { conversationRevision: 80, briefRevision: 2, projectRevision: 8 });
+    assert.equal(a.presentedContexts.length, 1);
+    assert.equal(owner.toolConversationRevision(a, { ...args, expectedConversationRevision: 1 }), undefined);
+    a.revision = 81; // No adoption of our own canonical projection established this revision.
+    assert.equal(owner.toolConversationRevision(a, { ...args, expectedConversationRevision: 80, expectedProjectRevision: 8 }), undefined);
+});
 test('tool outcomes expose only fixed diagnostic fields on the existing change event', async () => {
     for (const [result, expected] of [[{ ok: true, data: { private: 'content' } }, { name: 'canvas_context', ok: true }],
         [{ ok: false, code: 'canvas_agent_conversation_changed', private: 'content' }, { name: 'canvas_context', ok: false, code: 'canvas_agent_conversation_changed' }],

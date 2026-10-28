@@ -89,13 +89,19 @@ export class CanvasVoiceOwner {
     }
     presentContext(a, context) {
         if (context.conversationRevision !== a.revision) fail('canvas_voice_context_changed');
-        a.presentedContext = { conversationRevision: context.conversationRevision, briefRevision: context.briefRevision, projectRevision: context.projectRevision };
+        const previous = a.presentedContexts?.at(-1);
+        if (a.projectionRevision !== a.revision || previous?.briefRevision !== context.briefRevision || previous?.projectRevision !== context.projectRevision) a.presentedContexts = [];
+        // A tool result and the next response instructions can present different
+        // revisions of the same brief, separated only by our own saved speech.
+        if (previous?.conversationRevision !== context.conversationRevision || !a.presentedContexts.length)
+            a.presentedContexts.push({ conversationRevision: context.conversationRevision, briefRevision: context.briefRevision, projectRevision: context.projectRevision });
+        if (a.presentedContexts.length > 80) a.presentedContexts.shift();
         a.projectionRevision = a.revision;
     }
     toolConversationRevision(a, args) {
-        const shown = a.presentedContext;
-        if (shown && args.expectedConversationRevision === shown.conversationRevision && args.expectedBriefRevision === shown.briefRevision
-            && args.expectedProjectRevision === shown.projectRevision && a.projectionRevision === a.revision && a.revision > shown.conversationRevision) return a.revision;
+        const shown = a.presentedContexts?.find(context => args.expectedConversationRevision === context.conversationRevision
+            && args.expectedBriefRevision === context.briefRevision && args.expectedProjectRevision === context.projectRevision);
+        if (shown && a.projectionRevision === a.revision && a.revision > shown.conversationRevision) return a.revision;
         return undefined;
     }
     async authority(a, force = false) {
@@ -195,6 +201,7 @@ export class CanvasVoiceOwner {
             // adopted into a provider response generated from an older context.
             if (!final && value.conversationRevision !== a.revision + (value.replay ? 0 : 1)) fail('canvas_voice_context_changed');
             a.projectionRevision = projection && a.projectionRevision === a.revision ? value.conversationRevision : undefined;
+            if (a.projectionRevision === undefined) a.presentedContexts = [];
             a.revision = value.conversationRevision; a.authorizedUntil = 0;
         }
     }

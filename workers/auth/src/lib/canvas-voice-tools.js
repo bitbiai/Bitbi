@@ -12,7 +12,7 @@ const definitions=[
   expectedConversationRevision:revision,expectedBriefRevision:revision,expectedProjectRevision:revision,
   updates:{type:'array',maxItems:15,items:object({field:{type:'string',enum:fields},value:{type:'string',maxLength:1000},provenance})},
   questions:{type:'array',maxItems:2,items:{type:'string',minLength:1,maxLength:800}},
-  format:nullable(object({aspectRatio:nullable({type:'string',minLength:1,maxLength:20}),resolution:nullable({type:'string',minLength:1,maxLength:30}),provenance})),
+  format:{...nullable(object({aspectRatio:nullable({type:'string',minLength:1,maxLength:20}),resolution:nullable({type:'string',minLength:1,maxLength:30}),provenance})),description:'Use null when no format change is proposed. Both aspectRatio and resolution null also leave the existing format unchanged.'},
   duration:nullable(object({choice:{type:'string',enum:['explicit','delegated']},targetDurationSeconds:nullable({type:'number',exclusiveMinimum:0})})),
  })},
  {type:'function',name:'canvas_prepare_next_step',description:'Describe missing information and the existing explicit confirmation required for the next production step. This does not create or execute a decision.',parameters:object({})},

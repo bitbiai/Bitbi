@@ -101,6 +101,29 @@ export async function canvasVoiceConversationCase(env, name) {
     await reject(()=>applyCanvasVoiceBrief(env,scope,{...proposal,callId:'ambiguous-format',updates:[],duration:null,
       expectedConversationRevision:updated.conversationRevision,expectedBriefRevision:updated.briefRevision,format:{aspectRatio:null,resolution:'720p',provenance:'corrected'}}),'canvas_voice_format_ambiguous');
     check(JSON.stringify(await conversationRow(env,projectId,owner))===JSON.stringify(unchanged),'Ambiguous partial update never discards existing meaningful format content');
+    let revision=updated.conversationRevision;
+    const originalFormat=kept.fields.format;
+    for(const origin of ['unresolved','user_stated','corrected','assistant_proposed']) {
+      const empty={...proposal,callId:'empty-format-'+origin,updates:[],questions:[],duration:null,
+        expectedConversationRevision:revision,expectedBriefRevision:updated.briefRevision,format:{aspectRatio:null,resolution:null,provenance:origin}};
+      const saved=await applyCanvasVoiceBrief(env,scope,empty);
+      check(saved.applied&&saved.changed===false&&saved.briefRevision===updated.briefRevision,'Explicit nullable empty format makes no creative proposal');
+      const stored=JSON.parse((await conversationRow(env,projectId,owner)).brief_json);
+      check(JSON.stringify(stored.fields.format)===JSON.stringify(originalFormat),'Empty format preserves meaningful custom format text, provenance and source');
+      const receipt=await DB.prepare('SELECT input_json FROM canvas_voice_calls WHERE session_id=? AND call_id=?').bind(sessionId,empty.callId).first();
+      check(JSON.parse(receipt.input_json).format.aspectRatio===null&&JSON.parse(receipt.input_json).format.resolution===null,'The original empty proposal remains immutable evidence');
+      check((await applyCanvasVoiceBrief(env,scope,empty)).replay,'Empty optional proposal keeps exact call replay');
+      revision=saved.conversationRevision;
+    }
+    const stable=JSON.stringify(await conversationRow(env,projectId,owner));
+    for(const format of [{aspectRatio:null,resolution:null,provenance:'invented'}, {aspectRatio:null,provenance:'unresolved'},
+      {aspectRatio:'',resolution:null,provenance:'unresolved'}, {aspectRatio:42,resolution:null,provenance:'user_stated'},
+      {aspectRatio:null,resolution:false,provenance:'corrected'}, {aspectRatio:null,resolution:null,provenance:'unresolved',extra:'unsafe'}]) {
+      await reject(()=>applyCanvasVoiceBrief(env,scope,{...proposal,callId:'invalid-empty-format',updates:[],duration:null,
+        expectedConversationRevision:revision,expectedBriefRevision:updated.briefRevision,format}),'canvas_voice_format_invalid');
+      check(JSON.stringify(await conversationRow(env,projectId,owner))===stable,'Malformed empty proposal cannot change canonical state');
+    }
+
   } else if (name === 'readonly') {
     const question = await recordCanvasVoiceUserTurn(env, scope, { itemId: 'item-question', text: 'What does production.reconcile mean?' });
     await reject(() => applyCanvasVoiceBrief(env, scope, { ...proposal, turnId: question.turnId, expectedConversationRevision: question.conversationRevision }), 'canvas_voice_read_only_turn');

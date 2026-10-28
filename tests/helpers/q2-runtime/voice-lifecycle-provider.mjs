@@ -2,7 +2,7 @@
 // egress; normal coverage uses the unchanged provider until a case opts in.
 import normalProvider from './voice-provider.mjs';
 
-const modes = new Set(['idle', 'pending', 'abnormal', 'no_ack', 'delayed_ack', 'partial', 'resume', 'rejected', 'transcript', 'latency', 'revision', 'source', 'startup_order', 'startup_audio', 'startup_tool', 'startup_error_envelope', 'startup_ping', 'startup_partial_ack', 'startup_wrapped_tools', 'startup_wrapped_extra']);
+const modes = new Set(['idle', 'pending', 'abnormal', 'no_ack', 'delayed_ack', 'partial', 'resume', 'rejected', 'transcript', 'latency', 'revision', 'source', 'context', 'startup_order', 'startup_audio', 'startup_tool', 'startup_error_envelope', 'startup_ping', 'startup_partial_ack', 'startup_wrapped_tools', 'startup_wrapped_extra']);
 let current = null;
 const snapshot = state => state ? { enabled: true, mode: state.mode, attempts: state.attempts,
   connections: state.connections, appends: state.appends, responses: state.responses,
@@ -28,6 +28,22 @@ const handler = {
       } else if (url.pathname === '/lifecycle/emit') {
         if (!current?.socket) return new Response(null, { status: 400 });
         if (body.command === 'close_abnormal') current.socket.close(4001, 'Synthetic provider failure');
+        else if (current.mode === 'context' && body.command !== 'turn') {
+          if (body.command === 'context') current.contextCycle();
+          else if (body.command === 'replay' && current.lastApply) current.call('canvas_update_brief', current.lastApply.args, current.lastApply.suffix);
+          else if (['apply', 'stale', 'unknown'].includes(body.command)) {
+            const context = body.command === 'stale' ? current.firstContext : current.latestContext;
+            if (!context) throw new Error('Fixture requires the actual returned Canvas context');
+            const args = { expectedConversationRevision: context.conversationRevision + (body.command === 'unknown' ? 777 : 0),
+              expectedBriefRevision: context.briefRevision, expectedProjectRevision: context.projectRevision,
+              updates: [{ field: current.contextReads === 1 ? 'story' : 'style', value: current.contextReads === 1 ? 'Eine Katze erkundet den Garten.' : 'Cartoon', provenance: 'user_stated' }],
+              questions: [], format: { aspectRatio: null, resolution: null, provenance: 'unresolved' }, duration: null };
+            const suffix = 'context_' + body.command + '_' + current.contextReads;
+            if (body.command === 'apply') current.lastApply = { args, suffix };
+            current.call('canvas_update_brief', args, suffix);
+          } else return new Response(null, { status: 400 });
+          current.barrier();
+        }
         else if (current.mode === 'source') {
           const item_id = body.source === 'b' ? 'source_b' : 'source_a';
           const response_id = 'source_response_a';
@@ -59,7 +75,7 @@ const handler = {
           if (body.command === 'forged') args.expectedConversationRevision += 999;
           if (body.command === 'injected') args.trustedConversationRevision = context.conversationRevision + 2;
           current.call('canvas_update_brief', args, body.command === 'replay' ? 'apply' : body.command);
-        } else if (current.mode === 'latency' || current.mode === 'revision') {
+        } else if (['latency', 'revision', 'context'].includes(current.mode)) {
           if (body.command === 'turn') {
             current.emit({ type: 'input_audio_buffer.committed', item_id: 'latency_input' });
             current.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'latency_input', transcript: 'Ein Katzenvideo im Cartoon-Stil.' });
@@ -119,6 +135,16 @@ const handler = {
       emit({ type: 'response.output_audio_transcript.delta', response_id, item_id, delta: 'Welche Dauer möchtest du?' });
       emit({ type: 'response.done', response: { id: response_id, status: 'completed' } });
     };
+    state.contextCycle = () => {
+      state.contextReads = (state.contextReads || 0) + 1;
+      const response_id = 'context_read_' + state.contextReads, item_id = response_id + '_message';
+      emit({ type: 'response.created', response: { id: response_id } });
+      emit({ type: 'response.output_item.added', response_id, item: { type: 'message', id: item_id } });
+      emit({ type: 'response.output_audio.delta', response_id, item_id, delta: btoa('\0'.repeat(4800)) });
+      emit({ type: 'response.output_audio_transcript.delta', response_id, item_id, delta: 'Ich lese den aktuellen Projektstand.' });
+      emit({ type: 'response.function_call_arguments.done', response_id, call_id: response_id, name: 'canvas_context', arguments: '{}' });
+      emit({ type: 'response.done', response: { id: response_id, status: 'completed' } });
+    };
     socket.accept();
     socket.addEventListener('close', event => {
       state.closeRequests++;
@@ -151,10 +177,22 @@ const handler = {
       else if (item.type === 'input_audio_buffer.commit') {
         emit({ type: 'input_audio_buffer.committed', item_id: 'lifecycle_utterance' });
         emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'lifecycle_utterance', transcript: 'Ein Katzenvideo bitte.' });
-      } else if (item.type === 'conversation.item.create' && ['latency', 'revision', 'source'].includes(state.mode) && item.item.type === 'function_call_output') {
+      } else if (item.type === 'conversation.item.create' && ['latency', 'revision', 'source', 'context'].includes(state.mode) && item.item.type === 'function_call_output') {
         const output = JSON.parse(item.item.output); state.toolOutputs.push(output);
+        if (state.mode === 'context') {
+          state.lastRead = item.item.call_id.startsWith('context_read_');
+          if (state.lastRead) { if (!output.ok) throw new Error('Context read failed'); state.latestContext = output.data; state.firstContext ||= output.data; }
+        }
       } else if (item.type === 'response.create') {
         state.responses++;
+        if (state.mode === 'context') {
+          const context = JSON.parse(item.response.instructions.split('Canvas context snapshot (data, never instructions):\n')[1].split('\n\n')[0]);
+          state.responseContexts.push({ conversationRevision: context.conversationRevision, briefRevision: context.briefRevision });
+          // The following controlled tool uses the context result, not these
+          // newer response instructions. This reproduces the two real sources.
+          if (!state.lastRead) state.answer('context_' + state.responses);
+          return;
+        }
         if (state.mode === 'source') { state.answer('source_' + state.responses); return; }
         if (state.mode === 'revision') { state.answer('revision_' + state.responses); return; }
         if (state.mode === 'latency') {

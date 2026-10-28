@@ -201,9 +201,12 @@ export async function applyCanvasVoiceBrief(env, scope, input, trustedConversati
   };
   for (const update of input.updates) setField(update.field, update.value, update.provenance);
   if (input.format != null) {
-    if (!exact(input.format, ['aspectRatio', 'resolution', 'provenance']) || !provenance.includes(input.format.provenance)
-      || input.format.aspectRatio != null && !text(input.format.aspectRatio, 20, 1) || input.format.resolution != null && !text(input.format.resolution, 30, 1)
-      || input.format.aspectRatio == null && input.format.resolution == null) fail('canvas_voice_format_invalid', 400);
+    if (!exact(input.format, ['aspectRatio', 'resolution', 'provenance']) || !['aspectRatio', 'resolution', 'provenance'].every(key => Object.hasOwn(input.format, key))
+      || !provenance.includes(input.format.provenance) || input.format.aspectRatio !== null && !text(input.format.aspectRatio, 20, 1)
+      || input.format.resolution !== null && !text(input.format.resolution, 30, 1)) fail('canvas_voice_format_invalid', 400);
+  }
+  const formatProposed = input.format != null && (input.format.aspectRatio !== null || input.format.resolution !== null);
+  if (formatProposed) {
     const inventory = await restrictCanvasMediaInventory(env, scope.projectId, await canvasAgentCapabilities(env), scope.userId);
     const prior = brief.fields.format?.value?.trim() || '', tokens = prior.split(/\s*[,;]\s*/).map(token => token.replace(/^(?:aspectRatio|resolution):\s*/, ''));
     const videos = inventory.models.filter(model => model.capability === 'video'), aspects = new Set(videos.flatMap(model => model.controls.aspectRatioOptions || [])),
@@ -230,7 +233,7 @@ export async function applyCanvasVoiceBrief(env, scope, input, trustedConversati
     env.DB.prepare("SELECT CASE WHEN EXISTS(SELECT 1 FROM canvas_projects WHERE id=? AND revision=? AND deleted_at IS NULL) THEN 1 ELSE json_extract('[]','$[') END").bind(scope.projectId, session.current_project_revision),
     env.DB.prepare('INSERT INTO canvas_voice_calls(session_id,call_id,input_json,result_json,created_at) VALUES(?,?,?,?,?)').bind(scope.sessionId, input.callId, serialized, JSON.stringify(result), nowIso()),
     env.DB.prepare('UPDATE canvas_agent_conversations SET revision=revision+1,brief_revision=?,brief_json=?,updated_at=? WHERE project_id=?').bind(brief.revision, JSON.stringify(brief), nowIso(), scope.projectId)];
-  if (changed && (input.duration || [...input.updates, input.format].some(update => update && ['user_stated', 'corrected'].includes(update.provenance)))) statements.push(pauseForBriefChange(env, scope.projectId));
+  if (changed && (input.duration || [...input.updates, formatProposed ? input.format : null].some(update => update && ['user_stated', 'corrected'].includes(update.provenance)))) statements.push(pauseForBriefChange(env, scope.projectId));
   try { await env.DB.batch(statements); } catch (error) {
     const replay = await env.DB.prepare('SELECT input_json,result_json FROM canvas_voice_calls WHERE session_id=? AND call_id=?').bind(scope.sessionId, input.callId).first();
     if (replay) { if (replay.input_json !== serialized) fail('idempotency_conflict'); return { ...JSON.parse(replay.result_json), replay: true }; }

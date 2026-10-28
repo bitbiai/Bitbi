@@ -258,9 +258,9 @@ Saving an ordinary spoken turn or reply adopts its canonical conversation
 revision without rebuilding and echoing the entire context already known to
 the provider. Explicit context reads, successful brief changes and response
 continuations still read the current authoritative state; model-supplied stale
-revisions cannot bypass validation. The Owner may translate the last context
-revision actually presented to the provider across its own transcript/reply
-projections only. Brief and project revisions must still match that snapshot;
+revisions cannot bypass validation. The Owner may translate a bounded set of
+context revisions actually presented to the provider across its own transcript/
+reply projections only. Brief and project revisions must still match that snapshot;
 external changes invalidate the Owner's authority. The canonical mutation keeps
 the original tool arguments for replay and checks the trusted comparison revision
 inside its existing atomic guards. This does not rebase creative edits, refresh
@@ -424,6 +424,19 @@ at speech start and bind all later response output to it without rebinding an
 unidentified response. Commit/final, source freshness and canonical revision
 guards remain mandatory. A fixed `sourceState` diagnostic distinguishes an
 unbound, uncommitted, unfinished or superseded source without exposing its ID.
+
+The `a6ba5b9f` follow-up reached a ready source, then reported
+`canvas_voice_format_invalid` and repeated conversation-revision rejections.
+The original rejected arguments are unavailable. Two independently reproduced
+contract gaps are corrected: the advertised nullable format object with both
+values null leaves existing format data unchanged, and a context-tool result
+remains usable after the Owner stores its own reply and refreshes response
+instructions. Retain at most 80 exact presented revision triples only across
+those own projections; semantic changes invalidate them. Native context/reply/
+refresh cases preserve original tool arguments and exercise repeated reads,
+existing free-text formats, replay, unknown revisions and changed brief/project
+counterexamples. Neither correction authorizes spending or bypasses source,
+ownership, stop or atomic revision guards.
 
 Schema `0119_canvas_voice_sessions.sql` and the Voice frontend are published.
 The context/source association corrections affect Auth; the published frontend consumes

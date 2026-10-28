@@ -9,6 +9,7 @@ export const CANVAS_VOICE_OWNER_LIFECYCLE_CASES = Object.freeze([
   'latency_pcm', 'latency_opus', 'latency_legacy', 'latency_stop',
   'revision_direct', 'revision_stale', 'revision_forged', 'revision_external',
   'source_commit_after', 'source_commit_before', 'source_superseded', 'source_missing', 'source_idle',
+  'context_projection', 'context_format_preserve', 'context_negative',
 ]);
 const pause = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 const hash = value => createHash('sha256').update(value).digest('hex').slice(0, 32);
@@ -25,7 +26,7 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
       body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     assert.equal(response.status, 200, await response.clone().text()); return response.json();
   };
-  const mode = name.startsWith('startup_') ? name : name.startsWith('source_') ? 'source' : name.startsWith('revision_') ? 'revision' : name.startsWith('latency_') ? 'latency' : name.startsWith('transcript_') ? 'transcript' : name === 'handshake_rejected' ? 'rejected' : name === 'delayed_close_ack' ? 'delayed_ack' : name === 'optin_resumption' ? 'resume' : name === 'pending_fetch_stop' ? 'pending' : name === 'abnormal_close' ? 'abnormal'
+  const mode = name.startsWith('startup_') ? name : name.startsWith('context_') ? 'context' : name.startsWith('source_') ? 'source' : name.startsWith('revision_') ? 'revision' : name.startsWith('latency_') ? 'latency' : name.startsWith('transcript_') ? 'transcript' : name === 'handshake_rejected' ? 'rejected' : name === 'delayed_close_ack' ? 'delayed_ack' : name === 'optin_resumption' ? 'resume' : name === 'pending_fetch_stop' ? 'pending' : name === 'abnormal_close' ? 'abnormal'
     : name === 'no_close_ack' ? 'no_ack' : ['partial_stop', 'projection_after_stop'].includes(name) ? 'partial' : 'idle';
   await command('control', { mode });
   const seeded = await f.control('/canvas-voice-owner-seed', { name: 'life-' + name.replaceAll('_', '-') });
@@ -37,7 +38,16 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
       'Content-Type': 'application/json', ...extra }, ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const json = async response => { assert.equal(response.status, 200, await response.clone().text()); return (await response.json()).data; };
-  await json(await request('/settings', { settings: { ...((name.startsWith('startup_wrapped_') || ['latency', 'revision', 'source'].includes(mode)) ? { tools: { canvas: { enabled: true } } } : {}),
+  if (name === 'context_format_preserve') {
+    const source = hash(projectId + '-existing-format'), now = new Date().toISOString();
+    await f.db.batch([
+      f.db.prepare("INSERT INTO canvas_agent_turns(id,project_id,request_key,input_json,conversation_revision,brief_revision,user_text,state,created_at,updated_at) VALUES(?,?,?,'{}',0,0,?,'completed',?,?)")
+        .bind(source, projectId, 'existing-format-' + source, '16:9; preserve the special crop', now, now),
+      f.db.prepare("UPDATE canvas_agent_conversations SET brief_json=json_set(brief_json,'$.fields.format',json(?)) WHERE project_id=?")
+        .bind(JSON.stringify({ value: '16:9; preserve the special crop', provenance: 'user_stated', sourceMessageId: source, revision: 0 }), projectId),
+    ]);
+  }
+  await json(await request('/settings', { settings: { ...((name.startsWith('startup_wrapped_') || ['latency', 'revision', 'source', 'context'].includes(mode)) ? { tools: { canvas: { enabled: true } } } : {}),
     ...(name === 'latency_opus' ? { audio: { input: { format: { type: 'audio/opus', rate: 24000 } } } } : {}),
     turn_detection: { type: mode === 'source' ? 'server_vad' : null }, resumption: { enabled: name === 'optin_resumption' } }, expectedRevision: 0 }, { 'Idempotency-Key': 'life-settings-' + name }));
   const admit = async id => {
@@ -128,6 +138,72 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
     }
     const client = await open(sessionId);
     assert.equal((await command('state')).configurations, 1, 'Early session.created survived the durable acceptance fence');
+    if (mode === 'context') {
+      const conversation = () => f.db.prepare('SELECT revision,brief_revision,brief_json FROM canvas_agent_conversations WHERE project_id=?').bind(projectId).first();
+      const calls = async () => (await f.db.prepare('SELECT input_json,result_json FROM canvas_voice_calls WHERE session_id=? ORDER BY rowid').bind(sessionId).all()).results;
+      const originalFormat = JSON.parse((await conversation()).brief_json).fields.format;
+      await command('emit', { command: 'turn' }); await client.wait(event => event.type === 'voice.changed');
+      const context = async () => {
+        const before = await command('state'); await command('emit', { command: 'context' });
+        const after = await until(() => command('state'), state => state.responses === before.responses + 1 && state.toolOutputs.length === before.toolOutputs.length + 1,
+          'Actual context result crosses the spoken reply and response refresh');
+        const read = after.toolOutputs.at(-1), refreshed = after.responseContexts.at(-1);
+        assert.equal(read.ok, true); assert.equal(refreshed.conversationRevision, read.conversationRevision + 1);
+        assert.equal((await conversation()).revision, refreshed.conversationRevision);
+        assert.equal(refreshed.briefRevision, read.briefRevision); return read;
+      };
+      for (let cycle = 0; cycle < 2; cycle++) {
+        const read = await context();
+        await command('emit', { command: 'apply' });
+        await until(conversation, row => row.revision === read.conversationRevision + 3 && row.brief_revision === cycle + 1,
+          'Returned context remains valid across only its own reply projections');
+        const saved = await calls(); assert.equal(saved.length, cycle + 1);
+        const input = JSON.parse(saved[cycle].input_json), result = JSON.parse(saved[cycle].result_json);
+        assert.equal(input.expectedConversationRevision, read.conversationRevision);
+        assert.equal(result.conversationRevision, read.conversationRevision + 2);
+        assert.deepEqual(input.format, { aspectRatio: null, resolution: null, provenance: 'unresolved' });
+        assert.deepEqual(JSON.parse((await conversation()).brief_json).fields.format, originalFormat, 'No invented format and no deletion of prior meaningful format');
+        const revision = (await conversation()).revision, providerBefore = await command('state');
+        const prior = client.events.filter(event => event.type === 'voice.state' && event.state === 'listening').length;
+        await command('emit', { command: 'replay' });
+        await until(() => client.events, events => events.filter(event => event.type === 'voice.state' && event.state === 'listening').length > prior, 'Exact call replay crosses relay');
+        assert.deepEqual(await calls(), saved); assert.equal((await conversation()).revision, revision);
+        assert.equal((await command('state')).responses, providerBefore.responses);
+      }
+      const saved = await calls();
+      assert.equal(JSON.parse((await conversation()).brief_json).fields.story.value, 'Eine Katze erkundet den Garten.');
+      assert.equal(JSON.parse((await conversation()).brief_json).fields.style.value, 'Cartoon');
+      if (name === 'context_negative') {
+        await context(); // A fresh semantic fence makes the forged revision independently wrong.
+        for (const operation of ['stale', 'unknown']) {
+          const before = await command('state'); await command('emit', { command: operation });
+          const after = await until(() => command('state'), state => state.toolOutputs.length === before.toolOutputs.length + 1 && state.responses === before.responses + 1,
+            'Rejected context reaches the actual provider result: ' + operation);
+          assert.deepEqual({ ok: after.toolOutputs.at(-1).ok, code: after.toolOutputs.at(-1).code }, { ok: false, code: 'canvas_agent_conversation_changed' });
+          assert.deepEqual(await calls(), saved); assert.equal((await conversation()).brief_revision, 2);
+        }
+        const foreign = await request(`/sessions/${sessionId}/stop`, {}, { Cookie: '__Host-bitbi_session=' + userId.replace('voice-native-owner-', 'voice-native-other-'), 'Idempotency-Key': sessionId });
+        assert.equal(foreign.status, 404); assert.equal((await f.db.prepare('SELECT state FROM canvas_voice_sessions WHERE id=?').bind(sessionId).first()).state, 'active');
+        const before = await command('state');
+        await f.db.prepare('UPDATE canvas_projects SET revision=revision+1 WHERE id=?').bind(projectId).run();
+        await client.wait(event => event.type === 'voice.ended' && event.code === 'canvas_voice_authority_changed');
+        // A project edit revokes admission before tool dispatch, not merely its
+        // proposed revision. This stronger existing boundary remains required.
+        assert.deepEqual(await calls(), saved); assert.equal((await conversation()).brief_revision, 2);
+        assert.equal((await command('state')).responses, before.responses);
+        assert.equal((await command('state')).toolOutputs.length, before.toolOutputs.length);
+      }
+      await json(await stop(sessionId));
+      const settled = await until(usage, row => row?.billing_status === 'finalized', 'Context lifecycle settles original usage');
+      const receipt = JSON.parse(settled.metadata_json).canvas_voice_receipt, once = await debit();
+      assert(receipt.outputSamples >= 9600); assert.deepEqual(once, { n: 1, amount: -receipt.credits });
+      for (let replay = 0; replay < 2; replay++) await json(await stop(sessionId));
+      assert.notEqual((await request(`/sessions/${sessionId}/socket`, undefined, { Upgrade: 'websocket' })).status, 101);
+      assert.deepEqual(await debit(), once); assert.deepEqual(await calls(), saved);
+      assert.equal((await command('state')).connections, 1);
+      assert.equal((await f.db.prepare('SELECT COUNT(*) AS n FROM canvas_agent_runs WHERE project_id=?').bind(projectId).first()).n, 0);
+      return;
+    }
     if (mode === 'source') {
       const conversation = () => f.db.prepare('SELECT revision,brief_revision,brief_json FROM canvas_agent_conversations WHERE project_id=?').bind(projectId).first();
       const calls = async () => (await f.db.prepare('SELECT input_json,result_json FROM canvas_voice_calls WHERE session_id=?').bind(sessionId).all()).results;
