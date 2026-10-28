@@ -1,6 +1,8 @@
 import { createCanvasVoiceOpus } from './voice-opus.js?v=__ASSET_VERSION__';
 import { VoiceResampler, encodeVoiceAudio, decodeVoiceAudio } from '../../shared/canvas-voice-audio.mjs?v=__ASSET_VERSION__';
 const fail = code => Object.assign(new Error(code), { code });
+// Bound retained decoded PCM, independently of faster-than-realtime delivery.
+const playbackMemoryLimit = 8 * 1024 * 1024;
 // A broken native resource must not prevent releasing the remaining resources.
 const release = action => { try { action(); } catch { /* Cleanup is independent and idempotent. */ } };
 function fromBase64(value) {
@@ -17,17 +19,22 @@ function toBase64(bytes) {
 // Each instance belongs to one session epoch. Late permissions cannot reopen it.
 export function createCanvasVoiceAudio({ settings, onAudio, onError, onState = () => {} }) {
     let epoch = 0, closed = false, context = null, stream = null, source = null, capture = null, sink = null;
-    let muted = false, ready = false, resampler = null, queued = [], buffered = 0, playAt = 0, item = null;
+    let muted = false, ready = false, resampler = null, queued = [], buffered = 0, playAt = 0, item = null, playbackBytes = 0;
     let opus = null, flush = null, flushId = 0, inputEpoch = 0, packetUsed = 0, capturePaused = false;
     const packet = new Float32Array(Math.ceil(settings.audio.input.format.rate / 10));
-    const nodes = new Set(), seenAudio = new Set();
+    const nodes = new Map(), seenAudio = new Set();
     function stopped() { return closed; }
     function playing() { return !closed && (nodes.size > 0 || opus?.outputPending() === true); }
+    function releasePlayback(node) {
+        if (!nodes.has(node)) return false;
+        playbackBytes -= nodes.get(node); nodes.delete(node); node.onended = null;
+        release(() => node.disconnect()); release(() => { node.buffer = null; }); return true;
+    }
     function stopPlayback(resetDecoder = true) {
         const heard = item ? { itemId: item.itemId, responseId: item.responseId,
             audioEndMs: Math.max(0, Math.min(item.durationMs, Math.floor(((context?.currentTime || 0) - item.startedAt) * 1000))) } : null;
-        for (const node of nodes) { node.onended = null; release(() => node.stop()); release(() => node.disconnect()); }
-        nodes.clear(); playAt = 0; item = null; if (resetDecoder) opus?.resetOutput(); return heard;
+        for (const node of nodes.keys()) { node.onended = null; release(() => node.stop()); releasePlayback(node); }
+        playAt = 0; item = null; if (resetDecoder) opus?.resetOutput(); return heard;
     }
     function stop() {
         if (closed) return; closed = true; epoch++; inputEpoch++; ready = false; queued = []; buffered = 0; packetUsed = 0;
@@ -106,16 +113,19 @@ export function createCanvasVoiceAudio({ settings, onAudio, onError, onState = (
         } catch (failure) { error(failure); }
     }
     function schedule(floats, rate, event) {
-        if (closed || !context || !floats.length) return;
+        if (closed || !context) return;
         try {
+            if (!(floats instanceof Float32Array) || !Number.isFinite(rate) || rate <= 0) throw fail('canvas_voice_audio_invalid');
+            if (!floats.length) return;
+            if (playbackBytes + floats.byteLength > playbackMemoryLimit || nodes.size >= 512) throw fail('canvas_voice_playback_backpressure');
             const duration = floats.length / rate, now = context.currentTime;
-            if (Math.max(playAt, now) + duration - now > 12 || nodes.size > 512) throw fail('canvas_voice_playback_backpressure');
             const buffer = context.createBuffer(1, floats.length, rate); buffer.copyToChannel(floats, 0);
-            const node = context.createBufferSource(); node.buffer = buffer; node.connect(context.destination);
+            const node = context.createBufferSource(); nodes.set(node, floats.byteLength); playbackBytes += floats.byteLength;
+            node.buffer = buffer; node.connect(context.destination);
             const start = Math.max(playAt, now), itemId = event.itemId || event.item_id, responseId = event.responseId || event.response_id;
             if (!item || item.itemId !== itemId) item = { itemId, responseId, startedAt: start, durationMs: 0 };
-            item.durationMs += duration * 1000; playAt = start + duration; nodes.add(node);
-            node.onended = () => { nodes.delete(node); node.disconnect(); if (!playing() && !closed) onState(muted ? 'muted' : 'listening'); };
+            item.durationMs += duration * 1000; playAt = start + duration;
+            node.onended = () => { if (!releasePlayback(node)) return; if (!playing() && !closed) onState(muted ? 'muted' : 'listening'); };
             node.start(start); onState('speaking');
         } catch (failure) { error(failure); }
     }

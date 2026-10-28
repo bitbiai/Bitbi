@@ -269,19 +269,32 @@ function registerCanvasVoiceTests(test, expect, { mockSharedAuth, createCanvasAp
         expect(await page.evaluate(() => window.syntheticStream.getTracks().every(track => track.readyState === 'ended'))).toBe(true);
         await page.evaluate(() => window.syntheticContext.close());
     });
-    test('Canvas Voice keeps speaking until actual queued playback ends after provider response done', async ({ page }) => {
+    test('Canvas Voice keeps speaking until actual queued playback ends after provider response done', async ({ page }, info) => {
         const { CanvasVoiceRelay } = await import('../../workers/auth/src/lib/canvas-voice-relay.js');
-        const { canvasVoiceSettings } = await import('../../js/shared/canvas-voice-settings.mjs'); let relay;
+        const { canvasVoiceSettings } = await import('../../js/shared/canvas-voice-settings.mjs'); let relay; const interruptions = [], upstream = [];
         await page.routeWebSocket(/\/agent\/voice\/sessions\/[^/]+\/socket$/, socket => {
-            relay = new CanvasVoiceRelay({ client: { send: text => socket.send(text), close: () => socket.close() }, provider: { send() {}, close() {} },
+            relay = new CanvasVoiceRelay({ client: { send: text => socket.send(text), close: () => socket.close() }, provider: { send: text => upstream.push(JSON.parse(text)), close() {} },
                 session: { settings: canvasVoiceSettings(), expiresAt: new Date(Date.now() + 60000).toISOString() }, services: {
                     authorize: async () => true, configuration: () => ({ type: 'session.update', session: {} }), verifyConfiguration: async () => {}, active: async () => {}, seedContext: async () => null,
-                    recordExposure: async () => {}, ended: async () => {},
+                    recordExposure: async () => {}, interrupted: async value => interruptions.push(value), ended: async () => {},
                 } }); socket.onMessage(message => void relay.clientMessage(message));
             void relay.providerMessage(JSON.stringify({ type: 'session.created' })).then(() => relay.providerMessage(JSON.stringify({ type: 'session.updated', session: {} })));
         });
         await harness(page, false, { available: true });
-        await page.evaluate(() => { const context = new AudioContext(), stream = context.createMediaStreamDestination().stream; window.syntheticContext = context; window.syntheticStream = stream;
+        await page.evaluate(() => {
+            // Return real native nodes and delegate every method; observe actual
+            // scheduling/cleanup without replacing the audio clock or callbacks.
+            window.playbackNodes = []; const original = AudioContext.prototype.createBufferSource;
+            AudioContext.prototype.createBufferSource = function (...args) {
+                const node = original.apply(this, args), record = { node, context: this, stopped: false, disconnected: false, ended: false, samples: 0, rate: 0, at: null };
+                const start = node.start.bind(node), stop = node.stop.bind(node), disconnect = node.disconnect.bind(node);
+                node.start = (...values) => { record.samples = node.buffer.length; record.rate = node.buffer.sampleRate; record.at = values[0];
+                    record.nonzero = node.buffer.getChannelData(0).some(sample => Math.abs(sample) > .01); return start(...values); };
+                node.stop = (...values) => { record.stopped = true; return stop(...values); };
+                node.disconnect = (...values) => { record.disconnected = true; return disconnect(...values); };
+                node.addEventListener('ended', () => { record.ended = true; }); window.playbackNodes.push(record); return node;
+            };
+            const context = new AudioContext(), stream = context.createMediaStreamDestination().stream; window.syntheticContext = context; window.syntheticStream = stream;
             document.querySelector('#outside').addEventListener('click', () => void context.resume()); Object.defineProperty(MediaDevices.prototype, 'getUserMedia', { configurable: true, value: async () => stream }); });
         await page.locator('#outside').click(); await page.locator('[data-canvas-voice="toggle"]').click();
         const dialog = page.getByRole('dialog'); await expect(dialog.getByRole('status')).toContainText('approved conversation allowance');
@@ -295,7 +308,62 @@ function registerCanvasVoiceTests(test, expect, { mockSharedAuth, createCanvasAp
         await emit({ type: 'response.done', response: { id: 'playback_response', status: 'completed' } });
         await page.waitForTimeout(100); await expect(page.locator('.canvas-voice__status')).toHaveText('Speaking');
         await expect(page.locator('.canvas-voice__status')).toHaveText('Listening');
-        await page.locator('[data-canvas-voice="toggle"]').click(); expect(await page.evaluate(() => window.syntheticStream.getTracks().every(track => track.readyState === 'ended'))).toBe(true); await page.evaluate(() => window.syntheticContext.close());
+        expect(await page.evaluate(() => window.playbackNodes.length === 1 && window.playbackNodes[0].ended
+            && window.playbackNodes[0].disconnected && window.playbackNodes[0].node.buffer === null)).toBe(true);
+        const burstPcm = Buffer.alloc(96000); for (let index = 0; index < 48000; index++) burstPcm.writeInt16LE(Math.round(3000 * Math.sin(index * Math.PI / 27)), index * 2);
+        const burst = async suffix => {
+            const before = await page.evaluate(() => window.playbackNodes.length), responseId = 'burst_' + suffix, itemId = responseId + '_item';
+            await emit({ type: 'response.created', response: { id: responseId } });
+            await emit({ type: 'response.output_item.added', response_id: responseId, item: { id: itemId, type: 'message' } });
+            for (let index = 0; index < 10; index++) await emit({ type: 'response.output_audio.delta', event_id: responseId + '_' + index,
+                response_id: responseId, item_id: itemId, delta: burstPcm.toString('base64') });
+            await emit({ type: 'response.done', response: { id: responseId, status: 'completed' } });
+            await expect.poll(() => page.evaluate(() => window.playbackNodes.length)).toBe(before + 10);
+            await expect(page.locator('.canvas-voice__status')).toHaveText('Speaking');
+            expect(await page.locator('.canvas-voice__status').getAttribute('data-voice-error')).toBeNull();
+            const measured = await page.evaluate(start => {
+                const rows = window.playbackNodes.slice(start); return { seconds: rows.reduce((sum, row) => sum + row.samples / row.rate, 0),
+                    span: rows.at(-1).at + rows.at(-1).samples / rows.at(-1).rate - rows[0].at,
+                    ahead: rows.at(-1).at + rows.at(-1).samples / rows.at(-1).rate - rows.at(-1).context.currentTime,
+                    nonzero: rows.every(row => row.nonzero), retainedBytes: rows.reduce((sum, row) => sum + (row.node.buffer?.length || 0) * 4, 0) };
+            }, before);
+            expect(measured.seconds).toBe(20); expect(measured.span).toBeCloseTo(20, 6);
+            expect(measured.ahead).toBeGreaterThan(12); expect(measured.retainedBytes).toBeLessThanOrEqual(20 * 24000 * 4);
+            expect(measured.retainedBytes).toBeGreaterThan(0); expect(measured.nonzero).toBe(true); return measured;
+        };
+        const interrupted = await burst('interrupt'); await page.getByRole('button', { name: 'Interrupt', exact: true }).click();
+        await expect.poll(() => interruptions.length).toBe(1); await relay.queue;
+        expect(interruptions[0]).toMatchObject({ responseId: 'burst_interrupt', itemId: 'burst_interrupt_item', interrupted: true });
+        expect(interruptions[0].audioEndMs).toBeGreaterThanOrEqual(0); expect(interruptions[0].audioEndMs).toBeLessThan(20000);
+        expect(upstream.filter(message => message.type === 'response.cancel')).toEqual([]);
+        expect(upstream.filter(message => message.type === 'conversation.item.truncate')).toEqual([{ type: 'conversation.item.truncate',
+            item_id: 'burst_interrupt_item', content_index: 0, audio_end_ms: interruptions[0].audioEndMs }]);
+        await expect(page.locator('.canvas-voice__status')).toHaveText('Listening');
+        expect(await page.evaluate(() => window.playbackNodes.every(row => row.disconnected && row.node.buffer === null))).toBe(true);
+        const stopped = await burst('stop'); // The released budget can be used again in the same session.
+        await page.locator('[data-canvas-voice="toggle"]').click();
+        expect(await page.evaluate(() => window.syntheticStream.getTracks().every(track => track.readyState === 'ended')
+            && window.playbackNodes.every(row => row.disconnected && row.node.buffer === null))).toBe(true);
+        await page.evaluate(() => window.syntheticContext.close());
+        const bounded = await page.evaluate(async () => {
+            const { createCanvasVoiceAudio } = await import('/js/pages/canvas/voice-audio.js');
+            const { canvasVoiceSettings } = await import('/js/shared/canvas-voice-settings.mjs');
+            const source = new AudioContext(), stream = source.createMediaStreamDestination().stream, errors = [], before = window.playbackNodes.length;
+            Object.defineProperty(MediaDevices.prototype, 'getUserMedia', { configurable: true, value: async () => stream });
+            const audio = createCanvasVoiceAudio({ settings: canvasVoiceSettings(), onAudio: () => true, onError: error => errors.push(error.code) });
+            await audio.open(); audio.ready();
+            // Each valid192k-byte PCM frame decodes to384k bytes of Float32.
+            // Twenty-one fit8MiB; the next must fail before allocating a node.
+            const frame = btoa('\x01'.repeat(192000));
+            for (let index = 0; index < 23; index++) audio.play({ audio: frame, event_id: 'memory_' + index, responseId: 'memory', itemId: 'memory_item' });
+            const rows = window.playbackNodes.slice(before), result = { errors, stopped: audio.stopped(), playing: audio.playing(),
+                nodes: rows.length, samples: rows.reduce((sum, row) => sum + row.samples, 0),
+                released: rows.every(row => row.stopped && row.disconnected && row.node.buffer === null), tracksEnded: stream.getTracks().every(track => track.readyState === 'ended') };
+            audio.stop(); await source.close(); return result;
+        });
+        expect(bounded.errors).toEqual(['canvas_voice_playback_backpressure']); expect(bounded.stopped).toBe(true); expect(bounded.playing).toBe(false);
+        expect(bounded.nodes).toBe(21); expect(bounded.samples).toBe(21 * 96000); expect(bounded.released).toBe(true); expect(bounded.tracksEnded).toBe(true);
+        await info.attach('real-browser-playback-bounds', { body: JSON.stringify({ interrupted, stopped, bounded }), contentType: 'application/json' });
     });
     for (const german of [false, true]) test(`Canvas Voice pending server stop ${german ? 'DE' : 'EN'} remains unconfirmed after HTTP success`, async ({ page }) => {
         await page.routeWebSocket(/\/agent\/voice\/sessions\/[^/]+\/socket$/, socket => { socket.onMessage(() => {}); socket.send(JSON.stringify({ type: 'voice.state', state: 'listening' })); });

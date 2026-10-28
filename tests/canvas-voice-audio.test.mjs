@@ -37,7 +37,7 @@ test('browser audio loader preserves actual module linkage and rejects an incomp
 // The real worklet, controller, resampler and encoder run together; only browser
 // resource allocation is synthetic. Transfer/delivery can be delayed explicitly.
 async function captureHarness(t, deviceRate = 48000, format = { type: 'audio/pcm', rate: 24000 }, accept = () => true) {
-    const packets = [], errors = [], delayed = []; let capture, processor, hold = false;
+    const packets = [], errors = [], delayed = [], playback = [], buffers = [], states = []; let capture, processor, audioContext, hold = false;
     const descriptors = new Map(['AudioContext', 'AudioWorkletNode', 'navigator'].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
     const track = { enabled: true, stopped: false, addEventListener() {}, stop() { this.stopped = true; } };
     const stream = { active: true, getTracks: () => [track], getAudioTracks: () => [track] };
@@ -51,19 +51,39 @@ async function captureHarness(t, deviceRate = 48000, format = { type: 'audio/pcm
     });
     const node = () => ({ connect() {}, disconnect() {} });
     class AudioContext {
-        sampleRate = deviceRate; state = 'running'; destination = {}; audioWorklet = { async addModule() {} };
+        sampleRate = deviceRate; currentTime = 0; state = 'running'; destination = {}; audioWorklet = { async addModule() {} };
+        constructor() { audioContext = this; }
         async resume() {} async close() { this.state = 'closed'; }
         createMediaStreamSource() { return node(); } createGain() { return { ...node(), gain: {} }; }
+        createBuffer(channels, length, rate) {
+            assert.equal(channels, 1); assert(Number.isInteger(length) && length > 0 && Number.isFinite(rate) && rate > 0);
+            if (this.failBuffer) throw new Error('synthetic_buffer_failure');
+            const data = new Float32Array(length), buffer = { length, sampleRate: rate, numberOfChannels: channels, duration: length / rate,
+                copyToChannel(input, channel) { assert.equal(channel, 0); data.set(input); }, getChannelData: () => data };
+            buffers.push(buffer); return buffer;
+        }
+        createBufferSource() {
+            const context = this;
+            const output = { buffer: null, onended: null, stopped: 0, disconnected: 0, ended: false,
+                connect() { if (context.failConnect) throw new Error('synthetic_connect_failure'); },
+                start(at) { if (context.failStart) throw new Error('synthetic_start_failure'); this.startAt = at; this.endAt = at + this.buffer.duration; },
+                stop() { this.stopped++; if (context.failCleanup) throw new Error('synthetic_stop_failure'); },
+                disconnect() { this.disconnected++; if (context.failCleanup) throw new Error('synthetic_disconnect_failure'); },
+            };
+            playback.push(output); return output;
+        }
     }
     class AudioWorkletNode {
         constructor(context, name, options) { capture = this; processor = new Processor(options); this.port = { onmessage: null, postMessage: data => processor.port.onmessage({ data }), close() {} }; }
         connect() {} disconnect() {}
     }
     for (const [key, value] of Object.entries({ AudioContext, AudioWorkletNode, navigator: { mediaDevices: { async getUserMedia() { return stream; } } } })) Object.defineProperty(globalThis, key, { configurable: true, value });
-    const audio = createCanvasVoiceAudio({ settings: canvasVoiceSettings({ audio: { input: { format } } }), onAudio(value) { packets.push(new Uint8Array(Buffer.from(value, 'base64'))); return accept(value); }, onError: error => errors.push(error.code || error.message) });
+    const audio = createCanvasVoiceAudio({ settings: canvasVoiceSettings({ audio: { input: { format } } }), onAudio(value) { packets.push(new Uint8Array(Buffer.from(value, 'base64'))); return accept(value); }, onError: error => errors.push(error.code || error.message), onState: state => states.push(state) });
     t.after(() => { audio.stop(); for (const [key, descriptor] of descriptors) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete globalThis[key]; } });
     await audio.open(); audio.ready();
-    return { audio, packets, errors, track, feed(samples) { for (let at = 0; at < samples.length; at += 128) processor.process([[samples.slice(at, at + 128)]]); },
+    return { audio, packets, errors, track, playback, buffers, states, context: audioContext,
+        advance(seconds) { audioContext.currentTime += seconds; for (const output of playback) if (!output.ended && output.endAt <= audioContext.currentTime) { output.ended = true; output.onended?.(); } },
+        feed(samples) { for (let at = 0; at < samples.length; at += 128) processor.process([[samples.slice(at, at + 128)]]); },
         hold(value) { hold = value; }, deliver() { const handler = capture.port.onmessage; for (const data of delayed.splice(0)) handler?.({ data }); },
         lateHandler: () => capture.port.onmessage, flushEvent: data => capture.port.onmessage?.({ data }), processor: () => processor,
     };
@@ -218,4 +238,71 @@ test('mute during asynchronous Opus flush rejects completion and drops late nati
     old.callbacks.output(h.chunk(60)); resolveFlush(); await assert.rejects(pending, /canvas_voice_stopped/);
     assert.equal(capture.packets.length, 0); assert.deepEqual(capture.errors, []); capture.audio.stop();
     h.encoders.at(-1).callbacks.output(h.chunk(60)); assert.equal(capture.packets.length, 0);
+});
+
+
+function playbackFrame(samples, index = 0) {
+    const bytes = Buffer.alloc(samples * 2); for (let offset = 0; offset < bytes.length; offset += 2) bytes.writeInt16LE(16384, offset);
+    return { audio: bytes.toString('base64'), eventId: 'playback_' + index, itemId: 'playback_item', responseId: 'playback_response' };
+}
+test('twenty-second provider burst stays playable, preserves ordering and interrupts at actual heard time', async t => {
+    const h = await captureHarness(t);
+    for (let index = 0; index < 10; index++) h.audio.play(playbackFrame(48000, index));
+    assert.deepEqual(h.errors, []); assert.equal(h.audio.playing(), true); assert.equal(h.audio.stopped(), false);
+    assert.deepEqual(h.playback.map(node => node.startAt), [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]);
+    assert.equal(h.playback.at(-1).endAt, 20); assert.equal(h.context.currentTime, 0);
+    assert.equal(h.buffers.reduce((sum, buffer) => sum + buffer.length, 0), 480000);
+    assert(h.buffers.every(buffer => buffer.getChannelData().every(value => value > .49 && value < .51)));
+    const lateEnded = h.playback[0].onended;
+    h.audio.play(playbackFrame(48000, 0)); assert.equal(h.playback.length, 10, 'Duplicate audio identity allocates no additional buffer');
+    h.advance(7.25);
+    assert(h.playback.slice(0, 3).every(node => node.buffer === null && node.disconnected === 1));
+    assert(h.playback.slice(3).every(node => node.buffer !== null));
+    assert.deepEqual(h.audio.interrupt(), { itemId: 'playback_item', responseId: 'playback_response', audioEndMs: 7250 });
+    assert(h.playback.every(node => node.buffer === null && node.onended === null && node.disconnected === 1));
+    assert.equal(h.audio.playing(), false); lateEnded();
+    for (let index = 10; index < 20; index++) h.audio.play(playbackFrame(48000, index));
+    assert.equal(h.playback[10].startAt, 7.25); assert.equal(h.playback.at(-1).endAt, 27.25);
+    assert.deepEqual(h.errors, []); h.audio.stop(); h.audio.stop();
+    assert(h.playback.every(node => node.buffer === null)); assert.equal(h.track.stopped, true); assert.equal(h.context.state, 'closed');
+    h.audio.play(playbackFrame(48000, 20)); assert.equal(h.playback.length, 20);
+});
+
+test('retained Float32 playback memory is bounded before allocation and reclaimed once after natural end', async t => {
+    const h = await captureHarness(t), limit = 8 * 1024 * 1024;
+    let remaining = limit / Float32Array.BYTES_PER_ELEMENT, index = 0;
+    while (remaining) { const samples = Math.min(96000, remaining); h.audio.play(playbackFrame(samples, index++)); remaining -= samples; }
+    assert.deepEqual(h.errors, []); assert.equal(h.buffers.reduce((sum, buffer) => sum + buffer.length * 4, 0), limit);
+    assert.equal(h.playback.length, 22); assert.equal(h.audio.playing(), true);
+    const ended = h.playback[0].onended;
+    h.advance(4); assert.equal(h.playback[0].buffer, null); assert.equal(h.playback[0].disconnected, 1);
+    h.audio.play(playbackFrame(96000, index++)); assert.equal(h.playback.length, 23); assert.deepEqual(h.errors, []);
+    ended(); // A delayed duplicate native callback must not free the same bytes twice.
+    const allocated = h.buffers.length; h.audio.play(playbackFrame(1, index++));
+    assert.deepEqual(h.errors, ['canvas_voice_playback_backpressure']); assert.equal(h.buffers.length, allocated, 'Overflow is rejected before native buffer allocation');
+    assert.equal(h.audio.stopped(), true); assert.equal(h.audio.playing(), false);
+    assert(h.playback.every(node => node.buffer === null && node.onended === null && node.disconnected === 1));
+    assert.equal(h.track.stopped, true); assert.equal(h.context.state, 'closed');
+});
+
+test('the independent 512-node bound rejects tiny-frame floods and cleans all playback resources', async t => {
+    const h = await captureHarness(t);
+    for (let index = 0; index < 512; index++) h.audio.play(playbackFrame(1, index));
+    assert.deepEqual(h.errors, []); assert.equal(h.playback.length, 512);
+    h.audio.play(playbackFrame(1, 512));
+    assert.deepEqual(h.errors, ['canvas_voice_playback_backpressure']); assert.equal(h.buffers.length, 512);
+    assert(h.playback.every(node => node.stopped === 1 && node.buffer === null && node.disconnected === 1));
+    assert.equal(h.audio.stopped(), true);
+});
+
+for (const failure of ['failBuffer', 'failConnect', 'failStart']) test(`playback ${failure} releases previously scheduled buffers even if native cleanup throws`, async t => {
+    const h = await captureHarness(t); h.audio.play(playbackFrame(48000, 0));
+    const lateEnded = h.playback[0].onended;
+    h.context[failure] = true; h.context.failCleanup = true;
+    h.audio.play(playbackFrame(48000, 1));
+    assert.equal(h.errors.length, 1); assert.match(h.errors[0], /^synthetic_(buffer|connect|start)_failure$/);
+    assert.equal(h.audio.stopped(), true); assert.equal(h.audio.playing(), false);
+    assert(h.playback.every(node => node.buffer === null && node.onended === null && node.disconnected === 1));
+    assert.equal(h.context.state, 'closed'); assert.equal(h.track.stopped, true);
+    lateEnded(); h.audio.stop(); assert.equal(h.errors.length, 1);
 });

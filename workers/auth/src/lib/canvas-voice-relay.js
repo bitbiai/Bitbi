@@ -169,7 +169,7 @@ export class CanvasVoiceRelay {
             if (!Number.isSafeInteger(event.audioEndMs) || event.audioEndMs < 0 || event.audioEndMs > 7200000) fail('canvas_voice_frame_invalid');
             this.output.interrupted = true;
             this.output.truncationRequested = event.audioEndMs;
-            this.upstream({ type: 'response.cancel', response_id: event.responseId });
+            if (!this.output.done) this.upstream({ type: 'response.cancel', response_id: event.responseId });
             this.upstream({ type: 'conversation.item.truncate', item_id: event.itemId, content_index: 0, audio_end_ms: event.audioEndMs });
             await this.services.interrupted({ ...this.output, audioEndMs: event.audioEndMs });
             this.send({ type: 'voice.interrupted', responseId: event.responseId }); return;

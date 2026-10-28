@@ -447,6 +447,19 @@ from retained queue memory; keep both limits and the queue-count limit. Positive
 large-audio and oversized/multibyte counterchecks must exercise the actual relay
 and native Owner before another live acceptance attempt.
 
+The next browser session on `37ecee05` passed that relay boundary but its
+correlated UI reported `canvas_voice_playback_backpressure`. The client used a
+12-second lookahead as a memory guard, although xAI delivers speech faster than
+playback. Bound actual retained Float32 sample memory to 8 MiB and scheduled
+sources to 512 instead. Release both counters and buffer references on natural
+completion, interruption, Stop and error. At mono 24/48 kHz the memory bound holds
+about 87/43 seconds; this is not extra session time or spending authority. Native
+browser burst/interrupt/overflow checks keep these limits independently testable.
+When provider generation has already finished, interrupt only the queued playback
+and truncate its heard prefix; do not cancel a nonexistent in-progress response.
+Active responses still receive cancellation. The same browser case verifies both
+the actual relay output and cleanup; no historical provider-error cause is inferred.
+
 Schema `0119_canvas_voice_sessions.sql` and the Voice frontend are published.
 The context/source association corrections affect Auth; the published frontend consumes
 the existing event unchanged. Compute the complete unpublished selection before

@@ -708,3 +708,24 @@ test('large valid wire frames still count their full retained string memory agai
     assert.equal(f.relay.queuedCount, 0); assert.equal(f.relay.queuedBytes, 0);
     assert.equal(f.sent.some(event => event.type === 'voice.audio'), false);
 });
+
+
+test('interrupt cancels only an in-progress provider response while completed queued audio still truncates', async () => {
+    for (const done of [false, true]) {
+        const f = fixture(); await f.ready(); await user(f, 'interrupt_source');
+        await f.provider({ type: 'response.created', response: { id: 'interrupt_response' } });
+        await f.provider({ type: 'response.output_item.added', response_id: 'interrupt_response', item: { type: 'message', id: 'interrupt_item' } });
+        await f.provider({ type: 'response.output_audio.delta', response_id: 'interrupt_response', item_id: 'interrupt_item', delta: Buffer.alloc(48000).toString('base64') });
+        if (done) await f.provider({ type: 'response.done', response: { id: 'interrupt_response', status: 'completed' } });
+        await f.client({ type: 'voice.interrupt', sequence: 0, responseId: 'interrupt_response', itemId: 'interrupt_item', audioEndMs: 750 });
+        assert.deepEqual(f.upstream.filter(event => event.type === 'response.cancel'), done ? [] : [{ type: 'response.cancel', response_id: 'interrupt_response' }]);
+        assert.deepEqual(f.upstream.filter(event => event.type === 'conversation.item.truncate'), [{ type: 'conversation.item.truncate', item_id: 'interrupt_item', content_index: 0, audio_end_ms: 750 }]);
+        assert.equal(f.calls.filter(call => call[0] === 'interrupted').length, 1);
+        assert.equal(f.calls.find(call => call[0] === 'interrupted')[1].audioEndMs, 750);
+        assert.equal(f.sent.at(-1).type, 'voice.interrupted');
+        await f.provider({ type: 'response.output_audio.delta', response_id: 'interrupt_response', item_id: 'interrupt_item', delta: 'AAA=' });
+        assert.equal(f.sent.filter(event => event.type === 'voice.audio').length, 1, 'Interrupted late audio remains suppressed');
+        assert.equal(f.relay.outputSamples, 24001, 'Actually received late audio remains metered');
+        assert.equal(f.relay.closed, false); await f.relay.stop();
+    }
+});
