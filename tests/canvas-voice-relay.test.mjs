@@ -181,6 +181,73 @@ test('cumulative interim transcription replaces rather than appends; replay does
     assert.equal(f.sent.filter(e => e.type === 'voice.transcript').at(-1).text, 'Ein Katzenvideo');
     assert.equal(f.calls.filter(c => c[0] === 'user').length, 1);
 });
+test('a transcript needs its matching audio commit and latest completion, in either order', async () => {
+    for (const order of ['transcript_first', 'commit_first', 'interim_after_completion']) {
+        const f = fixture(); await f.ready();
+        const final = { type: 'conversation.item.input_audio_transcription.completed', item_id: 'utterance', transcript: 'Ich möchte ein Katzenvideo.' };
+        const commit = { type: 'input_audio_buffer.committed', item_id: 'utterance' };
+        if (order === 'transcript_first') await f.provider(final);
+        else if (order === 'commit_first') await f.provider(commit);
+        else {
+            await f.provider({ ...final, transcript: 'Ich möch' });
+            await f.provider({ ...final, type: 'conversation.item.input_audio_transcription.updated' });
+            await f.provider(commit);
+        }
+        assert.equal(f.calls.some(call => call[0] === 'user'), false, order + ': provisional captions cannot change the conversation');
+        assert.equal(f.sent.some(event => event.type === 'voice.changed'), false);
+        await f.provider(order === 'transcript_first' ? commit : final);
+        await f.provider({ ...commit, event_id: 'duplicate_commit' });
+        await f.provider({ ...final, event_id: 'duplicate_final' });
+        assert.deepEqual(f.calls.filter(call => call[0] === 'user'), [['user', { itemId: 'utterance', text: 'Ich möchte ein Katzenvideo.' }]]);
+        assert.equal(f.sent.filter(event => event.type === 'voice.changed').length, 1);
+        assert.equal(f.relay.closed, false); await f.relay.stop();
+    }
+});
+test('abandoned pre-commit captions do not become turns and repeated old commits do not rebind a later response', async () => {
+    const f = fixture(); await f.ready();
+    await f.provider({ type: 'input_audio_buffer.speech_started', item_id: 'abandoned' });
+    await f.provider({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'abandoned', transcript: 'Ich möch' });
+    await f.provider({ type: 'input_audio_buffer.speech_stopped', item_id: 'abandoned' });
+    await f.provider({ type: 'input_audio_buffer.speech_started', item_id: 'first' });
+    await user(f, 'first'); await user(f, 'second');
+    await f.provider({ type: 'input_audio_buffer.committed', item_id: 'first', event_id: 'old_commit_replay' });
+    await f.provider({ type: 'response.output_item.added', response_id: 'answer', item: { type: 'message', id: 'answer_item' } });
+    await f.provider({ type: 'response.output_audio_transcript.delta', response_id: 'answer', delta: 'Welcher Stil?' });
+    await f.provider({ type: 'response.done', response: { id: 'answer', status: 'completed' } });
+    assert.deepEqual(f.calls.filter(call => call[0] === 'user').map(call => call[1].itemId), ['first', 'second']);
+    assert.equal(f.calls.find(call => call[0] === 'reply')[1].turn.id, 'second');
+    await f.relay.stop();
+});
+test('different text after final publication still reaches the immutable canonical replay guard', async () => {
+    const saved = new Map(), attempts = [];
+    const f = fixture({ userTurn: async input => {
+        attempts.push({ ...input });
+        if (saved.has(input.itemId) && saved.get(input.itemId) !== input.text) throw Object.assign(new Error('idempotency_conflict'), { code: 'idempotency_conflict' });
+        saved.set(input.itemId, input.text); return { id: input.itemId };
+    } });
+    await f.ready(); await user(f, 'immutable');
+    await f.provider({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'immutable', transcript: 'Different private content' });
+    assert.equal(attempts.length, 2); assert.equal(saved.get('immutable'), 'Ein Katzenvideo');
+    assert.equal(f.relay.closed, true); assert.equal(f.calls.at(-1)[1].code, 'idempotency_conflict');
+    assert.equal(f.sent.at(-1).code, 'idempotency_conflict');
+    assert.equal(JSON.stringify(f.calls).includes('Different private'), false);
+});
+test('pending transcript storage stays bounded and stopping cannot publish provisional captions', async () => {
+    for (const kind of ['commit', 'transcript']) {
+        const f = fixture(); await f.ready();
+        for (let index = 0; index < 80; index++) await f.provider(kind === 'commit'
+            ? { type: 'input_audio_buffer.committed', item_id: 'item_' + index }
+            : { type: 'conversation.item.input_audio_transcription.completed', item_id: 'item_' + index, transcript: 'Provisional' });
+        assert.equal(f.relay.closed, false); assert.equal(f.relay.latestTranscript.size, 80);
+        await f.provider({ type: 'input_audio_buffer.committed', item_id: 'over_limit' });
+        assert.equal(f.relay.closed, true); assert.equal(f.calls.at(-1)[1].code, 'canvas_voice_turn_limit');
+        assert.equal(f.relay.latestTranscript.size, 0); assert.equal(f.calls.some(call => call[0] === 'user'), false);
+    }
+    const f = fixture(); await f.ready();
+    await f.provider({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'pending', transcript: 'Not committed' });
+    await f.relay.stop(); await f.provider({ type: 'input_audio_buffer.committed', item_id: 'pending' });
+    assert.equal(f.relay.latestTranscript.size, 0); assert.equal(f.calls.some(call => call[0] === 'user'), false);
+});
 test('late input transcription binds the response to its source, never an older user turn', async () => {
     const f = fixture(); await f.ready(); await f.provider({ type: 'input_audio_buffer.committed', item_id: 'audio_2' });
     await f.provider({ type: 'response.output_item.added', response_id: 'response_2', item: { type: 'message', id: 'answer_2' } });

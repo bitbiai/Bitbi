@@ -357,6 +357,19 @@ failures without retaining tool names, schema keys, URLs or values. Native
 `startup_wrapped_tools` and `startup_wrapped_extra` exercise all three real
 Canvas definitions, activation/rejection, original settlement and duplicate Stop.
 
+The subsequent `f899a1d3` live session activated and received input audio, then
+stopped with `idempotency_conflict`. The sole stored user turn was a partial
+transcript; no reply or tool execution was saved. Original upstream ordering was
+not retained. Local reproduction establishes premature finalization: the relay
+stored a transcription completion without waiting for that audio item's commit.
+Following the official interpreter's separate caption/commit lifecycle, stage
+cumulative captions until both commit and the latest completed transcript exist,
+in either order. A newer interim invalidates a provisional completed prefix.
+Discard uncommitted captions on Stop; do not overwrite finalized user text or
+infer commitment from speech-stop, response creation or a timer. Preserve exact
+replays and the canonical conflicting-final guard. This closes the reproduced
+boundary; live audio output and briefing acceptance still need their own proof.
+
 Schema `0119_canvas_voice_sessions.sql` and the Voice frontend are published.
 The startup correction requires Auth publication only; compute the complete
 unpublished selection before release and retain unchanged frontend provenance.

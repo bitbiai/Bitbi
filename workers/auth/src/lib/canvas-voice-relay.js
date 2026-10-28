@@ -78,6 +78,30 @@ export class CanvasVoiceRelay {
         this.configurationSent = true; this.upstream(configuration);
     }
     async authorize() { if (this.closed || !await this.services.authorize(this.session)) fail('canvas_voice_authority_changed'); }
+    transcript(itemId) {
+        if (!this.latestTranscript.has(itemId)) {
+            if (this.latestTranscript.size >= 80) fail('canvas_voice_turn_limit');
+            this.latestTranscript.set(itemId, { committed: false, completed: false });
+        }
+        return this.latestTranscript.get(itemId);
+    }
+    async publishTranscript(itemId) {
+        const transcript = this.latestTranscript.get(itemId);
+        if (!transcript?.committed || !transcript.completed || transcript.text === transcript.persistedText) return;
+        // A provisional ASR completion is not yet a committed user message.
+        // After publication, the canonical service still rejects changed text
+        // for the same immutable item; only exact repeats are skipped here.
+        const turn = await this.services.userTurn({ itemId, text: transcript.text });
+        if (this.closed) return;
+        transcript.persistedText = transcript.text; this.turns.set(itemId, turn);
+        if (itemId === this.sourceItemId) this.turn = turn;
+        for (const response of this.functionResponses.values()) if (response.sourceItemId === itemId) response.turn = turn;
+        for (const response of this.responses.values()) if (response.sourceItemId === itemId) {
+            response.turn = turn;
+            if (response.done && response.text && !response.persisted) { await this.services.reply(response); response.persisted = true; }
+        }
+        this.send({ type: 'voice.changed' });
+    }
     enqueue(work, size = 0) {
         if (this.closed) return Promise.resolve();
         if (size > 280000 || this.queuedCount >= 64 || this.queuedBytes + size > 2 * 1024 * 1024) return this.stop('canvas_voice_backpressure');
@@ -183,7 +207,11 @@ export class CanvasVoiceRelay {
         }
         if (event.type === 'input_audio_buffer.committed') {
             if (!id(event.item_id)) fail('canvas_voice_provider_event_invalid');
+            const transcript = this.transcript(event.item_id);
+            if (transcript.committed) return;
+            transcript.committed = true;
             this.sourceItemId = event.item_id; this.turn = this.turns.get(event.item_id) || null;
+            await this.publishTranscript(event.item_id);
             if (this.manualPending && !this.manualPending.sent) {
                 this.manualPending.sent = true; this.manualPending.itemId = event.item_id; this.upstream(await this.services.response());
             }
@@ -198,19 +226,11 @@ export class CanvasVoiceRelay {
         }
         if (event.type === 'conversation.item.input_audio_transcription.updated' || event.type === 'conversation.item.input_audio_transcription.completed') {
             if (!id(event.item_id) || typeof event.transcript !== 'string' || event.transcript.length > 6000) fail('canvas_voice_transcript_invalid');
-            this.latestTranscript.set(event.item_id, event.transcript); // Cumulative, never appended as a delta.
-            if (this.latestTranscript.size > 80) fail('canvas_voice_turn_limit');
-            if (event.type.endsWith('.completed')) {
-                const turn = await this.services.userTurn({ itemId: event.item_id, text: event.transcript });
-                this.turns.set(event.item_id, turn);
-                if (event.item_id === this.sourceItemId) this.turn = turn;
-                for (const response of this.functionResponses.values()) if (response.sourceItemId === event.item_id) response.turn = turn;
-                for (const response of this.responses.values()) if (response.sourceItemId === event.item_id) {
-                    response.turn = turn;
-                    if (response.done && response.text && !response.persisted) { await this.services.reply(response); response.persisted = true; }
-                }
-                this.send({ type: 'voice.changed' });
-            } else this.send({ type: 'voice.transcript', itemId: event.item_id, text: event.transcript });
+            const transcript = this.transcript(event.item_id);
+            transcript.text = event.transcript; // Cumulative, never appended as a delta.
+            transcript.completed = event.type.endsWith('.completed'); // A newer interim invalidates a provisional final.
+            if (transcript.completed) await this.publishTranscript(event.item_id);
+            if (!transcript.completed || !this.turns.has(event.item_id)) this.send({ type: 'voice.transcript', itemId: event.item_id, text: event.transcript });
             return;
         }
         if (event.type === 'response.output_item.added' && event.item?.type === 'message') {

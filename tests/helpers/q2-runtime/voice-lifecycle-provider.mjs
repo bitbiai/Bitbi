@@ -2,7 +2,7 @@
 // egress; normal coverage uses the unchanged provider until a case opts in.
 import normalProvider from './voice-provider.mjs';
 
-const modes = new Set(['idle', 'pending', 'abnormal', 'no_ack', 'delayed_ack', 'partial', 'resume', 'rejected', 'startup_order', 'startup_audio', 'startup_tool', 'startup_error_envelope', 'startup_ping', 'startup_partial_ack', 'startup_wrapped_tools', 'startup_wrapped_extra']);
+const modes = new Set(['idle', 'pending', 'abnormal', 'no_ack', 'delayed_ack', 'partial', 'resume', 'rejected', 'transcript', 'startup_order', 'startup_audio', 'startup_tool', 'startup_error_envelope', 'startup_ping', 'startup_partial_ack', 'startup_wrapped_tools', 'startup_wrapped_extra']);
 let current = null;
 const snapshot = state => state ? { enabled: true, mode: state.mode, attempts: state.attempts,
   connections: state.connections, appends: state.appends, responses: state.responses,
@@ -24,8 +24,23 @@ const handler = {
         if (!current?.release) return new Response(null, { status: 409 });
         current.released = true; current.release(); current.release = null;
       } else if (url.pathname === '/lifecycle/emit') {
-        if (!current?.socket || body.command !== 'close_abnormal') return new Response(null, { status: 400 });
-        current.socket.close(4001, 'Synthetic provider failure');
+        if (!current?.socket) return new Response(null, { status: 400 });
+        if (body.command === 'close_abnormal') current.socket.close(4001, 'Synthetic provider failure');
+        else if (current.mode === 'transcript') {
+          const item_id = 'lifecycle_transcript_item';
+          const events = {
+            prefix: { type: 'conversation.item.input_audio_transcription.completed', item_id, transcript: 'Ich möch' },
+            interim: { type: 'conversation.item.input_audio_transcription.updated', item_id, transcript: 'Ich möchte ein Katzenvideo' },
+            final: { type: 'conversation.item.input_audio_transcription.completed', item_id, transcript: 'Ich möchte ein Katzenvideo erstellen.' },
+            commit: { type: 'input_audio_buffer.committed', item_id },
+            conflict: { type: 'conversation.item.input_audio_transcription.completed', item_id, transcript: 'Ein anderer abgeschlossener Beitrag.' },
+          };
+          if (!Object.hasOwn(events, body.command)) return new Response(null, { status: 400 });
+          current.emit(events[body.command]);
+          // This real protocol event is processed after the selected transcript
+          // boundary; it proves ordering without an arbitrary sleep.
+          current.emit({ type: 'input_audio_buffer.timeout_triggered' });
+        } else return new Response(null, { status: 400 });
       } else return new Response(null, { status: 404 });
       return Response.json(snapshot(current));
     }
@@ -46,6 +61,7 @@ const handler = {
     state.conversationId = conversationId;
     let sequence = 0;
     const emit = event => socket.send(JSON.stringify({ event_id: 'lifecycle_' + ++sequence, ...event }));
+    state.emit = emit;
     socket.accept();
     socket.addEventListener('close', event => {
       state.closeRequests++;

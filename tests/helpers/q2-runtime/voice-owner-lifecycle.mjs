@@ -5,6 +5,7 @@ export const CANVAS_VOICE_OWNER_LIFECYCLE_CASES = Object.freeze([
   'pending_fetch_stop', 'abnormal_close', 'no_close_ack', 'delayed_close_ack', 'concurrent_text',
   'partial_stop', 'projection_after_stop', 'replacement_isolation', 'optin_resumption', 'handshake_rejected',
   'startup_order', 'startup_audio', 'startup_tool', 'startup_error_envelope', 'startup_ping', 'startup_partial_ack', 'startup_wrapped_tools', 'startup_wrapped_extra',
+  'transcript_commit_after', 'transcript_commit_before', 'transcript_abandoned', 'transcript_final_conflict',
 ]);
 const pause = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 const hash = value => createHash('sha256').update(value).digest('hex').slice(0, 32);
@@ -21,7 +22,7 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
       body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     assert.equal(response.status, 200, await response.clone().text()); return response.json();
   };
-  const mode = name.startsWith('startup_') ? name : name === 'handshake_rejected' ? 'rejected' : name === 'delayed_close_ack' ? 'delayed_ack' : name === 'optin_resumption' ? 'resume' : name === 'pending_fetch_stop' ? 'pending' : name === 'abnormal_close' ? 'abnormal'
+  const mode = name.startsWith('startup_') ? name : name.startsWith('transcript_') ? 'transcript' : name === 'handshake_rejected' ? 'rejected' : name === 'delayed_close_ack' ? 'delayed_ack' : name === 'optin_resumption' ? 'resume' : name === 'pending_fetch_stop' ? 'pending' : name === 'abnormal_close' ? 'abnormal'
     : name === 'no_close_ack' ? 'no_ack' : ['partial_stop', 'projection_after_stop'].includes(name) ? 'partial' : 'idle';
   await command('control', { mode });
   const seeded = await f.control('/canvas-voice-owner-seed', { name: 'life-' + name.replaceAll('_', '-') });
@@ -122,6 +123,57 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
     }
     const client = await open(sessionId);
     assert.equal((await command('state')).configurations, 1, 'Early session.created survived the durable acceptance fence');
+    if (name.startsWith('transcript_')) {
+      const turns = async () => (await f.db.prepare('SELECT t.user_text,t.assistant_text,v.provider_item_id FROM canvas_agent_turns t JOIN canvas_voice_turns v ON v.turn_id=t.id WHERE t.project_id=?').bind(projectId).all()).results;
+      const revision = () => f.db.prepare('SELECT revision,brief_revision FROM canvas_agent_conversations WHERE project_id=?').bind(projectId).first();
+      const original = await revision();
+      const emitted = async event => {
+        const prior = client.events.filter(item => item.type === 'voice.state' && item.state === 'processing').length;
+        await command('emit', { command: event });
+        await until(() => client.events, list => list.filter(item => item.type === 'voice.state' && item.state === 'processing').length > prior, 'Transcript boundary reached ' + event);
+      };
+      const unpublished = async () => {
+        assert.deepEqual(await turns(), [], 'No transcript row before both provider boundaries');
+        assert.deepEqual(await revision(), original, 'Provisional transcription does not advance creative/conversation state');
+        assert.equal((await command('state')).configurations, 1, 'Provisional transcription cannot refresh provider context');
+      };
+      client.send({ type: 'audio.append', audio: Buffer.alloc(960).toString('base64') });
+      await until(() => command('state'), state => state.appends === 1, 'Original accepted input reaches provider once');
+      if (name === 'transcript_commit_before') {
+        await emitted('commit'); await unpublished(); await emitted('final');
+      } else {
+        await emitted('prefix'); await unpublished();
+        await emitted('interim'); await unpublished();
+        if (name !== 'transcript_abandoned') { await emitted('final'); await unpublished(); await emitted('commit'); }
+      }
+      if (name !== 'transcript_abandoned') {
+        const expected = [{ user_text: 'Ich möchte ein Katzenvideo erstellen.', assistant_text: null, provider_item_id: 'input:lifecycle_transcript_item' }];
+        assert.deepEqual(await turns(), expected);
+        const saved = await revision(); assert.equal(saved.revision, original.revision + 1); assert.equal(saved.brief_revision, original.brief_revision);
+        await until(() => command('state'), state => state.configurations === 2, 'One canonical context refresh after committed final transcript');
+        for (const event of ['commit', 'final', 'commit', 'final']) await emitted(event);
+        assert.deepEqual(await turns(), expected); assert.deepEqual(await revision(), saved);
+        assert.equal((await command('state')).configurations, 2, 'Replay does not repeat context refresh');
+        if (name === 'transcript_final_conflict') {
+          await command('emit', { command: 'conflict' });
+          await client.wait(event => event.type === 'voice.ended' && event.code === 'idempotency_conflict');
+          assert.deepEqual(await turns(), expected, 'A changed final cannot rewrite an immutable user turn');
+          assert.deepEqual(await revision(), saved);
+        }
+      }
+      await json(await stop(sessionId));
+      const settled = await until(usage, row => row?.billing_status === 'finalized', 'Transcript boundary session settles its original usage');
+      const receipt = JSON.parse(settled.metadata_json).canvas_voice_receipt;
+      assert.equal(receipt.inputSamples, 480); assert.equal(receipt.outputSamples, 0);
+      assert(Number.isSafeInteger(receipt.credits) && receipt.credits > 0, 'Actual forwarded input remains accounted');
+      const once = await debit(); assert.deepEqual(once, { n: 1, amount: -receipt.credits });
+      for (let replay = 0; replay < 2; replay++) await json(await stop(sessionId));
+      assert.deepEqual(await debit(), once, 'Repeated Stop never debits the original usage twice');
+      if (name === 'transcript_abandoned') await unpublished();
+      const state = await command('state'); assert.equal(state.attempts, 1); assert.equal(state.connections, 1); assert.equal(state.appends, 1); assert.equal(state.responses, 0);
+      assert.equal((await f.db.prepare('SELECT COUNT(*) AS n FROM canvas_agent_runs WHERE project_id=?').bind(projectId).first()).n, 0);
+      return;
+    }
     if (name === 'delayed_close_ack') {
       client.send({ type: 'audio.append', audio: Buffer.alloc(960).toString('base64') });
       await until(() => command('state'), state => state.appends === 1, 'Original accepted audio forwarded once');
