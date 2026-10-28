@@ -19,8 +19,69 @@ function fixture(patch = {}, clock = {}) {
     const provider = event => relay.providerMessage(JSON.stringify(event));
     return { relay, sent, upstream, calls, closed, timers, provider, client: event => relay.clientMessage(JSON.stringify(event)),
         advance: ms => { time += ms; }, revoke: () => { authority = false; },
-        ready: async () => { await provider({ type: 'session.created' }); await provider({ type: 'conversation.created', conversation: { id: 'conversation_1' } }); await provider({ type: 'session.updated', session: { instructions: 'trusted' } }); } };
+        ready: async () => { await provider({ type: 'session.created', session: { id: 'session_1' } }); await provider({ type: 'conversation.created', conversation: { id: 'conversation_1' } }); await provider({ type: 'session.updated', session: { instructions: 'trusted' } }); } };
 }
+test('either startup event configures once; duplicate and reordered startup history cannot execute actions', async () => {
+    const startup = [
+        { type: 'session.created', session: { id: 'session_1' } },
+        { type: 'conversation.created', conversation: { id: 'conversation_1' } },
+    ];
+    for (const first of [0, 1]) {
+        const f = fixture();
+        await f.provider({ ...startup[first], event_id: 'first' });
+        assert.equal(f.upstream.filter(event => event.type === 'session.update').length, 1, 'The first startup event sends configuration without waiting for the other');
+        for (const type of ['conversation.item.added', 'conversation.item.created']) {
+            await f.provider({ type, item: { id: 'historical_tool', type: 'function_call', name: 'canvas_update_brief', arguments: '{"private":"ignored"}' } });
+        }
+        await f.provider({ ...startup[first], event_id: 'first' });
+        await f.provider({ ...startup[1 - first], event_id: 'other_startup' });
+        await f.provider({ ...startup[first], event_id: 'new_duplicate' });
+        assert.equal(f.relay.active, false); assert.equal(f.calls.length, 0);
+        await f.provider({ type: 'session.updated', session: { instructions: 'trusted' } });
+        await f.provider({ ...startup[first], event_id: 'late_duplicate' });
+        assert.equal(f.relay.active, true); assert.equal(f.relay.closed, false);
+        assert.equal(f.upstream.filter(event => event.type === 'session.update').length, 1);
+        assert.equal(f.upstream.filter(event => event.type === 'response.create').length, 0);
+        assert.equal(f.calls.filter(call => call[0] === 'active').length, 1);
+        assert.equal(f.calls.some(call => ['tool', 'user', 'reply', 'exposure'].includes(call[0])), false);
+        await f.relay.stop();
+    }
+});
+test('pre-ack audio, tools and unknown events remain fenced with content-free diagnostic categories', async () => {
+    const cases = [
+        [{ type: 'response.output_audio.delta', delta: 'AAA=' }, 'audio_delta'],
+        [{ type: 'response.function_call_arguments.done', arguments: '{"private":"do not log"}' }, 'function_call'],
+        [{ type: 'input_audio_buffer.cleared' }, 'input_cleared'],
+        [{ type: 'synthetic_private_event', private: 'do not log' }, 'unknown_event'],
+        [{ type: '__proto__' }, 'unknown_event'],
+    ];
+    for (const [event, category] of cases) {
+        const f = fixture(); await f.provider({ type: 'conversation.created', conversation: { id: 'conversation_1' } });
+        await f.provider(event);
+        assert.equal(f.relay.closed, true); assert.equal(f.relay.active, false);
+        assert.equal(f.calls.at(-1)[1].code, 'canvas_voice_provider_not_ready_' + category);
+        assert.equal(f.sent.at(-1).code, 'canvas_voice_configuration_unconfirmed');
+        assert.equal(f.calls.some(call => ['tool', 'user', 'reply', 'exposure', 'active'].includes(call[0])), false);
+        assert.equal(f.sent.some(message => message.type === 'voice.audio'), false);
+        assert.equal(JSON.stringify(f.sent).includes('private'), false);
+        await f.provider({ type: 'session.updated', session: { instructions: 'trusted' } });
+        assert.equal(f.relay.active, false, 'A late acknowledgement cannot resurrect the failed session');
+    }
+    for (const event of [{ type: 'conversation.created', conversation: { id: 'bad id' } },
+        { type: 'session.updated', session: { instructions: 'trusted' } }]) {
+        const f = fixture(); await f.provider(event);
+        assert.equal(f.relay.closed, true); assert.equal(f.relay.active, false); assert.equal(f.upstream.length, 0);
+    }
+});
+test('configuration diagnostics retain their safe receipt code while the browser receives the localized category', async () => {
+    const code = 'canvas_voice_configuration_unconfirmed_audio_input_format_rate_value';
+    const f = fixture({ verifyConfiguration: async () => { throw Object.assign(new Error('private provider detail'), { code }); } });
+    await f.provider({ type: 'session.created' }); await f.provider({ type: 'session.updated', session: {} });
+    assert.equal(f.relay.closed, true); assert.equal(f.relay.active, false);
+    assert.equal(f.calls.at(-1)[1].code, code); assert.equal(f.sent.at(-1).code, 'canvas_voice_configuration_unconfirmed');
+    assert.equal(JSON.stringify(f.sent).includes('private'), false);
+    assert.equal(f.calls.some(call => ['tool', 'user', 'reply', 'exposure', 'active'].includes(call[0])), false);
+});
 test('native timer receiver and failed timer cleanup cannot strand accepted sockets or settlement', async () => {
     for (const broken of [false, true]) {
         let called = 0;
@@ -34,7 +95,7 @@ test('native timer receiver and failed timer cleanup cannot strand accepted sock
     }
 });
 test('server owns configuration; missing ack, forged instructions and changed authority fail closed', async () => {
-    const f = fixture(); await f.provider({ type: 'session.created' });
+    const f = fixture(); await f.provider({ type: 'session.created', session: { id: 'session_1' } });
     assert.equal(f.sent.length, 0); assert.equal(f.upstream[0].session.instructions, 'trusted');
     await f.provider({ type: 'session.updated', session: { instructions: 'forged' } });
     assert.deepEqual(f.closed, ['provider', 'client']);
@@ -174,12 +235,13 @@ test('late acknowledged truncation remains correlated after reply persistence an
 test('stopping during asynchronous configuration acknowledgement cannot reactivate a session', async () => {
     let release; const wait = new Promise(resolve => { release = resolve; });
     const f = fixture({ verifyConfiguration: () => wait });
+    await f.provider({ type: 'session.created', session: { id: 'session_1' } });
     const pending = f.provider({ type: 'session.updated', session: { instructions: 'trusted' } });
     await new Promise(resolve => setImmediate(resolve));
     await f.relay.stop('canvas_voice_stopped'); release(); await pending;
     assert.equal(f.calls.some(c => c[0] === 'active'), false);
     assert.equal(f.relay.active, false);
-    assert.equal(f.upstream.length, 0);
+    assert.deepEqual(f.upstream.map(event => event.type), ['session.update']);
 });
 
 test('documented audio and text aliases follow the same associated-response validation', async () => {

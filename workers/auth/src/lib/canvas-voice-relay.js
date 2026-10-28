@@ -6,6 +6,25 @@ const parse = value => { if (typeof value !== 'string' || value.length > 280000)
 const fail = code => { throw Object.assign(new Error(code), { code }); };
 const exact = (value, keys) => value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).every(k => keys.includes(k));
 const id = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,160}$/.test(value);
+// Diagnostic categories are fixed protocol names, never provider payloads or IDs.
+const beforeReadyEvents = Object.freeze({
+    'input_audio_buffer.speech_started': 'speech_started', 'input_audio_buffer.speech_stopped': 'speech_stopped',
+    'input_audio_buffer.committed': 'input_committed', 'input_audio_buffer.cleared': 'input_cleared',
+    'input_audio_buffer.timeout_triggered': 'idle_timeout', 'input_audio_buffer.dtmf_event_received': 'dtmf',
+    'conversation.item.deleted': 'item_deleted', 'conversation.item.truncated': 'item_truncated',
+    'conversation.item.input_audio_transcription.updated': 'input_transcript',
+    'conversation.item.input_audio_transcription.completed': 'input_transcript_done',
+    'response.created': 'response_created', 'response.done': 'response_done',
+    'response.output_item.added': 'output_item', 'response.output_item.done': 'output_item_done',
+    'response.content_part.added': 'content_part', 'response.content_part.done': 'content_done',
+    'response.output_audio.delta': 'audio_delta', 'response.audio.delta': 'audio_delta', 'response.output_audio.done': 'audio_done',
+    'response.output_audio_transcript.delta': 'transcript_delta', 'response.output_audio_transcript.done': 'transcript_done',
+    'response.text.delta': 'text_delta', 'response.output_text.delta': 'text_delta',
+    'response.function_call_arguments.delta': 'function_delta', 'response.function_call_arguments.done': 'function_call',
+    'mcp_list_tools.in_progress': 'mcp_discovery', 'mcp_list_tools.completed': 'mcp_discovered', 'mcp_list_tools.failed': 'mcp_failed',
+    'response.mcp_call_arguments.delta': 'mcp_arguments', 'response.mcp_call_arguments.done': 'mcp_arguments_done',
+    'response.mcp_call.in_progress': 'mcp_call', 'response.mcp_call.completed': 'mcp_completed', 'response.mcp_call.failed': 'mcp_call_failed',
+});
 const bytesOf = value => {
     if (typeof value !== 'string' || value.length > 256000 || value.length % 4 || !/^[A-Za-z0-9+/]*={0,2}$/.test(value)) fail('canvas_voice_audio_invalid');
     return Uint8Array.from(atob(value), c => c.charCodeAt(0));
@@ -18,7 +37,7 @@ export class CanvasVoiceRelay {
         // Native workerd timer functions must not receive this relay as their
         // receiver. Closure invocation also keeps injected test clocks faithful.
         this.setTimer = (...args) => setTimer(...args); this.clearTimer = value => clearTimer(value);
-        this.closed = false; this.active = false; this.muted = false;
+        this.closed = false; this.active = false; this.muted = false; this.configurationSent = false;
         this.nextSequence = 0; this.sequences = new Map(); this.providerEvents = new Set(); this.inputSamples = 0;
         this.outputBytes = 0; this.outputSamples = 0; this.startedAt = now(); this.lastInputAt = now(); this.turn = null; this.output = null;
         this.queue = Promise.resolve(); this.queuedBytes = 0; this.queuedCount = 0; this.latestTranscript = new Map(); this.responses = new Map(); this.turns = new Map(); this.sourceItemId = null;
@@ -30,6 +49,11 @@ export class CanvasVoiceRelay {
     }
     send(message) { if (!this.closed) this.client.send(JSON.stringify(message)); }
     upstream(message) { if (!this.closed) this.provider.send(typeof message === 'string' || message instanceof ArrayBuffer ? message : JSON.stringify(message)); }
+    configure() {
+        if (this.closed || this.configurationSent) return;
+        const configuration = this.services.configuration();
+        this.configurationSent = true; this.upstream(configuration);
+    }
     async authorize() { if (this.closed || !await this.services.authorize(this.session)) fail('canvas_voice_authority_changed'); }
     enqueue(work, size = 0) {
         if (this.closed) return Promise.resolve();
@@ -103,16 +127,17 @@ export class CanvasVoiceRelay {
             if (this.providerEvents.size >= 20000) fail('canvas_voice_event_limit');
             this.providerEvents.add(event.event_id);
         }
-        if (event.type === 'session.created') { this.upstream(this.services.configuration()); return; }
+        if (event.type === 'session.created') { this.configure(); return; }
         if (event.type === 'conversation.created') {
             if (!id(event.conversation?.id)) fail('canvas_voice_provider_identity_invalid');
-            await this.services.conversation?.(event.conversation.id); return;
+            await this.services.conversation?.(event.conversation.id); this.configure(); return;
         }
         // Opt-in resumption replays historical items, including tool calls and
         // outputs. They condition the provider, never create a fresh local turn,
         // execute a tool or resend a chargeable conversation.item.create.
-        if (event.type === 'conversation.item.created') return;
+        if (event.type === 'conversation.item.created' || event.type === 'conversation.item.added') return;
         if (event.type === 'session.updated') {
+            if (!this.configurationSent) fail('canvas_voice_provider_not_ready_session_updated');
             await this.services.verifyConfiguration(event.session);
             if (this.closed) return;
             if (!this.active) {
@@ -122,7 +147,7 @@ export class CanvasVoiceRelay {
             this.send({ type: 'voice.state', state: this.muted ? 'muted' : 'listening' }); return;
         }
         if (event.type === 'error') fail('canvas_voice_provider_error');
-        if (!this.active) fail('canvas_voice_provider_not_ready');
+        if (!this.active) fail('canvas_voice_provider_not_ready_' + (Object.hasOwn(beforeReadyEvents, event.type) ? beforeReadyEvents[event.type] : 'unknown_event'));
         if (event.type === 'input_audio_buffer.timeout_triggered') {
             this.send({ type: 'voice.state', state: 'processing' }); return; // Provider follow-up, not a local session expiry.
         }
@@ -240,9 +265,11 @@ export class CanvasVoiceRelay {
     async stop(code = 'canvas_voice_disconnected') {
         if (this.closed) return;
         this.closed = true;
+        const publicCode = typeof code === 'string' && (code.startsWith('canvas_voice_configuration_unconfirmed_')
+            || code.startsWith('canvas_voice_provider_not_ready_')) ? 'canvas_voice_configuration_unconfirmed' : code;
         try { this.clearTimer(this.deadline); } catch { /* Timer cleanup cannot block socket close or durable settlement. */ }
         try { this.provider.close(1000, 'session ended'); } catch { /* Already closed; the outcome is still recorded below. */ }
-        try { this.client.send(JSON.stringify({ type: 'voice.ended', code })); this.client.close(1000, 'session ended'); } catch { /* Disconnected browser cannot acknowledge termination. */ }
+        try { this.client.send(JSON.stringify({ type: 'voice.ended', code: publicCode })); this.client.close(1000, 'session ended'); } catch { /* Disconnected browser cannot acknowledge termination. */ }
         this.latestTranscript.clear(); this.sequences.clear(); this.providerEvents.clear(); this.turns.clear();
         await this.services.ended({ code, ...this.exposure(),
             incompleteResponses: [...this.responses.values()].filter(value => !value.persisted).map(value => ({ ...value, interrupted: true })) });

@@ -2,7 +2,7 @@
 // egress; normal coverage uses the unchanged provider until a case opts in.
 import normalProvider from './voice-provider.mjs';
 
-const modes = new Set(['idle', 'pending', 'abnormal', 'no_ack', 'delayed_ack', 'partial', 'resume', 'rejected']);
+const modes = new Set(['idle', 'pending', 'abnormal', 'no_ack', 'delayed_ack', 'partial', 'resume', 'rejected', 'startup_order', 'startup_audio', 'startup_tool']);
 let current = null;
 const snapshot = state => state ? { enabled: true, mode: state.mode, attempts: state.attempts,
   connections: state.connections, appends: state.appends, responses: state.responses,
@@ -55,7 +55,16 @@ const handler = {
     });
     socket.addEventListener('message', event => {
       const item = JSON.parse(event.data);
-      if (item.type === 'session.update') { state.configurations++; emit({ type: 'session.updated', session: item.session }); }
+      if (item.type === 'session.update') {
+        state.configurations++;
+        if (['startup_audio', 'startup_tool'].includes(state.mode)) return;
+        if (state.mode === 'startup_order') {
+          emit({ type: 'session.created', session: { id: 'lifecycle_provider', model: 'grok-voice-3.0' } });
+          emit({ type: 'conversation.created', event_id: 'startup_conversation', conversation: { id: conversationId } });
+          emit({ type: 'conversation.created', conversation: { id: conversationId } });
+        }
+        emit({ type: 'session.updated', session: item.session });
+      }
       else if (item.type === 'input_audio_buffer.append') state.appends++;
       else if (item.type === 'input_audio_buffer.commit') {
         emit({ type: 'input_audio_buffer.committed', item_id: 'lifecycle_utterance' });
@@ -72,8 +81,17 @@ const handler = {
     });
     // Emitted before the owner's durable acceptance write. The owner must have
     // attached listeners and must not execute this event ahead of that fence.
-    emit({ type: 'session.created', session: { id: 'lifecycle_provider', model: 'grok-voice-3.0' } });
-    emit({ type: 'conversation.created', conversation: { id: conversationId } });
+    if (state.mode.startsWith('startup_')) {
+      emit({ type: 'conversation.created', event_id: 'startup_conversation', conversation: { id: conversationId } });
+      if (state.mode === 'startup_order') emit({ type: 'conversation.item.added', item: { id: 'historical_call', type: 'function_call',
+        name: 'canvas_update_brief', arguments: '{"private":"must remain inert"}' } });
+      else if (state.mode === 'startup_audio') emit({ type: 'response.output_audio.delta', response_id: 'early_response', item_id: 'early_item', delta: btoa('\0\0') });
+      else emit({ type: 'response.function_call_arguments.done', call_id: 'early_call', response_id: 'early_response',
+        name: 'canvas_update_brief', arguments: '{"private":"must never execute"}' });
+    } else {
+      emit({ type: 'session.created', session: { id: 'lifecycle_provider', model: 'grok-voice-3.0' } });
+      emit({ type: 'conversation.created', conversation: { id: conversationId } });
+    }
     return new Response(null, { status: 101, webSocket: pair[0] });
   },
 };

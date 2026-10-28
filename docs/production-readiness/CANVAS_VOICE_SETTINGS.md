@@ -175,8 +175,8 @@ tool shape, captions, audio and cost evidence remains a distinct acceptance item
 
 ## Implementation status and remaining release boundary
 
-This remains an **unpublished integration** until protected release and live
-acceptance evidence exist. The authenticated quote/admission routes now use the
+The integration was published through protected run `40582236705`; live speech
+acceptance remains incomplete. The authenticated quote/admission routes use the
 existing member usage reservation and credit ledger. The owner approved the
 existing 20% margin calculation for each started ten-second unit within the
 conversation allowance. The provider price is $0.08/minute; the current shared
@@ -304,11 +304,23 @@ Known provider-reported rejection reasons are reduced to fixed categories after
 a maximum 4,096-byte/one-second read; arbitrary body text, keys and identifiers
 are discarded. An unknown message remains an unexplained HTTP rejection.
 
-The proposed release plan selects schema `0119_canvas_voice_sessions.sql`, Auth
-and frontend, in that order. No AI, Contact or media processor deployment is
-currently selected. The complete candidate must still use `release:local` and
-its existing protection, verification and publication lock. No schema has been
-applied and no component deployed for this work.
+On 2026-10-28, after the owner updated the Auth secret, the provider accepted
+connections using the published `d9ffd06e` code. They stopped before activation
+with `canvas_voice_provider_not_ready`. The discarded event type is unknown.
+Local counterchecks reproduce two startup-contract gaps: configuration waited
+only for `session.created`, and documented `conversation.item.added` history
+notifications were rejected before acknowledgement. Configure once on the first
+valid session/conversation creation event and treat item-added history as inert;
+neither event authorizes audio, tools or activation without a verified settings
+acknowledgement. Unexpected pre-ack events retain a fixed diagnostic category,
+never arbitrary event names, contents, identifiers or credentials.
+
+Schema `0119_canvas_voice_sessions.sql` and the Voice frontend are published.
+The startup correction requires Auth publication only; compute the complete
+unpublished selection before release and retain unchanged frontend provenance.
+Use `release:local` with its existing protection, verification and publication
+lock. A published component or accepted WebSocket alone is not live speech
+acceptance. Preserve the owner's encrypted secret and existing session receipts.
 
 A safe rollout must provide an admission-off switch before enabling Voice. It
 must reject new Voice sessions, stop existing Voice transport safely and retain

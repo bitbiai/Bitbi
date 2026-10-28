@@ -100,21 +100,44 @@ export function buildCanvasVoiceResponse(input, trusted = {}) {
     return { type: 'response.create', response: { modalities: settings.response.modalities,
         instructions: instructions(settings, trusted.instructions, true), metadata: { ...metadata } } };
 }
-function equal(actual, expected, path) {
-    if (path === 'voice' && typeof actual === 'string' && typeof expected === 'string') return actual.toLowerCase() === expected.toLowerCase();
-    if (Array.isArray(expected)) return Array.isArray(actual) && actual.length === expected.length && expected.every((value, i) => equal(actual[i], value, `${path}.${i}`));
-    if (plain(expected)) return plain(actual) && (!path.startsWith('tools.') || Object.keys(actual).filter(key => !['authorization', 'headers'].includes(key)).length === Object.keys(expected).filter(key => !['authorization', 'headers'].includes(key)).length) && Object.keys(expected).every(key => {
-        // Providers need not echo secrets. These originate exclusively from the
-        // trusted registry, and must never be returned to the Canvas client.
-        if (path.startsWith('tools.') && ['authorization', 'headers'].includes(key)) return true;
-        return Object.prototype.hasOwnProperty.call(actual, key) && equal(actual[key], expected[key], path ? `${path}.${key}` : key);
-    });
-    return actual === expected;
+const ACK_FIELDS = new Set(['model', 'instructions', 'voice', 'reasoning', 'reasoning.effort', 'turn_detection',
+    'turn_detection.type', 'turn_detection.idle_timeout_ms', 'resumption', 'resumption.enabled', 'audio', 'audio.input',
+    'audio.input.format', 'audio.input.format.type', 'audio.input.format.rate', 'audio.input.transport', 'audio.input.transcription',
+    'audio.input.transcription.model', 'audio.input.transcription.language_hint', 'audio.input.transcription.keyterms',
+    'audio.output', 'audio.output.format', 'audio.output.format.type', 'audio.output.format.rate', 'audio.output.transport', 'audio.output.speed']);
+function ackMismatch(path, category) {
+    // Never retain user replacement phrases, tool/schema keys, resource IDs or
+    // provider values. Only these fixed fields reach the existing receipt code.
+    const field = ACK_FIELDS.has(path) ? path.replaceAll('.', '_') : /^tools(?:\.|$)/.test(path) ? 'tools'
+        : /^replace(?:\.|$)/.test(path) ? 'replace' : /^audio\.input\.transcription\.keyterms\./.test(path) ? 'audio_input_transcription_keyterms' : 'session';
+    return `${field}_${category}`;
+}
+function mismatch(actual, expected, path) {
+    if (path === 'voice' && typeof actual === 'string' && typeof expected === 'string') return actual.toLowerCase() === expected.toLowerCase() ? null : ackMismatch(path, 'value');
+    if (Array.isArray(expected)) {
+        if (!Array.isArray(actual)) return ackMismatch(path, 'type');
+        if (actual.length !== expected.length) return ackMismatch(path, 'value');
+        for (let i = 0; i < expected.length; i++) if (i in expected) { const issue = mismatch(actual[i], expected[i], `${path}.${i}`); if (issue) return issue; }
+        return null;
+    }
+    if (plain(expected)) {
+        if (!plain(actual)) return ackMismatch(path, 'type');
+        if (path.startsWith('tools.') && Object.keys(actual).filter(key => !['authorization', 'headers'].includes(key)).length !== Object.keys(expected).filter(key => !['authorization', 'headers'].includes(key)).length) return ackMismatch(path, 'value');
+        for (const key of Object.keys(expected)) {
+            // Providers need not echo secrets originating from the trusted registry.
+            if (path.startsWith('tools.') && ['authorization', 'headers'].includes(key)) continue;
+            const child = path ? `${path}.${key}` : key;
+            if (!Object.prototype.hasOwnProperty.call(actual, key)) return ackMismatch(child, 'missing');
+            const issue = mismatch(actual[key], expected[key], child); if (issue) return issue;
+        }
+        return null;
+    }
+    return actual === expected ? null : ackMismatch(path, actual === null || expected === null || typeof actual !== typeof expected ? 'type' : 'value');
 }
 export function verifyCanvasVoiceSessionAck(event, expected) {
-    if (event?.type !== 'session.updated' || expected?.type !== 'session.update' || !plain(event.session) || !equal(event.session, expected.session, '')) {
-        fail('canvas_voice_configuration_unconfirmed', { status: 502 });
-    }
+    const issue = event?.type !== 'session.updated' || expected?.type !== 'session.update' ? 'event_value'
+        : !plain(event.session) ? 'session_type' : mismatch(event.session, expected.session, '');
+    if (issue) fail(`canvas_voice_configuration_unconfirmed_${issue}`, { status: 502 });
     // Return no upstream object: session echoes can contain private policy,
     // tools, registry targets and credentials.
     return true;

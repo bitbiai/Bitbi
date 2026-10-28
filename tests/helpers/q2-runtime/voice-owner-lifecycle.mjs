@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 export const CANVAS_VOICE_OWNER_LIFECYCLE_CASES = Object.freeze([
   'pending_fetch_stop', 'abnormal_close', 'no_close_ack', 'delayed_close_ack', 'concurrent_text',
   'partial_stop', 'projection_after_stop', 'replacement_isolation', 'optin_resumption', 'handshake_rejected',
+  'startup_order', 'startup_audio', 'startup_tool',
 ]);
 const pause = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 const hash = value => createHash('sha256').update(value).digest('hex').slice(0, 32);
@@ -20,7 +21,7 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
       body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     assert.equal(response.status, 200, await response.clone().text()); return response.json();
   };
-  const mode = name === 'handshake_rejected' ? 'rejected' : name === 'delayed_close_ack' ? 'delayed_ack' : name === 'optin_resumption' ? 'resume' : name === 'pending_fetch_stop' ? 'pending' : name === 'abnormal_close' ? 'abnormal'
+  const mode = name.startsWith('startup_') ? name : name === 'handshake_rejected' ? 'rejected' : name === 'delayed_close_ack' ? 'delayed_ack' : name === 'optin_resumption' ? 'resume' : name === 'pending_fetch_stop' ? 'pending' : name === 'abnormal_close' ? 'abnormal'
     : name === 'no_close_ack' ? 'no_ack' : ['partial_stop', 'projection_after_stop'].includes(name) ? 'partial' : 'idle';
   await command('control', { mode });
   const seeded = await f.control('/canvas-voice-owner-seed', { name: 'life-' + name.replaceAll('_', '-') });
@@ -56,6 +57,34 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
     return client;
   };
   try {
+    if (name.startsWith('startup_')) {
+      const upgraded = await request(`/sessions/${sessionId}/socket`, undefined, { Upgrade: 'websocket' });
+      assert.equal(upgraded.status, 101, upgraded.status === 101 ? '' : await upgraded.text());
+      const events = [], socket = upgraded.webSocket; sockets.push(socket);
+      socket.addEventListener('message', event => events.push(JSON.parse(event.data))); socket.accept();
+      if (name === 'startup_order') {
+        await until(() => events, list => list.some(event => event.type === 'voice.state' && event.state === 'listening'), 'Conversation-first startup reaches listening');
+        const active = await f.db.prepare('SELECT state,active_at FROM canvas_voice_sessions WHERE id=?').bind(sessionId).first();
+        assert.equal(active.state, 'active'); assert(active.active_at);
+        assert.equal((await command('state')).configurations, 1, 'Duplicated/reordered startup does not repeat configuration');
+        await json(await stop(sessionId));
+      } else {
+        await until(() => events, list => list.some(event => event.type === 'voice.ended' && event.code === 'canvas_voice_configuration_unconfirmed'), 'Unconfirmed startup output remains blocked');
+        assert.equal(events.some(event => event.type === 'voice.audio' || event.type === 'voice.state' && event.state === 'listening'), false);
+        assert.equal((await f.db.prepare('SELECT active_at FROM canvas_voice_sessions WHERE id=?').bind(sessionId).first()).active_at, null);
+      }
+      const settled = await until(usage, row => row?.billing_status === 'finalized', 'Startup session settles original zero-audio manual identity');
+      assert.equal(JSON.parse(settled.metadata_json).canvas_voice_receipt.credits, 0);
+      if (name !== 'startup_order') assert.equal(JSON.parse(settled.metadata_json).canvas_voice_receipt.code,
+        'canvas_voice_provider_not_ready_' + (name === 'startup_audio' ? 'audio_delta' : 'function_call'));
+      for (let replay = 0; replay < 2; replay++) await json(await stop(sessionId));
+      const state = await command('state');
+      assert.equal(state.attempts, 1); assert.equal(state.responses, 0); assert.equal(state.appends, 0); assert.equal(state.configurations, 1);
+      assert.equal((await debit()).n, 0);
+      assert.equal((await f.db.prepare('SELECT brief_revision FROM canvas_agent_conversations WHERE project_id=?').bind(projectId).first()).brief_revision, 0);
+      for (const table of ['canvas_agent_turns', 'canvas_agent_runs']) assert.equal((await f.db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE project_id=?`).bind(projectId).first()).n, 0);
+      assert.equal(JSON.stringify(events).includes('private'), false); return;
+    }
     if (name === 'handshake_rejected') {
       const rejected = await request(`/sessions/${sessionId}/socket`, undefined, { Upgrade: 'websocket' });
       assert.equal(rejected.status, 502);
