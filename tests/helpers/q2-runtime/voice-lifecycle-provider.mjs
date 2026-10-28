@@ -2,7 +2,7 @@
 // egress; normal coverage uses the unchanged provider until a case opts in.
 import normalProvider from './voice-provider.mjs';
 
-const modes = new Set(['idle', 'pending', 'abnormal', 'no_ack', 'delayed_ack', 'partial', 'resume', 'rejected', 'startup_order', 'startup_audio', 'startup_tool', 'startup_error_envelope', 'startup_ping']);
+const modes = new Set(['idle', 'pending', 'abnormal', 'no_ack', 'delayed_ack', 'partial', 'resume', 'rejected', 'startup_order', 'startup_audio', 'startup_tool', 'startup_error_envelope', 'startup_ping', 'startup_partial_ack']);
 let current = null;
 const snapshot = state => state ? { enabled: true, mode: state.mode, attempts: state.attempts,
   connections: state.connections, appends: state.appends, responses: state.responses,
@@ -64,7 +64,8 @@ const handler = {
           emit({ type: 'conversation.created', conversation: { id: conversationId } });
         }
         if (state.mode === 'startup_ping') emit({ type: 'ping', private: 'ignored heartbeat payload' });
-        emit({ type: 'session.updated', session: item.session });
+        emit({ type: 'session.updated', session: state.mode === 'startup_partial_ack'
+          ? { model: item.session.model, instructions: item.session.instructions } : item.session });
         if (state.mode === 'startup_ping') emit({ type: 'ping' });
       }
       else if (item.type === 'input_audio_buffer.append') state.appends++;
@@ -89,7 +90,7 @@ const handler = {
       emit({ type: 'conversation.created', event_id: 'startup_conversation', conversation: { id: conversationId } });
       if (state.mode === 'startup_order') emit({ type: 'conversation.item.added', item: { id: 'historical_call', type: 'function_call',
         name: 'canvas_update_brief', arguments: '{"private":"must remain inert"}' } });
-      else if (state.mode === 'startup_ping') emit({ type: 'ping' });
+      else if (['startup_ping', 'startup_partial_ack'].includes(state.mode)) emit({ type: 'ping' });
       else if (state.mode === 'startup_audio') emit({ type: 'response.output_audio.delta', response_id: 'early_response', item_id: 'early_item', delta: btoa('\0\0') });
       else emit({ type: 'response.function_call_arguments.done', call_id: 'early_call', response_id: 'early_response',
         name: 'canvas_update_brief', arguments: '{"private":"must never execute"}' });

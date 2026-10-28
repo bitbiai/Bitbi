@@ -58,7 +58,7 @@ required caller evidence; the pure tests do not establish those outcomes.
 | `audio.input.transcription.language_hint` | Listed BCP-47 code; product auto means omit native hint; bare es/pt invalid | Auto-detection → auto | Voice/language; provider supports live updates; language negative tests |
 | `audio.input.transcription.keyterms` | At most100 strings,50 characters each | Unspecified → empty | Voice/language list; provider supports live updates; length tests |
 | `audio.output.speed` | Number0.7–1.5 | 1.0 →1.0 | Voice slider/input; adapter must send native setting, not alter browser playback rate; bounds test |
-| `replace` / `session.replace` | Phrase→spoken replacement map; null clears; product100 entries,100/128 characters | Unspecified → empty | Voice map editor; audio only, transcript unchanged; matching whole-word/case-insensitive; live update echoed; malformed map tests |
+| `replace` / `session.replace` | Phrase→spoken replacement map; null clears; product100 entries,100/128 characters | Unspecified → empty | Voice map editor; audio only, transcript unchanged; matching whole-word/case-insensitive; live update acknowledged; malformed map tests |
 | `response.modalities` / `response.create.response.modalities` | Nonempty unique array of text and/or audio | Unspecified → both | Advanced; affects manually created responses, not a fictitious session-modalities setting; adapter/automatic-VAD semantics must be verified |
 | `response.instructions` / compiled per-response instructions | Product1000-character communication preference | Unspecified → empty | Advanced; native override replaces whole session prompt, so server must rebuild complete canonical instructions plus preference; never forward user string alone |
 | `browser.echoCancellation`, `.noiseSuppression`, `.autoGainControl` | Booleans; browser capture constraints, not xAI fields | Browser-dependent → requested true | Advanced; report effective device support; no silent claim device honored constraint; structural validation |
@@ -330,6 +330,20 @@ does not activate the session, extend deadlines, send an invented JSON `pong`,
 or authorize audio/tools. Other unknown frames still fail closed. Native
 `canvas_voice_owner_startup_ping` exercises the real socket, ACK and settlement
 boundary. Passing this repair does not establish live speech acceptance.
+
+The subsequent `b581fbde` live attempt passed that heartbeat boundary and received
+`session.updated`, but rejected an absent `voice` echo. The official
+[xAI ACK contract](https://docs.x.ai/developers/rest-api-reference/inference/voice)
+does not require a complete returned configuration. Its
+[interpreter example](https://github.com/xai-org/xai-cookbook/blob/002788b1fe838295a5e0b6adedcc8c216f807926/examples/live-interpreter/typescript/public/index.html#L291)
+distinguishes an earlier token-settings ACK by the missing instructions.
+Require the pending update's exact pinned model and complete canonical
+instructions; compare optional fields when returned, including tool identities
+and contradictory nested settings. An omitted echo is not a failed setting or
+independent evidence that every option works. Empty/stale-policy ACKs still
+fail. `canvas_voice_owner_startup_partial_ack` exercises activation and original
+settlement through native sockets with only those two anchors; provider tests
+retain explicit mismatched-value, unsafe-tool and missing-anchor counterchecks.
 
 Schema `0119_canvas_voice_sessions.sql` and the Voice frontend are published.
 The startup correction requires Auth publication only; compute the complete

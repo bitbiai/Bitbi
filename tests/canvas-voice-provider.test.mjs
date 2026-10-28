@@ -58,11 +58,11 @@ test('Responses preserve the complete canonical instructions and keep server cor
     assert.throws(() => buildCanvasVoiceResponse(settings, { instructions: policy, metadata: { value: 'x'.repeat(513) } }), { code: 'canvas_voice_metadata_invalid' });
 });
 
-test('Configuration becomes acknowledged only when all selected non-secret fields actually match', () => {
+test('Configuration acknowledgement requires model and policy anchors and rejects contradictory echoes', () => {
     const expected = buildCanvasVoiceSession({}, trusted), event = { type: 'session.updated', session: structuredClone(expected.session) };
     event.session.id = 'session1'; event.session.voice = 'Eve';
     assert.equal(verifyCanvasVoiceSessionAck(event, expected), true);
-    for (const [mutate, suffix] of [[e => { e.session.model = 'grok-voice-latest'; }, 'model_value'], [e => { delete e.session.audio; }, 'audio_missing'],
+    for (const [mutate, suffix] of [[e => { e.session.model = 'grok-voice-latest'; }, 'model_value'], [e => { e.session.audio = null; }, 'audio_type'],
         [e => { e.session.instructions = 'different'; }, 'instructions_value'], [e => { e.session.audio.output.speed = 1.1; }, 'audio_output_speed_value'],
         [e => { e.session.tools.push(tool); }, 'tools_value'], [e => { e.type = 'session.created'; }, 'event_value']]) {
         const broken = structuredClone(event); mutate(broken);
@@ -77,10 +77,36 @@ test('Configuration becomes acknowledged only when all selected non-secret field
     assert.throws(() => verifyCanvasVoiceSessionAck({ type: 'session.updated', session: unexpected }, mcp), { code: 'canvas_voice_configuration_unconfirmed_tools_value' });
 });
 
+test('Partial session.updated echoes acknowledge the sent settings without inventing a full echoed configuration', () => {
+    const expected = buildCanvasVoiceSession({ tools: { canvas: { enabled: true } } }, trusted);
+    const anchors = { model: expected.session.model, instructions: expected.session.instructions };
+    assert.equal(verifyCanvasVoiceSessionAck({ type: 'session.updated', session: anchors }, expected), true);
+    for (const key of Object.keys(expected.session).filter(key => !['model', 'instructions'].includes(key))) {
+        const reply = structuredClone(expected.session); delete reply[key];
+        assert.equal(verifyCanvasVoiceSessionAck({ type: 'session.updated', session: reply }, expected), true, `Optional ${key} need not be echoed`);
+    }
+    for (const extra of [{ turn_detection: { type: 'server_vad' } }, { audio: { input: { format: { rate: 24000 } } } },
+        { tools: [{ type: 'function', name: 'canvas_context', parameters: { type: 'object' } }] }]) {
+        assert.equal(verifyCanvasVoiceSessionAck({ type: 'session.updated', session: { ...anchors, ...extra } }, expected), true);
+    }
+    for (const [session, suffix] of [[{}, 'model_missing'], [{ model: anchors.model }, 'instructions_missing'],
+        [{ instructions: anchors.instructions }, 'model_missing'], [{ ...anchors, instructions: null }, 'instructions_type'],
+        [{ ...anchors, tools: [] }, 'tools_value'], [{ ...anchors, tools: [{ type: 'function' }] }, 'tools_missing'],
+        [{ ...anchors, tools: [{ type: 'function', name: 'canvas_context', parameters: { type: 'array' } }] }, 'tools_value'],
+        [{ ...anchors, tools: [{ type: 'function', name: 'canvas_context', unapproved: true }] }, 'tools_value']]) {
+        assert.throws(() => verifyCanvasVoiceSessionAck({ type: 'session.updated', session }, expected), { code: `canvas_voice_configuration_unconfirmed_${suffix}` });
+    }
+    for (const [patch, suffix] of [[{ model: 'grok-voice-latest' }, 'model_value'], [{ instructions: '' }, 'instructions_type']]) {
+        const session = { ...anchors, ...patch };
+        assert.throws(() => verifyCanvasVoiceSessionAck({ type: 'session.updated', session }, { type: 'session.update', session }),
+            { code: `canvas_voice_configuration_unconfirmed_${suffix}` });
+    }
+});
+
 test('ACK diagnostics identify only the first fixed field and missing, type or value category', () => {
     const expected = buildCanvasVoiceSession({}, trusted);
-    for (const [mutate, suffix] of [[e => { delete e.session.reasoning; }, 'reasoning_missing'],
-        [e => { e.session.reasoning = null; }, 'reasoning_type'], [e => { delete e.session.resumption.enabled; }, 'resumption_enabled_missing'],
+    for (const [mutate, suffix] of [[e => { delete e.session.instructions; }, 'instructions_missing'],
+        [e => { e.session.reasoning = null; }, 'reasoning_type'], [e => { e.session.resumption.enabled = true; }, 'resumption_enabled_value'],
         [e => { e.session.turn_detection.idle_timeout_ms = 1000; }, 'turn_detection_idle_timeout_ms_type'],
         [e => { e.session.audio.input.format.type = 'audio/private'; }, 'audio_input_format_type_value'],
         [e => { e.session.audio.output.speed = 'private'; }, 'audio_output_speed_type'],
@@ -103,11 +129,13 @@ test('ACK diagnostics never disclose tool keys, private headers, replacement phr
     assert.equal(verifyCanvasVoiceSessionAck(base, expected), true);
     base.session.tools[0].authorization = 'private echoed credential'; base.session.tools[0].headers = { 'X-Private': 'private header value' };
     assert.equal(verifyCanvasVoiceSessionAck(base, expected), true, 'Secret echoes remain excluded from comparison and diagnostics');
+    const minimalTool = structuredClone(base); delete minimalTool.session.tools[0].server_url; delete minimalTool.session.tools[0].server_description;
+    assert.equal(verifyCanvasVoiceSessionAck(minimalTool, expected), true, 'Optional tool properties are compared only when echoed');
     for (const [mutate, suffix] of [
         [e => { e.session.tools[0]['private injected field'] = 'private payload'; }, 'tools_value'],
         [e => { Object.defineProperty(e.session.tools[0], '__proto__', { value: { private: true }, enumerable: true }); }, 'tools_value'],
         [e => { e.session.tools[0] = Object.assign(Object.create({ private: true }), e.session.tools[0]); }, 'tools_type'],
-        [e => { delete e.session.tools[0].server_url; }, 'tools_value'],
+        [e => { delete e.session.tools[0].server_label; }, 'tools_missing'],
         [e => { e.session.tools[0].server_url = 'https://private.example/token'; }, 'tools_value'],
         [e => { delete e.session.replace['Private phrase']; }, 'replace_missing'],
         [e => { e.session.audio.input.transcription.keyterms[0] = 'Private changed keyword'; }, 'audio_input_transcription_keyterms_value'],
@@ -121,9 +149,10 @@ test('ACK diagnostics never disclose tool keys, private headers, replacement phr
         });
     }
     for (const key of ['private injected field', '__proto__', 'constructor', 'prototype']) {
-        const request = structuredClone(expected);
+        const request = structuredClone(expected), reply = structuredClone(base);
         Object.defineProperty(request.session, key, { value: 'private', enumerable: true });
-        assert.throws(() => verifyCanvasVoiceSessionAck(base, request), { code: 'canvas_voice_configuration_unconfirmed_session_missing' });
+        Object.defineProperty(reply.session, key, { value: 'other private', enumerable: true });
+        assert.throws(() => verifyCanvasVoiceSessionAck(reply, request), { code: 'canvas_voice_configuration_unconfirmed_session_value' });
     }
 });
 

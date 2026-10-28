@@ -112,31 +112,46 @@ function ackMismatch(path, category) {
         : /^replace(?:\.|$)/.test(path) ? 'replace' : /^audio\.input\.transcription\.keyterms\./.test(path) ? 'audio_input_transcription_keyterms' : 'session';
     return `${field}_${category}`;
 }
-function mismatch(actual, expected, path) {
+function mismatch(actual, expected, path, partial = false) {
     if (path === 'voice' && typeof actual === 'string' && typeof expected === 'string') return actual.toLowerCase() === expected.toLowerCase() ? null : ackMismatch(path, 'value');
     if (Array.isArray(expected)) {
         if (!Array.isArray(actual)) return ackMismatch(path, 'type');
         if (actual.length !== expected.length) return ackMismatch(path, 'value');
-        for (let i = 0; i < expected.length; i++) if (i in expected) { const issue = mismatch(actual[i], expected[i], `${path}.${i}`); if (issue) return issue; }
+        for (let i = 0; i < expected.length; i++) if (i in expected) { const issue = mismatch(actual[i], expected[i], `${path}.${i}`, partial); if (issue) return issue; }
         return null;
     }
     if (plain(expected)) {
         if (!plain(actual)) return ackMismatch(path, 'type');
-        if (path.startsWith('tools.') && Object.keys(actual).filter(key => !['authorization', 'headers'].includes(key)).length !== Object.keys(expected).filter(key => !['authorization', 'headers'].includes(key)).length) return ackMismatch(path, 'value');
+        const tool = path.startsWith('tools.'), entry = /^tools\.\d+$/.test(path), complete = path === 'replace';
+        if ((tool || complete) && Object.keys(actual).some(key => !(tool && ['authorization', 'headers'].includes(key)) && !Object.hasOwn(expected, key))) return ackMismatch(path, 'value');
         for (const key of Object.keys(expected)) {
             // Providers need not echo secrets originating from the trusted registry.
-            if (path.startsWith('tools.') && ['authorization', 'headers'].includes(key)) continue;
+            if (tool && ['authorization', 'headers'].includes(key)) continue;
             const child = path ? `${path}.${key}` : key;
-            if (!Object.prototype.hasOwnProperty.call(actual, key)) return ackMismatch(child, 'missing');
-            const issue = mismatch(actual[key], expected[key], child); if (issue) return issue;
+            if (!Object.prototype.hasOwnProperty.call(actual, key)) {
+                if (partial && !complete && !(entry && ['type', 'name', 'server_label'].includes(key))) continue;
+                return ackMismatch(child, 'missing');
+            }
+            const issue = mismatch(actual[key], expected[key], child, partial); if (issue) return issue;
         }
         return null;
     }
     return actual === expected ? null : ackMismatch(path, actual === null || expected === null || typeof actual !== typeof expected ? 'type' : 'value');
 }
 export function verifyCanvasVoiceSessionAck(event, expected) {
-    const issue = event?.type !== 'session.updated' || expected?.type !== 'session.update' ? 'event_value'
-        : !plain(event.session) ? 'session_type' : mismatch(event.session, expected.session, '');
+    if (event?.type !== 'session.updated' || expected?.type !== 'session.update') fail('canvas_voice_configuration_unconfirmed_event_value', { status: 502 });
+    if (!plain(event.session) || !plain(expected.session)) fail('canvas_voice_configuration_unconfirmed_session_type', { status: 502 });
+    if (expected.session.model !== CANVAS_VOICE_MODEL) fail('canvas_voice_configuration_unconfirmed_model_value', { status: 502 });
+    if (typeof expected.session.instructions !== 'string' || !expected.session.instructions.trim()) fail('canvas_voice_configuration_unconfirmed_instructions_type', { status: 502 });
+    // xAI acknowledges the update without promising a complete configuration
+    // echo. Require the exact model/policy anchors, not an empty or token-only
+    // acknowledgement; validate every optional setting actually returned.
+    for (const key of ['model', 'instructions']) {
+        if (!Object.hasOwn(event.session, key)) fail(`canvas_voice_configuration_unconfirmed_${key}_missing`, { status: 502 });
+        const issue = mismatch(event.session[key], expected.session[key], key);
+        if (issue) fail(`canvas_voice_configuration_unconfirmed_${issue}`, { status: 502 });
+    }
+    const issue = mismatch(event.session, expected.session, '', true);
     if (issue) fail(`canvas_voice_configuration_unconfirmed_${issue}`, { status: 502 });
     // Return no upstream object: session echoes can contain private policy,
     // tools, registry targets and credentials.
