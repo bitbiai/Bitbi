@@ -105,38 +105,88 @@ const ACK_FIELDS = new Set(['model', 'instructions', 'voice', 'reasoning', 'reas
     'audio.input.format', 'audio.input.format.type', 'audio.input.format.rate', 'audio.input.transport', 'audio.input.transcription',
     'audio.input.transcription.model', 'audio.input.transcription.language_hint', 'audio.input.transcription.keyterms',
     'audio.output', 'audio.output.format', 'audio.output.format.type', 'audio.output.format.rate', 'audio.output.transport', 'audio.output.speed']);
-function ackMismatch(path, category) {
+// Stable positional IDs for bounded diagnostics; never append provider keys.
+const TOOL_ACK_FIELDS = ['type', 'name', 'description', 'parameters', 'function', 'strict', 'properties', 'required', 'additionalProperties',
+    'items', 'anyOf', 'oneOf', 'allOf', 'enum', 'const', 'default', 'format', 'server_label', 'server_url', 'allowed_tools',
+    'server_description', 'allowed_domains', 'excluded_domains', 'location', 'country', 'city', 'region', 'timezone', 'vector_store_ids',
+    'max_num_results', 'from_date', 'to_date', 'enable_image_understanding', 'enable_video_understanding', 'allowed_x_handles',
+    'excluded_x_handles', 'minLength', 'maxLength', 'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'minItems', 'maxItems'];
+const countCode = value => Math.min(255, Math.max(0, value)).toString(16).padStart(2, '0');
+const shapeCode = value => value === null ? 'z' : Array.isArray(value) ? 'a' : plain(value) ? 'o'
+    : ({ string: 's', number: 'n', boolean: 'b', undefined: 'u' }[typeof value] || 'x');
+function toolMismatch(path, category, detail) {
+    const index = /^tools\.(\d+)/.exec(path), key = path.split('.').at(-1), owner = detail.owner || detail.actual;
+    const keys = plain(owner) ? Object.keys(owner).filter(key => !['authorization', 'headers'].includes(key)) : [];
+    const mask = ['type', 'name', 'description', 'parameters', 'function', 'strict'].reduce((value, key, i) => value | (keys.includes(key) ? 1 << i : 0), 0);
+    const scope = /^tools\.\d+\.parameters(?:\.|$)/.test(path) ? 's' : /^tools\.\d+\.function(?:\.|$)/.test(path) ? 'w' : index ? 'e' : 'l';
+    const location = `_i${index ? countCode(Number(index[1])) : 'ff'}_q${scope}_p${countCode(TOOL_ACK_FIELDS.indexOf(key) + 1)}`;
+    const reason = detail.reason || category, shapes = `_a${shapeCode(detail.actual)}e${shapeCode(detail.expected)}`;
+    const sizes = Array.isArray(detail.actual) || Array.isArray(detail.expected)
+        ? `_c${countCode(Array.isArray(detail.actual) ? detail.actual.length : 0)}d${countCode(Array.isArray(detail.expected) ? detail.expected.length : 0)}` : '';
+    return `tools_${category}${location}_${reason}${shapes}_k${countCode(mask)}u${countCode(keys.filter(key => !TOOL_ACK_FIELDS.includes(key)).length)}${sizes}`;
+}
+function ackMismatch(path, category, detail = {}) {
     // Never retain user replacement phrases, tool/schema keys, resource IDs or
     // provider values. Only these fixed fields reach the existing receipt code.
-    const field = ACK_FIELDS.has(path) ? path.replaceAll('.', '_') : /^tools(?:\.|$)/.test(path) ? 'tools'
+    if (/^tools(?:\.|$)/.test(path)) return toolMismatch(path, category, detail);
+    const field = ACK_FIELDS.has(path) ? path.replaceAll('.', '_')
         : /^replace(?:\.|$)/.test(path) ? 'replace' : /^audio\.input\.transcription\.keyterms\./.test(path) ? 'audio_input_transcription_keyterms' : 'session';
     return `${field}_${category}`;
 }
 function mismatch(actual, expected, path, partial = false) {
     if (path === 'voice' && typeof actual === 'string' && typeof expected === 'string') return actual.toLowerCase() === expected.toLowerCase() ? null : ackMismatch(path, 'value');
     if (Array.isArray(expected)) {
-        if (!Array.isArray(actual)) return ackMismatch(path, 'type');
-        if (actual.length !== expected.length) return ackMismatch(path, 'value');
+        if (!Array.isArray(actual)) return ackMismatch(path, 'type', { actual, expected });
+        if (actual.length !== expected.length) return ackMismatch(path, 'value', { reason: 'length', actual, expected });
         for (let i = 0; i < expected.length; i++) if (i in expected) { const issue = mismatch(actual[i], expected[i], `${path}.${i}`, partial); if (issue) return issue; }
         return null;
     }
     if (plain(expected)) {
-        if (!plain(actual)) return ackMismatch(path, 'type');
+        if (!plain(actual)) return ackMismatch(path, 'type', { actual, expected });
         const tool = path.startsWith('tools.'), entry = /^tools\.\d+$/.test(path), complete = path === 'replace';
-        if ((tool || complete) && Object.keys(actual).some(key => !(tool && ['authorization', 'headers'].includes(key)) && !Object.hasOwn(expected, key))) return ackMismatch(path, 'value');
+        const extra = (tool || complete) ? Object.keys(actual).find(key => !(tool && ['authorization', 'headers'].includes(key)) && !Object.hasOwn(expected, key)) : undefined;
+        if (extra !== undefined) return ackMismatch(`${path}.${extra}`, 'value', { reason: 'extra', actual: actual[extra], expected: undefined, owner: actual });
         for (const key of Object.keys(expected)) {
             // Providers need not echo secrets originating from the trusted registry.
             if (tool && ['authorization', 'headers'].includes(key)) continue;
             const child = path ? `${path}.${key}` : key;
             if (!Object.prototype.hasOwnProperty.call(actual, key)) {
                 if (partial && !complete && !(entry && ['type', 'name', 'server_label'].includes(key))) continue;
-                return ackMismatch(child, 'missing');
+                return ackMismatch(child, 'missing', { actual: undefined, expected: expected[key], owner: actual });
             }
             const issue = mismatch(actual[key], expected[key], child, partial); if (issue) return issue;
         }
         return null;
     }
-    return actual === expected ? null : ackMismatch(path, actual === null || expected === null || typeof actual !== typeof expected ? 'type' : 'value');
+    return actual === expected ? null : ackMismatch(path, actual === null || expected === null || typeof actual !== typeof expected ? 'type' : 'value', { actual, expected });
+}
+function comparableTools(actual, expected) {
+    if (!Array.isArray(expected)) return { issue: ackMismatch('tools', 'type', { actual, expected }) };
+    if (!Array.isArray(actual) || actual.length !== expected.length) return { issue: mismatch(actual, expected, 'tools', true) };
+    const identity = tool => `${tool.type}:${tool.type === 'function' ? tool.name : tool.type === 'mcp' ? tool.server_label : ''}`;
+    const wanted = new Map(expected.map((tool, i) => [identity(tool), i])), seen = new Set(), tools = [];
+    for (let i = 0; i < actual.length; i++) {
+        let tool = actual[i]; const path = `tools.${i}`;
+        if (!plain(tool)) return { issue: ackMismatch(path, 'type', { actual: tool, expected: expected[i] }) };
+        // REST documents this wrapper; the speech guide uses flat functions.
+        // Normalize only the exact representation, never defaults or mixed forms.
+        if (tool.type === 'function' && Object.hasOwn(tool, 'function')) {
+            const extra = Object.keys(tool).find(key => !['type', 'function'].includes(key));
+            if (extra !== undefined) return { issue: ackMismatch(`${path}.${extra}`, 'value', { reason: 'mixed', actual: tool[extra], owner: tool }) };
+            if (!plain(tool.function)) return { issue: ackMismatch(`${path}.function`, 'type', { actual: tool.function, expected: {}, owner: tool }) };
+            const inner = Object.keys(tool.function).find(key => !['name', 'description', 'parameters'].includes(key));
+            if (inner !== undefined) return { issue: ackMismatch(`${path}.function.${inner}`, 'value', { reason: 'extra', actual: tool.function[inner], owner: tool.function }) };
+            tool = { type: 'function', ...tool.function };
+        }
+        for (const key of ['type', ...(tool.type === 'function' ? ['name'] : tool.type === 'mcp' ? ['server_label'] : [])]) {
+            if (!Object.hasOwn(tool, key)) return { issue: ackMismatch(`${path}.${key}`, 'missing', { expected: '', owner: tool }) };
+            if (typeof tool[key] !== 'string') return { issue: ackMismatch(`${path}.${key}`, 'type', { actual: tool[key], expected: '', owner: tool }) };
+        }
+        const key = identity(tool), target = wanted.get(key);
+        if (target === undefined || seen.has(key)) return { issue: ackMismatch(path, 'value', { reason: seen.has(key) ? 'duplicate' : 'identity', actual: tool, expected: expected[i] }) };
+        seen.add(key); tools[target] = tool;
+    }
+    return { tools };
 }
 export function verifyCanvasVoiceSessionAck(event, expected) {
     if (event?.type !== 'session.updated' || expected?.type !== 'session.update') fail('canvas_voice_configuration_unconfirmed_event_value', { status: 502 });
@@ -151,7 +201,13 @@ export function verifyCanvasVoiceSessionAck(event, expected) {
         const issue = mismatch(event.session[key], expected.session[key], key);
         if (issue) fail(`canvas_voice_configuration_unconfirmed_${issue}`, { status: 502 });
     }
-    const issue = mismatch(event.session, expected.session, '', true);
+    let session = event.session;
+    if (Object.hasOwn(session, 'tools')) {
+        const compared = comparableTools(session.tools, expected.session.tools);
+        if (compared.issue) fail(`canvas_voice_configuration_unconfirmed_${compared.issue}`, { status: 502 });
+        session = { ...session, tools: compared.tools };
+    }
+    const issue = mismatch(session, expected.session, '', true);
     if (issue) fail(`canvas_voice_configuration_unconfirmed_${issue}`, { status: 502 });
     // Return no upstream object: session echoes can contain private policy,
     // tools, registry targets and credentials.

@@ -345,6 +345,18 @@ fail. `canvas_voice_owner_startup_partial_ack` exercises activation and original
 settlement through native sockets with only those two anchors; provider tests
 retain explicit mismatched-value, unsafe-tool and missing-anchor counterchecks.
 
+The next protected attempt (`f787e125`) reached that ACK but rejected a tool echo
+(`tools_value`); the discarded reply does not establish which structural
+comparison failed. REST documents a nested `function` definition, while the
+[speech guide](https://docs.x.ai/developers/model-capabilities/audio/speech-to-speech#custom-function-tools)
+uses the flat form. Accept only equivalent definitions in those two forms and
+match unique tool identities instead of list positions. Reject mixed forms,
+duplicates, added tools/options and changed schemas; never infer undocumented
+defaults. Safe fixed diagnostic categories distinguish remaining structural
+failures without retaining tool names, schema keys, URLs or values. Native
+`startup_wrapped_tools` and `startup_wrapped_extra` exercise all three real
+Canvas definitions, activation/rejection, original settlement and duplicate Stop.
+
 Schema `0119_canvas_voice_sessions.sql` and the Voice frontend are published.
 The startup correction requires Auth publication only; compute the complete
 unpublished selection before release and retain unchanged frontend provenance.

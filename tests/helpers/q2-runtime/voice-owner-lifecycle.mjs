@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 export const CANVAS_VOICE_OWNER_LIFECYCLE_CASES = Object.freeze([
   'pending_fetch_stop', 'abnormal_close', 'no_close_ack', 'delayed_close_ack', 'concurrent_text',
   'partial_stop', 'projection_after_stop', 'replacement_isolation', 'optin_resumption', 'handshake_rejected',
-  'startup_order', 'startup_audio', 'startup_tool', 'startup_error_envelope', 'startup_ping', 'startup_partial_ack',
+  'startup_order', 'startup_audio', 'startup_tool', 'startup_error_envelope', 'startup_ping', 'startup_partial_ack', 'startup_wrapped_tools', 'startup_wrapped_extra',
 ]);
 const pause = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 const hash = value => createHash('sha256').update(value).digest('hex').slice(0, 32);
@@ -33,7 +33,7 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
       'Content-Type': 'application/json', ...extra }, ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const json = async response => { assert.equal(response.status, 200, await response.clone().text()); return (await response.json()).data; };
-  await json(await request('/settings', { settings: { turn_detection: { type: null }, resumption: { enabled: name === 'optin_resumption' } }, expectedRevision: 0 }, { 'Idempotency-Key': 'life-settings-' + name }));
+  await json(await request('/settings', { settings: { ...(name.startsWith('startup_wrapped_') ? { tools: { canvas: { enabled: true } } } : {}), turn_detection: { type: null }, resumption: { enabled: name === 'optin_resumption' } }, expectedRevision: 0 }, { 'Idempotency-Key': 'life-settings-' + name }));
   const admit = async id => {
     const conversation = await f.db.prepare('SELECT revision,brief_revision FROM canvas_agent_conversations WHERE project_id=?').bind(projectId).first();
     const input = { maxDurationSeconds: 30, settingsRevision: 1, expectedConversationRevision: conversation.revision,
@@ -62,7 +62,7 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
       assert.equal(upgraded.status, 101, upgraded.status === 101 ? '' : await upgraded.text());
       const events = [], socket = upgraded.webSocket; sockets.push(socket);
       socket.addEventListener('message', event => events.push(JSON.parse(event.data))); socket.accept();
-      if (['startup_order', 'startup_ping', 'startup_partial_ack'].includes(name)) {
+      if (['startup_order', 'startup_ping', 'startup_partial_ack', 'startup_wrapped_tools'].includes(name)) {
         await until(() => events, list => list.some(event => event.type === 'voice.state' && event.state === 'listening'), 'Conversation-first startup reaches listening');
         const active = await f.db.prepare('SELECT state,active_at FROM canvas_voice_sessions WHERE id=?').bind(sessionId).first();
         assert.equal(active.state, 'active'); assert(active.active_at);
@@ -75,7 +75,10 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
       }
       const settled = await until(usage, row => row?.billing_status === 'finalized', 'Startup session settles original zero-audio manual identity');
       assert.equal(JSON.parse(settled.metadata_json).canvas_voice_receipt.credits, 0);
-      if (!['startup_order', 'startup_ping', 'startup_partial_ack'].includes(name)) assert.equal(JSON.parse(settled.metadata_json).canvas_voice_receipt.code,
+      if (name === 'startup_wrapped_extra') {
+        assert.match(JSON.parse(settled.metadata_json).canvas_voice_receipt.code, /^canvas_voice_configuration_unconfirmed_tools_/);
+        assert.equal(settled.metadata_json.includes('private_unapproved'), false);
+      } else if (!['startup_order', 'startup_ping', 'startup_partial_ack', 'startup_wrapped_tools'].includes(name)) assert.equal(JSON.parse(settled.metadata_json).canvas_voice_receipt.code,
         name === 'startup_error_envelope' ? 'canvas_voice_provider_not_ready_u_s0a0_o_m_k04_n0_rpermission'
           : 'canvas_voice_provider_not_ready_' + (name === 'startup_audio' ? 'audio_delta' : 'function_call'));
       for (let replay = 0; replay < 2; replay++) await json(await stop(sessionId));

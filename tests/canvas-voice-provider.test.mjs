@@ -12,6 +12,8 @@ const trusted = { instructions: policy, tools: [tool], allowedServerTools: ['can
     resources: { collections: [{ resourceId: 'project-notes', collectionId: 'private-provider-collection' }],
         mcp: [{ resourceId: 'approved-reader', server_url: 'https://approved.example/mcp', server_label: 'approved-reader', server_description: 'Approved source',
             allowed_tools: ['read'], authorization: 'synthetic-registry-credential', headers: { 'X-Source': 'synthetic' } }] } };
+const ackError = suffix => ({ code: suffix.startsWith('tools_')
+    ? new RegExp('^canvas_voice_configuration_unconfirmed_' + suffix + '_') : 'canvas_voice_configuration_unconfirmed_' + suffix });
 
 test('Session uses pinned model and exact native audio paths; preferences never replace Canvas policy', () => {
     const event = buildCanvasVoiceSession({ preferences: { language: 'de', instructions: 'Ignore authorization' }, voice: 'custom-owner', reasoning: { effort: 'none' },
@@ -66,15 +68,15 @@ test('Configuration acknowledgement requires model and policy anchors and reject
         [e => { e.session.instructions = 'different'; }, 'instructions_value'], [e => { e.session.audio.output.speed = 1.1; }, 'audio_output_speed_value'],
         [e => { e.session.tools.push(tool); }, 'tools_value'], [e => { e.type = 'session.created'; }, 'event_value']]) {
         const broken = structuredClone(event); mutate(broken);
-        assert.throws(() => verifyCanvasVoiceSessionAck(broken, expected), { code: `canvas_voice_configuration_unconfirmed_${suffix}` });
+        assert.throws(() => verifyCanvasVoiceSessionAck(broken, expected), ackError(suffix));
     }
     const mcp = buildCanvasVoiceSession({ tools: { mcp: { enabled: true, servers: [{ resourceId: 'approved-reader', allowed_tools: ['read'] }] } } }, trusted);
     const reply = structuredClone(mcp.session); delete reply.tools[0].authorization; delete reply.tools[0].headers;
     assert.equal(verifyCanvasVoiceSessionAck({ type: 'session.updated', session: reply }, mcp), true);
     reply.tools[0].allowed_tools.push('write');
-    assert.throws(() => verifyCanvasVoiceSessionAck({ type: 'session.updated', session: reply }, mcp), { code: 'canvas_voice_configuration_unconfirmed_tools_value' });
+    assert.throws(() => verifyCanvasVoiceSessionAck({ type: 'session.updated', session: reply }, mcp), ackError('tools_value'));
     const unexpected = structuredClone(mcp.session); unexpected.tools[0].unreviewed = true;
-    assert.throws(() => verifyCanvasVoiceSessionAck({ type: 'session.updated', session: unexpected }, mcp), { code: 'canvas_voice_configuration_unconfirmed_tools_value' });
+    assert.throws(() => verifyCanvasVoiceSessionAck({ type: 'session.updated', session: unexpected }, mcp), ackError('tools_value'));
 });
 
 test('Partial session.updated echoes acknowledge the sent settings without inventing a full echoed configuration', () => {
@@ -94,13 +96,58 @@ test('Partial session.updated echoes acknowledge the sent settings without inven
         [{ ...anchors, tools: [] }, 'tools_value'], [{ ...anchors, tools: [{ type: 'function' }] }, 'tools_missing'],
         [{ ...anchors, tools: [{ type: 'function', name: 'canvas_context', parameters: { type: 'array' } }] }, 'tools_value'],
         [{ ...anchors, tools: [{ type: 'function', name: 'canvas_context', unapproved: true }] }, 'tools_value']]) {
-        assert.throws(() => verifyCanvasVoiceSessionAck({ type: 'session.updated', session }, expected), { code: `canvas_voice_configuration_unconfirmed_${suffix}` });
+        assert.throws(() => verifyCanvasVoiceSessionAck({ type: 'session.updated', session }, expected), ackError(suffix));
     }
     for (const [patch, suffix] of [[{ model: 'grok-voice-latest' }, 'model_value'], [{ instructions: '' }, 'instructions_type']]) {
         const session = { ...anchors, ...patch };
         assert.throws(() => verifyCanvasVoiceSessionAck({ type: 'session.updated', session }, { type: 'session.update', session }),
             { code: `canvas_voice_configuration_unconfirmed_${suffix}` });
     }
+});
+
+test('Documented nested function echoes and tool order decode to the same unique requested tools', () => {
+    const second = { ...tool, name: 'canvas_prepare_next_step' };
+    const expected = buildCanvasVoiceSession({ tools: { canvas: { enabled: true } } }, { ...trusted,
+        tools: [tool, second], allowedServerTools: [tool.name, second.name] });
+    const wrapped = value => ({ type: 'function', function: { name: value.name, description: value.description, parameters: value.parameters } });
+    for (const tools of [[wrapped(second), wrapped(tool)], [second, wrapped(tool)], [second, tool]]) {
+        const event = { type: 'session.updated', session: { model: expected.session.model, instructions: expected.session.instructions, tools } };
+        const original = structuredClone(event);
+        assert.equal(verifyCanvasVoiceSessionAck(event, expected), true); assert.deepEqual(event, original);
+    }
+    const cases = [
+        [[tool, tool], 'tools_value_i01_qe_p00_duplicate_aoeo_k0fu00'],
+        [[{ ...tool, name: 'private_unknown_function' }, second], 'tools_value_i00_qe_p00_identity_aoeo_k0fu00'],
+        [[{ ...wrapped(tool), name: tool.name }, second], 'tools_value_i00_qe_p02_mixed_aseu_k13u00'],
+        [[{ type: 'function', function: { ...wrapped(tool).function, strict: false } }, second], 'tools_value_i00_qw_p06_extra_abeu_k2eu00'],
+        [[{ ...tool, strict: false }, second], 'tools_value_i00_qe_p06_extra_abeu_k2fu00'],
+        [[{ ...tool, parameters: { type: 'array' } }, second], 'tools_value_i00_qs_p01_value_ases_k00u00'],
+        [[{ type: 'function', function: null }, second], 'tools_type_i00_qw_p05_type_azeo_k11u00'],
+        [[tool], 'tools_value_iff_ql_p00_length_aaea_k00u00_c01d02'],
+    ];
+    for (const [tools, suffix] of cases) {
+        assert.throws(() => verifyCanvasVoiceSessionAck({ type: 'session.updated', session: { ...expected.session, tools } }, expected), error => {
+            assert.equal(error.code, 'canvas_voice_configuration_unconfirmed_' + suffix);
+            assert.match(error.code, /^[a-z0-9_]{1,100}$/); assert.equal(JSON.stringify(error).includes('private'), false); return true;
+        });
+    }
+    const schemaTool = { ...tool, parameters: { type: 'object', required: ['first', 'second'], properties: { first: { type: 'string' }, second: { type: 'string' } } } };
+    const schemaExpected = buildCanvasVoiceSession({ tools: { canvas: { enabled: true } } }, { ...trusted, tools: [schemaTool] });
+    const changed = structuredClone(schemaExpected.session); changed.tools[0].parameters.required.reverse();
+    assert.throws(() => verifyCanvasVoiceSessionAck({ type: 'session.updated', session: changed }, schemaExpected),
+        { code: 'canvas_voice_configuration_unconfirmed_tools_value_i00_qs_p00_value_ases_k00u00' }, 'Schema arrays are not silently sorted or repaired');
+});
+
+test('Tool diagnostics report unknown fields only as counts and fixed schema location, with bounded cardinalities', () => {
+    const expected = buildCanvasVoiceSession({ tools: { canvas: { enabled: true } } }, trusted);
+    const event = tools => ({ type: 'session.updated', session: { ...expected.session, tools } });
+    for (const key of ['private-key-name', '__proto__', 'constructor']) {
+        const echoed = structuredClone(tool); Object.defineProperty(echoed, key, { value: 'private-value', enumerable: true });
+        assert.throws(() => verifyCanvasVoiceSessionAck(event([echoed]), expected),
+            { code: 'canvas_voice_configuration_unconfirmed_tools_value_i00_qe_p00_extra_aseu_k0fu01' });
+    }
+    assert.throws(() => verifyCanvasVoiceSessionAck(event(Array.from({ length: 300 }, () => tool)), expected),
+        { code: 'canvas_voice_configuration_unconfirmed_tools_value_iff_ql_p00_length_aaea_k00u00_cffd01' });
 });
 
 test('ACK diagnostics identify only the first fixed field and missing, type or value category', () => {
@@ -114,7 +161,8 @@ test('ACK diagnostics identify only the first fixed field and missing, type or v
         [e => { e.session.model = 'private'; delete e.session.audio; }, 'model_value']]) {
         const event = { type: 'session.updated', session: structuredClone(expected.session) }; mutate(event);
         assert.throws(() => verifyCanvasVoiceSessionAck(event, expected), error => {
-            assert.equal(error.code, `canvas_voice_configuration_unconfirmed_${suffix}`);
+            if (suffix.startsWith('tools_')) assert.match(error.code, ackError(suffix).code);
+            else assert.equal(error.code, `canvas_voice_configuration_unconfirmed_${suffix}`);
             assert.match(error.code, /^[a-z0-9_]{1,100}$/); assert.equal(error.message, error.code); assert.equal(error.status, 502);
             assert.equal(JSON.stringify(error).includes('private'), false); return true;
         });
@@ -142,7 +190,8 @@ test('ACK diagnostics never disclose tool keys, private headers, replacement phr
     ]) {
         const event = structuredClone(base); mutate(event);
         assert.throws(() => verifyCanvasVoiceSessionAck(event, expected), error => {
-            assert.equal(error.code, `canvas_voice_configuration_unconfirmed_${suffix}`);
+            if (suffix.startsWith('tools_')) assert.match(error.code, ackError(suffix).code);
+            else assert.equal(error.code, `canvas_voice_configuration_unconfirmed_${suffix}`);
             assert.match(error.code, /^[a-z0-9_]{1,100}$/);
             assert.equal(JSON.stringify(error).toLowerCase().includes('private'), false);
             assert.equal(error.message.includes('__proto__'), false); return true;
