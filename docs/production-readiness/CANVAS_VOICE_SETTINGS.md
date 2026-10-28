@@ -446,6 +446,11 @@ otherwise valid bounded base64 audio. Measure the UTF-8 wire frame separately
 from retained queue memory; keep both limits and the queue-count limit. Positive
 large-audio and oversized/multibyte counterchecks must exercise the actual relay
 and native Owner before another live acceptance attempt.
+Native delivery checks must observe the exact WebSocket response/item in addition
+to its independent D1 projection. Delaying that actual observation while the DB
+commit completes, with missing/wrong-identity counterchecks, prevents a database
+poll from falsely certifying client receipt. Payload and exactly-once assertions
+remain independent of the bounded delivery wait.
 
 The next browser session on `37ecee05` passed that relay boundary but its
 correlated UI reported `canvas_voice_playback_backpressure`. The client used a

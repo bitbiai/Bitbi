@@ -353,7 +353,12 @@ export async function canvasVideoCase(base, name, fixture) {
     const posterBase='/api/internal/homepage/hero-videos/source-posters/jobs';
     const processor=(url,body,token)=>worker.fetch(new Request('https://bitbi.ai'+url,{method:'POST',headers:{Authorization:'Bearer synthetic-poster',...(token?{'X-BITBI-Generation-Claim':token}:{}),...(body instanceof FormData?{}:{'Content-Type':'application/json'})},body:body instanceof FormData?body:JSON.stringify(body)}),env,{waitUntil(){}});
     const claim=await processor(posterBase+'/claim?member_only=true',{member_only:true,limit:8});
-    const item=(await claim.json()).data.jobs.find(j=>j.id===job.id);check(item,'First/continuation private poster claim');
+    const claimBody=await claim.json(),item=claimBody.data?.jobs?.find(j=>j.id===job.id);
+    if(!item) {
+      const state=await db.prepare('SELECT status,media_type,processing_backend,next_attempt_at,locked_until,attempt_count,asset_id FROM member_generation_jobs WHERE id=?').bind(job.id).first();
+      const asset=await db.prepare('SELECT user_id,source_module,poster_r2_key FROM ai_text_assets WHERE id=?').bind(job.id).first();
+      throw new Error('First/continuation private poster claim '+JSON.stringify({case:name,http:claim.status,returned:claimBody.data?.jobs?.length??null,now:new Date().toISOString(),state:{...state,asset_id:state?.asset_id===job.id},asset:asset?{owned:asset.user_id===owner,source_module:asset.source_module,hasPoster:Boolean(asset.poster_r2_key)}:null}));
+    }
     const form=new FormData();form.set('poster',new Blob([Uint8Array.from(atob(fixture.imageBase64),c=>c.charCodeAt(0))],{type:'image/png'}),'poster.png');
     check((await processor(item.completion.url,form,item.generation_claim)).ok,'Poster completes on existing endpoint');
     const project=(await request(projectPath)).body.data;

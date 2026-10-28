@@ -65,10 +65,17 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
   const open = async id => {
     const response = await request(`/sessions/${id}/socket`, undefined, { Upgrade: 'websocket' });
     assert.equal(response.status, 101, response.status === 101 ? '' : await response.text());
-    const socket = response.webSocket, events = []; let sequence = 0;
-    socket.addEventListener('message', event => events.push(JSON.parse(event.data))); socket.accept(); sockets.push(socket);
+    const socket = response.webSocket, events = [], deferred = []; let sequence = 0, holdLargeFrame = name === 'context_projection';
+    socket.addEventListener('message', event => {
+      const value = JSON.parse(event.data);
+      // Deterministically separate the independent DB observation from client
+      // delivery, preserving socket ordering after the selected real frame.
+      if (deferred.length || holdLargeFrame && value.type === 'voice.audio' && value.responseId === 'native_frame_valid') deferred.push(value);
+      else events.push(value);
+    }); socket.accept(); sockets.push(socket);
     const client = { socket, events, send: event => socket.send(JSON.stringify({ ...event, sequence: sequence++ })),
-      wait: predicate => until(() => events, list => list.some(predicate), 'Native lifecycle event ' + name) };
+      deferred, deliver() { holdLargeFrame = false; events.push(...deferred.splice(0)); },
+      wait: (predicate, milliseconds) => until(() => events, list => list.some(predicate), 'Native lifecycle event ' + name, milliseconds) };
     await client.wait(event => event.type === 'voice.state' && event.state === 'listening');
     return client;
   };
@@ -179,8 +186,19 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
         assert.equal(received().reduce((sum, event) => sum + Buffer.from(event.audio, 'base64').length, 0), 19200);
         await command('emit', { command: 'frame' });
         await until(conversation, row => row.revision === before.revision + 1, 'Large valid PCM frame completes its real reply projection');
+        await until(() => client.deferred, list => list.some(event => event.type === 'voice.audio'), 'Actual large frame reached the delayed client observer');
+        const isFrame = event => event.type === 'voice.audio' && event.responseId === 'native_frame_valid' && event.itemId === 'native_frame_valid_message';
+        assert.equal(client.events.some(isFrame), false, 'DB completion does not certify client delivery');
+        await assert.rejects(() => client.wait(isFrame, 50), /Native lifecycle event/, 'Missing audio cannot satisfy the delivery wait');
+        const wrong = { ...client.deferred.find(isFrame), responseId: 'wrong_response' };
+        client.events.push(wrong); // Only the observer countercase has a wrong identity; keep the original received frame intact.
+        try { await assert.rejects(() => client.wait(isFrame, 50), /Native lifecycle event/, 'An unrelated audio frame cannot satisfy the delivery wait'); }
+        finally { assert.equal(client.events.pop(), wrong); }
+        client.deliver();
+        await client.wait(isFrame);
         const delivered = received().filter(event => event.responseId === 'native_frame_valid');
-        assert.equal(delivered.length, 1); assert.deepEqual(Buffer.from(delivered[0].audio, 'base64'), expectedAudio);
+        assert.equal(delivered.length, 1, 'Exactly one matching large audio frame reaches the client');
+        assert.deepEqual(Buffer.from(delivered[0].audio, 'base64'), expectedAudio, 'Client receives every original PCM byte');
         const accepted = (await command('state')).audioFrames[0];
         assert(accepted.characters * 2 > 280000, 'Positive frame would fail the former UTF-16 versus wire-byte comparison');
         assert(accepted.wireBytes < 280000); assert.equal(accepted.wireBytes, accepted.characters);
