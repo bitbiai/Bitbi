@@ -173,6 +173,28 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
       const saved = await calls();
       assert.equal(JSON.parse((await conversation()).brief_json).fields.story.value, 'Eine Katze erkundet den Garten.');
       assert.equal(JSON.parse((await conversation()).brief_json).fields.style.value, 'Cartoon');
+      if (name === 'context_projection') {
+        const before = await conversation(), expectedAudio = Buffer.alloc(150000, 1);
+        const received = () => client.events.filter(event => event.type === 'voice.audio');
+        assert.equal(received().reduce((sum, event) => sum + Buffer.from(event.audio, 'base64').length, 0), 19200);
+        await command('emit', { command: 'frame' });
+        await until(conversation, row => row.revision === before.revision + 1, 'Large valid PCM frame completes its real reply projection');
+        const delivered = received().filter(event => event.responseId === 'native_frame_valid');
+        assert.equal(delivered.length, 1); assert.deepEqual(Buffer.from(delivered[0].audio, 'base64'), expectedAudio);
+        const accepted = (await command('state')).audioFrames[0];
+        assert(accepted.characters * 2 > 280000, 'Positive frame would fail the former UTF-16 versus wire-byte comparison');
+        assert(accepted.wireBytes < 280000); assert.equal(accepted.wireBytes, accepted.characters);
+        assert.equal(client.events.some(event => event.type === 'voice.ended'), false);
+        assert.equal((await conversation()).brief_json, before.brief_json); assert.deepEqual(await calls(), saved);
+        await command('emit', { command: 'frame_oversized' });
+        await client.wait(event => event.type === 'voice.ended' && event.code === 'canvas_voice_backpressure');
+        const rejected = (await command('state')).audioFrames[1];
+        assert(rejected.characters < 280000, 'Countercase is not merely a JavaScript string-length overflow');
+        assert(rejected.wireBytes > 280000, 'Actual UTF-8 wire limit remains enforced');
+        assert.equal(received().filter(event => event.responseId === 'native_frame_oversized').length, 0);
+        assert.equal(received().length, 5, 'Exactly four existing small frames and the one large valid frame reach the client');
+        assert.equal((await conversation()).brief_json, before.brief_json); assert.deepEqual(await calls(), saved);
+      }
       if (name === 'context_negative') {
         await context(); // A fresh semantic fence makes the forged revision independently wrong.
         for (const operation of ['stale', 'unknown']) {
@@ -197,6 +219,11 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
       const settled = await until(usage, row => row?.billing_status === 'finalized', 'Context lifecycle settles original usage');
       const receipt = JSON.parse(settled.metadata_json).canvas_voice_receipt, once = await debit();
       assert(receipt.outputSamples >= 9600); assert.deepEqual(once, { n: 1, amount: -receipt.credits });
+      if (name === 'context_projection') {
+        assert.equal(receipt.code, 'canvas_voice_backpressure_frame');
+        assert.equal(receipt.inputSamples, 0); assert.equal(receipt.outputSamples, 9600 + 75000);
+        assert.equal(client.events.filter(event => event.type === 'voice.audio').reduce((sum, event) => sum + Buffer.from(event.audio, 'base64').length, 0), receipt.outputSamples * 2);
+      }
       for (let replay = 0; replay < 2; replay++) await json(await stop(sessionId));
       assert.notEqual((await request(`/sessions/${sessionId}/socket`, undefined, { Upgrade: 'websocket' })).status, 101);
       assert.deepEqual(await debit(), once); assert.deepEqual(await calls(), saved);

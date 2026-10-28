@@ -438,6 +438,15 @@ existing free-text formats, replay, unknown revisions and changed brief/project
 counterexamples. Neither correction authorizes spending or bypasses source,
 ownership, stop or atomic revision guards.
 
+The `931e86b1` live follow-up saved the first brief change, then its original
+receipt recorded `canvas_voice_backpressure_frame`. Exact rejected frame bytes
+were not retained. The caller independently reproduces a units error: its
+UTF-16 retained-memory estimate was compared with the wire-frame limit, rejecting
+otherwise valid bounded base64 audio. Measure the UTF-8 wire frame separately
+from retained queue memory; keep both limits and the queue-count limit. Positive
+large-audio and oversized/multibyte counterchecks must exercise the actual relay
+and native Owner before another live acceptance attempt.
+
 Schema `0119_canvas_voice_sessions.sql` and the Voice frontend are published.
 The context/source association corrections affect Auth; the published frontend consumes
 the existing event unchanged. Compute the complete unpublished selection before

@@ -5,6 +5,8 @@ import { opusPacketDuration } from '../../../../js/shared/canvas-voice-audio.mjs
 import { canvasVoiceProviderRejectionCategory } from './canvas-voice-provider.js';
 import { canvasVoiceToolDiagnostic } from './canvas-voice-tools.js';
 import { sha256Hex } from './tokens.js';
+// UTF-8 wire bytes and retained UTF-16 string memory are different limits.
+const textFrameBytes = value => value.length > 280000 ? 280001 : new TextEncoder().encode(value).byteLength;
 const parse = value => { if (typeof value !== 'string' || value.length > 280000) throw new Error('canvas_voice_frame_invalid'); return JSON.parse(value); };
 const fail = code => { throw Object.assign(new Error(code), { code }); };
 const exact = (value, keys) => value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).every(k => keys.includes(k));
@@ -114,9 +116,9 @@ export class CanvasVoiceRelay {
         }
         this.send({ type: 'voice.changed' });
     }
-    enqueue(work, size = 0) {
+    enqueue(work, size = 0, frameBytes = size) {
         if (this.closed) return Promise.resolve();
-        const pressure = size > 280000 ? 'frame' : this.queuedCount >= 64 ? 'count' : this.queuedBytes + size > 2 * 1024 * 1024 ? 'bytes' : null;
+        const pressure = frameBytes > 280000 ? 'frame' : this.queuedCount >= 64 ? 'count' : this.queuedBytes + size > 2 * 1024 * 1024 ? 'bytes' : null;
         if (pressure) return this.stop('canvas_voice_backpressure_' + pressure);
         this.queuedCount++; this.queuedBytes += size;
         this.queue = this.queue.then(async () => { if (!this.closed) await work(); }).catch(error => this.stop(error.code || 'canvas_voice_protocol_failed'))
@@ -173,7 +175,7 @@ export class CanvasVoiceRelay {
             this.send({ type: 'voice.interrupted', responseId: event.responseId }); return;
         }
         fail('canvas_voice_command_forbidden');
-    }, typeof raw === 'string' ? raw.length * 2 : 280001); }
+    }, typeof raw === 'string' ? raw.length * 2 : 280001, typeof raw === 'string' ? textFrameBytes(raw) : 280001); }
     providerMessage(raw) { return this.enqueue(async () => {
         await this.authorize();
         if (raw instanceof ArrayBuffer) {
@@ -320,7 +322,8 @@ export class CanvasVoiceRelay {
             }
             this.send({ type: 'voice.state', state: this.muted ? 'muted' : 'listening' });
         }
-    }, typeof raw === 'string' ? raw.length * 2 : raw instanceof ArrayBuffer ? raw.byteLength : 280001); }
+    }, typeof raw === 'string' ? raw.length * 2 : raw instanceof ArrayBuffer ? raw.byteLength : 280001,
+    typeof raw === 'string' ? textFrameBytes(raw) : raw instanceof ArrayBuffer ? raw.byteLength : 280001); }
     async audio(bytes) {
         if (!bytes.length || bytes.length > 192000) fail('canvas_voice_audio_limit');
         const format = this.session.settings.audio.output.format;

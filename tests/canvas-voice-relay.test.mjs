@@ -642,3 +642,69 @@ test('an output without response.created cannot adopt the current user or author
     assert.equal(f.relay.closed, true);
     assert.equal(f.calls.at(-1)[1].code, 'canvas_voice_tool_response_unknown');
 });
+
+
+test('valid large provider PCM frames use wire bytes, retain accurate samples and keep the original audio ceiling', async () => {
+    for (const size of [150000, 192000]) {
+        const f = fixture(); await f.ready(); await user(f, 'large_audio_user');
+        await f.provider({ type: 'response.created', response: { id: 'large_response' } });
+        await f.provider({ type: 'response.output_item.added', response_id: 'large_response', item: { type: 'message', id: 'large_output' } });
+        const audio = Buffer.alloc(size, 1).toString('base64');
+        const frame = JSON.stringify({ type: 'response.output_audio.delta', response_id: 'large_response', item_id: 'large_output', delta: audio });
+        assert(Buffer.byteLength(frame, 'utf8') <= 280000);
+        assert(frame.length * 2 > 280000, 'Old retained-memory comparison rejects this otherwise valid wire frame');
+        await f.relay.providerMessage(frame);
+        assert.equal(f.relay.closed, false);
+        assert.deepEqual(f.sent.filter(event => event.type === 'voice.audio').map(event => event.audio), [audio]);
+        assert.equal(f.relay.outputBytes, size); assert.equal(f.relay.outputSamples, size / 2);
+        assert.equal(f.calls.filter(call => call[0] === 'exposure').at(-1)[1].outputSamples, size / 2);
+        assert.equal(f.relay.queuedBytes, 0); assert.equal(f.relay.queuedCount, 0); await f.relay.stop();
+    }
+});
+
+test('UTF-8 frame limit rejects oversized Unicode before parsing while valid Unicode remains allowed', async () => {
+    const valid = JSON.stringify({ type: 'ping', padding: '€'.repeat(90000) });
+    const oversized = JSON.stringify({ type: 'ping', padding: '€'.repeat(94000) });
+    assert(Buffer.byteLength(valid, 'utf8') < 280000);
+    assert(oversized.length * 2 < 280000 && Buffer.byteLength(oversized, 'utf8') > 280000, 'Character count is not a UTF-8 wire-byte bound');
+    const f = fixture(); await f.ready(); const before = f.calls.length;
+    await f.relay.providerMessage(valid);
+    assert.equal(f.relay.closed, false); assert.equal(f.calls.length, before);
+    await f.relay.providerMessage(oversized);
+    assert.equal(f.relay.closed, true); assert.equal(f.calls.at(-1)[1].code, 'canvas_voice_backpressure_frame');
+    assert.equal(f.sent.at(-1).code, 'canvas_voice_backpressure');
+    assert.equal(JSON.stringify(f.sent).includes('€'), false);
+    const g = fixture(); await g.relay.clientMessage(oversized);
+    assert.equal(g.calls.at(-1)[1].code, 'canvas_voice_backpressure_frame');
+});
+
+test('binary frames and unsupported message types retain independent frame and audio guards', async () => {
+    for (const size of [192000, 192002, 280001]) {
+        const f = fixture(); f.relay.session.settings.audio.output.transport = 'binary'; await f.ready();
+        await f.provider({ type: 'response.created', response: { id: 'binary_response' } });
+        await f.provider({ type: 'response.output_item.added', response_id: 'binary_response', item: { type: 'message', id: 'binary_output' } });
+        await f.relay.providerMessage(new ArrayBuffer(size));
+        assert.equal(f.relay.closed, size !== 192000);
+        if (size === 192000) { assert.equal(f.relay.outputSamples, 96000); await f.relay.stop(); }
+        else assert.equal(f.calls.at(-1)[1].code, size > 280000 ? 'canvas_voice_backpressure_frame' : 'canvas_voice_audio_limit');
+    }
+    for (const source of ['client', 'provider']) for (const value of [null, {}, new Uint8Array(4), ...(source === 'client' ? [new ArrayBuffer(4)] : [])]) {
+        const f = fixture(); await f.relay[source + 'Message'](value);
+        assert.equal(f.relay.closed, true); assert.equal(f.calls.at(-1)[1].code, 'canvas_voice_backpressure_frame');
+        assert.equal(f.calls.some(call => ['active', 'user', 'tool', 'exposure'].includes(call[0])), false);
+    }
+});
+
+test('large valid wire frames still count their full retained string memory against the unchanged queue cap', async () => {
+    const f = fixture(); await f.ready();
+    let release; const wait = new Promise(resolve => { release = resolve; });
+    f.relay.services.authorize = () => wait;
+    const frame = JSON.stringify({ type: 'ping', padding: 'x'.repeat(200000) });
+    assert(Buffer.byteLength(frame, 'utf8') < 280000 && frame.length * 2 * 5 < 2 * 1024 * 1024 && frame.length * 2 * 6 > 2 * 1024 * 1024);
+    const pending = Array.from({ length: 6 }, () => f.relay.providerMessage(frame));
+    assert.equal(f.relay.closed, true); assert.equal(f.calls.at(-1)[1].code, 'canvas_voice_backpressure_bytes');
+    assert.equal(f.relay.queuedCount, 5); assert.equal(f.relay.queuedBytes, frame.length * 2 * 5);
+    release(true); await Promise.all(pending);
+    assert.equal(f.relay.queuedCount, 0); assert.equal(f.relay.queuedBytes, 0);
+    assert.equal(f.sent.some(event => event.type === 'voice.audio'), false);
+});

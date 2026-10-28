@@ -9,7 +9,7 @@ const snapshot = state => state ? { enabled: true, mode: state.mode, attempts: s
   configurations: state.configurations, closeRequests: state.closeRequests, resumedIds: state.resumedIds,
   released: state.released, pending: Boolean(state.release), toolOutputs: state.toolOutputs.map(value => ({ ok: value.ok, code: value.code,
     applied: value.data?.applied, conversationRevision: value.data?.conversationRevision, briefRevision: value.data?.briefRevision, style: value.data?.brief?.fields?.style?.value })),
-  responseContexts: state.responseContexts } : { enabled: false };
+  responseContexts: state.responseContexts, audioFrames: state.audioFrames } : { enabled: false };
 const handler = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -21,7 +21,7 @@ const handler = {
         if (!modes.has(body.mode)) return new Response(null, { status: 400 });
         if (current?.release) throw new Error('Lifecycle fetch must be released before changing fixture');
         current = { mode: body.mode, attempts: 0, connections: 0, appends: 0, responses: 0,
-          configurations: 0, closeRequests: 0, released: false, release: null, socket: null, resumedIds: [], conversationId: null, toolOutputs: [], responseContexts: [] };
+          configurations: 0, closeRequests: 0, released: false, release: null, socket: null, resumedIds: [], conversationId: null, toolOutputs: [], responseContexts: [], audioFrames: [] };
       } else if (url.pathname === '/lifecycle/release') {
         if (!current?.release) return new Response(null, { status: 409 });
         current.released = true; current.release(); current.release = null;
@@ -30,6 +30,7 @@ const handler = {
         if (body.command === 'close_abnormal') current.socket.close(4001, 'Synthetic provider failure');
         else if (current.mode === 'context' && body.command !== 'turn') {
           if (body.command === 'context') current.contextCycle();
+          else if (body.command === 'frame' || body.command === 'frame_oversized') { current.audioFrame(body.command === 'frame_oversized'); return Response.json(snapshot(current)); }
           else if (body.command === 'replay' && current.lastApply) current.call('canvas_update_brief', current.lastApply.args, current.lastApply.suffix);
           else if (['apply', 'stale', 'unknown'].includes(body.command)) {
             const context = body.command === 'stale' ? current.firstContext : current.latestContext;
@@ -134,6 +135,19 @@ const handler = {
       emit({ type: 'response.output_audio.delta', response_id, item_id, delta: btoa('\0'.repeat(4800)) });
       emit({ type: 'response.output_audio_transcript.delta', response_id, item_id, delta: 'Welche Dauer möchtest du?' });
       emit({ type: 'response.done', response: { id: response_id, status: 'completed' } });
+    };
+    state.audioFrame = oversized => {
+      const response_id = oversized ? 'native_frame_oversized' : 'native_frame_valid', item_id = response_id + '_message';
+      emit({ type: 'response.created', response: { id: response_id } });
+      emit({ type: 'response.output_item.added', response_id, item: { type: 'message', id: item_id } });
+      const frame = JSON.stringify({ event_id: response_id + '_audio', type: 'response.output_audio.delta', response_id, item_id,
+        delta: btoa('\x01'.repeat(150000)), ...(oversized ? { padding: '€'.repeat(30000) } : {}) });
+      state.audioFrames.push({ characters: frame.length, wireBytes: new TextEncoder().encode(frame).byteLength });
+      socket.send(frame);
+      if (!oversized) {
+        emit({ type: 'response.output_audio_transcript.delta', response_id, item_id, delta: 'Die Katzenidee ist gespeichert.' });
+        emit({ type: 'response.done', response: { id: response_id, status: 'completed' } });
+      }
     };
     state.contextCycle = () => {
       state.contextReads = (state.contextReads || 0) + 1;
