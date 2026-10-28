@@ -75,8 +75,14 @@ export async function conversationView(env,projectId,userId) {
     for(const turn of turns)turn.incident_explanation=incidentTurns.get(turn.id)||null;
     const messages=turns.flatMap(t=>[...(t.user_text?[{id:t.id,role:'user',text:t.user_text,status:'completed',provenance:'user',kind:'message',...(t.voice_json?{channel:'voice'}:{})}]:[]),...(t.assistant_text?[{id:`${t.id}:reply`,role:'assistant',text:canvasConversationReplyText(t),status:'completed'}]
         :t.voice_json?[]
-        :[{id:`${t.id}:reply`,role:'assistant',text:'',status:t.state,code:t.error_code||null}])].map(message=>message.role==='assistant'
-            ?{...message,...canvasConversationReplySource(t,actions),delivery:canvasDialogueDelivery(byTurn.get(t.id))}:message));
+        :[{id:`${t.id}:reply`,role:'assistant',text:'',status:t.state,code:t.error_code||null}])].map(message=>{
+            if(message.role!=='assistant')return message;
+            const source=canvasConversationReplySource(t,actions),delivery=canvasDialogueDelivery(byTurn.get(t.id));
+            // Voice has its own durable response evidence, not a text briefing run.
+            // Keep application-authored interruption notes distinct from model text.
+            if(t.voice_json)delivery.source=source.provenance==='model'?'provider':'system';
+            return {...message,...source,delivery};
+        }));
     const costs=await conversationCosts(env,projectId),tariff=await getModelTariff(env);
     let suggestedAllowanceCredits=null;
     try {

@@ -1,4 +1,4 @@
-import {conversationRow,canvasConversationReplyText,createConversationTurn} from '../../workers/auth/src/lib/canvas-agent-conversation.js';
+import {conversationRow,conversationView,canvasConversationReplyText,createConversationTurn} from '../../workers/auth/src/lib/canvas-agent-conversation.js';
 import {applyCanvasVoiceBrief,recordCanvasVoiceReply,markCanvasVoiceReplyInterrupted} from '../../workers/auth/src/lib/canvas-voice-conversation.js';
 import {CANVAS_AGENT_POLICY_VERSION} from '../../workers/shared/canvas-agent/manifest.mjs';
 import {getModelTariff} from '../../workers/auth/src/lib/model-tariffs.js';
@@ -37,5 +37,7 @@ export async function canvasVoiceTextContinuation(env,scope,transcript,proposal)
  check(wakes.length===1,'Only explicit new typed message queues one text operation');
  await markCanvasVoiceReplyInterrupted(env,scope,{responseId:reply.responseId,audioEndMs:150,transcript:'Bekannt.'});
  const retained=await DB.prepare('SELECT retained_text FROM canvas_voice_turns WHERE turn_id=?').bind(transcript.turnId).first();check(retained.retained_text==='Bekannt.','Provider-acknowledged prefix is retained separately from original response');
+ const publicReply=(await conversationView(scoped,projectId,userId)).conversation.messages.find(message=>message.id===transcript.turnId+':reply');
+ check(publicReply.text==='Bekannt.'&&publicReply.provenance==='model'&&publicReply.delivery.source==='provider'&&publicReply.interrupted===true&&publicReply.playback==='not_verified','Retained provider prefix has truthful model attribution without claiming the whole response was heard');
  check((await DB.prepare('SELECT COUNT(*) AS n FROM member_ai_usage_attempts_v2').first()).n===0,'Neither voice projection nor text preparation dispatches or charges');
 }

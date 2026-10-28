@@ -465,6 +465,16 @@ and truncate its heard prefix; do not cancel a nonexistent in-progress response.
 Active responses still receive cancellation. The same browser case verifies both
 the actual relay output and cleanup; no historical provider-error cause is inferred.
 
+The 2026-10-28 live readback of `4abbfa01` (protected run `40710851032/1`)
+confirmed audio and a saved brief change, but the transcript labelled a real
+Voice reply as a project note. Voice has no text-briefing operation, so the
+generic missing-operation delivery fallback incorrectly overrode its stored
+model provenance. Project Voice delivery from its durable response attribution:
+model text/confirmed prefixes use `provider`; unknown-playback notes stay
+`system`. The existing conversation controls, native Owner HTTP read and EN/DE
+persisted browser journey cover that final projection. Attribution is not proof
+that audio was heard; preserve `playback: not_verified` and interruption evidence.
+
 Schema `0119_canvas_voice_sessions.sql` and the Voice frontend are published.
 The context/source association corrections affect Auth; the published frontend consumes
 the existing event unchanged. Compute the complete unpublished selection before

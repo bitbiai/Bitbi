@@ -1,5 +1,5 @@
 import { sha256Hex } from '../../workers/auth/src/lib/tokens.js';
-import { ensureConversation, conversationRow, canvasConversationReplySource } from '../../workers/auth/src/lib/canvas-agent-conversation.js';
+import { ensureConversation, conversationRow, conversationView, canvasConversationReplySource } from '../../workers/auth/src/lib/canvas-agent-conversation.js';
 import { recordCanvasVoiceUserTurn, recordCanvasVoiceReply, recordCanvasVoiceFinalReply, applyCanvasVoiceBrief, readCanvasVoiceContext, prepareCanvasVoiceNextStep } from '../../workers/auth/src/lib/canvas-voice-conversation.js';
 import { canvasVoiceSystem } from '../../workers/shared/canvas-agent/voice.mjs';
 import {canvasVoiceTextContinuation} from './canvas-voice-text-control.mjs';
@@ -41,6 +41,8 @@ export async function canvasVoiceConversationCase(env, name) {
     const interruptedSource=canvasConversationReplySource({voice_json:JSON.stringify({modelId:'grok-voice-3.0',interrupted:1})});
     check(interruptedSource.provenance==='application'&&interruptedSource.kind==='voice_interruption'&&interruptedSource.originalModelId==='grok-voice-3.0','Unknown playback note is application-authored and keeps original model evidence');
     check(canvasConversationReplySource({voice_json:JSON.stringify({modelId:'grok-voice-3.0',interrupted:1,retainedText:'Known prefix'})}).provenance==='model','Confirmed provider prefix retains model provenance');
+    const publicReply=(await conversationView(env,projectId,owner)).conversation.messages.find(message=>message.id===transcript.turnId+':reply');
+    check(publicReply.provenance==='application'&&publicReply.delivery.source==='system'&&publicReply.kind==='voice_interruption','Final conversation projection keeps unknown playback as an application note');
   } else if (name === 'isolation') {
     await reject(() => applyCanvasVoiceBrief(env, { ...scope, userId: 'other-user' }, proposal), 'canvas_voice_session_unavailable');
     await reject(() => readCanvasVoiceContext(env, { ...scope, projectId: 'f'.repeat(32) }), 'canvas_voice_session_unavailable');
@@ -69,6 +71,9 @@ export async function canvasVoiceConversationCase(env, name) {
     await reject(() => applyCanvasVoiceBrief(env, scope, { ...original, questions: ['Changed'] }, saved.conversationRevision), 'idempotency_conflict');
     const reply = { turnId: transcript.turnId, responseId: 'response-1', text: 'Gespeichert.', interrupted: false };
     await recordCanvasVoiceReply(env, scope, reply);
+    const publicReply=(await conversationView(env,projectId,owner)).conversation.messages.find(message=>message.id===transcript.turnId+':reply');
+    check(publicReply.provenance==='model'&&publicReply.delivery.source==='provider'&&publicReply.modelId==='grok-voice-3.0'&&publicReply.text===reply.text,'Final conversation projection attributes stored Voice text to its model without a text-inference receipt');
+    check(publicReply.status==='completed'&&!publicReply.delivery.blocking&&publicReply.playback==='not_verified','Model attribution does not claim verified audio playback or a pending text operation');
     check((await recordCanvasVoiceReply(env, scope, reply)).replay, 'Duplicate response is not a new assistant answer');
     check((await DB.prepare('SELECT COUNT(*) AS n FROM canvas_agent_turns WHERE project_id=?').bind(projectId).first()).n === 1, 'Single user/response pair remains canonical');
     const followup = await recordCanvasVoiceReply(env, scope, { ...reply, responseId: 'response-2', text: 'Welches Format?' });

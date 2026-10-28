@@ -41,6 +41,10 @@ export async function runCanvasVoiceOwnerTest(f){
   assert.notEqual(brief.assistant_model_id,'grok-voice-3.0','Voice does not switch the text model');
   const turns=(await f.db.prepare('SELECT user_text,assistant_text FROM canvas_agent_turns WHERE project_id=?').bind(projectId).all()).results;
   assert.equal(turns.length,1);assert.match(turns[0].user_text,/45 Sekunden/);assert.match(turns[0].assistant_text,/Auflösung/);
+  const conversation=await json(await f.mf.dispatchFetch(`https://bitbi.ai/api/account/canvas/projects/${projectId}/agent/conversation`,{headers:{Origin:'https://bitbi.ai',Cookie:`__Host-bitbi_session=${userId}`}}));
+  const reply=conversation.conversation.messages.find(message=>message.role==='assistant');
+  assert.equal(reply.provenance,'model');assert.equal(reply.delivery.source,'provider');assert.equal(reply.modelId,'grok-voice-3.0');
+  assert.equal(reply.channel,'voice');assert.equal(reply.playback,'not_verified');assert.equal(reply.delivery.blocking,false);
   const before=await (await provider.fetch('https://voice-fixture.invalid/state')).json();
   assert.equal(before.connections,1);assert.equal(before.appends,100);assert.equal(before.bytes,96000);assert.equal(before.textItems,0);
   assert.equal(before.configuration.model,'grok-voice-3.0');assert.equal(before.configuration.hasCanvasRole,true);assert.equal(before.configuration.hasSyntheticPrivateContext,true);
