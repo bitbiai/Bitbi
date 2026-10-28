@@ -265,8 +265,38 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
   internalLimitCalls=0;
   abort.abort(); // No more browser status calls until generation + poster end.
   const row=()=>db.prepare('SELECT * FROM member_generation_jobs WHERE id=?').bind(id).first();
-  const deliver=()=>worker.queue({queue:'bitbi-ai-video-jobs',messages:[{body:messages[0],attempts:1,
-    ack(){calls.ack++;},retry(){calls.retry++;}}]},env,{waitUntil(){throw new Error('No detached queue work allowed');}});
+  let beforeDelivery=null;
+  const requireCompleted=async()=>{
+    const current=await row();
+    if(current.status==='succeeded')return;
+    const usage=await db.prepare('SELECT provider_outcome,billing_status FROM member_ai_usage_attempts_v2 WHERE id=?').bind(current.usage_attempt_id).first();
+    const now=Date.now(),code=current.error_code==null?null:/^[a-z0-9_]{1,80}$/.test(current.error_code)?current.error_code:'invalid_code';
+    throw new Error(`${kind} completed: `+JSON.stringify({status:current.status,code,attempt:current.attempt_count,
+      dueMs:Date.parse(current.next_attempt_at)-now,leaseMs:current.locked_until?Date.parse(current.locked_until)-now:null,
+      beforeDueMs:beforeDelivery?.dueMs,beforeLeaseMs:beforeDelivery?.leaseMs,
+      provider:calls.provider,ack:calls.ack,retry:calls.retry,usage:[usage?.provider_outcome,usage?.billing_status]}));
+  };
+  const deliver=async()=>{
+    if(name==='asset-naming-music-manual') {
+      const current=await row(),now=Date.now();
+      beforeDelivery={dueMs:Date.parse(current.next_attempt_at)-now,leaseMs:current.locked_until?Date.parse(current.locked_until)-now:null};
+    }
+    return worker.queue({queue:'bitbi-ai-video-jobs',messages:[{body:messages[0],attempts:1,
+      ack(){calls.ack++;},retry(){calls.retry++;}}]},env,{waitUntil(){throw new Error('No detached queue work allowed');}});
+  };
+  if(name==='asset-naming-music-manual') {
+    const before=await row(),future=new Date(Date.now()+60_000).toISOString();
+    await db.prepare('UPDATE member_generation_jobs SET next_attempt_at=? WHERE id=?').bind(future,id).run();
+    await deliver();
+    const deferred=await row();
+    check(deferred.status==='queued' && deferred.next_attempt_at===future && deferred.attempt_count===before.attempt_count && calls.provider===0 && calls.ack===0 && calls.retry===1,'Future-due delivery remains queued without dispatch or claim');
+    let diagnostic;try{await requireCompleted();}catch(error){diagnostic=error.message;}
+    check(diagnostic?.startsWith('music completed: ') && diagnostic.length<400,'Incomplete job diagnostic remains bounded');
+    const detail=JSON.parse(diagnostic.slice('music completed: '.length));
+    check(detail.status==='queued' && detail.code===null && detail.dueMs>0 && detail.beforeDueMs>0 && detail.leaseMs===null && detail.beforeLeaseMs===null && detail.provider===0 && detail.ack===0 && detail.retry===1 && detail.usage.join(',')==='not_dispatched,reserved','Diagnostic distinguishes a deferred job from provider failure');
+    check((await db.prepare('SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first()).n===0,'Future-due delivery never debits');
+    await db.prepare('UPDATE member_generation_jobs SET next_attempt_at=? WHERE id=?').bind(before.next_attempt_at,id).run();
+  }
   if(['area-queued','seedance-queued'].includes(name)) {
     await toggleArea(false);await deliver();
     const current=await row(),attempt=await db.prepare('SELECT * FROM member_ai_usage_attempts_v2 WHERE id=?').bind(current.usage_attempt_id).first();
@@ -431,7 +461,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
       await db.prepare("UPDATE member_generation_jobs SET next_attempt_at='2000-01-01T00:00:00.000Z' WHERE id=?").bind(id).run();
       await deliver();
     }
-    check((await row()).status==='succeeded',`${kind} completed: ${(await row()).error_code}`);
+    await requireCompleted();
     const table=kind==='image'?'ai_images':'ai_text_assets';
     const asset=await db.prepare(`SELECT * FROM ${table} WHERE id=? AND user_id=?`).bind(id,owner).first();
     check(Boolean(asset?.r2_key && await nativeEnv.USER_IMAGES.get(asset.r2_key)),'Generated media automatically persisted');
