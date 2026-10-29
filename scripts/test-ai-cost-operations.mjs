@@ -5,6 +5,7 @@ import {
   AI_COST_BUDGET_SCOPE_POLICIES,
   AI_COST_OPERATION_REGISTRY,
   getAiCostProviderCallSourceFiles,
+  getAiCostOperationConfig,
   getAiCostRoutePolicyBaselines,
   summarizeAiCostOperationRegistry,
   validateAiCostOperationRegistry,
@@ -42,6 +43,16 @@ for (const requiredScope of [
 
 const operationIds = AI_COST_OPERATION_REGISTRY.map((entry) => entry.operationConfig.operationId);
 assert.equal(new Set(operationIds).size, operationIds.length);
+
+{
+  const sources = ['workers/auth/src/lib/canvas-agent-planning.js', 'workers/auth/src/lib/canvas-agent-model-operations.js'];
+  const memberText = AI_COST_OPERATION_REGISTRY.find(entry => entry.operationConfig.operationId === 'member.text.generate');
+  for (const file of sources) assert(memberText.sourceFiles.includes(file), 'Canvas uses the existing member text cost identity');
+  const withoutSourceMetadata = AI_COST_OPERATION_REGISTRY.map(entry => ({ ...entry,
+    sourceFiles: entry.sourceFiles.filter(file => !sources.includes(file)) }));
+  assert.deepEqual(getAiCostOperationConfig('member.text.generate'), getAiCostOperationConfig('member.text.generate', withoutSourceMetadata),
+    'Source inventory metadata cannot change the operation configuration consumed by real admission');
+}
 
 for (const entry of AI_COST_OPERATION_REGISTRY) {
   const config = normalizeAiCostOperationConfig(entry.operationConfig);

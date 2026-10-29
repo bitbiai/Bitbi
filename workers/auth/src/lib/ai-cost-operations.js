@@ -720,7 +720,8 @@ export const AI_COST_OPERATION_REGISTRY = Object.freeze([
       routePath: "/api/ai/generate-text",
       notes: "Personal member text generation reserves model-priced member credits before AI_LAB execution and stores bounded replay metadata. Fable 5 uses a disclosed safe upper-bound estimate.",
     },
-    sourceFiles: ["workers/auth/src/routes/ai/text-generate.js"],
+    sourceFiles: ["workers/auth/src/routes/ai/text-generate.js",
+      "workers/auth/src/lib/canvas-agent-planning.js", "workers/auth/src/lib/canvas-agent-model-operations.js"],
     currentStatus: "implemented",
     currentEnforcement: {
       idempotency: "implemented",

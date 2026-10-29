@@ -273,6 +273,31 @@ ${inventoryExtra}
 }
 
 {
+  // The actual Canvas caller uses member.text.generate for its reserved,
+  // durable background inference. Signed readiness/prepare/normalize calls
+  // in these files are observed by the same source scanner, not new charges.
+  const sources = ['workers/auth/src/lib/canvas-agent-planning.js', 'workers/auth/src/lib/canvas-agent-model-operations.js'];
+  const actual = analyzeAiCostPolicy(process.cwd());
+  for (const file of sources) {
+    const finding = actual.providerSourceFindings.find(value => value.file === file);
+    assert(finding?.patterns.includes('AI_LAB.fetch'), 'The real signed service caller must remain discoverable');
+    assert.equal(finding.inventoried, true, file);
+    assert.equal(finding.baselineId, null, 'Canvas source coverage is not a known-gap exception');
+    const registryEntries = AI_COST_OPERATION_REGISTRY.map(entry => ({ ...entry,
+      sourceFiles: entry.sourceFiles.filter(source => source !== file) }));
+    const missing = analyzeAiCostPolicy(process.cwd(), { registryEntries });
+    assert.equal(missing.ok, false);
+    assert(missing.unknownProviderSources.some(value => value.file === file), 'Removing either exact mapping must fail the real scanner');
+  }
+  const repoRoot = makeRepo();
+  const unknown = 'workers/auth/src/lib/canvas-agent-unregistered-service.js';
+  fs.writeFileSync(path.join(repoRoot, unknown), 'export const f = env => env.AI_LAB.fetch("https://synthetic.invalid");\n');
+  const result = analyzeAiCostPolicy(repoRoot);
+  assert.equal(result.ok, false);
+  assert(result.unknownProviderSources.some(value => value.file === unknown), 'A neighboring signed caller is never covered by a directory exception');
+}
+
+{
   const repoRoot = makeRepo();
   fs.mkdirSync(path.join(repoRoot, "workers/auth/src/lib"), { recursive: true });
   fs.writeFileSync(

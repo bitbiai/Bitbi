@@ -1,4 +1,46 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import {execFileSync} from 'node:child_process';
+
+export const CANVAS_COST_REGISTRY = 'workers/auth/src/lib/ai-cost-operations.js';
+const canvasCostSources = ['workers/auth/src/routes/ai/text-generate.js',
+  'workers/auth/src/lib/canvas-agent-planning.js', 'workers/auth/src/lib/canvas-agent-model-operations.js'];
+
+// Only the literal source inventory of the existing member text operation may
+// change. The same module also supplies admission config: every other byte stays
+// binding, including prices, policies, notes, functions and other operations.
+export function isCanvasCostSourceMapping(sources) {
+  const inspect = source => {
+    if (typeof source !== 'string') return null;
+    const matches = [...source.matchAll(/operation\(\{\s*operationConfig:\s*\{\s*operationId:\s*"member\.text\.generate"[\s\S]*?\n    \},\s*sourceFiles:\s*(\[[^\]]*\])/g)];
+    if (matches.length !== 1) return null;
+    const match = matches[0], literal = match[1], start = match.index + match[0].length - literal.length;
+    try { return {files:JSON.parse(literal), rest:source.slice(0,start)+'[]'+source.slice(start+literal.length)}; }
+    catch { return null; }
+  };
+  const before=inspect(sources?.before),after=inspect(sources?.after);
+  return !!before && !!after && before.rest===after.rest
+    && JSON.stringify(before.files)===JSON.stringify(canvasCostSources.slice(0,1))
+    && JSON.stringify(after.files)===JSON.stringify(canvasCostSources);
+}
+
+export function canvasCostRegistrySources(base, head, cwd=process.cwd()) {
+  try {
+    const git=args=>execFileSync('git',args,{cwd,encoding:'utf8',stdio:['ignore','pipe','pipe']});
+    const read=ref=>{
+      if (!git(['ls-tree',ref,'--',CANVAS_COST_REGISTRY]).startsWith('100644 blob ')) throw new Error('Expected regular registry source');
+      return git(['show',`${ref}:${CANVAS_COST_REGISTRY}`]);
+    };
+    if (base) {
+      const candidate=git(['rev-parse','--verify',`${head||'HEAD'}^{commit}`]).trim();
+      return {before:read(git(['merge-base',base,candidate]).trim()),after:read(candidate)};
+    }
+    const target=path.join(cwd,CANVAS_COST_REGISTRY),info=fs.lstatSync(target);
+    if (!info.isFile() || (info.mode & 0o111)) return null;
+    return {before:read('HEAD'),after:fs.readFileSync(target,'utf8')};
+  } catch { return null; }
+}
 // Closed Voice/application boundary. Shared Canvas mutations retain all Canvas
 // route/native coverage; unrelated account, media processing and dependency
 // changes fall back to the ordinary selector. This does not reuse old reports.
@@ -37,10 +79,12 @@ export const CANVAS_VOICE_FILES = new Set([
   'tests/helpers/q2-runtime/voice-readiness-worker.mjs',
   'scripts/test-canvas-voice-browser-native.mjs', 'tests/canvas-voice-browser-bridge.test.mjs',
   'scripts/test-q2-runtime-launcher.mjs', 'scripts/lib/canvas-voice-selection.mjs', 'scripts/test-canvas-voice-selection.mjs',
+  'scripts/test-ai-cost-policy.mjs', 'scripts/test-ai-cost-operations.mjs',
 ]);
-export const isCanvasVoiceScope = (files, isDocumentation, tooling) => files.some(file =>
+export const isCanvasVoiceScope = (files, isDocumentation, tooling, costSources) => files.some(file =>
   file.startsWith('workers/auth/src/lib/canvas-voice-') || file.startsWith('js/pages/canvas/voice'))
-  && files.every(file => isDocumentation(file) || CANVAS_VOICE_FILES.has(file) || tooling.has(file));
+  && files.every(file => isDocumentation(file) || CANVAS_VOICE_FILES.has(file) || tooling.has(file)
+    || file===CANVAS_COST_REGISTRY && isCanvasCostSourceMapping(costSources));
 
 export function verifyCanvasVoiceDiscovery(rows, standard) {
   assert(Array.isArray(standard) && standard.length > rows.length, 'Missing independent complete Canvas discovery');

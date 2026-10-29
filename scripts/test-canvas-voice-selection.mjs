@@ -4,7 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { selectCiTests } from './lib/ci-test-selection.mjs';
-import { CANVAS_VOICE_FILES, verifyCanvasVoiceDiscovery, verifyCanvasVoiceNativeBrowserReport } from './lib/canvas-voice-selection.mjs';
+import { CANVAS_VOICE_FILES, verifyCanvasVoiceDiscovery, verifyCanvasVoiceNativeBrowserReport,
+  CANVAS_COST_REGISTRY, isCanvasCostSourceMapping, canvasCostRegistrySources } from './lib/canvas-voice-selection.mjs';
 import { gitSelection, requiredJobs, verifyCanvasCandidateReports, candidateProof } from './pages-candidate.mjs';
 import { commandRuntimes, selectedCommands } from './lib/local-release-plan.mjs';
 import { flattenHomepageDiscovery } from './lib/homepage-test-selection.mjs';
@@ -16,6 +17,30 @@ for (const file of ['workers/auth/src/lib/stripe-billing.js','workers/auth/packa
   'services/homepage-ffmpeg-processor/canvas-full-video.mjs','tests/canvas-voice-unknown.test.mjs'])
   assert.notEqual(selectCiTests([...CANVAS_VOICE_FILES,file]).canvasVoice, true, 'An unrelated input cannot inherit a closed Voice profile');
 assert(selectCiTests([...CANVAS_VOICE_FILES],{forceFull:true}).full);
+const registryBefore=`export const registry = [operation({
+    operationConfig: {
+      operationId: "member.text.generate", creditCost: 1, reservationPolicy: "required", notes: "Existing contract"
+    },
+    sourceFiles: ["workers/auth/src/routes/ai/text-generate.js"],
+})];\n`;
+const registryAfter=registryBefore.replace('["workers/auth/src/routes/ai/text-generate.js"]',
+  '["workers/auth/src/routes/ai/text-generate.js",\n      "workers/auth/src/lib/canvas-agent-planning.js", "workers/auth/src/lib/canvas-agent-model-operations.js"]');
+const mapping={before:registryBefore,after:registryAfter};
+assert(isCanvasCostSourceMapping(mapping));
+const withRegistry=[...CANVAS_VOICE_FILES,CANVAS_COST_REGISTRY];
+assert.equal(selectCiTests(withRegistry,{canvasCostSources:mapping}).canvasVoice,true);
+for(const sources of [null,{}, {before:registryBefore}, {after:registryAfter},
+  {...mapping,after:registryAfter.replace('creditCost: 1','creditCost: 2')},
+  {...mapping,after:registryAfter.replace('reservationPolicy: "required"','reservationPolicy: "none"')},
+  {...mapping,after:registryAfter.replace('Existing contract','Altered terms')},
+  {...mapping,after:registryAfter+'function bypass() {}\n'},
+  {...mapping,after:registryAfter.replace('"workers/auth/src/lib/canvas-agent-planning.js"','...untrustedSources')},
+  {...mapping,after:registryAfter.replace('"workers/auth/src/lib/canvas-agent-planning.js"','"workers/auth/src/lib/unregistered-provider.js"')},
+]) {
+  assert.equal(isCanvasCostSourceMapping(sources),false);
+  assert.notEqual(selectCiTests(withRegistry,{canvasCostSources:sources}).canvasVoice,true,'Only the exact literal source inventory delta may use Voice scope');
+}
+assert.notEqual(selectCiTests([...withRegistry,'workers/auth/package-lock.json'],{canvasCostSources:mapping}).canvasVoice,true);
 const commands = selectedCommands(selected);
 const browser = commands.find(value => value.name === 'Run selected auth and admin tests').run;
 const completeDiscoveryCommand = browser.split('\n').find(line => line.includes('PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/canvas-complete-discovery.json'));
@@ -47,14 +72,25 @@ const root=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-voice-selection-'));
 const git=args=>execFileSync('git',args,{cwd:root,encoding:'utf8'}).trim();
 const commit=message=>{git(['add','.']);git(['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm',message]);return git(['rev-parse','HEAD']);};
 try {
-  git(['init','-q']); fs.writeFileSync(path.join(root,'README.md'),'fixture'); const base=commit('base');
+  git(['init','-q']); fs.writeFileSync(path.join(root,'README.md'),'fixture');
+  fs.mkdirSync(path.dirname(path.join(root,CANVAS_COST_REGISTRY)),{recursive:true});
+  fs.writeFileSync(path.join(root,CANVAS_COST_REGISTRY),registryBefore);const base=commit('base');
   const file='workers/auth/src/lib/canvas-voice-relay.js'; fs.mkdirSync(path.dirname(path.join(root,file)),{recursive:true});fs.writeFileSync(path.join(root,file),'// synthetic\n');
+  fs.writeFileSync(path.join(root,CANVAS_COST_REGISTRY),registryAfter);
+  assert.deepEqual(canvasCostRegistrySources(undefined,undefined,root),mapping,'Working preview reads HEAD and actual regular local bytes');
   const head=commit('voice');const previous=process.cwd();let actual;
   try{process.chdir(root);actual=gitSelection(base,head);}finally{process.chdir(previous);}
   assert.equal(actual.canvasVoice,true); const output=path.join(root,'output');fs.writeFileSync(output,'');
   execFileSync(process.execPath,['scripts/select-ci-tests.mjs','--base',base,'--head',head,'--github-output'],{
     env:{...process.env,GIT_DIR:path.join(root,'.git'),GIT_WORK_TREE:root,GITHUB_OUTPUT:output,GITHUB_STEP_SUMMARY:''},stdio:'pipe'});
   assert.match(fs.readFileSync(output,'utf8'),/^canvas_voice=true$/m);fs.unlinkSync(output);
+  fs.writeFileSync(path.join(root,CANVAS_COST_REGISTRY),registryAfter.replace('creditCost: 1','creditCost: 2'));
+  const broken=commit('changed admission price');
+  try{process.chdir(root);assert.notEqual(gitSelection(base,broken).canvasVoice,true);}finally{process.chdir(previous);}
+  fs.writeFileSync(output,'');
+  execFileSync(process.execPath,['scripts/select-ci-tests.mjs','--base',base,'--head',broken,'--github-output'],{
+    env:{...process.env,GIT_DIR:path.join(root,'.git'),GIT_WORK_TREE:root,GITHUB_OUTPUT:output,GITHUB_STEP_SUMMARY:''},stdio:'pipe'});
+  assert.match(fs.readFileSync(output,'utf8'),/^canvas_voice=false$/m);
 } finally {fs.rmSync(root,{recursive:true,force:true});}
 
 const discovery=JSON.parse(execFileSync(process.execPath,['node_modules/@playwright/test/cli.js','test','tests/canvas.spec.js',

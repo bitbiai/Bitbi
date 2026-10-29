@@ -1081,7 +1081,7 @@ const CANVAS_COMPLETION_FILES = new Set([
   'tests/helpers/q2-runtime/environment.mjs',
 ]);
 
-export function selectCiTests(files, { forceFull = false, forceReason = "explicit full regression", memberTestSources = null, canvasRouteSources = null, inspectorSources = null, exportSources = undefined, cursorSources = null } = {}) {
+export function selectCiTests(files, { forceFull = false, forceReason = "explicit full regression", memberTestSources = null, canvasRouteSources = null, inspectorSources = null, exportSources = undefined, cursorSources = null, canvasCostSources = null } = {}) {
   const changedFiles = normalizeFiles(files);
   const selection = {
     files: changedFiles,
@@ -1118,7 +1118,7 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
     selectFullRegression(selection, "", "empty or unresolved diff fails closed");
   }
 
-  if (!forceFull && isCanvasVoiceScope(changedFiles, isDocumentation, RELEASE_TOOLING_FILES)) {
+  if (!forceFull && isCanvasVoiceScope(changedFiles, isDocumentation, RELEASE_TOOLING_FILES, canvasCostSources)) {
     selection.policy = 'canvas-voice-v1'; selection.canvasVoice = true;
     selection.workers = selection.auth = selection.static = selection.runtime = true;
     selection.reasons.workers.push('Voice contracts, shared decisions/actions, Canvas route controls, native owner/D1 and compact spoken-to-film outcome; unchanged billing/provider transports retain their guarded callers');

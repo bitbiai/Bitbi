@@ -1,5 +1,6 @@
 import {exportDeliverySources} from './lib/canvas-export-release.mjs';
 import {canvasInspectorSources} from './lib/canvas-inspector-selection.mjs';
+import {CANVAS_COST_REGISTRY,canvasCostRegistrySources} from './lib/canvas-voice-selection.mjs';
 import { discoverRepairSource, repairSelection } from './lib/media-repair-source.mjs';
 import fs from "node:fs";
 import path from "node:path";
@@ -155,6 +156,7 @@ try {
   const resolved = resolveFiles(options);
   let selection = selectCiTests(resolved.files, {
     cursorSources: resolved.files.includes(CURSOR_ENVIRONMENT_FILE) ? cursorEnvironmentSources(options.base, options.head, repoRoot) : null,
+    canvasCostSources: resolved.files.includes(CANVAS_COST_REGISTRY) ? canvasCostRegistrySources(options.base, options.head, repoRoot) : null,
     exportSources: exportDeliverySources(options.base ? options.head : null),
     forceFull: options.forceFull || !!resolved.issue,
     forceReason: resolved.issue || "explicit full regression",

@@ -1,7 +1,7 @@
 import {EXPORT_DELIVERY_POLICY,verifyExportDeliveryDiscovery,exportDeliverySources} from './lib/canvas-export-release.mjs';
 import {EXPORT_DELIVERY_BROWSER_POLICY,verifyExportDeliveryBrowserReport} from './lib/canvas-export-browser.mjs';
 import {verifyCanvasTransitionDiscovery,verifyCanvasExampleDiscovery} from './lib/homepage-test-selection.mjs';
-import {verifyCanvasVoiceDiscovery,verifyCanvasVoiceNativeBrowserReport} from './lib/canvas-voice-selection.mjs';
+import {verifyCanvasVoiceDiscovery,verifyCanvasVoiceNativeBrowserReport,CANVAS_COST_REGISTRY,canvasCostRegistrySources} from './lib/canvas-voice-selection.mjs';
 import {canvasInspectorSources} from './lib/canvas-inspector-selection.mjs';
 import {browserRows} from './lib/browser-fixture-repair.mjs';
 import { repairDelta, repairKind } from './lib/media-repair-source.mjs';
@@ -77,7 +77,9 @@ export function gitSelection(base, sha) {
   assert(/^[a-f0-9]{40}$/.test(sha || ''), 'Missing exact release head');
   execFileSync('git',['merge-base','--is-ancestor',base,sha],{stdio:'pipe'});
   const files = execFileSync('git',['diff','--name-only','--no-renames',`${base}...${sha}`,'--'],{encoding:'utf8'}).trim().split('\n').filter(Boolean);
-  return selectCiTests(files, {cursorSources: files.includes(CURSOR_ENVIRONMENT_FILE) ? cursorEnvironmentSources(base, sha) : null, exportSources:exportDeliverySources(sha),inspectorSources:canvasInspectorSources(base,sha),memberTestSources:memberSpecSources(base,sha),canvasRouteSources:canvasCompletionRouteSources(base,sha)});
+  return selectCiTests(files, {cursorSources: files.includes(CURSOR_ENVIRONMENT_FILE) ? cursorEnvironmentSources(base, sha) : null,
+    canvasCostSources: files.includes(CANVAS_COST_REGISTRY) ? canvasCostRegistrySources(base,sha) : null,
+    exportSources:exportDeliverySources(sha),inspectorSources:canvasInspectorSources(base,sha),memberTestSources:memberSpecSources(base,sha),canvasRouteSources:canvasCompletionRouteSources(base,sha)});
 }
 export function validatePublishedDeployment(deployment,status,run,job) {
   assert.equal(deployment.environment,'github-pages'); assert.equal(status.state,'success');
