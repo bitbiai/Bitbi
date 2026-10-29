@@ -14,8 +14,23 @@ async function voiceAttribution({ page, expect, c, DB, panel, transcript, de, re
     const prefix = de ? 'Festgehalten.' : 'Noted.', text = prefix + (de ? ' Diesen weiteren Teil bestätigt die Wiedergabe nicht.' : ' Playback does not confirm this remaining part.');
     const reply = await f.atClock(async () => {
         const now = new Date().toISOString();
-        await DB.prepare(`INSERT INTO canvas_voice_sessions(id,project_id,user_id,state,conversation_revision,brief_revision,project_revision,settings_json,created_at,expires_at)
-            VALUES(?,?,?,'active',?,?,?,'{}',?,?)`).bind(scope.sessionId, f.project, f.owner, before.revision, before.briefRevision, project.revision, now, new Date(Date.now() + 600000).toISOString()).run();
+        const login = await DB.prepare('SELECT id,expires_at FROM sessions WHERE id=? AND user_id=?').bind(f.owner, f.owner).first();
+        expect(login).not.toBeNull(); expect(Date.parse(login.expires_at)).toBeGreaterThan(Date.now());
+        const unboundScope = { ...scope, sessionId: (await sha256Hex(scope.sessionId + ':unbound')).slice(0, 32) };
+        const insert = `INSERT INTO canvas_voice_sessions(id,project_id,user_id,request_key,state,conversation_revision,brief_revision,project_revision,settings_json,created_at,expires_at,auth_session_id)
+            VALUES(?,?,?,?,'active',?,?,?,'{}',?,?,?)`;
+        const seed = (sessionId, authSessionId) => DB.prepare(insert).bind(sessionId, f.project, f.owner, sessionId, before.revision, before.briefRevision,
+            project.revision, now, new Date(Date.now() + 600000).toISOString(), authSessionId).run();
+        await seed(unboundScope.sessionId, null);
+        // The former fixture shape must remain rejected: a Voice row alone is
+        // not an authenticated session and cannot write a canonical user turn.
+        await expect(recordCanvasVoiceUserTurn(f.env, unboundScope, { itemId: 'voice-ui-unbound', text: 'Synthetic unauthenticated input.' }))
+            .rejects.toMatchObject({ code: 'canvas_voice_session_unavailable' });
+        expect(await DB.prepare('SELECT revision,brief_revision FROM canvas_agent_conversations WHERE project_id=?').bind(f.project).first())
+            .toEqual({ revision: before.revision, brief_revision: before.briefRevision });
+        expect((await DB.prepare('SELECT COUNT(*) AS n FROM canvas_voice_turns WHERE session_id=?').bind(unboundScope.sessionId).first()).n).toBe(0);
+        await DB.prepare("UPDATE canvas_voice_sessions SET state='rejected' WHERE id=?").bind(unboundScope.sessionId).run();
+        await seed(scope.sessionId, login.id);
         const turn = await recordCanvasVoiceUserTurn(f.env, scope, { itemId: 'voice-ui-user', text: de ? 'Behalte die bereits geklärten Angaben.' : 'Keep the already confirmed details.' });
         return recordCanvasVoiceReply(f.env, scope, { turnId: turn.turnId, responseId: 'voice-ui-response', text, interrupted: false });
     });
