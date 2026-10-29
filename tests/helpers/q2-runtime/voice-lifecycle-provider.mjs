@@ -30,6 +30,10 @@ const handler = {
         if (body.command === 'close_abnormal') current.socket.close(4001, 'Synthetic provider failure');
         else if (current.mode === 'context' && body.command !== 'turn') {
           if (body.command === 'context') current.contextCycle();
+          else if (body.command === 'next_turn') {
+            current.emit({ type: 'input_audio_buffer.committed', item_id: 'context_next_input' });
+            current.emit({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'context_next_input', transcript: 'Bitte ändere den Stil auf realistisch.' });
+          }
           else if (body.command === 'frame' || body.command === 'frame_oversized') { current.audioFrame(body.command === 'frame_oversized'); return Response.json(snapshot(current)); }
           else if (body.command === 'replay' && current.lastApply) current.call('canvas_update_brief', current.lastApply.args, current.lastApply.suffix);
           else if (['apply', 'stale', 'unknown'].includes(body.command)) {
@@ -37,7 +41,7 @@ const handler = {
             if (!context) throw new Error('Fixture requires the actual returned Canvas context');
             const args = { expectedConversationRevision: context.conversationRevision + (body.command === 'unknown' ? 777 : 0),
               expectedBriefRevision: context.briefRevision, expectedProjectRevision: context.projectRevision,
-              updates: [{ field: current.contextReads === 1 ? 'story' : 'style', value: current.contextReads === 1 ? 'Eine Katze erkundet den Garten.' : 'Cartoon', provenance: 'user_stated' }],
+              updates: [{ field: current.contextReads === 1 ? 'story' : 'style', value: current.contextReads === 1 ? 'Eine Katze erkundet den Garten.' : current.contextReads === 3 ? 'realistisch' : 'Cartoon', provenance: 'user_stated' }],
               questions: [], format: { aspectRatio: null, resolution: null, provenance: 'unresolved' }, duration: null };
             const suffix = 'context_' + body.command + '_' + current.contextReads;
             if (body.command === 'apply') current.lastApply = { args, suffix };

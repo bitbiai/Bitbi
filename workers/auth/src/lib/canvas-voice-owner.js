@@ -239,7 +239,9 @@ export class CanvasVoiceOwner {
                 if (!a.projectionErrors.includes(error.code) && a.projectionErrors.length < 10) a.projectionErrors.push(error.code);
                 result = await markCanvasVoiceReplyInterrupted(this.env, a.scope, unverified);
             }
-            this.adoptRevision(a, result, final);
+            // Retained playback is our own projection, not a new creative scope.
+            // interruption() already revoked any presentation/approval evidence.
+            this.adoptRevision(a, result, final, true);
         }
     }
     async reply(a, input, final = false) {

@@ -473,7 +473,10 @@ contract gaps are corrected: the advertised nullable format object with both
 values null leaves existing format data unchanged, and a context-tool result
 remains usable after the Owner stores its own reply and refreshes response
 instructions. Retain at most 80 exact presented revision triples only across
-those own projections; semantic changes invalidate them. Native context/reply/
+those own projections, including retained-text/heard-position writes after an
+interruption; semantic changes invalidate them. This preserves context, not
+approval: an interrupted confirmation still loses its presentation proof.
+Native context/reply/interruption/
 refresh cases preserve original tool arguments and exercise repeated reads,
 existing free-text formats, replay, unknown revisions and changed brief/project
 counterexamples. Neither correction authorizes spending or bypasses source,

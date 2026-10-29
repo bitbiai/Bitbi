@@ -12,7 +12,9 @@ assert.equal(process.platform,'darwin','This registered acceptance uses the Mac 
 assert.equal(Number(process.versions.node.split('.')[0]),22,'Use locked Node22');
 assert(process.argv.length===2||process.argv.length===4&&process.argv[2]==='--artifacts','Usage: test-canvas-voice-browser-native [--artifacts <outside-repository-directory>]');
 const supplied=process.argv[3]&&path.resolve(process.argv[3]);
-if(supplied)fs.mkdirSync(supplied,{recursive:true,mode:0o700});
+// Only the synthetic aggregate is shared with the unprivileged Linux verifier;
+// per-attempt reports and native runtime artifacts below remain private.
+if(supplied)fs.mkdirSync(supplied,{recursive:true,mode:0o755});
 const artifacts=fs.mkdtempSync(path.join(os.tmpdir(),'voice-browser-native-'));fs.chmodSync(artifacts,0o700);
 const reports=supplied?fs.mkdtempSync(path.join(fs.realpathSync(supplied),'voice-browser-native-')):artifacts;
 const staticRoot=fs.realpathSync(path.resolve(root,process.env.STATIC_TEST_ROOT||'.'));

@@ -177,7 +177,7 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
         assert.deepEqual(await calls(), saved); assert.equal((await conversation()).revision, revision);
         assert.equal((await command('state')).responses, providerBefore.responses);
       }
-      const saved = await calls();
+      let saved = await calls();
       assert.equal(JSON.parse((await conversation()).brief_json).fields.story.value, 'Eine Katze erkundet den Garten.');
       assert.equal(JSON.parse((await conversation()).brief_json).fields.style.value, 'Cartoon');
       if (name === 'context_projection') {
@@ -214,13 +214,34 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
         assert.equal((await conversation()).brief_json, before.brief_json); assert.deepEqual(await calls(), saved);
       }
       if (name === 'context_negative') {
+        const shown = await context(), beforeInterrupt = await conversation();
+        const output = client.events.filter(event => event.type === 'voice.audio').at(-1);
+        assert.equal(output.responseId, 'context_read_3');
+        client.send({ type: 'voice.interrupt', responseId: output.responseId, itemId: output.itemId, audioEndMs: 50 });
+        await client.wait(event => event.type === 'voice.interrupted' && event.responseId === output.responseId);
+        await until(conversation, row => row.revision === beforeInterrupt.revision + 1, 'Own retained-playback projection is durable');
+        const interrupted = await f.db.prepare('SELECT interrupted,heard_audio_ms FROM canvas_voice_turns WHERE session_id=? AND provider_response_id=?').bind(sessionId, output.responseId).first();
+        assert.deepEqual(interrupted, { interrupted: 1, heard_audio_ms: 50 });
+        await command('emit', { command: 'next_turn' });
+        await until(conversation, row => row.revision === beforeInterrupt.revision + 2, 'New committed user follows the interrupted saved reply');
+        const beforeApply = await command('state'); await command('emit', { command: 'apply' });
+        const applied = await until(() => command('state'), state => state.toolOutputs.length === beforeApply.toolOutputs.length + 1 && state.responses === beforeApply.responses + 1,
+          'The real tool outcome returns after interruption');
+        assert.equal(applied.toolOutputs.at(-1).ok, true, 'An own interruption must preserve the model\'s previously presented unchanged creative scope');
+        await until(conversation, row => row.brief_revision === 3, 'The following final user changes the brief exactly once');
+        saved = await calls(); assert.equal(saved.length, 3);
+        assert.equal(JSON.parse(saved[2].input_json).expectedConversationRevision, shown.conversationRevision, 'Keep the original model context argument, not a rewritten receipt');
+        const source = await f.db.prepare('SELECT user_text FROM canvas_agent_turns WHERE id=?').bind(JSON.parse(saved[2].input_json).turnId).first();
+        assert.equal(source.user_text, 'Bitte ändere den Stil auf realistisch.');
+        assert.equal(JSON.parse((await conversation()).brief_json).fields.style.value, 'realistisch');
+        assert.equal(client.events.some(event => event.type === 'voice.ended'), false);
         await context(); // A fresh semantic fence makes the forged revision independently wrong.
         for (const operation of ['stale', 'unknown']) {
           const before = await command('state'); await command('emit', { command: operation });
           const after = await until(() => command('state'), state => state.toolOutputs.length === before.toolOutputs.length + 1 && state.responses === before.responses + 1,
             'Rejected context reaches the actual provider result: ' + operation);
           assert.deepEqual({ ok: after.toolOutputs.at(-1).ok, code: after.toolOutputs.at(-1).code }, { ok: false, code: 'canvas_agent_conversation_changed' });
-          assert.deepEqual(await calls(), saved); assert.equal((await conversation()).brief_revision, 2);
+          assert.deepEqual(await calls(), saved); assert.equal((await conversation()).brief_revision, 3);
         }
         const foreign = await request(`/sessions/${sessionId}/stop`, {}, { Cookie: '__Host-bitbi_session=' + userId.replace('voice-native-owner-', 'voice-native-other-'), 'Idempotency-Key': sessionId });
         assert.equal(foreign.status, 404); assert.equal((await f.db.prepare('SELECT state FROM canvas_voice_sessions WHERE id=?').bind(sessionId).first()).state, 'active');
@@ -229,7 +250,7 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
         await client.wait(event => event.type === 'voice.ended' && event.code === 'canvas_voice_context_changed');
         // A project edit revokes admission before tool dispatch, not merely its
         // proposed revision. This stronger existing boundary remains required.
-        assert.deepEqual(await calls(), saved); assert.equal((await conversation()).brief_revision, 2);
+        assert.deepEqual(await calls(), saved); assert.equal((await conversation()).brief_revision, 3);
         assert.equal((await command('state')).responses, before.responses);
         assert.equal((await command('state')).toolOutputs.length, before.toolOutputs.length);
       }
