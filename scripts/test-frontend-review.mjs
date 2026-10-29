@@ -266,9 +266,49 @@ try {
  const read=async endpoint=>{readCalls.push(endpoint);if(endpoint==='workers/domains')return domains;if(endpoint.endsWith('/deployments'))return {deployments:[current]};const v=endpoint.endsWith('version-A')?A:B;return {id:v.versionId,annotations:{'workers/message':`bitbi:${v.sha}:${v.run}:1:${v.packageDigest}`}};};
  const active=r=>({id:r.deploymentId,versions:[{version_id:r.versionId,percentage:100}]});
  latest=1;current=active(A);assert.equal((await durableBaseline(api,read)).sha,A.sha);
+ // Shared protected backend jobs may leave the unchanged frontend's metadata
+ // inactive. Only baseline resolution may verify that exact still-active source.
+ const originalStatuses=db['deployments/1/statuses'],receiptLog='https://github.com/bitbiai/Bitbi/actions/runs/1001/job/3001';
+ const inactiveStatuses=[{state:'inactive',log_url:receiptLog},{state:'success',log_url:receiptLog}];
+ db['deployments/1/statuses']=structuredClone(inactiveStatuses);
+ await assert.rejects(loadDurableReceipt(1,api),/Durable receipt is not confirmed/);
+ assert.equal((await durableBaseline(api,read)).sha,A.sha);record('inactive metadata baseline requires exact historical success and active Cloudflare identity');
+ const inactiveFailure=async(name,mutate=()=>{},readOverride=read,pattern)=>{
+  const original=structuredClone(db),before=current;
+  try {mutate();await assert.rejects(durableBaseline(api,readOverride),pattern);record(name,'negative');}
+  finally {for(const key of Object.keys(db))delete db[key];Object.assign(db,original);current=before;}
+ };
+ for(const state of ['failure','error','pending','queued','in_progress'])await inactiveFailure('baseline rejects latest '+state,()=>db['deployments/1/statuses'][0].state=state);
+ for(const [name,statuses] of [
+  ['missing success history',[inactiveStatuses[0]]],
+  ['wrong historical success log',[inactiveStatuses[0],{state:'success',log_url:receiptLog+'-foreign'}]],
+  ['failed after success',[inactiveStatuses[0],{state:'failure',log_url:receiptLog},inactiveStatuses[1]]],
+  ['errored after success',[inactiveStatuses[0],{state:'error',log_url:receiptLog},inactiveStatuses[1]]],
+  ['wrong inactive log',[{state:'inactive',log_url:receiptLog+'-foreign'},inactiveStatuses[1]]],
+ ])await inactiveFailure('inactive baseline rejects '+name,()=>db['deployments/1/statuses']=structuredClone(statuses));
+ await inactiveFailure('inactive baseline rejects changed receipt payload',()=>db['deployments/1'].payload.receiptSHA256='tampered');
+ await inactiveFailure('inactive baseline rejects failed protected job',()=>db['actions/jobs/3001'].conclusion='failure');
+ await inactiveFailure('inactive baseline rejects missing protected receipt step',()=>db['actions/jobs/3001'].steps.pop());
+ await inactiveFailure('inactive baseline rejects missing protected authorization success',()=>db['deployments/2001/statuses']=[]);
+ await inactiveFailure('inactive baseline cannot reconcile an unrecorded activation',()=>current={...active(A),id:'unrecorded-deployment'},read,/Inactive durable receipt does not match active frontend/);
+ for(const [name,deployment] of [
+  ['wrong active version',{id:A.deploymentId,versions:[{version_id:'other-version',percentage:100}]}],
+  ['partial activation',{id:A.deploymentId,versions:[{version_id:A.versionId,percentage:99}]}],
+  ['split activation',{id:A.deploymentId,versions:[{version_id:A.versionId,percentage:50},{version_id:'other-version',percentage:50}]}],
+ ])await inactiveFailure('inactive baseline rejects '+name,()=>current=deployment);
+ for(const [name,receipt] of [['wrong account',{...A,account:'0'.repeat(32)}],['wrong package',{...A,packageDigest:'0'.repeat(64)}]])
+  await inactiveFailure('inactive baseline rejects '+name,()=>{db['deployments/1'].payload={receipt,receiptSHA256:hash(JSON.stringify(receipt))};});
+ await inactiveFailure('inactive baseline rejects wrong version record',()=>{},async endpoint=>endpoint.endsWith('/versions/'+A.versionId)?{id:'wrong-version',annotations:{'workers/message':`bitbi:${A.sha}:${A.run}:1:${A.packageDigest}`}}:read(endpoint));
+ await inactiveFailure('inactive baseline rejects missing active deployment',()=>{},async endpoint=>endpoint.endsWith('/deployments')?{deployments:[]}:read(endpoint));
+ await inactiveFailure('inactive baseline rejects changed domain mapping',()=>{},async endpoint=>endpoint==='workers/domains'?domains.map(domain=>({...domain,service:'foreign-worker'})):read(endpoint));
+ await inactiveFailure('inactive baseline rejects missing required domain',()=>{},async endpoint=>endpoint==='workers/domains'?domains.slice(1):read(endpoint));
+ db['deployments/1/statuses']=originalStatuses;
  latest=2;current=active(B);assert.equal((await durableBaseline(api,read)).sha,B.sha);
  let activations=0;
  const opts={receiptId:1,expectedDeployment:B.deploymentId,api,read,env:{GITHUB_REPOSITORY:'bitbiai/Bitbi',GITHUB_REF:'refs/heads/main',GITHUB_SHA:B.sha,GITHUB_EVENT_NAME:'workflow_dispatch',GITHUB_JOB:'recover-frontend',CLOUDFLARE_ACCOUNT_ID:account},activate:async v=>{activations++;assert.equal(v,A.versionId);current={id:'recovery-A',versions:[{version_id:v,percentage:100}]};}};
+ db['deployments/1/statuses']=structuredClone(inactiveStatuses);
+ await assert.rejects(activateRecovery(opts),/Durable receipt is not confirmed/);assert.equal(activations,0);record('inactive baseline exception grants no recovery activation','negative');
+ db['deployments/1/statuses']=originalStatuses;
  await assert.rejects(activateRecovery({...opts,expectedDeployment:'stale'}));assert.equal(activations,0);
  const rollback=await activateRecovery(opts);assert.equal(rollback.sha,A.sha);assert.equal(rollback.deploymentId,'recovery-A');
  const C=addReceipt(3,A.sha,A.versionId,'recovery-A','rollback',1);latest=3;

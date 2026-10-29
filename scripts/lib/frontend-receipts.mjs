@@ -125,18 +125,25 @@ export async function githubRequest(endpoint,body) {
   assert(r.ok,`GitHub receipt ${endpoint.split('?')[0]} failed (${r.status}); read state before retry`);return r.json();
 }
 export async function loadDurableReceipt(id,api=githubRequest,{parent=false}={}) {
+  return (await readDurableReceipt(id,api,{parent})).receipt;
+}
+async function readDurableReceipt(id,api,{parent=false,activeBaseline=false}={}) {
   assert(/^[1-9][0-9]*$/.test(String(id)),'Explicit durable receipt ID required');
   const p=hostingPolicy(),record=await api(`deployments/${id}`);
   assert.equal(record.task,RECEIPT_TASK);assert.equal(record.environment,p.productionEnvironment);
   const receipt=record.payload?.receipt;assert(receipt,'Missing durable receipt');
   assert.equal(record.payload.receiptSHA256,hash(JSON.stringify(receipt)),'Changed receipt payload');
   assert.equal(record.sha,receipt.sha);assert.equal(receipt.worker,p.worker);assert.equal(receipt.target,'production');assert.equal(receipt.provider,'cloudflare');
-  assert.equal((await api(`deployments/${id}/statuses`))[0]?.state,'success','Durable receipt is not confirmed');
+  const log=`https://github.com/${repo}/actions/runs/${receipt.publicationRun}/job/${receipt.authorizingJob}`;
+  const receiptStatuses=await api(`deployments/${id}/statuses`),inactive=activeBaseline&&receiptStatuses[0]?.state==='inactive';
+  if(inactive) {
+    const success=receiptStatuses.findIndex(status=>status.state==='success'&&status.log_url===log);
+    assert(success>0&&receiptStatuses.slice(0,success).every(status=>status.state==='inactive'&&status.log_url===log),'Inactive durable receipt lacks unchanged protected success history');
+  } else assert.equal(receiptStatuses[0]?.state,'success','Durable receipt is not confirmed');
   const [authorization,run,job]=await Promise.all([api(`deployments/${receipt.authorizingDeployment}`),api(`actions/runs/${receipt.publicationRun}`),api(`actions/jobs/${receipt.authorizingJob}`)]);
   assert.equal(authorization.environment,p.productionEnvironment);assert.equal(authorization.task,'deploy');
   assert.equal(authorization.sha,receipt.publicationSha);
   const statuses=await api(`deployments/${authorization.id}/statuses`);
-  const log=`https://github.com/${repo}/actions/runs/${receipt.publicationRun}/job/${receipt.authorizingJob}`;
   assert(statuses.some(s=>s.state==='success'&&s.log_url===log),'Missing successful protected environment authorization');
   assert.equal(String(run.id),String(receipt.publicationRun));assert.equal(String(job.id),String(receipt.authorizingJob));
   assert(['push','workflow_dispatch'].includes(run.event));
@@ -186,14 +193,17 @@ export async function loadDurableReceipt(id,api=githubRequest,{parent=false}={})
       assert((await api(`deployments/${prior.authorization}/statuses`)).some(s=>s.state==='failure'&&s.log_url===`https://github.com/${repo}/actions/runs/${prior.run}/job/${prior.job}`),'Missing prior protected activation failure');
     }
   }
-  return receipt;
+  return {receipt,inactive};
 }
 export async function durableBaseline(api=githubRequest,read=cloudflareRead,options={}) {
   const p=hostingPolicy(),records=await api(`deployments?environment=${p.productionEnvironment}&task=${RECEIPT_TASK}&per_page=1`);
   if(!records.length)return null;
-  const receipt=await loadDurableReceipt(records[0].id,api);
+  // Shared environment metadata may become inactive while these exact frontend
+  // bytes still serve. This exception cannot authorize recovery or reconciliation.
+  const {receipt,inactive}=await readDurableReceipt(records[0].id,api,{activeBaseline:true});
   const active=await read(`workers/scripts/${p.worker}/deployments`);
   if(active.deployments?.[0]?.id!==receipt.deploymentId) {
+    assert(!inactive,'Inactive durable receipt does not match active frontend');
     const pending=await findPendingFrontendActivation({...options,api,read,baseline:{id:records[0].id,receipt}});
     return {...pending.baseline,pendingReconciliation:pending.reconciliation};
   }
