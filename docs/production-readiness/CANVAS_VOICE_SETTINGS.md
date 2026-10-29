@@ -306,6 +306,9 @@ cases retain missing-terms, changed-cap, negation and interrupted-playback
 counterchecks. Live observers must wait for the tool's actual follow-up response,
 not an earlier acknowledgement, before sending the next answer.
 The provider cannot supply an approval flag, actor, decision ID or cap argument.
+The shared decision parser recognizes “Nein, noch nicht starten” and “No, do not
+start yet” as declines. Native decision tests require cancellation of the current
+decision without a run or debit; successful tool dispatch alone is not that proof.
 Expected denials return a structured result and a current question, rather than
 closing audio. Saving/cancelling/clearing the conversation ends Voice cleanly;
 ending Voice itself never cancels an accepted production.

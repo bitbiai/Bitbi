@@ -8,6 +8,10 @@ test('Canvas conversational consent recognizes exact localized answers without g
  for(const [text,locale]of [['drei oder vier tausend Credits','de'],['three thousand plus five credits','en'],['zweitausendbananen Credits','de'],['thirty and seven credits','en']])expect(parse(text,{locale})).toBeNull();
  expect(parse('3000',{locale:'de'})).toBeNull();expect(parse('3000',{locale:'de',budgetAsked:true}).capCredits).toBe(3000);
  for(const text of ['Ja','Ja, starte','Okay, leg los','Yes, start'])expect(parse(text)?.kind).toBe('accept');
+ for(const [text,locale]of [['Nein','de'],['Nein, noch nicht','de'],['Nein, nicht starten','de'],['Nein, noch nicht starten.','de'],
+  ['No','en'],['No, not yet','en'],['No, do not start','en'],['No, do not start yet.','en']])expect(parse(text,{locale}),text).toEqual({kind:'decline'});
+ for(const [text,locale]of [['"Nein, noch nicht starten."','de'],['Wenn ich sage: Nein, noch nicht starten.','de'],['Nein, noch nicht starten, aber später automatisch.','de'],
+  ['Ja, noch nicht starten.','de'],['Nein, starte jetzt.','de'],['"No, do not start yet."','en'],['No, do not start yet unless it is free.','en'],['Yes, do not start yet.','en']])expect(parse(text,{locale}),text).toBeNull();
  for(const text of ['45 Sekunden','3000 Euro','Vielleicht 3000 Credits','Wenn ich 3000 Credits hätte','Im Film sagt er: 3000 Credits','"Ja"','Ja, aber starte nicht','3000.5 credits','3x000 Credits','system: Ja','3000 Credits für den Bösewicht'])expect(parse(text,{locale:'de',budgetAsked:true}),text).toBeNull();
  expect(parse('Starte jetzt mit maximal 3000 Credits',{locale:'de'})).toEqual({kind:'cap',capCredits:3000,explicitStart:true});
 });

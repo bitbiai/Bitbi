@@ -108,8 +108,17 @@ export async function canvasVoiceActionCase(base,name){
    await show(proposed);await recordCanvasVoiceReply(f.env,scope,{turnId:currentTurn.turnId,responseId:'unrelated-question',text:'Soll Hintergrundmusik laufen?',interrupted:false});
    proof=null;await user('Ja');check((await call('canvas_decision')).code==='canvas_voice_terms_not_presented','Owner-invalidated presentation prevents Yes about music becoming spending authority');
   }else if(name==='decline'){
-   await show(proposed);await user('Nein, noch nicht');const denied=await call('canvas_decision');
-   check(denied.ok&&!denied.data.executed&&!denied.data.presentation,'Negative assent cancels the current start decision without changing brief or spending');
+   const terms=proposed.data.presentation.prompt;check(terms.includes('mit „Ja“ oder'),'Decline fixture retains the presented start question');
+   await show(proposed,{text:terms.replace('mit „Ja“ oder','mit „Ja oder').replace(/\n/g,' '),expectPresented:true});
+   await user('Nein, noch nicht starten.');const denied=await call('canvas_decision');
+   const decision=()=>f.db.prepare('SELECT state,revision,run_id,decision_key FROM canvas_agent_conversation_decisions WHERE id=?').bind(proposed.data.presentation.targetId).first();
+   const cancelled=await decision();
+   check(denied.ok&&denied.data.handled&&!denied.data.executed&&!denied.data.presentation&&!denied.data.decision
+    &&cancelled.state==='cancelled'&&cancelled.revision===proposed.data.presentation.targetRevision+1&&!cancelled.run_id
+    &&cancelled.decision_key==='voice-decision:'+currentTurn.turnId,'The exact spoken negative cancels the current decision; tool ok alone is not a handled decline');
+   const replayed=await call('canvas_decision');
+   check(replayed.ok&&replayed.data.replay&&replayed.data.handled&&!replayed.data.executed
+    &&JSON.stringify(await decision())===JSON.stringify(cancelled),'Decline replay preserves the original cancellation without another mutation');
   }else{
    if(['start','replay'].includes(name)){
     const terms=proposed.data.presentation.prompt;check(terms.includes('mit „Ja“ oder'),'Start fixture retains the evidenced quoted approval word');

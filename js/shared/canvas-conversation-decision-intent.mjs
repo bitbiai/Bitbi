@@ -39,7 +39,7 @@ export function canvasConversationDecisionIntent(text,{locale='en',budgetAsked=f
   const value=text.normalize('NFKC').trim().toLowerCase().replace(/[.!]+$/u,'').trim();
   if(/["“”«»‘’`\n\r]/u.test(value))return null;
   if(/^(?:ja(?:,?\s+(?:starte(?:\s+jetzt)?|bitte(?:\s+starten)?|leg\s+los))?|(?:okay|ok),?\s+leg\s+los|yes(?:,?\s+(?:start(?:\s+now)?|please(?:\s+start)?))?|(?:okay|ok),?\s+(?:go\s+ahead|start))$/u.test(value))return {kind:'accept'};
-  if(/^(?:nein(?:,?\s+(?:nicht\s+starten|noch\s+nicht))?|no(?:,?\s+(?:do\s+not\s+start|not\s+yet))?)$/u.test(value))return {kind:'decline'};
+  if(/^(?:nein(?:,?\s+(?:nicht\s+starten|noch\s+nicht(?:\s+starten)?))?|no(?:,?\s+(?:do\s+not\s+start(?:\s+yet)?|not\s+yet))?)$/u.test(value))return {kind:'decline'};
   let start=false,amount=value,allowance=false;
   const conversation=amount.match(/^(?:(?:mein\s+)?gesprächsbudget(?:\s+(?:ist|beträgt))?\s*:?\s*|(?:my\s+)?(?:briefing|conversation)\s+(?:budget|allowance)(?:\s+is)?\s*:?\s*)(.+)$/u);
   if(conversation){allowance=true;amount=conversation[1];}
