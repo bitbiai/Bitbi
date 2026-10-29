@@ -299,6 +299,12 @@ The next committed utterance must have a new server-observed speech start after
 that playback receipt. This is protocol timing, not a measurement of physical
 speech onset or human hearing. Interrupted questions, interim ASR, idle prompts,
 quotes and an intervening question cannot approve it.
+Presentation comparison tolerates omitted or substituted double quotation marks
+in the provider's spoken transcript; it still requires every original word,
+number and unit. Stored prompts/hashes remain unchanged. Native decision/action
+cases retain missing-terms, changed-cap, negation and interrupted-playback
+counterchecks. Live observers must wait for the tool's actual follow-up response,
+not an earlier acknowledgement, before sending the next answer.
 The provider cannot supply an approval flag, actor, decision ID or cap argument.
 Expected denials return a structured result and a current question, rather than
 closing audio. Saving/cancelling/clearing the conversation ends Voice cleanly;

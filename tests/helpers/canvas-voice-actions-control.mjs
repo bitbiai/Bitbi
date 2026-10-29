@@ -26,15 +26,26 @@ export async function canvasVoiceActionCase(base,name){
   let observed=false;try{await call('canvas_decision',{},createCanvasVoiceToolDispatcher(faultEnv,scope,{canUsePresentation:p=>p.key===proof?.key}));}catch(error){observed=error.message==='synthetic lost Voice acknowledgement after real admission';}
   check(failed&&observed,'Failure injected after real mutation while recording only its local acknowledgement');
  };
- const show=async(result,{interrupted=false,text=null}={})=>{
+ const show=async(result,{interrupted=false,text=null,expectPresented=text===null}={})=>{
   const p=result.data.presentation,responseId='response-'+(++counter);
+  const proposalBefore=await f.db.prepare('SELECT input_json,result_json FROM canvas_voice_calls WHERE session_id=? AND call_id=?').bind(scope.sessionId,`presentation-proposal:${p.targetKind}:${p.targetId}`).first();
+  const proofCount=async()=>Number((await f.db.prepare("SELECT COUNT(*) AS n FROM canvas_voice_calls WHERE session_id=? AND call_id LIKE 'presentation:%'").bind(scope.sessionId).first()).n);
+  const beforeProofs=await proofCount();
   const reply=await recordCanvasVoiceReply(f.env,scope,{turnId:currentTurn.turnId,responseId,text:text??p.prompt,interrupted,heardAudioMs:3000});
   const input={...p,responseId,itemId:'item-'+counter,audioMs:3000,conversationRevision:reply.conversationRevision};
-  if(interrupted||text!==null){let rejected=false;try{await recordVoiceDecisionPresentation(f.env,scope,input);}catch(error){rejected=error.code==='canvas_voice_terms_not_presented';}check(rejected,'Missing or interrupted full terms cannot create presentation proof');return input;}
-  proof=await recordVoiceDecisionPresentation(f.env,scope,input);return input;
+  if(interrupted||!expectPresented){let rejected=false;try{await recordVoiceDecisionPresentation(f.env,scope,input);}catch(error){rejected=error.code==='canvas_voice_terms_not_presented';}check(rejected,'Missing or interrupted full terms cannot create presentation proof');check(await proofCount()===beforeProofs,'Rejected speech creates no presentation authority');return input;}
+  proof=await recordVoiceDecisionPresentation(f.env,scope,input);
+  if(text!==null){
+   check(proof.prompt===p.prompt&&proof.promptHash===p.promptHash,'Speech punctuation tolerance preserves the original canonical prompt and hash');
+   const proposalAfter=await f.db.prepare('SELECT input_json,result_json FROM canvas_voice_calls WHERE session_id=? AND call_id=?').bind(scope.sessionId,`presentation-proposal:${p.targetKind}:${p.targetId}`).first();
+   check(JSON.stringify(proposalAfter)===JSON.stringify(proposalBefore),'Original presentation proposal input and result remain immutable');
+   check(JSON.stringify(await recordVoiceDecisionPresentation(f.env,scope,input))===JSON.stringify(proof)&&await proofCount()===beforeProofs+1,'Exact presentation replay retains one proof');
+  }
+  return input;
  };
  const runs=()=>f.db.prepare("SELECT * FROM canvas_agent_runs WHERE project_id=? AND purpose='production' AND id!=? ORDER BY rowid").bind(f.project,f.runId).all().then(r=>r.results);
  try{
+  await f.db.prepare("UPDATE canvas_projects SET locale='de' WHERE id=?").bind(f.project).run();
   phase('allowance_start');await c.approve(5000);phase('allowance_ready');const before=await c.read(),project=(await f.db.prepare('SELECT revision FROM canvas_projects WHERE id=?').bind(f.project).first()).revision;
   const login=await f.db.prepare('SELECT id FROM sessions WHERE user_id=? ORDER BY rowid DESC LIMIT 1').bind(f.owner).first();
   await f.db.prepare(`INSERT INTO canvas_voice_sessions(id,project_id,user_id,state,conversation_revision,brief_revision,project_revision,settings_json,created_at,expires_at,auth_session_id)
@@ -45,13 +56,24 @@ export async function canvasVoiceActionCase(base,name){
    updates:[{field:'story',value:'Eine lustige Dackeldame erkundet den Park.',provenance:'user_stated'},{field:'style',value:'realistisch',provenance:'user_stated'},{field:'audio',value:'Hintergrundmusik',provenance:'user_stated'}],
    questions:[],duration:{choice:'explicit',targetDurationSeconds:45}});
   phase('brief_ready');const budget=await call('canvas_prepare_next_step');phase('question_ready');check(budget.ok&&budget.data.presentation?.targetKind==='decision','Existing budget decision is prepared from actual canonical brief');
-  await show(budget);await user('Maximal dreitausend Credits');
+  if(['start','replay'].includes(name)){
+   check(budget.data.presentation.prompt==='Wie viele Credits darf der gesamte Film höchstens kosten? Nenne mir dein Projektlimit, zum Beispiel „3000 Credits“. Erst danach frage ich dich ausdrücklich nach dem Start.','Budget fixture retains the evidenced server-owned terms');
+   await show(budget,{text:'Wie viele Credits darf der gesamte Film höchstens kosten? Nenne mir dein Projektlimit, zum Beispiel „3000 Credits. Erst danach frage ich dich ausdrücklich nach dem Start.',expectPresented:true});
+  }else await show(budget);
+  await user('Maximal dreitausend Credits');
   phase('cap_start');const proposed=await call('canvas_decision');phase('cap_ready');check(proposed.ok&&!proposed.data.executed&&proposed.data.spokenPrompt.includes('3000'),'Spoken cap proposes specific terms without starting');
   check((await runs()).length===0,'A spoken amount never spends or starts');
   if(name==='interrupted'){
-   await show(proposed,{interrupted:true});await user('Ja, starte jetzt');const denied=await call('canvas_decision');
+   await show(proposed,{interrupted:true,text:proposed.data.presentation.prompt.replace('mit „Ja“ oder','mit „Ja oder'),expectPresented:true});await user('Ja, starte jetzt');const denied=await call('canvas_decision');
    check(!denied.ok&&denied.code==='canvas_voice_terms_not_presented'&&denied.data.spokenPrompt===proposed.data.spokenPrompt,'Interrupted question remains unapproved with same actionable prompt');
   }else if(name==='malformed'){
+   const terms=proposed.data.presentation.prompt;
+   for(const text of [terms.replace('3000 Credits','5000 Credits'),terms.replace('3000 Credits','3000'),
+    terms.replace('3000 Credits','3.000 Credits'),terms.replace('3000 Credits','30"00 Credits'),terms.replace('3000 Credits','30""00 Credits'),
+    terms.replace('keine sofortige Gesamtbelastung','sofortige Gesamtbelastung'),terms.replace('einschließlich bereits beauftragter Gesprächskosten, Planung, Medien und Prüfung. ',''),
+    terms.replace('mit „Ja“ oder',"mit 'Ja' oder")]){
+    check(text!==terms,'A rejection countercontrol must change an actual term');await show(proposed,{text});
+   }
    await show(proposed,{text:'Soll Musik laufen?'});await user('Ja');
    check((await call('canvas_decision',{authorized:true,capCredits:5000})).code==='canvas_voice_tool_arguments_invalid','Model authorization and cap arguments are rejected');
    check((await call('canvas_decision')).code==='canvas_voice_terms_not_presented','Unrelated question cannot approve retained cap');
@@ -89,7 +111,13 @@ export async function canvasVoiceActionCase(base,name){
    await show(proposed);await user('Nein, noch nicht');const denied=await call('canvas_decision');
    check(denied.ok&&!denied.data.executed&&!denied.data.presentation,'Negative assent cancels the current start decision without changing brief or spending');
   }else{
-   await show(proposed);await user('Ja, starte jetzt');
+   if(['start','replay'].includes(name)){
+    const terms=proposed.data.presentation.prompt;check(terms.includes('mit „Ja“ oder'),'Start fixture retains the evidenced quoted approval word');
+    await show(proposed,{text:terms.replace('mit „Ja“ oder','mit „Ja oder').replace(/\n/g,' '),expectPresented:true});
+    if(name==='replay')for(const spoken of ['mit "Ja" oder','mit “Ja” oder','mit Ja oder'])
+     await show(proposed,{text:terms.replace('mit „Ja“ oder',spoken).replace(/\s+/g,' \n '),expectPresented:true});
+   }else await show(proposed);
+   await user('Ja, starte jetzt');
    if(name==='lost-ack'){
     await loseAcknowledgement();check((await runs()).length===1,'Failure injected after the actual start preserves the original admitted run');
    }

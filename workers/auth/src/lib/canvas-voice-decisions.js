@@ -8,6 +8,9 @@ import {nowIso,sha256Hex} from './tokens.js';
 const parse=value=>JSON.parse(value||'null');
 const fail=code=>{throw Object.assign(new Error(code),{code,status:409});};
 const normalize=value=>String(value||'').normalize('NFKC').replace(/\s+/gu,' ').trim();
+// Spoken quotation typography is not a term. Never join word/number fragments,
+// and keep this comparison separate from the immutable prompt/hash normalizer.
+const speechTerms=value=>normalize(normalize(value).replace(/(?<![\p{L}\p{M}\p{N}"“”„])["“”„]+|["“”„]+(?![\p{L}\p{M}\p{N}"“”„])/gu,''));
 const pending=(env,scope)=>env.DB.prepare("SELECT * FROM canvas_agent_conversation_decisions WHERE project_id=? AND user_id=? AND state='pending' ORDER BY rowid DESC LIMIT 1").bind(scope.projectId,scope.userId).first();
 const record=(env,scope,key)=>env.DB.prepare('SELECT * FROM canvas_voice_calls WHERE session_id=? AND call_id=?').bind(scope.sessionId,key).first();
 const proposalKey=p=>`presentation-proposal:${p.targetKind}:${p.targetId}`;
@@ -41,7 +44,7 @@ export async function recordVoiceDecisionPresentation(env,scope,input){
   JOIN canvas_projects p ON p.id=s.project_id WHERE s.id=? AND s.user_id=? AND s.project_id=? AND v.provider_response_id=?
   AND t.state='completed' AND s.state='active' AND s.stop_requested=0 AND s.expires_at>? AND c.state='active' AND p.deleted_at IS NULL AND p.user_id=s.user_id`)
   .bind(scope.sessionId,scope.userId,scope.projectId,input.responseId,nowIso()).first();
- if(!reply||reply.interrupted||!normalize(reply.assistant_text).includes(normalize(p.prompt)))fail('canvas_voice_terms_not_presented');
+ if(!reply||reply.interrupted||!speechTerms(reply.assistant_text).includes(speechTerms(p.prompt)))fail('canvas_voice_terms_not_presented');
  if(reply.brief_revision!==p.briefRevision||reply.project_revision!==p.projectRevision||input.conversationRevision!==reply.revision)fail('canvas_voice_decision_changed');
  const key='presentation:'+ (await sha256Hex(`${p.targetKind}:${p.targetId}:${input.responseId}`)).slice(0,32);
  const result={...p,key,conversationRevision:reply.revision,responseId:input.responseId,itemId:input.itemId,audioMs:input.audioMs};
