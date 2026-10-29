@@ -1,6 +1,7 @@
 import {EXPORT_DELIVERY_POLICY,verifyExportDeliveryDiscovery,exportDeliverySources} from './lib/canvas-export-release.mjs';
 import {EXPORT_DELIVERY_BROWSER_POLICY,verifyExportDeliveryBrowserReport} from './lib/canvas-export-browser.mjs';
 import {verifyCanvasTransitionDiscovery,verifyCanvasExampleDiscovery} from './lib/homepage-test-selection.mjs';
+import {verifyCanvasVoiceDiscovery,verifyCanvasVoiceNativeBrowserReport} from './lib/canvas-voice-selection.mjs';
 import {canvasInspectorSources} from './lib/canvas-inspector-selection.mjs';
 import {browserRows} from './lib/browser-fixture-repair.mjs';
 import { repairDelta, repairKind } from './lib/media-repair-source.mjs';
@@ -57,6 +58,7 @@ export function requiredJobs(selection) {
   else if (selection.adminRelease) browser.push('Run selected Admin release acceptance');
   else if (selection.full) browser.push('Run full static browser regression');
   else for (const [key,step] of [['homepage','Run selected homepage core tests'],['carousel','Run selected homepage carousel tests'],['assets','Run selected Assets Manager tests'],['auth','Run selected auth and admin tests']]) if (selection[key]) browser.push(step);
+  if (selection.canvasVoice || selection.full) browser.push('Run native Canvas Voice browser journey');
   if (browser.length) jobs['browser-validation'] = [...browser,'Confirm tested browser candidate bytes'];
   return jobs;
 }
@@ -297,10 +299,14 @@ export function verifyCanvasTextReport(report,discovery) {
   verifyAdminReport(report,discovery,CANVAS_RELEASE_SCOPES,canvasReleaseProject);
 }
 
-export function verifyCanvasCandidateReports(names, reports, discovery, selection = {}) {
+export function verifyCanvasCandidateReports(names, reports, discovery, selection = {}, completeDiscovery) {
   const name = 'test-results/candidate-auth.json';
   assert.equal(names.filter(value => value === name).length, 1, 'Exactly one Canvas auth report required');
-  if(selection.policy===EXPORT_DELIVERY_POLICY){
+  if(selection.canvasVoice){
+    assert(completeDiscovery, 'Missing independent complete Canvas discovery');
+    verifyCanvasVoiceDiscovery(flattenHomepageDiscovery(discovery), flattenHomepageDiscovery(completeDiscovery));
+    verifyAdminReport(reports[names.indexOf(name)], discovery, [['canvas',['canvas.spec.js']]], canvasReleaseProject);
+  } else if(selection.policy===EXPORT_DELIVERY_POLICY){
     verifyExportDeliveryDiscovery(flattenHomepageDiscovery(discovery));
     const report=reports[names.indexOf(name)];
     if(report.policy===EXPORT_DELIVERY_BROWSER_POLICY){assert.deepEqual(report.discovery,browserRows(discovery,{discovery:true}));verifyExportDeliveryBrowserReport(report,report.sha);}
@@ -431,7 +437,10 @@ export function candidateProof(manifest, { job, reportFile, readJson = file => J
   if(job==='homepage-validation')
     verifyHomepageReport(report, readJson('test-results/homepage-discovery.json'));
   if (manifest.selection?.assets && !manifest.selection.full && job === 'browser-validation') verifyAssetReport(reports[names.indexOf('test-results/candidate-assets.json')], readJson('test-results/assets-discovery.json'));
-  if (manifest.selection?.canvasText) verifyCanvasCandidateReports(names, reports, readJson('test-results/canvas-discovery.json'), manifest.selection);
+  if (manifest.selection?.canvasText || manifest.selection?.canvasVoice) verifyCanvasCandidateReports(names, reports, readJson('test-results/canvas-discovery.json'), manifest.selection,
+    manifest.selection.canvasVoice ? readJson('test-results/canvas-complete-discovery.json') : undefined);
+  if (job === 'browser-validation' && (manifest.selection?.canvasVoice || manifest.selection?.full))
+    verifyCanvasVoiceNativeBrowserReport(readJson('test-results/canvas-voice-native-browser/result.json'),manifest.sha);
   if (manifest.selection?.appearance && !manifest.selection?.modelPricing) verifyAppearanceCandidateReports(names, reports, readJson('test-results/appearance-discovery.json'));
   if (manifest.selection?.modelPricing) verifyModelPricingReport(report, readJson('test-results/model-pricing-discovery.json'), manifest.selection);
   if (manifest.selection?.modelStatus) verifyModelStatusReport(report, readJson('test-results/model-status-discovery.json'), manifest.selection);

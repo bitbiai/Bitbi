@@ -226,7 +226,7 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
         assert.equal(foreign.status, 404); assert.equal((await f.db.prepare('SELECT state FROM canvas_voice_sessions WHERE id=?').bind(sessionId).first()).state, 'active');
         const before = await command('state');
         await f.db.prepare('UPDATE canvas_projects SET revision=revision+1 WHERE id=?').bind(projectId).run();
-        await client.wait(event => event.type === 'voice.ended' && event.code === 'canvas_voice_authority_changed');
+        await client.wait(event => event.type === 'voice.ended' && event.code === 'canvas_voice_context_changed');
         // A project edit revokes admission before tool dispatch, not merely its
         // proposed revision. This stronger existing boundary remains required.
         assert.deepEqual(await calls(), saved); assert.equal((await conversation()).brief_revision, 2);
@@ -468,11 +468,19 @@ export async function runCanvasVoiceOwnerLifecycleTest(f, name) {
       client.send({ type: 'voice.stop' }); await client.wait(event => event.type === 'voice.ended');
       const held = await until(usage, row => row?.provider_outcome === 'unknown', 'No close acknowledgement after3s remains unknown');
       assert.equal(held.billing_status, 'reserved'); assert.equal((await debit()).n, 0);
+      const originalDiagnostic = JSON.parse(held.metadata_json).canvas_voice_terminal_diagnostic;
+      assert.equal(originalDiagnostic.code, 'canvas_voice_stopped');
+      assert.deepEqual([originalDiagnostic.stage, originalDiagnostic.direction], ['stop', 'browser_to_server']);
       const settled = await until(usage, row => row?.billing_status === 'finalized', 'Late normal close reconciles the original session');
-      assert.equal(JSON.parse(settled.metadata_json).canvas_voice_receipt.code, 'canvas_voice_late_close');
+      const settledMetadata = JSON.parse(settled.metadata_json);
+      assert.equal(settled.provider_outcome, 'succeeded');
+      assert.equal(settledMetadata.canvas_voice_receipt.outcome, 'completed');
+      assert.equal(settledMetadata.canvas_voice_receipt.code, 'canvas_voice_stopped', 'Late close settles without replacing the original stop cause');
+      assert.deepEqual(settledMetadata.canvas_voice_terminal_diagnostic, originalDiagnostic);
       assert.deepEqual(await debit(), { n: 1, amount: -9 });
       for (let replay = 0; replay < 2; replay++) await json(await stop(sessionId));
       assert.deepEqual(await debit(), { n: 1, amount: -9 });
+      assert.deepEqual(JSON.parse((await usage()).metadata_json).canvas_voice_terminal_diagnostic, originalDiagnostic);
       assert.equal((await command('state')).attempts, 1, 'Close observation does not repeat provider dispatch'); return;
     }
     if (['abnormal_close', 'no_close_ack'].includes(name)) {

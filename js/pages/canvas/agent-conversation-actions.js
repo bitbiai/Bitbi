@@ -35,8 +35,8 @@ export function createCanvasConversationActions({parent,copy,confirm,effect,chan
                 entry.amount.textContent=number(credits)?`${copy.actionCosts}: ${credits}`:'';entry.amount.hidden=!entry.amount.textContent;
                 changed();
             }
-            const quoted=confirmation?.kind==='clear'||number(confirmation?.tariffRevision)&&(confirmation.kind==='regenerate'?number(confirmation.credits):number(confirmation.capCredits)&&confirmation.capCredits>0);
-            const valid=confirmation&&quoted&&number(confirmation.expectedRevision)&&number(confirmation.expectedBriefRevision)&&['allowance','budget','regenerate','clear'].includes(confirmation.kind);
+            const quoted=['clear','voice'].includes(confirmation?.kind)||number(confirmation?.tariffRevision)&&(confirmation.kind==='regenerate'?number(confirmation.credits):number(confirmation.capCredits)&&confirmation.capCredits>0);
+            const valid=confirmation&&quoted&&number(confirmation.expectedRevision)&&number(confirmation.expectedBriefRevision)&&['allowance','budget','regenerate','clear','voice'].includes(confirmation.kind);
             entry.accept.disabled=entry.decline.disabled=busy||!valid;
 
         }

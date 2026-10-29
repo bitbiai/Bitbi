@@ -14,8 +14,10 @@ export async function canvasVoiceConversationCase(env, name) {
   await DB.prepare("INSERT INTO users(id,email,password_hash,created_at,role,status,email_verified_at) VALUES(?,?,?,?,'user','active',?)").bind(owner, owner + '@example.invalid', 'synthetic', now, now).run();
   await DB.prepare("INSERT INTO canvas_projects(id,user_id,title,locale,created_at,updated_at) VALUES(?,?,'Voice fixture','de',?,?)").bind(projectId, owner, now, now).run();
   await ensureConversation(env, projectId, owner);
-  await DB.prepare(`INSERT INTO canvas_voice_sessions(id,project_id,user_id,state,conversation_revision,brief_revision,project_revision,settings_json,created_at,expires_at)
-    VALUES(?,?,?,'active',0,0,0,?,?,?)`).bind(sessionId, projectId, owner, name==='tools'?JSON.stringify({tools:{canvas:{enabled:true}}}):'{}', now, later).run();
+  const loginId='voice-login-'+name;
+  await DB.prepare('INSERT INTO sessions(id,user_id,token_hash,created_at,expires_at) VALUES(?,?,?,?,?)').bind(loginId,owner,'synthetic-'+name,now,later).run();
+  await DB.prepare(`INSERT INTO canvas_voice_sessions(id,project_id,user_id,state,conversation_revision,brief_revision,project_revision,settings_json,created_at,expires_at,auth_session_id)
+    VALUES(?,?,?,'active',0,0,0,?,?,?,?)`).bind(sessionId, projectId, owner, name==='tools'?JSON.stringify({tools:{canvas:{enabled:true}}}):'{}', now, later,loginId).run();
   const counts = async () => {
     const result = {};
     for (const table of ['canvas_agent_runs', 'canvas_agent_steps', 'canvas_agent_model_operations', 'member_ai_usage_attempts_v2', 'canvas_nodes', 'canvas_agent_conversation_decisions']) result[table] = (await DB.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first()).n;
@@ -159,7 +161,13 @@ export async function canvasVoiceConversationCase(env, name) {
       expectedBriefRevision: repeated.briefRevision, updates: [{ field: 'style', value: 'Cartoon', provenance: 'corrected' }], duration: null, questions: [] });
     check(result.changed === false && result.briefRevision === row.brief_revision, 'Repeating an unchanged preference does not invalidate creative revision');
   } else throw new Error('Unknown voice fixture');
-  if(name!=='text')check(await counts() === before, 'Voice context and brief work cannot dispatch, bill, create decisions or edit graph');
+  if(!['text','tools'].includes(name))check(await counts() === before, 'Voice context and brief work cannot dispatch, bill, create decisions or edit graph');
+  if(name==='tools'){
+    const initial=JSON.parse(before),after=JSON.parse(await counts());
+    check(after.canvas_agent_conversation_decisions===initial.canvas_agent_conversation_decisions+1,'Next-step tool creates only the existing pending budget decision');
+    delete initial.canvas_agent_conversation_decisions;delete after.canvas_agent_conversation_decisions;
+    check(JSON.stringify(initial)===JSON.stringify(after),'Preparing a question cannot dispatch, bill, create production or edit graph');
+  }
   check((await DB.prepare('PRAGMA foreign_key_check').all()).results.length === 0, 'Voice transcript relations retain integrity');
   return { case: name, inferenceCalls: 0, productionActions: 0 };
 }

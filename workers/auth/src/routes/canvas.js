@@ -667,7 +667,9 @@ async function updateNode(ctx, userId, projectId, nodeId, { expectedRevision = n
     return respond(ctx,{ok:false,error:'Canvas node not found.',code:'node_not_found'},{status:404});
   }
   await ctx.env.DB.prepare("UPDATE canvas_projects SET updated_at = ? WHERE id = ? AND user_id = ? AND deleted_at IS NULL").bind(now, projectId, userId).run();
-  return respond(ctx, { ok: true, data: { node: nodeRecord({ ...current, title, x, y, width, height, model_id: modelId, config_json: config.encoded, content_json: content.encoded, asset_id: assetId, updated_at: now }) } });
+  const creativeChanged=(title||null)!==current.title||modelId!==current.model_id||config.encoded!==current.config_json||content.encoded!==current.content_json;
+  return respond(ctx, { ok: true, data: { node: nodeRecord({ ...current, title, x, y, width, height, model_id: modelId, config_json: config.encoded, content_json: content.encoded, asset_id: assetId, updated_at: now }),
+    ...(expectedRevision===null?{}:{mutationRevision:expectedRevision+(creativeChanged?1:0)}) } });
 }
 
 async function deleteNode(ctx, userId, projectId, nodeId) {

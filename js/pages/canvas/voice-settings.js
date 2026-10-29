@@ -1,4 +1,4 @@
-import { CANVAS_VOICE_SETTING_FIELDS, canvasVoiceSettings, CANVAS_VOICE_PCM_RATES } from '../../shared/canvas-voice-settings.mjs?v=__ASSET_VERSION__';
+import { CANVAS_VOICE_SETTING_FIELDS, canvasVoiceSettings, canvasVoiceProjectDefaults, CANVAS_VOICE_PCM_RATES } from '../../shared/canvas-voice-settings.mjs?v=__ASSET_VERSION__';
 const element = (tag, className = '', text = '') => { const node = document.createElement(tag); node.className = className; node.textContent = text; return node; };
 const read = (value, path) => path.split('.').reduce((item, key) => item?.[key], value);
 const write = (value, path, next) => { const keys = path.split('.'), key = keys.pop(); keys.reduce((item, name) => item[name], value)[key] = next; };
@@ -12,7 +12,7 @@ export function createCanvasVoiceSettings({ german, load, save, active, stop }) 
     const status = element('p', 'canvas-voice-dialog__status'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
     const body = element('div', 'canvas-voice-dialog__body'), controls = new Map();
     const saveButton = button(t('Einstellungen übernehmen', 'Save settings'), () => void persist()); saveButton.classList.add('canvas-button--primary');
-    const reset = button(t('Standardwerte', 'Reset to defaults'), () => { draft = canvasVoiceSettings(); render(); });
+    const reset = button(t('Standardwerte', 'Reset to defaults'), () => { draft = canvasVoiceProjectDefaults(); render(); });
     const foot = element('footer', 'canvas-voice-dialog__footer'); foot.append(reset, saveButton);
     head.append(title, end, closeButton); dialog.append(head, status, body, foot); document.body.append(dialog);
     let config = null, draft = null, opener = null, epoch = 0, busy = false;

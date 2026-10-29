@@ -27,8 +27,9 @@ async function owned(env, scope, { readOnly = false, receiptOnly = false } = {})
     AND p.user_id=s.user_id AND p.deleted_at IS NULL AND u.status='active'
     AND ((?=1 AND s.state IN ('active','stopping','completed','unknown')) OR
       (s.state='active' OR ?=1 AND s.state IN ('admitted','connecting')) AND s.stop_requested=0 AND s.expires_at>?
-      AND NOT EXISTS(SELECT 1 FROM canvas_voice_stop_requests stop WHERE stop.session_id=s.id))`)
-    .bind(scope.sessionId, scope.projectId, scope.userId, receiptOnly ? 1 : 0, readOnly ? 1 : 0, nowIso()).first();
+      AND NOT EXISTS(SELECT 1 FROM canvas_voice_stop_requests stop WHERE stop.session_id=s.id))
+    AND (?=1 OR EXISTS(SELECT 1 FROM sessions login WHERE login.id=s.auth_session_id AND login.user_id=s.user_id AND login.expires_at>?))`)
+    .bind(scope.sessionId, scope.projectId, scope.userId, receiptOnly ? 1 : 0, readOnly ? 1 : 0, nowIso(), receiptOnly ? 1 : 0, nowIso()).first();
   if (!session) fail('canvas_voice_session_unavailable');
   const row = await conversationRow(env, scope.projectId, scope.userId);
   if (!row || row.state !== 'active') fail('canvas_agent_conversation_stopped');
@@ -39,15 +40,30 @@ function sessionGuard(env, scope, receiptOnly = false) {
     JOIN users u ON u.id=s.user_id WHERE s.id=? AND s.project_id=? AND s.user_id=?
     AND ((?=1 AND s.state IN ('active','stopping','completed','unknown')) OR s.state='active' AND s.stop_requested=0 AND s.expires_at>?
       AND NOT EXISTS(SELECT 1 FROM canvas_voice_stop_requests stop WHERE stop.session_id=s.id))
+    AND (?=1 OR EXISTS(SELECT 1 FROM sessions login WHERE login.id=s.auth_session_id AND login.user_id=s.user_id AND login.expires_at>?))
     AND p.user_id=s.user_id AND p.deleted_at IS NULL AND u.status='active') THEN 1 ELSE json_extract('[]','$[') END`)
-    .bind(scope.sessionId, scope.projectId, scope.userId, receiptOnly ? 1 : 0, nowIso());
+    .bind(scope.sessionId, scope.projectId, scope.userId, receiptOnly ? 1 : 0, nowIso(), receiptOnly ? 1 : 0, nowIso());
 }
 async function ownedTurn(env, scope, id) {
-  const turn = await env.DB.prepare(`SELECT t.*,v.provider_response_id,v.interrupted FROM canvas_agent_turns t
+  const turn = await env.DB.prepare(`SELECT t.*,v.provider_response_id,v.provider_item_id,v.source_turn_id,v.interrupted FROM canvas_agent_turns t
     JOIN canvas_voice_turns v ON v.turn_id=t.id WHERE t.id=? AND t.project_id=? AND v.session_id=? AND t.state!='deleted'`)
     .bind(id, scope.projectId, scope.sessionId).first();
   if (!turn) fail('canvas_voice_turn_unavailable');
   return turn;
+}
+// Internal application boundary for tools: only a final, committed input turn
+// from this admitted session can propose changes or answer a current decision.
+export async function canvasVoiceSource(env, scope, turnId) {
+  if (!/^[a-f0-9]{32}$/.test(turnId || '')) fail('canvas_voice_transcript_pending');
+  const { row, session } = await owned(env, scope), turn = await ownedTurn(env, scope, turnId);
+  if (turn.state !== 'completed' || !turn.user_text || turn.source_turn_id && turn.source_turn_id !== turn.id || !turn.provider_item_id?.startsWith('input:')) fail('canvas_voice_transcript_pending');
+  const latest = await env.DB.prepare("SELECT id FROM canvas_agent_turns WHERE project_id=? AND state!='deleted' AND user_text!='' ORDER BY rowid DESC LIMIT 1").bind(scope.projectId).first();
+  if (latest?.id !== turn.id) fail('canvas_voice_source_changed');
+  return { row, session, turn, guard: [sessionGuard(env, scope), conversationGuard(env, row),
+    env.DB.prepare(`SELECT CASE WHEN EXISTS(SELECT 1 FROM canvas_agent_turns t JOIN canvas_voice_turns v ON v.turn_id=t.id
+      WHERE t.id=? AND t.project_id=? AND v.session_id=? AND t.state='completed' AND t.user_text=? AND (v.source_turn_id IS NULL OR v.source_turn_id=t.id)
+      AND v.provider_item_id LIKE 'input:%' AND t.id=(SELECT id FROM canvas_agent_turns WHERE project_id=? AND state!='deleted' AND user_text!='' ORDER BY rowid DESC LIMIT 1))
+      THEN 1 ELSE json_extract('[]','$[') END`).bind(turn.id,scope.projectId,scope.sessionId,turn.user_text,scope.projectId)] };
 }
 const voiceProjection = `(SELECT json_object('modelId',v.model_id,'interrupted',v.interrupted,'heardAudioMs',v.heard_audio_ms,'retainedText',v.retained_text,'locale',(SELECT locale FROM canvas_projects WHERE id=t.project_id))
   FROM canvas_voice_turns v WHERE v.turn_id=t.id) AS voice_json`;

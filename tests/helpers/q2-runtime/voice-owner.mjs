@@ -97,6 +97,12 @@ async function ownerInterruption(f,fault){
   const finalProvider=await (await provider.fetch('https://voice-fixture.invalid/state')).json();
   assert.equal(finalProvider.connections,1);assert.equal(finalProvider.responses,fault?3:4);assert.equal(finalProvider.appends,fault?100:101);
   const usage=await f.db.prepare("SELECT metadata_json FROM member_ai_usage_attempts_v2 WHERE json_extract(metadata_json,'$.canvas_voice.session_id')=?").bind(sessionId).first();
+  const terminal=JSON.parse(usage.metadata_json).canvas_voice_terminal_diagnostic;
+  assert.equal(terminal.code,fault==='control'?'canvas_voice_interruption_invalid':fault?'canvas_voice_truncation_unconfirmed':'canvas_voice_stopped');
+  assert.deepEqual([terminal.stage,terminal.direction],[fault==='control'?'reply_projection':fault?'provider_frame':'stop',fault?'provider_to_server':'browser_to_server']);
+  await json(await request(`/sessions/${sessionId}/stop`,{},{'Idempotency-Key':sessionId}));
+  const repeated=await f.db.prepare("SELECT json_extract(metadata_json,'$.canvas_voice_terminal_diagnostic') AS terminal FROM member_ai_usage_attempts_v2 WHERE json_extract(metadata_json,'$.canvas_voice.session_id')=?").bind(sessionId).first();
+  assert.deepEqual(JSON.parse(repeated.terminal),terminal,'The native owner, settlement and repeated stop retain the original content-free cause');
   const diagnostics=JSON.parse(usage.metadata_json).canvas_voice_projection_errors||[];
   assert.deepEqual(diagnostics,fault?[]:['canvas_voice_retained_text_unverified'],'Only the specific correlation-safe mismatch receives a bounded diagnostic');
   const original=await storedReply();assert.equal(original.assistant_text,turns[0].assistant_text);

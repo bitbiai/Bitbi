@@ -4,6 +4,7 @@ import fs from "node:fs";
 import { execFileSync } from "node:child_process";
 import { isMemberModelFastDeployPath } from "./fast-deploy-paths.mjs";
 import {isCanvasInspectorChange,isCanvasTransitionExampleChange} from './canvas-inspector-selection.mjs';
+import {isCanvasVoiceScope} from './canvas-voice-selection.mjs';
 
 const DOCUMENTATION_FILENAMES = new Set([
   "AGENTS.md",
@@ -1115,6 +1116,15 @@ export function selectCiTests(files, { forceFull = false, forceReason = "explici
   if (forceFull) selectFullRegression(selection, "<forced>", forceReason);
   if (changedFiles.length === 0) {
     selectFullRegression(selection, "", "empty or unresolved diff fails closed");
+  }
+
+  if (!forceFull && isCanvasVoiceScope(changedFiles, isDocumentation, RELEASE_TOOLING_FILES)) {
+    selection.policy = 'canvas-voice-v1'; selection.canvasVoice = true;
+    selection.workers = selection.auth = selection.static = selection.runtime = true;
+    selection.reasons.workers.push('Voice contracts, shared decisions/actions, Canvas route controls, native owner/D1 and compact spoken-to-film outcome; unchanged billing/provider transports retain their guarded callers');
+    selection.reasons.auth.push('Voice capture/playback, EN/DE conversation, current start/budget controls, editable film and AI workspace in Chromium/WebKit; no homepage or unrelated account changes');
+    selection.reasons.static.push('Exact source/build, security/dependency gates and protected Auth-before-frontend publication');
+    return selection;
   }
 
   if (!forceFull && changedFiles.includes('workers/media/src/index.js') && changedFiles.includes('js/pages/canvas/export-observer.js')

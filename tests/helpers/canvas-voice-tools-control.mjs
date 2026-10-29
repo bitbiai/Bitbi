@@ -29,7 +29,7 @@ export async function canvasVoiceToolsCase(env,scope){
   return JSON.parse(upstream.find(value=>value.item?.call_id===callId).item.output);
  };
  await provider({type:'session.created'});await provider({type:'session.updated',session:expected.session});
- check(expected.session.tools.map(value=>value.name).join(',')==='canvas_context,canvas_update_brief,canvas_prepare_next_step','Actual provider configuration contains only fixed safe Canvas functions');
+ check(expected.session.tools.map(value=>value.name).join(',')==='canvas_context,canvas_update_brief,canvas_prepare_next_step,canvas_decision,canvas_action,canvas_voice_end','Actual provider configuration contains only the fixed guarded Canvas functions');
  check((await call('canvas_context',{},'read_before')).data.briefRevision===0,'Tool reads current canonical state without a user command');
  await provider({type:'input_audio_buffer.committed',item_id:'spoken_cat'});
  await provider({type:'conversation.item.input_audio_transcription.completed',item_id:'spoken_cat',transcript:'Ein Katzenvideo, 45 Sekunden lang, im Cartoon-Stil und 16:9.'});
@@ -47,10 +47,16 @@ export async function canvasVoiceToolsCase(env,scope){
  const next=await call('canvas_prepare_next_step',{},'next_step');check(next.ok&&next.data.executed===false&&next.data.requiresExplicitConfirmation,'Next-step tool cannot authorize or launch production');
  check((await dispatcher({...original,name:'production_start',arguments:{}})).code==='canvas_voice_tool_forbidden','No hidden production command');
  check((await createCanvasVoiceToolDispatcher(env,{...scope,userId:'foreign-user'})({...original,name:'canvas_context',arguments:{}})).code==='canvas_voice_session_unavailable','Captured foreign scope cannot read context');
- check(JSON.stringify(await conversationRow(env,scope.projectId,scope.userId))===JSON.stringify(saved),'Rejected and informational tools leave brief and conversation revision intact');
- check((await env.DB.prepare('SELECT COUNT(*) AS n FROM canvas_voice_calls WHERE session_id=?').bind(scope.sessionId).first()).n===1,'One persisted creative mutation');
+ const after=await conversationRow(env,scope.projectId,scope.userId);
+ check(after.brief_json===saved.brief_json&&after.brief_revision===saved.brief_revision&&after.revision===saved.revision+1,'Only preparing the shared budget question advances conversation; rejected tools preserve creative state');
+ check(next.data.presentation?.targetKind==='decision'&&next.data.spokenPrompt.includes('Credits'),'Budget question has a server-owned exact presentation, not spending authority');
+ check((await env.DB.prepare('SELECT COUNT(*) AS n FROM canvas_voice_calls WHERE session_id=? AND call_id NOT LIKE \'presentation-proposal:%\'').bind(scope.sessionId).first()).n===1,'One persisted creative mutation; question provenance is separate');
  definitions[0].parameters.properties.userId={type:'string'};check(!canvasVoiceFunctionDefinitions()[0].parameters.properties.userId,'Returned schema cannot change authoritative definition');
- await relay.stop('synthetic_complete');check(sent.at(-1).type==='voice.ended','Relay closes cleanly without provider inference');
+ await provider({type:'input_audio_buffer.committed',item_id:'spoken-end'});
+ await provider({type:'conversation.item.input_audio_transcription.completed',item_id:'spoken-end',transcript:'Voice beenden'});
+ await provider({type:'response.created',response:{id:'end-voice-response'}});
+ await provider({type:'response.function_call_arguments.done',event_id:'end-voice-event',response_id:'end-voice-response',call_id:'end-voice-call',name:'canvas_voice_end',arguments:'{}'});
+ check(relay.closed&&sent.at(-1).type==='voice.ended'&&sent.at(-1).code==='canvas_voice_stopped','Explicit spoken end closes the actual relay cleanly without another response or production');
  await env.DB.prepare("UPDATE canvas_voice_sessions SET state='completed' WHERE id=?").bind(scope.sessionId).run();
  const disabledId=(await sha256Hex('disabled-tools-'+scope.sessionId)).slice(0,32);
  await env.DB.prepare(`INSERT INTO canvas_voice_sessions(id,project_id,user_id,request_key,state,conversation_revision,brief_revision,project_revision,settings_json,created_at,expires_at)

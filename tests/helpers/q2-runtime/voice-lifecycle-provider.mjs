@@ -180,7 +180,9 @@ const handler = {
         if (state.mode === 'startup_ping') emit({ type: 'ping', private: 'ignored heartbeat payload' });
         let acknowledged = item.session;
         if (state.mode.startsWith('startup_wrapped_')) {
-          if (item.session.tools.length !== 3 || item.session.tools.some(tool => tool.type !== 'function')) throw new Error('Native fixture needs the three real Canvas function definitions');
+          const expected = ['canvas_action', 'canvas_context', 'canvas_decision', 'canvas_prepare_next_step', 'canvas_update_brief', 'canvas_voice_end'];
+          if (JSON.stringify(item.session.tools.map(tool => tool.name).sort()) !== JSON.stringify(expected)
+            || item.session.tools.some(tool => tool.type !== 'function')) throw new Error('Native fixture needs the six approved Canvas function definitions');
           acknowledged = { ...item.session, tools: [...item.session.tools].reverse().map(({ type, ...definition }) => ({ type, function: definition })) };
           if (state.mode === 'startup_wrapped_extra') acknowledged.tools[0].private_unapproved = 'must be rejected without disclosure';
         } else if (state.mode === 'startup_partial_ack') acknowledged = { model: item.session.model, instructions: item.session.instructions };

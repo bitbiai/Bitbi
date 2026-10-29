@@ -10,7 +10,7 @@ const check=(value,message)=>{if(!value)throw new Error(message);};
 // Shared browser/Worker/native fixture: real signed adapters, routes, D1,
 // accounting and queue; only the external background provider is synthetic.
 // No filesystem, paid call, browser-driven production or custom response model.
-export async function canvasAgentModelOperationFixture(base,{scope='model-operation',kind='plan',providerResponse=null,mediaPolicy=null}={}) {
+export async function canvasAgentModelOperationFixture(base,{scope='model-operation',kind='plan',providerResponse=null,mediaPolicy=null,startProduction=null}={}) {
     check(kind==='plan','This fixture starts an ordinary planning operation');
     const db=base.DB,owner=`canvas-agent-${scope}`,project=(await sha256Hex(owner)).slice(0,32);
     const calls=[],messages=[],serviceCalls=[],waits=[],RealDate=globalThis.Date;
@@ -72,7 +72,15 @@ export async function canvasAgentModelOperationFixture(base,{scope='model-operat
         check(saved.policy.revision===1,'The policy is persisted before the original production is authorized');
         input.mediaPolicyRevision=saved.policy.revision;
     }
-    const started=await data(await request(route,'POST',input,{'Idempotency-Key':'model-operation-start-'+scope}));runId=started.run.id;
+    // Optional caller seam lets the Voice fixture reach the same guarded start
+    // service. It must return a real persisted run; ordinary fixtures retain
+    // their existing direct authenticated route and exact inputs.
+    const started=startProduction?await startProduction({env,db,owner,project,projectPath,route,request,data,input,atClock}):
+        await data(await request(route,'POST',input,{'Idempotency-Key':'model-operation-start-'+scope}));
+    runId=started.run.id;
+    const acceptedRun=await db.prepare('SELECT user_id,project_id FROM canvas_agent_runs WHERE id=?').bind(runId).first();
+    check(acceptedRun?.project_id===project&&acceptedRun.user_id===owner,
+        'The accepted start belongs to the original fixture project');
     async function deliver({duplicates=2}={}) {
         const run=await db.prepare('SELECT next_attempt_at FROM canvas_agent_runs WHERE id=?').bind(runId).first();
         clock=Math.max(clock,Date.parse(run.next_attempt_at)||clock);

@@ -147,6 +147,10 @@ function unavailable(path, reason) {
 }
 // Call only with trusted server capabilities. Never accept this object from JSON
 // supplied by the browser. Validation and saving do not authorize a paid session.
+// New project/reset presentation defaults. Parsing retained snapshots keeps the
+// original disabled fallback; an explicit saved opt-out is never overridden.
+export const canvasVoiceProjectDefaults = () => canvasVoiceSettings({ tools: { canvas: { enabled: true } } });
+
 export function assertCanvasVoiceSettingsCapabilities(input, capabilities = {}) {
     const settings = canvasVoiceSettings(input);
     if (!(capabilities.voiceIds || ['eve']).includes(settings.voice)) unavailable('voice', 'voice_not_authorized');

@@ -7,6 +7,9 @@ import { canvasVoiceFunctionDefinitions, createCanvasVoiceToolDispatcher } from 
 import { readCanvasVoiceContext, recordCanvasVoiceUserTurn, recordCanvasVoiceReply, recordCanvasVoiceFinalReply, markCanvasVoiceReplyInterrupted } from './canvas-voice-conversation.js';
 import { readOwnedCanvasVoiceSession, dispatchCanvasVoiceSession, acceptCanvasVoiceSession, activateCanvasVoiceSession,
     recordCanvasVoiceExposure, finishCanvasVoiceSession } from './canvas-voice-accounting.js';
+import { firstCanvasVoiceTerminalDiagnostic } from './canvas-voice-diagnostics.js';
+import { CanvasVoicePresentation } from './canvas-voice-presentation.js';
+import { captureCanvasVoiceProjectContinuity, reconcileCanvasVoiceProjectContinuity, adoptCanvasVoiceProjectContinuity } from './canvas-voice-project-continuity.js';
 
 const KEY = 'canvas-voice-owner:v1';
 const response = (code, status = 409) => Response.json({ ok: false, code }, { status, headers: { 'Cache-Control': 'no-store' } });
@@ -52,8 +55,8 @@ export class CanvasVoiceOwner {
     }
     track(a, socket, type, listener) { socket.addEventListener(type, listener); a.listeners.push(() => socket.removeEventListener(type, listener)); }
     run(a, promise) {
-        this.state.waitUntil(Promise.resolve(promise).catch(async () => {
-            if (a.relay && !a.relay.closed) await a.relay.stop('canvas_voice_internal_failed');
+        this.state.waitUntil(Promise.resolve(promise).catch(async error => {
+            if (a.relay && !a.relay.closed) await a.relay.stop(safe(error), { stage: 'checkpoint', direction: 'server_internal' }, error);
         }).catch(() => {}));
     }
     ensure(a) { if (this.attempt !== a || a.controller.signal.aborted || a.finished || a.finishing) fail('canvas_voice_stopped'); }
@@ -61,7 +64,7 @@ export class CanvasVoiceOwner {
         a.phase = phase;
         await this.state.storage.put(KEY, { scope: a.scope, phase, deadline: a.deadline, exposure,
             acceptedAt: a.acceptedAt || null, stoppedAt: a.stoppedAt || null, providerClosed: a.closeAcknowledged === true,
-            projectionErrors: a.projectionErrors });
+            projectionErrors: a.projectionErrors, terminalDiagnostic: a.terminalDiagnostic || null });
     }
     async projectionDiagnostic(scope, errors) {
         const codes = [...new Set((errors || []).map(code => projectionCodes.has(code) ? code : 'canvas_voice_internal_failed'))].slice(0, 10);
@@ -76,8 +79,13 @@ export class CanvasVoiceOwner {
         if (sameScope(stored?.scope, scope)) { await this.state.storage.delete(KEY); await this.state.storage.deleteAlarm(); }
     }
     async refreshContext(a, send = false) {
+        if (a.continuity) a.continuity = await reconcileCanvasVoiceProjectContinuity(this.env, a.scope, a.continuity);
         const context = await readCanvasVoiceContext(this.env, a.scope);
         if (a.revision !== undefined && context.conversationRevision !== a.revision) fail('canvas_voice_context_changed');
+        if (a.continuity && context.projectRevision !== a.continuity.projectRevision) {
+            a.continuity = await reconcileCanvasVoiceProjectContinuity(this.env, a.scope, a.continuity);
+            if (context.projectRevision !== a.continuity.projectRevision) fail('canvas_voice_context_changed');
+        }
         this.ensure(a); a.revision = context.conversationRevision;
         this.presentContext(a, context);
         const tools = canvasVoiceFunctionDefinitions();
@@ -109,7 +117,8 @@ export class CanvasVoiceOwner {
         if (a.acceptedAt && Date.now() >= a.deadline) fail('canvas_voice_session_limit');
         if (this.env.CANVAS_VOICE_ENABLED !== 'true') fail('canvas_voice_disabled');
         if (!force && Date.now() < a.authorizedUntil) return true;
-        await readOwnedCanvasVoiceSession(this.env, a.scope);
+        a.continuity = await reconcileCanvasVoiceProjectContinuity(this.env, a.scope, a.continuity);
+        await readOwnedCanvasVoiceSession(this.env, a.scope, { expectedProjectRevision: a.continuity.projectRevision });
         const row = await this.env.DB.prepare('SELECT revision FROM canvas_agent_conversations WHERE project_id=?').bind(a.scope.projectId).first();
         if (row?.revision !== a.revision) fail('canvas_voice_context_changed');
         this.ensure(a); a.authorizedUntil = Date.now() + 1000; return true;
@@ -134,7 +143,7 @@ export class CanvasVoiceOwner {
         const exposure = this.meter(a), block = Math.ceil(duration(exposure) / 10), now = Date.now(); a.exposure = exposure;
         if (!force && block === a.lastBlock && now - a.lastStored < 1000) return;
         a.metering = (async () => {
-            const measured = await recordCanvasVoiceExposure(this.env, a.scope, exposure);
+            const measured = await recordCanvasVoiceExposure(this.env, a.scope, exposure, { expectedProjectRevision: a.continuity.projectRevision });
             a.lastBlock = measured.startedBlocks; a.lastStored = now;
             if (a.finishing || a.relay?.closed) return;
             await this.persist(a, 'accepted', exposure);
@@ -153,6 +162,8 @@ export class CanvasVoiceOwner {
             const prior = await this.state.storage.get(KEY); this.ensure(a);
             if (prior) { await this.recover(prior); return response('canvas_voice_outcome_unknown'); }
             const row = await readOwnedCanvasVoiceSession(this.env, scope); this.ensure(a);
+            a.presentation = new CanvasVoicePresentation(this.env, scope);
+            a.continuity = await captureCanvasVoiceProjectContinuity(this.env, scope, row.current_project_revision);
             a.settings = row.settings; a.maxSeconds = row.maxWallSeconds; a.exposure = emptyExposure(a.settings); a.rowRead = true;
             if (!Number.isSafeInteger(a.maxSeconds) || a.maxSeconds <= 0 || a.maxSeconds > 7200 || !Number.isFinite(Date.parse(row.expiresAt))) fail('canvas_voice_session_invalid');
             await this.refreshContext(a); this.ensure(a);
@@ -172,13 +183,14 @@ export class CanvasVoiceOwner {
             // remain bounded in the relay until the acceptance fence resolves.
             this.track(a, a.provider, 'close', event => {
                 a.closeAcknowledged = event.code === 1000 || event.code === 1001; a.closed.resolve(a.closeAcknowledged);
-                if (!a.relay.closed) this.run(a, a.relay.stop(a.closeAcknowledged ? 'canvas_voice_disconnected' : 'canvas_voice_provider_error'));
+                if (!a.relay.closed) this.run(a, a.relay.stop(a.closeAcknowledged ? 'canvas_voice_disconnected' : 'canvas_voice_provider_error',
+                    { stage: 'socket', direction: 'provider_to_server', event: 'close', reason: a.closeAcknowledged ? 'normal_close' : 'abnormal_close' }));
             });
             this.track(a, a.provider, 'message', event => this.run(a, a.relay.providerMessage(event.data)));
-            this.track(a, a.provider, 'error', () => this.run(a, a.relay.stop('canvas_voice_provider_error')));
+            this.track(a, a.provider, 'error', () => this.run(a, a.relay.stop('canvas_voice_provider_error', { stage: 'socket', direction: 'provider_to_server', event: 'error' })));
             this.track(a, a.server, 'message', event => this.run(a, a.relay.clientMessage(event.data)));
-            this.track(a, a.server, 'close', () => this.run(a, a.relay.stop('canvas_voice_disconnected')));
-            this.track(a, a.server, 'error', () => this.run(a, a.relay.stop('canvas_voice_connection_failed')));
+            this.track(a, a.server, 'close', () => this.run(a, a.relay.stop('canvas_voice_disconnected', { stage: 'socket', direction: 'browser_to_server', event: 'close' })));
+            this.track(a, a.server, 'error', () => this.run(a, a.relay.stop('canvas_voice_connection_failed', { stage: 'socket', direction: 'browser_to_server', event: 'error' })));
             a.server.accept(); a.provider.accept();
             await acceptCanvasVoiceSession(this.env, scope, { providerIdentity: null }); a.acceptanceRecorded = true; a.acceptance.resolve(true);
             this.ensure(a); await this.persist(a, 'accepted'); await this.state.storage.setAlarm(a.deadline); this.ensure(a);
@@ -189,8 +201,9 @@ export class CanvasVoiceOwner {
             if (a.rowRead) {
                 const outcome = a.accepted || a.fetchStarted && !['not_submitted', 'rejected'].includes(error?.outcome) ? 'unknown'
                     : a.dispatched ? 'rejected' : 'not_submitted';
-                if (a.relay && !a.relay.closed) await a.relay.stop(safe(error));
-                else await this.finalize(a, { ...a.exposure, code: safe(error), incompleteResponses: [] }, outcome);
+                const diagnostic = firstCanvasVoiceTerminalDiagnostic(a.terminalDiagnostic, error, { stage: 'connect', direction: 'server_internal', occurredAtMs: Date.now() });
+                if (a.relay && !a.relay.closed) await a.relay.stop(safe(error), diagnostic, error);
+                else await this.finalize(a, { ...a.exposure, code: safe(error), diagnostic, incompleteResponses: [] }, outcome);
             }
             throw error;
         } finally { a.connecting = false; if (!a.relay || a.finished) { if (this.attempt === a) this.attempt = null; } }
@@ -201,11 +214,13 @@ export class CanvasVoiceOwner {
             // adopted into a provider response generated from an older context.
             if (!final && value.conversationRevision !== a.revision + (value.replay ? 0 : 1)) fail('canvas_voice_context_changed');
             a.projectionRevision = projection && a.projectionRevision === a.revision ? value.conversationRevision : undefined;
+            a.presentation?.revision(a.revision, value.conversationRevision, projection);
             if (a.projectionRevision === undefined) a.presentedContexts = [];
             a.revision = value.conversationRevision; a.authorizedUntil = 0;
         }
     }
     async interruption(a, input, final = false) {
+        a.presentation?.interrupted(input.responseId);
         const update = { responseId: input.responseId, audioEndMs: input.audioEndMs,
             ...(input.transcript === undefined ? {} : { transcript: input.transcript }) };
         const previous = a.pendingInterruptions.get(input.responseId);
@@ -231,11 +246,13 @@ export class CanvasVoiceOwner {
         const result = await (final ? recordCanvasVoiceFinalReply : recordCanvasVoiceReply)(this.env, a.scope, { turnId: input.turn.turnId, responseId: input.responseId,
             text: input.text, interrupted: input.interrupted, heardAudioMs: input.audioEndMs ?? null });
         a.persistedReplies.add(input.responseId); this.adoptRevision(a, result, final, true);
+        a.presentation?.replied(input);
         const pending = a.pendingInterruptions.get(input.responseId); if (pending) await this.interruption(a, pending, final);
         return result;
     }
     services(a) {
-        const dispatcher = createCanvasVoiceToolDispatcher(this.env, a.scope, { conversationRevision: args => this.toolConversationRevision(a, args) });
+        const dispatcher = createCanvasVoiceToolDispatcher(this.env, a.scope, { conversationRevision: args => this.toolConversationRevision(a, args),
+            canUsePresentation: proof => a.presentation?.canUse(proof, a.toolTurn, a.revision) === true });
         return {
             authorize: async () => { if (!await a.acceptance.promise) return false; return this.authority(a); },
             configuration: () => { a.configurations.push(a.configuration); return a.configuration; },
@@ -247,23 +264,60 @@ export class CanvasVoiceOwner {
             active: () => activateCanvasVoiceSession(this.env, a.scope), seedContext: async () => null,
             conversation: id => recordCanvasVoiceProviderConversation(this.env, a.scope, id),
             recordExposure: exposure => this.record(a, exposure),
-            userTurn: async input => { await this.authority(a, true); const result = await recordCanvasVoiceUserTurn(this.env, a.scope, input);
+            userTurn: async (input, timing) => { await this.authority(a, true); const result = await recordCanvasVoiceUserTurn(this.env, a.scope, input);
                 // The provider already owns these spoken turns. Persist their
                 // canonical projection without rebuilding the full project on
                 // the serial audio path. Tools and response creation read fresh
                 // context, and confirmed brief changes still update the session.
-                this.adoptRevision(a, result, false, true); return result; },
+                this.adoptRevision(a, result, false, true); a.presentation?.user(result, timing, a.revision); return result; },
             reply: async input => { await this.authority(a, true); return this.reply(a, input); },
-            tool: async input => { await this.authority(a, true); const result = await dispatcher(input);
+            tool: async input => { await this.authority(a, true); a.toolTurn = input.turn; const result = await dispatcher(input);
+                if (result.ok && result.data?.executed && result.data.actions?.some(action => action.state === 'completed'
+                    && ['brief_save', 'brief_cancel', 'conversation_clear'].includes(action.type))) {
+                    // The user explicitly ended/cleared the shared conversation.
+                    // Keep its successful receipt; do not reinterpret the resulting
+                    // loss of active-context authority as a protocol failure.
+                    return { ...result, endVoice: true };
+                }
                 if (input.name === 'canvas_context' && result.ok) this.presentContext(a, result.data);
-                if (input.name === 'canvas_update_brief' && result.ok) { this.adoptRevision(a, result.data); await this.refreshContext(a, true); }
+                if (input.name === 'canvas_update_brief' && result.ok) {
+                    this.adoptRevision(a, result.data);
+                    a.continuity = await adoptCanvasVoiceProjectContinuity(this.env, a.scope, a.continuity, result.data);
+                    await this.refreshContext(a, true);
+                }
+                if (['canvas_decision', 'canvas_action', 'canvas_prepare_next_step'].includes(input.name) && result.ok) {
+                    const data = result.data;
+                    if (Number.isSafeInteger(data.conversationRevision) && data.conversationRevision !== a.revision
+                        && !(data.replay && data.conversationRevision < a.revision)) {
+                        if (data.revisionBefore !== a.revision || data.conversationRevision < a.revision) fail('canvas_voice_context_changed');
+                        // The shared service returns the exact guarded write range,
+                        // which may include more than one canonical decision step.
+                        a.presentation?.revision(a.revision, data.conversationRevision, false);
+                        a.revision = data.conversationRevision; a.projectionRevision = undefined; a.presentedContexts = []; a.authorizedUntil = 0;
+                    }
+                    if (data.executed) {
+                        const alreadyAdopted = data.replay && (data.actionId ? a.adoptedActions?.has(data.actionId)
+                            : data.runId && data.runId === a.continuity.run?.id);
+                        a.continuity = alreadyAdopted
+                            ? await reconcileCanvasVoiceProjectContinuity(this.env, a.scope, a.continuity)
+                            : await adoptCanvasVoiceProjectContinuity(this.env, a.scope, a.continuity, data);
+                        if (data.actionId) { a.adoptedActions ||= new Set(); a.adoptedActions.add(data.actionId); }
+                    }
+                    await this.refreshContext(a, true);
+                }
+                a.presentation?.propose(result.data?.presentation);
                 return result; },
-            response: async () => { await this.authority(a, true); await this.refreshContext(a); return buildCanvasVoiceResponse(a.settings, a.trusted); },
+            responseCreated: input => a.presentation?.created(input),
+            responseOutput: input => a.presentation?.output(input),
+            playback: async input => { await this.authority(a, true); return a.presentation?.playback(input, a.revision); },
+            response: async () => { await this.authority(a, true); await this.refreshContext(a); return buildCanvasVoiceResponse(a.settings, a.presentation?.response(a.trusted) || a.trusted); },
             interrupted: async input => { await this.authority(a, true); await this.interruption(a, input); await this.refreshContext(a, true); }, ended: input => this.finalize(a, input),
         };
     }
     async finalize(a, input, forcedOutcome) {
         if (a.finishing) return a.finishing;
+        a.terminalDiagnostic = firstCanvasVoiceTerminalDiagnostic(a.terminalDiagnostic || input.diagnostic, input.code,
+            { ...input, stage: 'settlement', direction: 'server_internal', occurredAtMs: Date.now() });
         a.stoppedAt ||= a.acceptedAt ? Math.min(Date.now(), a.deadline) : Date.now();
         // Timer cleanup must never prevent socket cleanup or settlement, even
         // when a runtime timer handle has already become invalid.
@@ -273,6 +327,9 @@ export class CanvasVoiceOwner {
             try {
                 try { a.provider?.close(1000, 'session ended'); } catch { /* Close outcome remains unconfirmed. */ }
                 try { a.server?.close(1000, 'session ended'); } catch { /* Browser acknowledgement is not provider evidence. */ }
+                // Save the original cause before waiting for teardown or final
+                // accounting. If this write fails, settlement still receives it.
+                if (a.claimed) try { await this.persist(a); } catch { a.diagnosticPending = true; }
                 await a.acceptance.promise;
                 // Complete any checkpoint before writing terminal state or
                 // deleting the claim. A late accepted checkpoint must never
@@ -290,14 +347,14 @@ export class CanvasVoiceOwner {
                 a.finalExposure = exposure;
                 if (a.claimed) await this.persist(a, 'finalizing', exposure);
                 try { await this.projectionDiagnostic(a.scope, a.projectionErrors); } catch { a.diagnosticPending = true; }
-                const result = await finishCanvasVoiceSession(this.env, a.scope, { outcome, exposure, code: input.code });
+                const result = await finishCanvasVoiceSession(this.env, a.scope, { outcome, exposure, code: input.code, diagnostic: a.terminalDiagnostic });
                 a.observeLateClose = result.unknown && a.accepted && a.acceptanceRecorded;
                 if ((result.completed || result.released) && !a.diagnosticPending) await this.forget(a.scope);
                 return result;
             } catch (error) {
                 if (a.claimed) {
                     try { await this.persist(a, a.fetchStarted ? 'dispatch_intent' : 'reserved', this.meter(a)); } catch { /* Existing claim is retained. */ }
-                    if (a.fetchStarted) try { await finishCanvasVoiceSession(this.env, a.scope, { outcome: 'unknown', exposure: this.meter(a), code: safe(error) }); } catch { /* Preserve unknown reservation. */ }
+                    if (a.fetchStarted) try { await finishCanvasVoiceSession(this.env, a.scope, { outcome: 'unknown', exposure: this.meter(a), code: a.terminalDiagnostic.code, diagnostic: a.terminalDiagnostic }); } catch { /* Preserve unknown reservation. */ }
                 }
                 throw error;
             } finally {
@@ -317,7 +374,7 @@ export class CanvasVoiceOwner {
                 // replayed, and the customer interval cannot grow after Stop.
                 await this.persist(a, 'closed', a.finalExposure);
                 try { await this.projectionDiagnostic(a.scope, a.projectionErrors); a.diagnosticPending = false; } catch { /* Billing remains independent. */ }
-                const result = await finishCanvasVoiceSession(this.env, a.scope, { outcome: 'completed', exposure: a.finalExposure, code: 'canvas_voice_late_close' });
+                const result = await finishCanvasVoiceSession(this.env, a.scope, { outcome: 'completed', exposure: a.finalExposure, code: 'canvas_voice_late_close', diagnostic: a.terminalDiagnostic });
                 if ((result.completed || result.released) && !a.diagnosticPending) await this.forget(a.scope);
             })();
             this.run(a, a.reconciling);
@@ -346,7 +403,7 @@ export class CanvasVoiceOwner {
         if (stored && !sameScope(stored.scope, scope) || a && !sameScope(a.scope, scope)) return response('canvas_voice_session_not_found', 404);
         if (a) {
             a.controller.abort();
-            if (a.relay && !a.relay.closed) await a.relay.stop('canvas_voice_stopped');
+            if (a.relay && !a.relay.closed) await a.relay.stop('canvas_voice_stopped', { stage: 'stop', direction: 'browser_to_server', event: 'stop_request' });
             else if (a.finishing) await a.finishing;
         } else if (stored) await this.recover(stored);
         else {
@@ -367,14 +424,15 @@ export class CanvasVoiceOwner {
         let diagnosticPending = false;
         try { await this.projectionDiagnostic(stored.scope, stored.projectionErrors); } catch { diagnosticPending = true; }
         const result = await finishCanvasVoiceSession(this.env, stored.scope, { outcome: stored.providerClosed && stored.acceptedAt ? 'completed' : stored.phase === 'reserved' ? 'rejected' : 'unknown',
-            exposure: stored.exposure, code: 'canvas_voice_owner_interrupted' });
+            exposure: stored.exposure, code: 'canvas_voice_owner_interrupted', diagnostic: firstCanvasVoiceTerminalDiagnostic(stored.terminalDiagnostic,
+                'canvas_voice_owner_interrupted', { ...stored.exposure, stage: 'recovery', direction: 'server_internal', event: 'alarm', occurredAtMs: Date.now() }) });
         if ((result.completed || result.released) && !diagnosticPending) await this.forget(stored.scope);
         else await this.state.storage.deleteAlarm(); // Retain the unknown identity; never open a replacement.
     }
     async alarm() {
         const stored = await this.state.storage.get(KEY); if (!stored) return false;
         const a = this.attempt;
-        if (a && sameScope(a.scope, stored.scope)) { a.controller.abort(); if (a.relay && !a.relay.closed) await a.relay.stop('canvas_voice_session_limit'); }
+        if (a && sameScope(a.scope, stored.scope)) { a.controller.abort(); if (a.relay && !a.relay.closed) await a.relay.stop('canvas_voice_session_limit', { stage: 'deadline', direction: 'server_internal', event: 'alarm' }); }
         else await this.recover(stored);
         return true;
     }

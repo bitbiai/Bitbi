@@ -103,7 +103,8 @@ export async function createRuntime(build, name, { restricted = false, reference
   if (name.startsWith('q4-')) Object.assign(bindings, { MEMVID_STREAM_PREVIEW_PROCESSOR_SECRET: 'q4-stream-processor-synthetic-not-a-production-secret', ENABLE_MEMVID_STREAM_PREVIEWS: 'true', STREAM_ACCOUNT_ID: 'synthetic-q4-account', STREAM_API_TOKEN: 'test-q4-provider-no-credentials', STRIPE_LIVE_SUBSCRIPTION_PRICE_ID: 'price_q4_subscription_monthly' });
   for (const key of ['SESSION_HASH_SECRET', 'PAGINATION_SIGNING_SECRET', 'ADMIN_MFA_ENCRYPTION_KEY', 'ADMIN_MFA_PROOF_SECRET', 'ADMIN_MFA_RECOVERY_HASH_SECRET', 'AI_SAVE_REFERENCE_SIGNING_SECRET']) bindings[key] = `q2-synthetic-${key}-not-live-0000000000000000`;
   if (canvasRuntime) Object.assign(bindings, { ENABLE_GROK_4_6: 'true', ENABLE_ADMIN_AI_TEXT_BUDGET: 'true', ENABLE_ADMIN_AI_BFL_IMAGE_BUDGET: 'true', AI_SERVICE_AUTH_SECRET: 'q2-canvas-service-synthetic-not-live' });
-  if (name === 'canvas-voice') Object.assign(bindings, {CANVAS_VOICE_ENABLED:'true', XAI_API_KEY:'test-key',CANVAS_AGENT_ENABLED:'true',ENABLE_GROK_4_7:'true'});
+  if (name === 'canvas-voice') Object.assign(bindings, {CANVAS_VOICE_ENABLED:'true', XAI_API_KEY:'test-key',CANVAS_AGENT_ENABLED:'true',ENABLE_GROK_4_7:'true',
+    CLOUDFLARE_ACCOUNT_ID:'c'.repeat(32),H3_CLOUDFLARE_API_TOKEN:'synthetic-native-voice-reasoning'});
   const deny = async () => { counters.outboundDenied += 1; throw new Error('Native test outbound denied'); };
   const denyService = async () => { counters.serviceDenied += 1; throw new Error('Native test provider service denied'); };
   const consumerMailProvider = name === 'q4-subscription' ? createConsumerMailProvider(deny) : null;
@@ -159,7 +160,9 @@ export async function createRuntime(build, name, { restricted = false, reference
   };
   const shared = { modules: true, ...(['member-generation','canvas','canvas-reliability','canvas-completion','canvas-audio','canvas-audio-fit','canvas-transitions','canvas-retention','model-status'].includes(name) ? {images:{binding:'IMAGES'}} : {}), compatibilityDate: build.config.compatibility_date, bindings, d1Databases: { DB: `q2-${name}-db`, ...(canvasRuntime?{CANVAS_IMAGE_TEST_DB:'q2-canvas-image-scheduling-db'}:{}) },
     r2Buckets: { USER_IMAGES: `q2-${name}-images`, PRIVATE_MEDIA: `q2-${name}-private`, AUDIT_ARCHIVE: `q2-${name}-archive` },
-    outboundService: name === 'canvas-voice' ? 'q2-voice-provider' : canvasRuntime ? canvasOutput : name==='member-generation' ? h3Rest : consumerMailProvider?.fetch || deny, serviceBindings: { AI_LAB: canvasRuntime ? canvasService : denyService },
+    outboundService: name === 'canvas-voice' ? 'q2-voice-provider' : canvasRuntime ? canvasOutput : name==='member-generation' ? h3Rest : consumerMailProvider?.fetch || deny,
+    serviceBindings: { AI_LAB: name==='canvas-voice'?'q2-voice-readiness':canvasRuntime?canvasService:denyService,
+      ...(name==='canvas-voice'?{PRIVATE_MEDIA_PROCESSOR:denyService}:{}) },
     ...(canvasRuntime ? { unsafeBindings: [{name:'AI',type:'q2-image25-ai',plugin:{name:'q2-image25-ai',package:fileURLToPath(new URL('./image25-ai-binding.mjs',import.meta.url))},options:{}}] } : {}), unsafeRegisterWorker: false };
   const limiterOwner = restricted ? 'q2-restricted' : 'q2-candidate';
   const limiter = owner => ({ PUBLIC_RATE_LIMITER: { className: name === 'canvas-voice' ? 'CanvasVoiceLatencyTestDurableObject' : 'AuthPublicRateLimiterDurableObject', useSQLite: true,
@@ -198,7 +201,13 @@ export async function createRuntime(build, name, { restricted = false, reference
   if (canvasRuntime) workers.push({name:'q2-image25-ai',modules:true,compatibilityDate:build.config.compatibility_date,outboundService:deny,serviceBindings:{SYNTHETIC:canvasImage25Service},
     script:'export default {fetch(request,env){return env.SYNTHETIC.fetch(request);}};'});
   if(name === 'canvas-voice') {
-    const provider = await build.esbuild.build({entryPoints:[fileURLToPath(new URL('./voice-lifecycle-provider.mjs',import.meta.url))],
+    const readiness = await build.esbuild.build({entryPoints:[fileURLToPath(new URL('./voice-readiness-worker.mjs',import.meta.url))],
+      bundle:true,write:false,format:'esm',platform:'browser',target:'es2022',logLevel:'silent'});
+    workers.push({name:'q2-voice-readiness',modules:true,compatibilityDate:build.config.compatibility_date,outboundService:deny,
+      bindings:{AI_SERVICE_AUTH_SECRET:bindings.AI_SERVICE_AUTH_SECRET,ENABLE_GROK_4_7:'true'},
+      durableObjects:{SERVICE_AUTH_REPLAY:{className:'CanvasVoiceLatencyTestDurableObject',scriptName:'q2-control',useSQLite:true}},
+      script:readiness.outputFiles[0].text});
+    const provider = await build.esbuild.build({entryPoints:[fileURLToPath(new URL('./voice-journey-provider.mjs',import.meta.url))],
       bundle:true,write:false,format:'esm',platform:'browser',target:'es2022',logLevel:'silent'});
     workers.push({name:'q2-voice-provider',modules:true,compatibilityDate:build.config.compatibility_date,outboundService:deny,
       durableObjects:{VOICE_PROVIDER:{className:'VoiceProviderFixture',useSQLite:true}},script:provider.outputFiles[0].text});

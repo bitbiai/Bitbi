@@ -88,6 +88,7 @@ function writeGithubOutput(selection) {
     image_models: selection.imageModels === true,
     appearance: selection.appearance === true,
     canvas_text: selection.canvasText === true,
+    canvas_voice: selection.canvasVoice === true,
     canvas_completion: selection.canvasCompletion === true,
     canvas_audio: selection.canvasAudio === true,
     canvas_transitions: selection.canvasTransitions === true,

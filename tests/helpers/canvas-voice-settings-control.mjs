@@ -23,7 +23,7 @@ export async function canvasVoiceSettingsCase(env,name){
  const {userId,projectId,now}=await seed(env,name),before=await protectedState(env,projectId,userId);
  const body={settings:{voice:'ara',preferences:{language:'de'},audio:{output:{speed:1.2}},tools:{canvas:{enabled:true}}},expectedRevision:0};
  if(name==='persistence'){
-  const defaults=await readCanvasVoiceSettings(env,userId,projectId);check(defaults.revision===0&&defaults.settings.voice==='eve','Fresh settings defaults are read without writes');
+  const defaults=await readCanvasVoiceSettings(env,userId,projectId);check(defaults.revision===0&&defaults.settings.voice==='eve'&&defaults.settings.tools.canvas.enabled,'Fresh guarded Canvas defaults are read without writes');
   check((await env.DB.prepare('SELECT COUNT(*) AS n FROM canvas_voice_settings WHERE project_id=?').bind(projectId).first()).n===0,'GET does not persist a default or start a session');
   const saved=await saveCanvasVoiceSettings(env,userId,projectId,body,'save-settings-1');check(saved.revision===1&&saved.restartRequired,'Save records a distinct configuration revision');
   const reopened=await readCanvasVoiceSettings({...env},userId,projectId);check(reopened.settings.voice==='ara'&&reopened.settings.preferences.language==='de'&&reopened.settings.audio.output.speed===1.2,'Server state survives a fresh caller');
@@ -59,7 +59,9 @@ export async function canvasVoiceSettingsCase(env,name){
  }else if(name==='lifecycle'){
   await saveCanvasVoiceSettings(env,userId,projectId,body,'save-settings-1');
   const sessionId=(await sha256Hex('session-'+projectId)).slice(0,32),scope={userId,projectId,sessionId};
-  await env.DB.prepare(`INSERT INTO canvas_voice_sessions(id,project_id,user_id,state,conversation_revision,brief_revision,project_revision,created_at,expires_at) VALUES(?,?,?,'active',0,0,0,?,?)`).bind(sessionId,projectId,userId,now,new Date(Date.now()+600000).toISOString()).run();
+  const expires=new Date(Date.now()+600000).toISOString(),loginId='voice-settings-login-'+projectId;
+  await env.DB.prepare('INSERT INTO sessions(id,user_id,token_hash,created_at,expires_at) VALUES(?,?,?,?,?)').bind(loginId,userId,'synthetic-voice-settings',now,expires).run();
+  await env.DB.prepare(`INSERT INTO canvas_voice_sessions(id,project_id,user_id,state,conversation_revision,brief_revision,project_revision,created_at,expires_at,auth_session_id) VALUES(?,?,?,'active',0,0,0,?,?,?)`).bind(sessionId,projectId,userId,now,expires,loginId).run();
   await recordCanvasVoiceUserTurn(env,scope,{itemId:'before-delete',text:'Ein Katzenvideo.'});
   await env.DB.prepare('INSERT INTO canvas_voice_calls(session_id,call_id,input_json,result_json,created_at) VALUES(?,?,?,?,?)').bind(sessionId,'retained-call','{}','{}',now).run();
   const foreign=await seed(env,name+'-foreign');

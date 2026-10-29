@@ -17,28 +17,48 @@ function toBase64(bytes) {
     return btoa(raw);
 }
 // Each instance belongs to one session epoch. Late permissions cannot reopen it.
-export function createCanvasVoiceAudio({ settings, onAudio, onError, onState = () => {} }) {
+export function createCanvasVoiceAudio({ settings, onAudio, onError, onState = () => {}, onPlaybackComplete = () => {} }) {
     let epoch = 0, closed = false, context = null, stream = null, source = null, capture = null, sink = null;
     let muted = false, ready = false, resampler = null, queued = [], buffered = 0, playAt = 0, item = null, playbackBytes = 0;
     let opus = null, flush = null, flushId = 0, inputEpoch = 0, packetUsed = 0, capturePaused = false;
     const packet = new Float32Array(Math.ceil(settings.audio.input.format.rate / 10));
     const nodes = new Map(), seenAudio = new Set();
+    const finishedResponses = new Map();
     function stopped() { return closed; }
     function playing() { return !closed && (nodes.size > 0 || opus?.outputPending() === true); }
+    function playbackComplete() {
+        const done = item && finishedResponses.get(item.responseId);
+        if (closed || playing() || !item || item.presented || !done || done.itemId !== item.itemId) return;
+        // This is completed browser playback, not evidence that a person heard
+        // the words. The server separately binds it to its exact current question.
+        if (Math.abs(done.audioEndMs - item.durationMs) > 1) return;
+        item.presented = true;
+        onPlaybackComplete({ responseId: item.responseId, itemId: item.itemId, audioEndMs: Math.floor(item.durationMs) });
+    }
+    function responseDone(event) {
+        if (closed || !event || typeof event.responseId !== 'string' || typeof event.itemId !== 'string'
+            || !Number.isSafeInteger(event.audioEndMs) || event.audioEndMs <= 0 || event.audioEndMs > 7200000) return;
+        finishedResponses.set(event.responseId, { itemId: event.itemId, audioEndMs: event.audioEndMs });
+        if (finishedResponses.size > 160) finishedResponses.delete(finishedResponses.keys().next().value);
+        playbackComplete();
+    }
     function releasePlayback(node) {
         if (!nodes.has(node)) return false;
         playbackBytes -= nodes.get(node); nodes.delete(node); node.onended = null;
         release(() => node.disconnect()); release(() => { node.buffer = null; }); return true;
     }
     function stopPlayback(resetDecoder = true) {
+        // The completed duration can contain fractional milliseconds (including
+        // floating-point accumulation). Quantize after both playback bounds.
         const heard = item ? { itemId: item.itemId, responseId: item.responseId,
-            audioEndMs: Math.max(0, Math.min(item.durationMs, Math.floor(((context?.currentTime || 0) - item.startedAt) * 1000))) } : null;
+            audioEndMs: Math.max(0, Math.floor(Math.min(item.durationMs, ((context?.currentTime || 0) - item.startedAt) * 1000))) } : null;
         for (const node of nodes.keys()) { node.onended = null; release(() => node.stop()); releasePlayback(node); }
+        if (item) finishedResponses.delete(item.responseId);
         playAt = 0; item = null; if (resetDecoder) opus?.resetOutput(); return heard;
     }
     function stop() {
         if (closed) return; closed = true; epoch++; inputEpoch++; ready = false; queued = []; buffered = 0; packetUsed = 0;
-        stopPlayback(false); release(() => opus?.close()); opus = null;
+        stopPlayback(false); finishedResponses.clear(); release(() => opus?.close()); opus = null;
         if (flush) { clearTimeout(flush.timer); flush.reject(fail('canvas_voice_stopped')); flush = null; }
         if (capture) { const old = capture; capture = null; old.port.onmessage = null; old.onprocessorerror = null; release(() => old.port.postMessage({ type: 'stop' })); release(() => old.port.close()); release(() => old.disconnect()); }
         for (const node of [source, sink]) release(() => node?.disconnect()); source = sink = null;
@@ -125,7 +145,7 @@ export function createCanvasVoiceAudio({ settings, onAudio, onError, onState = (
             const start = Math.max(playAt, now), itemId = event.itemId || event.item_id, responseId = event.responseId || event.response_id;
             if (!item || item.itemId !== itemId) item = { itemId, responseId, startedAt: start, durationMs: 0 };
             item.durationMs += duration * 1000; playAt = start + duration;
-            node.onended = () => { if (!releasePlayback(node)) return; if (!playing() && !closed) onState(muted ? 'muted' : 'listening'); };
+            node.onended = () => { if (!releasePlayback(node)) return; if (!playing() && !closed) { onState(muted ? 'muted' : 'listening'); playbackComplete(); } };
             node.start(start); onState('speaking');
         } catch (failure) { error(failure); }
     }
@@ -139,7 +159,7 @@ export function createCanvasVoiceAudio({ settings, onAudio, onError, onState = (
         await opus?.flush({ pad: true });
         if (closed || generation !== inputEpoch) throw fail('canvas_voice_stopped');
     }
-    return { open, stop, stopped, playing, play, finishTurn, continueCapture() { if (closed) return; capturePaused = false; if (!muted) capture?.port.postMessage({ type: 'resume' }); }, interrupt: stopPlayback,
+    return { open, stop, stopped, playing, play, responseDone, finishTurn, continueCapture() { if (closed) return; capturePaused = false; if (!muted) capture?.port.postMessage({ type: 'resume' }); }, interrupt: stopPlayback,
         ready() { if (closed) return; ready = true; const pending = queued; queued = []; buffered = 0; for (const samples of pending) sendSamples(samples); },
         mute(value) {
             if (closed || muted === Boolean(value)) return;

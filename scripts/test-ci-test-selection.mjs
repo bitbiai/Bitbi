@@ -1,4 +1,5 @@
 import { releaseValidationSource } from './lib/release-validation-source.mjs';
+import './test-canvas-voice-selection.mjs';
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";

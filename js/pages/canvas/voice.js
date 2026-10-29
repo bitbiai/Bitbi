@@ -48,7 +48,7 @@ export function createCanvasVoice({ root, german = false, onChanged = () => {}, 
     const settings = createCanvasVoiceSettings({ german, load: loadConfig, save: saveSettings, active: () => liveStates.has(state), stop });
     const approval = create('dialog', 'canvas-voice-dialog canvas-voice-approval'), title = create('h2', '', t('Voice-Sitzung starten', 'Start a Voice session'));
     title.id = `canvasVoiceApproval${randomId()}`; approval.setAttribute('aria-labelledby', title.id);
-    const privacy = create('p', '', t('Ihre Stimme und der relevante Canvas-Kontext werden an xAI übertragen. Bitbi speichert den bestätigten Textverlauf, keine Audioaufnahme. Produktionsfreigaben bleiben separat.', 'Your voice and relevant Canvas context are sent to xAI. Bitbi retains the confirmed text conversation, not an audio recording. Production approval remains separate.'));
+    const privacy = create('p', '', t('Ihre Stimme und der relevante Canvas-Kontext werden an xAI übertragen. Bitbi speichert den bestätigten Textverlauf, keine Audioaufnahme. Mit aktivierten Canvas-Werkzeugen können Sie das Briefing und Projekt per Sprache steuern. Ausgaben und bestätigungspflichtige Änderungen benötigen jeweils eine konkrete Freigabe. Voice beenden stoppt keine laufende Produktion.', 'Your voice and relevant Canvas context are sent to xAI. Bitbi retains the confirmed text conversation, not an audio recording. Enabled Canvas tools let you control the brief and project by voice. Spending and changes that require confirmation each need a specific approval. Ending Voice does not stop an ongoing production.'));
     const duration = create('input', 'canvas-input'); duration.type = 'number'; duration.min = '1'; duration.max = '1'; duration.step = '1'; duration.value = '300';
     const durationLabel = create('label', 'canvas-field'); durationLabel.append(create('span', '', t('Maximale Sitzungsdauer (Sekunden)', 'Maximum session duration (seconds)')), duration);
     const resumptionText = create('p', 'canvas-muted'); resumptionText.hidden = true;
@@ -133,7 +133,13 @@ export function createCanvasVoice({ root, german = false, onChanged = () => {}, 
         if (!(new Date(pendingQuote.quote.expiresAt).getTime() > Date.now()) || pendingQuote.quote.resumption.resuming && !(new Date(pendingQuote.quote.resumption.expiresAt).getTime() > Date.now())) { pendingQuote = null; consent.checked = false; quoteText.textContent = reasons.canvas_voice_quote_expired; sync(); return; }
         const admitted = pendingQuote, quoteValue = admitted.quote, snap = admitted.snapshot, id = projectId, current = ++epoch; requestId = randomId(); const localId = requestId;
         closeApproval(); setState('permission'); controller = new AbortController(); muted = false; sequence = 0; seen.clear(); interrupted.clear();
-        audio = createCanvasVoiceAudio({ settings: admitted.settings, onAudio: bytes => send({ type: 'audio.append', audio: bytes }), onError: failure, onState: next => { if (epoch === current) setState(next); } });
+        audio = createCanvasVoiceAudio({ settings: admitted.settings, onAudio: bytes => send({ type: 'audio.append', audio: bytes }), onError: failure,
+            onState: next => { if (epoch === current) setState(next); },
+            onPlaybackComplete: played => {
+                if (epoch === current && send({ type: 'voice.playback', ...played }) && lastResponse === played.responseId) {
+                    lastResponse = lastItem = null; sync();
+                }
+            } });
         const localAudio = audio;
         try {
             await localAudio.open(); if (epoch !== current || localAudio.stopped()) return;
@@ -184,6 +190,7 @@ export function createCanvasVoice({ root, german = false, onChanged = () => {}, 
             return;
         }
         if (event.type === 'voice.transcript') { interim.textContent = typeof event.text === 'string' ? event.text.slice(0, 6000) : ''; return; }
+        if (event.type === 'voice.response_done') { audio?.responseDone(event); return; }
         if (event.type === 'voice.speech_started') { lastResponse ||= event.responseId; lastItem ||= event.itemId; interruptSpeech(true); return; }
         if (event.type === 'voice.turn') { if (event.state === 'ready' || event.state === 'pending') { manualPending = event.state === 'pending'; sync(); } return; }
         if (event.type === 'voice.changed') { interim.textContent = ''; onChanged(); return; }

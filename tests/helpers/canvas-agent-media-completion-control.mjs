@@ -6,9 +6,9 @@ import {recoverCanvasStoredMedia} from '../../workers/auth/src/lib/canvas-agent-
 const check=(value,message)=>{if(!value)throw new Error(message);};
 export const MEDIA_COMPLETION_CASES=['resume','automatic','lost-ack','missing-storage','edited','adopt-current','unknown','cancelled','expired','foreign','completion-window','proof-recheck'];
 
-export async function canvasMediaCompletionCase(base,name,media,{processor=null,mediaPolicy=null,policyBeforeResume=null}={}){
+export async function canvasMediaCompletionCase(base,name,media,{processor=null,mediaPolicy=null,policyBeforeResume=null,startProduction=null,injectRecoveryFailure=true}={}){
   check(MEDIA_COMPLETION_CASES.includes(name),'Known media completion case');
-  const f=await canvasAgentModelOperationFixture(base,{scope:'media-completion-'+name,mediaPolicy}),calls=[],callbacks=[];
+  const f=await canvasAgentModelOperationFixture(base,{scope:'media-completion-'+name,mediaPolicy,startProduction}),calls=[],callbacks=[];
   const plan={version:1,title:'Reference to editable mixed film',continuity:'The same red dog and pool across both scenes.',
     nodes:[
       {key:'reference',type:'image_generation',title:'Dog reference',modelId:'xai/grok-imagine-image-2.0',prompt:'A red dog at a pool.',config:{resolution:'1k',aspectRatio:'16:9'},dependencies:[]},
@@ -80,6 +80,11 @@ export async function canvasMediaCompletionCase(base,name,media,{processor=null,
   try{await deliverJob(first);}finally{f.env.DB=original;}
   const saved=await f.db.prepare('SELECT * FROM member_generation_jobs WHERE id=?').bind(first.id).first();
   check(saved.status==='succeeded'&&saved.asset_id,'The normal image provider/storage/callback completes before the injected local failure');
+  if(!injectRecoveryFailure){
+    check(processor,'The uninterrupted production fixture must verify its saved export');
+    await f.deliver();
+    return finishProduction();
+  }
   if(name==='completion-window'){
     check(windowObserved,'Actual producer finalization window was exercised');
     check(windowState.run.status==='running'&&!windowState.run.error_code&&windowState.step.status==='accepted','An unfinished local job is observed without blocking or releasing dependencies');
@@ -165,6 +170,9 @@ export async function canvasMediaCompletionCase(base,name,media,{processor=null,
   check(completedFacts.production.steps.find(s=>s.id===accepted.id)?.receipt?.outcome==='completion_recorded','Completed media reference is evidence, not a fabricated provider ok flag');
   await f.deliver();check((await jobs()).results.some(j=>j.media_type==='video'),'The next dependent video is admitted');
   if(!processor)return {case:name,recovered:true,mediaCalls:calls.length};
+  return finishProduction();
+  async function finishProduction(){
+  const current=()=>f.db.prepare('SELECT * FROM canvas_agent_runs WHERE id=?').bind(f.runId).first();
   for(let turn=0;turn<40&&(await current()).status!=='completed';turn++){
     for(const job of (await jobs()).results.filter(j=>j.status==='queued'))await deliverJob(job);
     await f.deliver();
@@ -174,5 +182,6 @@ export async function canvasMediaCompletionCase(base,name,media,{processor=null,
   }
   const final=await current();check(final.status==='completed','The same recovered production reaches the saved mixed export');
   check(calls.length===5&&f.calls.length===1,'One reference, three videos, music, and one original plan only');
-  return {case:name,recovered:true,mediaCalls:calls.length,runId:f.runId,result:JSON.parse(final.result_json),fixture:f,deliverMediaJob:deliverJob,generationCalls:()=>calls.length};
+  return {case:name,recovered:injectRecoveryFailure,mediaCalls:calls.length,runId:f.runId,result:JSON.parse(final.result_json),fixture:f,deliverMediaJob:deliverJob,generationCalls:()=>calls.length};
+  }
 }

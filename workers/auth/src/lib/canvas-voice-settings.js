@@ -1,4 +1,4 @@
-import { canvasVoiceSettings, assertCanvasVoiceSettingsCapabilities } from '../../../../js/shared/canvas-voice-settings.mjs';
+import { canvasVoiceSettings, canvasVoiceProjectDefaults, assertCanvasVoiceSettingsCapabilities } from '../../../../js/shared/canvas-voice-settings.mjs';
 import { stablePricingJson } from '../../../../js/shared/model-tariff.mjs';
 import { nowIso, sha256Hex } from './tokens.js';
 import { agentFail } from './canvas-agent-store.js';
@@ -27,7 +27,7 @@ export async function requireCanvasVoiceOwner(env, userId, projectId) {
 export async function readCanvasVoiceSettings(env, userId, projectId) {
     const project = await requireCanvasVoiceOwner(env, userId, projectId);
     const row = await env.DB.prepare('SELECT revision,settings_json FROM canvas_voice_settings WHERE project_id=? AND user_id=?').bind(projectId, userId).first();
-    return { settings: canvasVoiceSettings(row ? JSON.parse(row.settings_json) : {}), revision: row?.revision || 0,
+    return { settings: row ? canvasVoiceSettings(JSON.parse(row.settings_json)) : canvasVoiceProjectDefaults(), revision: row?.revision || 0,
         projectRevision: project.revision, capabilities: canvasVoiceCapabilities(), availability: canvasVoiceAvailability(env) };
 }
 export async function saveCanvasVoiceSettings(env, userId, projectId, body, key) {

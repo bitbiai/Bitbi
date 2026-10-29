@@ -1063,17 +1063,30 @@ test('actual selected Worker shell stops before downstream work on every failure
   for(const name of ['node','npx','npm'])fs.writeFileSync(path.join(bin,name),'#!/bin/sh\ncommand="${0##*/} $*"\nprintf "%s\\n" "$command" >> "$TRACE"\n[ "$command" != "$FAIL_COMMAND" ] || exit 37\n',{mode:0o700});
   const block=read('.github/workflows/static.yml').split('      - name: Run worker route tests\n')[1].split('      - name:')[0];
   const script=block.split('        run: |\n')[1].split('\n').map(line=>line.replace(/^          /,'')).join('\n');
-  for(const [status,selected,canvas='false',pricing='false',appearance='false',areas='false',completion='false',audio='false',fit='false',transitions='false'] of [['false','true'],['false','false'],['true','false'],['false','false','true'],['false','false','false','true'],['false','false','false','false','true'],['true','false','false','false','false','true'],['false','false','true','false','false','false','true'],['false','false','true','false','false','false','false','true'],['false','false','true','false','false','false','false','false','true'],['false','false','true','false','false','false','false','false','false','true']]) {
-    const command=script.replaceAll('${{ needs.release-compatibility.outputs.canvas_transitions }}',transitions).replaceAll('${{ needs.release-compatibility.outputs.canvas_audio_fit }}',fit).replaceAll('${{ needs.release-compatibility.outputs.canvas_audio }}',audio).replaceAll('${{ needs.release-compatibility.outputs.canvas_completion }}',completion).replaceAll('${{ needs.release-compatibility.outputs.appearance }}',appearance).replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}',pricing).replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}',canvas).replaceAll('${{ needs.release-compatibility.outputs.model_status }}',status).replaceAll('${{ needs.release-compatibility.outputs.model_areas }}',areas).replaceAll("${{ needs.release-compatibility.outputs.member_assets }}",selected);
+  for(const [status,selected,canvas='false',pricing='false',appearance='false',areas='false',completion='false',audio='false',fit='false',transitions='false',voice='false'] of [['false','true'],['false','false'],['true','false'],['false','false','true'],['false','false','false','true'],['false','false','false','false','true'],['true','false','false','false','false','true'],['false','false','true','false','false','false','true'],['false','false','true','false','false','false','false','true'],['false','false','true','false','false','false','false','false','true'],['false','false','true','false','false','false','false','false','false','true'],['false','false','false','false','false','false','false','false','false','false','true']]) {
+    const command=script.replaceAll('${{ needs.release-compatibility.outputs.canvas_voice }}',voice).replaceAll('${{ needs.release-compatibility.outputs.canvas_transitions }}',transitions).replaceAll('${{ needs.release-compatibility.outputs.canvas_audio_fit }}',fit).replaceAll('${{ needs.release-compatibility.outputs.canvas_audio }}',audio).replaceAll('${{ needs.release-compatibility.outputs.canvas_completion }}',completion).replaceAll('${{ needs.release-compatibility.outputs.appearance }}',appearance).replaceAll('${{ needs.release-compatibility.outputs.model_pricing }}',pricing).replaceAll('${{ needs.release-compatibility.outputs.canvas_text }}',canvas).replaceAll('${{ needs.release-compatibility.outputs.model_status }}',status).replaceAll('${{ needs.release-compatibility.outputs.model_areas }}',areas).replaceAll("${{ needs.release-compatibility.outputs.member_assets }}",selected);
     const run=fail=>{fs.writeFileSync(trace,'');const result=spawnSync('/bin/sh',['-c',command],{cwd:f.base,env:{PATH:bin,TRACE:trace,FAIL_COMMAND:fail||''},encoding:'utf8'});return {status:result.status,commands:fs.readFileSync(trace,'utf8').trim().split('\n')};};
     const passed=run();assert.equal(passed.status,0);
-    if(canvas!=='true')assert.equal(passed.commands.length,areas==='true'?5:appearance==='true'?3:pricing==='true'?4:status==='true'||selected==='true'?3:1);
+    if(canvas!=='true'&&voice!=='true')assert.equal(passed.commands.length,areas==='true'?5:appearance==='true'?3:pricing==='true'?4:status==='true'||selected==='true'?3:1);
     if(appearance==='true'){assert.match(passed.commands[0],/test-q2-runtime-launcher/);assert.match(passed.commands[1],/tests\/appearance.spec.js --retries=0$/);assert.match(passed.commands[2],/--suite appearance$/);}
     else if(pricing==='true'){assert.match(passed.commands[0],/test-q2-runtime-launcher/);assert.match(passed.commands[1],/tests\/model-pricing.spec.js/);assert.match(passed.commands[2],/tests\/workers.spec.js/);assert.match(passed.commands[3],/--suite model-pricing$/);}
     else if(transitions==='true'){assert.equal(passed.commands.length,2);assert.match(passed.commands[0],/canvas-workspace-transitions.test/);assert.match(passed.commands[1],/--suite canvas-transitions$/);}
     else if(fit==='true'){assert.equal(passed.commands.length,2);assert.match(passed.commands[1],/--suite canvas-audio-fit$/);}
     else if(audio==='true'){assert.equal(passed.commands.length,3);assert.match(passed.commands[0],/test-q2-runtime-launcher/);assert.match(passed.commands[1],/Canvas audio/);assert.match(passed.commands[2],/--suite canvas-audio$/);}
     else if(completion==='true'){assert.equal(passed.commands.length,2);assert.match(passed.commands[0],/test-q2-runtime-launcher/);assert.match(passed.commands[1],/--suite canvas-completion$/);}
+    else if(voice==='true'){
+      const required=[/^npm run check:ai-cost-policy$/, /^npm run test:ai-cost-policy$/, /^npm run test:ai-cost-operations$/,
+        /test-q2-runtime-launcher.*canvas-voice-browser-bridge/,
+        /q2-canvas-voice-actions\.spec\.js.*q2-canvas-voice-film\.spec\.js.*q2-canvas-conversation-decisions\.spec\.js/,
+        /tests\/workers\.spec\.js --grep Canvas\|canvas --retries=0$/, /--suite canvas-voice$/, /--suite canvas$/, /--suite canvas-reliability$/];
+      const verify=commands=>{assert.equal(commands.length,required.length);required.forEach((pattern,index)=>assert.match(commands[index],pattern));};
+      verify(passed.commands);
+      for(const index of [3,4,6,7,8]){
+        assert.throws(()=>verify(passed.commands.filter((_,i)=>i!==index)));
+        assert.throws(()=>verify(passed.commands.map((value,i)=>i===index?'node unrelated-check.mjs':value)));
+      }
+      assert.throws(()=>verify(passed.commands.map(value=>value.replace('tests/q2-canvas-voice-film.spec.js ',''))));
+    }
     else if(canvas==='true'){
       const required=[
         /^npm run check:ai-cost-policy$/, /^npm run test:ai-cost-policy$/, /^npm run test:ai-cost-operations$/,
@@ -1364,7 +1377,10 @@ test('Canvas Voice native entry stages real canonical/settings cases and rejects
  assert.deepEqual(parseRuntimeArgs(['--suite','canvas-voice'],{}),{preflight:false,artifacts:null,suite:'canvas-voice'});
  assert.equal(selectedRuntimeSuites('canvas-voice')[0][1],runCanvasVoiceTests);
  assert.equal(runtimeSuites.filter(([name])=>name==='canvas-voice').length,1);
- assert.equal(canvasVoiceInventory.length,70);assert.equal(new Set(canvasVoiceInventory).size,70);
+ assert.equal(canvasVoiceInventory.length,88);assert.equal(new Set(canvasVoiceInventory).size,88);
+ for(const name of ['start','interrupted','stale','ambiguous','replay','action','foreign','malformed','text-handoff','lost-ack','intervening','decline','action-lost-ack','terminal-save','terminal-cancel','terminal-clear','revoked'])
+  assert.equal(canvasVoiceInventory.filter(value=>value==='canvas_voice_action_'+name).length,1);
+ assert.equal(canvasVoiceInventory.filter(value=>value==='canvas_voice_accounting_continuity').length,1);
  assert.equal(canvasVoiceInventory.filter(name=>name==='canvas_voice_owner_handshake_rejected').length,1);
  for(const name of ['startup_order','startup_audio','startup_tool','startup_error_envelope','startup_ping','startup_partial_ack','startup_wrapped_tools','startup_wrapped_extra'])assert.equal(canvasVoiceInventory.filter(value=>value==='canvas_voice_owner_'+name).length,1);
  for(const name of ['transcript_commit_after','transcript_commit_before','transcript_abandoned','transcript_final_conflict'])assert.equal(canvasVoiceInventory.filter(value=>value==='canvas_voice_owner_'+name).length,1);
@@ -1374,7 +1390,7 @@ test('Canvas Voice native entry stages real canonical/settings cases and rejects
  for(const name of ['context_projection','context_format_preserve','context_negative'])assert.equal(canvasVoiceInventory.filter(value=>value==='canvas_voice_owner_'+name).length,1);
  const plan=stageInputPlan();
  for(const file of ['tests/helpers/canvas-voice-conversation-control.mjs','tests/helpers/canvas-voice-settings-control.mjs',
-  'tests/helpers/canvas-voice-accounting-control.mjs','tests/helpers/canvas-voice-allowance-control.mjs','tests/helpers/canvas-voice-owner-control.mjs',
+  'tests/helpers/canvas-voice-accounting-control.mjs','tests/helpers/canvas-voice-allowance-control.mjs','tests/helpers/canvas-voice-owner-control.mjs','tests/helpers/canvas-voice-actions-control.mjs','tests/helpers/canvas-voice-continuity-control.mjs',
   'tests/helpers/q2-runtime'])assert(plan.includes(file),file+' is staged');
  assert.match(read('tests/helpers/q2-runtime/linux-bootstrap.py'),/\+ \["canvas-voice"\]/);
  assert.match(read('tests/helpers/q2-runtime/linux-runtime-child.mjs'),/'canvas-voice'/);
@@ -1382,4 +1398,13 @@ test('Canvas Voice native entry stages real canonical/settings cases and rejects
  assert.match(read('tests/helpers/q2-runtime/control.mjs'),/canvasVoiceSettingsCase\(env,body.name\)/);
  assert.throws(()=>parseRuntimeArgs(['--suite','canvas-voice-untrusted'],{}));
  assert.throws(()=>selectedRuntimeSuites('canvas-voice-untrusted'));
+ // Exercise the actual scheduler registration, not only its exported inventory.
+ // Callbacks are deliberately not executed here; real workerd acceptance is a
+ // separate required caller and must never be inferred from this discovery.
+ const registered=[];
+ await runCanvasVoiceTests({migrations:[],canvasProvider:{requests:[]},test:async name=>registered.push(name)});
+ assert.deepEqual([...registered].sort(),[...canvasVoiceInventory].sort());
+ await assert.rejects(()=>runCanvasVoiceTests({migrations:[],canvasProvider:{requests:[]},test:async name=>{
+  if(name==='canvas_voice_action_revoked')throw new Error('Required native revoked-authority callback failed');
+ }}),/Required native revoked-authority callback failed/);
 });

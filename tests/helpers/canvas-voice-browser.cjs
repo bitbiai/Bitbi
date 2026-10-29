@@ -1,4 +1,24 @@
 function registerCanvasVoiceTests(test, expect, { mockSharedAuth, createCanvasApiMock } = {}) {
+    for (const german of [false,true]) test(`Canvas Voice ${german?'de':'en'}: shared action confirmation remains usable by keyboard without weakening paid quotes`, async ({page}) => {
+        await page.route('**/voice-action-harness', route => route.fulfill({contentType:'text/html',body:'<!doctype html><main id="actions"></main>'}));
+        await page.goto('/voice-action-harness');
+        await page.evaluate(async german => {
+            const {createCanvasConversationActions}=await import('/js/pages/canvas/agent-conversation-actions.js');
+            window.confirmed=[];window.action={id:'a'.repeat(32),type:'production_pause',state:'confirmation_required',text:german?'Produktion pausieren?':'Pause production?',
+                confirmation:{kind:'voice',expectedRevision:3,expectedBriefRevision:2}};
+            window.actionControls=createCanvasConversationActions({parent:document.getElementById('actions'),copy:{actionConfirm:german?'Bestätigen':'Confirm',actionDecline:german?'Ablehnen':'Decline',actionTitle:'Canvas',actionCosts:'Credits'},
+                confirm:(action,decision)=>window.confirmed.push({id:action.id,decision,confirmation:action.confirmation}),effect:()=>{},changed:()=>{}});
+            window.actionControls.render([window.action]);
+        },german);
+        const button=page.getByRole('button',{name:german?'Bestätigen':'Confirm',exact:true});
+        await expect(button).toBeEnabled();await button.focus();await page.keyboard.press('Enter');
+        expect(await page.evaluate(()=>window.confirmed)).toEqual([{id:'a'.repeat(32),decision:'accept',confirmation:{kind:'voice',expectedRevision:3,expectedBriefRevision:2}}]);
+        for(const confirmation of [{kind:'voice',expectedRevision:3},{kind:'regenerate',expectedRevision:3,expectedBriefRevision:2},
+            {kind:'budget',expectedRevision:3,expectedBriefRevision:2,capCredits:3000},{kind:'forged',expectedRevision:3,expectedBriefRevision:2}]) {
+            await page.evaluate(value=>window.actionControls.render([{...window.action,confirmation:value}]),confirmation);await expect(button).toBeDisabled();
+        }
+        expect(await page.evaluate(()=>window.confirmed.length)).toBe(1);
+    });
     async function harness(page, german, { available = false, admission = null, quotation = null, termination = null } = {}) {
         const calls = [];
         await page.route('**/voice-ui-harness', route => route.fulfill({ contentType: 'text/html', body: `<!doctype html><html lang="${german ? 'de' : 'en'}"><head><link rel="stylesheet" href="/css/base/tokens.css"><link rel="stylesheet" href="/css/base/reset.css"><link rel="stylesheet" href="/css/base/base.css"><link rel="stylesheet" href="/css/components/components.css"><link rel="stylesheet" href="/css/pages/canvas.css"><link rel="stylesheet" href="/css/pages/canvas-voice.css"></head><body style="background:#101217;color:white"><main id="voiceRoot" style="max-width:620px;margin:auto"></main><button id="outside">Outside</button></body></html>` }));

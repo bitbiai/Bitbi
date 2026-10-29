@@ -14,6 +14,10 @@ export const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 // The carousel's complete three-engine matrix and Linux functional job retain
 // the pinned Linux image. Split only the existing two-command full-browser step.
 export function commandRuntimes(command) {
+  if (command.job === 'browser-validation' && command.name === 'Run native Canvas Voice browser journey') {
+    assert.equal(command.run.trim(), 'node scripts/test-canvas-voice-browser-native.mjs --artifacts test-results/canvas-voice-native-browser', 'Changed native Voice acceptance caller');
+    return [{runtime:'native-browser-v1',run:command.run}];
+  }
   if (command.job !== 'browser-validation' || !/\b(?:playwright|npm run test:)\b/.test(command.run))
     return [{runtime:'linux',run:command.run}];
   if (command.name === 'Run full static browser regression') {

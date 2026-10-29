@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CANVAS_VOICE_MODEL, CANVAS_VOICE_PCM_RATES, CANVAS_VOICE_CODECS, CANVAS_VOICE_SETTING_FIELDS,
-    canvasVoiceSettings, assertCanvasVoiceSettingsCapabilities, canvasVoiceSettingsChange } from '../js/shared/canvas-voice-settings.mjs';
+    canvasVoiceSettings, canvasVoiceProjectDefaults, assertCanvasVoiceSettingsCapabilities, canvasVoiceSettingsChange } from '../js/shared/canvas-voice-settings.mjs';
 
 const invalid = (input, path) => assert.throws(() => canvasVoiceSettings(input), error => error.code === 'canvas_voice_settings_invalid' && (!path || error.path === path));
 const unavailable = (input, caps, reason) => assert.throws(() => assertCanvasVoiceSettingsCapabilities(input, caps), error => error.code === 'canvas_voice_setting_unavailable' && error.reason === reason);
@@ -15,6 +15,13 @@ test('Voice defaults pin one model, keep tools off and preserve a standalone tex
     settings.audio.input.transcription.keyterms.push('Changed');
     assert.deepEqual(canvasVoiceSettings().audio.input.transcription.keyterms, []);
     assert.equal(textModel, 'anthropic/claude-fable-5');
+});
+test('new project defaults expose only guarded Canvas tools and preserve explicit historical opt-out', () => {
+    const fresh = canvasVoiceProjectDefaults();
+    assert.equal(fresh.tools.canvas.enabled, true);
+    assert.ok(Object.entries(fresh.tools).filter(([name]) => name !== 'canvas').every(([,tool]) => tool.enabled === false));
+    assert.equal(canvasVoiceSettings({ tools: { canvas: { enabled: false } } }).tools.canvas.enabled, false);
+    assert.equal(canvasVoiceSettings({}).tools.canvas.enabled, false, 'Retained sparse snapshots preserve the original safe fallback');
 });
 
 test('Unknown and privileged fields are rejected at every public configuration boundary', () => {

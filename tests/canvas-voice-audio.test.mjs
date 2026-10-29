@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { VoiceResampler, encodeVoiceAudio, decodeVoiceAudio } from '../js/shared/canvas-voice-audio.mjs';
 import { canvasVoiceSettings } from '../js/shared/canvas-voice-settings.mjs';
+import { CanvasVoiceRelay } from '../workers/auth/src/lib/canvas-voice-relay.js';
 
 // Browser .js modules are ESM, although the repository package is CommonJS.
 // Load their actual source as ESM under Node and Playwright discovery alike;
@@ -37,7 +38,7 @@ test('browser audio loader preserves actual module linkage and rejects an incomp
 // The real worklet, controller, resampler and encoder run together; only browser
 // resource allocation is synthetic. Transfer/delivery can be delayed explicitly.
 async function captureHarness(t, deviceRate = 48000, format = { type: 'audio/pcm', rate: 24000 }, accept = () => true) {
-    const packets = [], errors = [], delayed = [], playback = [], buffers = [], states = []; let capture, processor, audioContext, hold = false;
+    const packets = [], errors = [], delayed = [], playback = [], buffers = [], states = [], presented = []; let capture, processor, audioContext, hold = false;
     const descriptors = new Map(['AudioContext', 'AudioWorkletNode', 'navigator'].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
     const track = { enabled: true, stopped: false, addEventListener() {}, stop() { this.stopped = true; } };
     const stream = { active: true, getTracks: () => [track], getAudioTracks: () => [track] };
@@ -78,10 +79,10 @@ async function captureHarness(t, deviceRate = 48000, format = { type: 'audio/pcm
         connect() {} disconnect() {}
     }
     for (const [key, value] of Object.entries({ AudioContext, AudioWorkletNode, navigator: { mediaDevices: { async getUserMedia() { return stream; } } } })) Object.defineProperty(globalThis, key, { configurable: true, value });
-    const audio = createCanvasVoiceAudio({ settings: canvasVoiceSettings({ audio: { input: { format } } }), onAudio(value) { packets.push(new Uint8Array(Buffer.from(value, 'base64'))); return accept(value); }, onError: error => errors.push(error.code || error.message), onState: state => states.push(state) });
+    const audio = createCanvasVoiceAudio({ settings: canvasVoiceSettings({ audio: { input: { format } } }), onAudio(value) { packets.push(new Uint8Array(Buffer.from(value, 'base64'))); return accept(value); }, onError: error => errors.push(error.code || error.message), onState: state => states.push(state), onPlaybackComplete: value => presented.push(value) });
     t.after(() => { audio.stop(); for (const [key, descriptor] of descriptors) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete globalThis[key]; } });
     await audio.open(); audio.ready();
-    return { audio, packets, errors, track, playback, buffers, states, context: audioContext,
+    return { audio, packets, errors, track, playback, buffers, states, presented, context: audioContext,
         advance(seconds) { audioContext.currentTime += seconds; for (const output of playback) if (!output.ended && output.endAt <= audioContext.currentTime) { output.ended = true; output.onended?.(); } },
         feed(samples) { for (let at = 0; at < samples.length; at += 128) processor.process([[samples.slice(at, at + 128)]]); },
         hold(value) { hold = value; }, deliver() { const handler = capture.port.onmessage; for (const data of delayed.splice(0)) handler?.({ data }); },
@@ -245,6 +246,33 @@ function playbackFrame(samples, index = 0) {
     const bytes = Buffer.alloc(samples * 2); for (let offset = 0; offset < bytes.length; offset += 2) bytes.writeInt16LE(16384, offset);
     return { audio: bytes.toString('base64'), eventId: 'playback_' + index, itemId: 'playback_item', responseId: 'playback_response' };
 }
+test('question playback evidence requires matching completed response and all buffers; repeated done is idempotent', async t => {
+    const h = await captureHarness(t);
+    h.audio.play(playbackFrame(24000)); h.audio.play(playbackFrame(24000, 1));
+    h.audio.responseDone({ responseId: 'other', itemId: 'playback_item', audioEndMs: 2000 });
+    h.advance(1); assert.deepEqual(h.presented, []);
+    h.audio.responseDone({ responseId: 'playback_response', itemId: 'playback_item', audioEndMs: 2000 });
+    assert.deepEqual(h.presented, [], 'Provider done is not completed browser playback');
+    h.advance(1);
+    assert.deepEqual(h.presented, [{ responseId: 'playback_response', itemId: 'playback_item', audioEndMs: 2000 }]);
+    h.audio.responseDone({ responseId: 'playback_response', itemId: 'playback_item', audioEndMs: 2000 });
+    assert.equal(h.presented.length, 1);
+});
+test('partial, interrupted, mismatched and stopped playback never acknowledge a material question', async t => {
+    const h = await captureHarness(t); h.audio.play(playbackFrame(48000));
+    h.audio.responseDone({ responseId: 'playback_response', itemId: 'playback_item', audioEndMs: 2000 });
+    h.advance(.4); h.audio.interrupt(); h.advance(3); assert.deepEqual(h.presented, []);
+    h.audio.play({ ...playbackFrame(24000, 1), responseId: 'new_response', itemId: 'new_item' }); h.advance(1);
+    h.audio.responseDone({ responseId: 'new_response', itemId: 'wrong_item', audioEndMs: 1000 }); assert.deepEqual(h.presented, []);
+    h.audio.responseDone({ responseId: 'new_response', itemId: 'new_item', audioEndMs: 1500 }); assert.deepEqual(h.presented, []);
+    h.audio.stop(); h.audio.responseDone({ responseId: 'new_response', itemId: 'new_item', audioEndMs: 1000 }); assert.deepEqual(h.presented, []);
+});
+test('late response completion acknowledges ended buffers without inventing additional playback', async t => {
+    const h = await captureHarness(t); h.audio.play(playbackFrame(24001)); h.advance(2);
+    assert.deepEqual(h.presented, []);
+    h.audio.responseDone({ responseId: 'playback_response', itemId: 'playback_item', audioEndMs: 1000 });
+    assert.equal(h.presented.length, 1); assert.equal(h.presented[0].audioEndMs, 1000); assert.equal(h.playback.length, 1);
+});
 test('twenty-second provider burst stays playable, preserves ordering and interrupts at actual heard time', async t => {
     const h = await captureHarness(t);
     for (let index = 0; index < 10; index++) h.audio.play(playbackFrame(48000, index));
@@ -266,6 +294,45 @@ test('twenty-second provider burst stays playable, preserves ordering and interr
     assert.deepEqual(h.errors, []); h.audio.stop(); h.audio.stop();
     assert(h.playback.every(node => node.buffer === null)); assert.equal(h.track.stopped, true); assert.equal(h.context.state, 'closed');
     h.audio.play(playbackFrame(48000, 20)); assert.equal(h.playback.length, 20);
+});
+
+for (const [label, chunks] of [
+    ['fractional final sample duration', [24001]],
+    ['integer total with fractional chunk accumulation', [...Array(21).fill(8192), 4128]],
+]) test(`next spoken turn after ${label} retains a valid integer interruption`, async t => {
+    const h = await captureHarness(t), settings = canvasVoiceSettings(), ended = [], interrupted = [], events = [];
+    const relay = new CanvasVoiceRelay({
+        client: { send(raw) { const event = JSON.parse(raw); events.push(event); if (event.type === 'voice.audio') h.audio.play(event); }, close() {} },
+        provider: { send() {}, close() {} }, session: { settings, expiresAt: new Date(Date.now() + 60000).toISOString() },
+        services: { authorize: async () => true, configuration: () => ({ type: 'session.update', session: {} }), verifyConfiguration: async () => {},
+            active: async () => {}, seedContext: async () => null, recordExposure: async () => {},
+            interrupted: async value => interrupted.push(value), ended: async value => ended.push(value) },
+        setTimer: () => 0, clearTimer: () => {},
+    });
+    t.after(() => relay.stop());
+    const provider = event => relay.providerMessage(JSON.stringify(event));
+    await provider({ type: 'session.created' }); await provider({ type: 'session.updated', session: {} });
+    await provider({ type: 'response.created', response: { id: 'first_response' } });
+    await provider({ type: 'response.output_item.added', response_id: 'first_response', item: { type: 'message', id: 'first_item' } });
+    for (const samples of chunks) await provider({ type: 'response.output_audio.delta', response_id: 'first_response', item_id: 'first_item', delta: Buffer.alloc(samples * 2).toString('base64') });
+    await provider({ type: 'response.done', response: { id: 'first_response', status: 'completed' } });
+    h.advance(10); assert.equal(h.audio.playing(), false); assert.deepEqual(h.errors, []);
+    await provider({ type: 'input_audio_buffer.speech_started', item_id: 'second_input' });
+    assert.deepEqual(events.at(-1), { type: 'voice.speech_started', responseId: 'first_response', itemId: 'first_item' });
+    const heard = h.audio.interrupt(), maximumMs = Math.floor(chunks.reduce((sum, count) => sum + count, 0) / 24);
+    await relay.clientMessage(JSON.stringify({ type: 'voice.interrupt', sequence: 0, ...heard }));
+    assert.equal(relay.closed, false, 'Natural next speech must not terminate at the actual client/server frame boundary');
+    assert(Number.isSafeInteger(heard.audioEndMs));
+    assert(heard.audioEndMs <= maximumMs && heard.audioEndMs >= maximumMs - 1, 'Conservative integer time cannot claim audio beyond its sample duration');
+    assert.equal(interrupted.length, 1); assert.equal(interrupted[0].audioEndMs, heard.audioEndMs); assert.deepEqual(ended, []);
+    await provider({ type: 'input_audio_buffer.speech_started', item_id: 'third_input' });
+    assert.deepEqual(events.at(-1), { type: 'voice.speech_started' }, 'A later VAD event still cannot restore the interrupted response');
+    // The trusted renderer produces integer milliseconds; arbitrary malformed
+    // client timestamps must remain rejected by the real relay guard.
+    await provider({ type: 'response.created', response: { id: 'later_response' } });
+    await provider({ type: 'response.output_item.added', response_id: 'later_response', item: { type: 'message', id: 'later_item' } });
+    await relay.clientMessage(JSON.stringify({ type: 'voice.interrupt', sequence: 1, responseId: 'later_response', itemId: 'later_item', audioEndMs: 1.5 }));
+    assert.equal(ended.at(-1).code, 'canvas_voice_frame_invalid'); assert.equal(interrupted.length, 1);
 });
 
 test('retained Float32 playback memory is bounded before allocation and reclaimed once after natural end', async t => {

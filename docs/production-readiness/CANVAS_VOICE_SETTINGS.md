@@ -62,7 +62,7 @@ required caller evidence; the pure tests do not establish those outcomes.
 | `response.modalities` / `response.create.response.modalities` | Nonempty unique array of text and/or audio | Unspecified → both | Advanced; affects manually created responses, not a fictitious session-modalities setting; adapter/automatic-VAD semantics must be verified |
 | `response.instructions` / compiled per-response instructions | Product1000-character communication preference | Unspecified → empty | Advanced; native override replaces whole session prompt, so server must rebuild complete canonical instructions plus preference; never forward user string alone |
 | `browser.echoCancellation`, `.noiseSuppression`, `.autoGainControl` | Booleans; browser capture constraints, not xAI fields | Browser-dependent → requested true | Advanced; report effective device support; no silent claim device honored constraint; structural validation |
-| `tools.canvas.enabled` / approved function definitions | Boolean; definitions/name/description/JSON schema come from server | Unspecified →false | Tools; scoped Canvas functions only after server permission; no arbitrary function JSON; policy/admission tests |
+| `tools.canvas.enabled` / approved function definitions | Boolean; definitions/name/description/JSON schema come from server | New-project/reset UI →true; retained sparse snapshots →false; saved opt-out preserved | Tools; scoped Canvas functions, with separate current approval for spending/controlled changes; no arbitrary function JSON; policy/admission tests |
 | `tools.web_search.enabled` | Boolean; native web_search | Unspecified →false | Tools; permission and external-tool spending evidence required; denied by default |
 | `tools.web_search.allowed_domains`, `.excluded_domains` | Max5 domain strings each, mutually exclusive; no URL/path | Unspecified →empty | Tools filters; case-normalized duplicates rejected; positive/broken tests |
 | `tools.web_search.location.{country,city,region,timezone}` | Strings; product100 chars; timezone IANA | Unspecified →empty | Tools location; never infer private user location; native location alias user_location exists but single public spelling |
@@ -248,10 +248,16 @@ ordinary POST-only CSRF protection is insufficient for a WebSocket handshake.
 
 `canvas-voice-conversation.js` reuses canonical brief/context/capabilities and
 ordinary conversation rows. `canvas-voice-tools.js` binds the authenticated
-session and source turn outside model arguments. The three narrow functions
-read context, propose validated brief changes and describe the existing next
-decision. None can start production or authorize spending. Revision guards and
-stable provider item/call IDs protect manual edits and duplicate delivery.
+session and source turn outside model arguments. Context/brief functions are
+joined by `canvas_decision` and `canvas_action`: they call the existing decision,
+typed-action, start/control and accounting services, never a second planner.
+`canvas_voice_end` accepts an explicit final request to end the call; ambiguous
+"stop" needs clarification, and ending Voice does not cancel production.
+Preparing a budget question or entering a cap does not start production.
+The server parses the final committed answer, verifies the current immutable
+decision and scope, and returns the actual accepted run. Action confirmations
+use existing receipts. Revision guards and stable provider item/call IDs protect
+manual edits, lost acknowledgements and duplicate delivery.
 Voice transcripts never go through the text assistant's paid `/messages` path.
 The text model preference and all accepted production receipts remain separate.
 Saving an ordinary spoken turn or reply adopts its canonical conversation
@@ -260,8 +266,11 @@ the provider. Explicit context reads, successful brief changes and response
 continuations still read the current authoritative state; model-supplied stale
 revisions cannot bypass validation. The Owner may translate a bounded set of
 context revisions actually presented to the provider across its own transcript/
-reply projections only. Brief and project revisions must still match that snapshot;
-external changes invalidate the Owner's authority. The canonical mutation keeps
+reply projections only. Creative writes adopt their exact guarded receipts.
+The same accepted production may advance its project revision only when its
+current expected revision, original run/model/budget/brief/policy and all control
+fences establish normal execution. Manual edits and unrelated controls are not
+silently adopted. The canonical mutation keeps
 the original tool arguments for replay and checks the trusted comparison revision
 inside its existing atomic guards. This does not rebase creative edits, refresh
 authority from model arguments or make a failed call successful retrospectively.
@@ -276,6 +285,27 @@ cannot borrow a different completed user turn. Interruption preserves original
 generated text as evidence and stores the provider-confirmed retained prefix
 separately. Unknown audible content is an application-attributed interruption
 note, never a fabricated Grok answer. Playback counters are not proof of hearing.
+For a short spoken approval, the complete exact application question must have
+a completed provider response and matched, elapsed browser playback receipt.
+The next committed utterance must have a new server-observed speech start after
+that playback receipt. This is protocol timing, not a measurement of physical
+speech onset or human hearing. Interrupted questions, interim ASR, idle prompts,
+quotes and an intervening question cannot approve it.
+The provider cannot supply an approval flag, actor, decision ID or cap argument.
+Expected denials return a structured result and a current question, rather than
+closing audio. Saving/cancelling/clearing the conversation ends Voice cleanly;
+ending Voice itself never cancels an accepted production.
+
+Continuous-turn regression (2026-10-29): the reported session on `ea653513`
+retained `canvas_voice_frame_invalid`, but not the original interrupt frame or
+chunk boundaries. Actual audio-helper → relay reproduction demonstrates that
+fractional accumulated playback milliseconds violate the integer truncation
+contract at the next speech start. Floor the final bounded duration, preserve
+the interrupted-answer guard, and acknowledge full playback separately. This
+proves the local defect, not the discarded historical frame. The first terminal
+code/stage/direction and bounded timing/counters now survive Stop/cleanup in
+existing usage metadata; no audio, prompts or unrestricted exception strings
+are logged. The failed local countercase remains an invalid fractional frame.
 
 No raw audio, provider key or external resource credential is persisted in the
 Voice tables. Transcripts remain private canonical project conversations; Voice
@@ -287,7 +317,8 @@ approved direct route and retention facts in the existing disclosure inventory.
 ### Checks and release/recovery
 
 Focused executable callers are `tests/q2-canvas-voice-contract.spec.js`,
-`tests/q2-canvas-voice-conversation.spec.js`, `tests/q2-canvas-voice-accounting.spec.js`, the `canvas-voice` suite in
+`tests/q2-canvas-voice-conversation.spec.js`, `tests/q2-canvas-voice-accounting.spec.js`,
+`tests/q2-canvas-voice-actions.spec.js`, the `canvas-voice` suite in
 `scripts/test-q2-runtime.mjs`, and the Voice cases registered by
 `tests/helpers/canvas-voice-browser.cjs` in `tests/canvas.spec.js`. They cover
 synthetic provider/audio behavior, native D1 migration/persistence, the real
@@ -295,6 +326,16 @@ Auth fetch route and canonical tools. Existing conversation/provider and Canvas
 layout cases remain independent regression controls. Native macOS workerd is
 not Linux release evidence; synthetic capture is not a physical microphone or
 live xAI conversation. Private logs retain earlier failures and later fixes.
+`scripts/test-canvas-voice-browser-native.mjs` adds a Mac Chromium/WebKit
+multi-turn capture/worklet/playback journey against an isolated native Owner/D1
+child. Its synthetic provider and microphone do not certify a physical device.
+`tests/q2-canvas-voice-film.spec.js` follows actual spoken-decision services into
+the existing tiny FFmpeg/persisted-film fixture with music and manual re-export;
+that fixture uses local SQLite and synthetic playback/provider evidence.
+The closed `canvas-voice-v1` impact mapping retains shared text/button, typed
+actions, native Canvas and security/accounting callers. Unknown/shared inputs
+outside its boundary retain ordinary broader selection. Old-candidate reports
+are not automatically transferred; `release:local` verifies exact-source proof.
 Node capture fixtures must also load through the actual Playwright discovery
 caller: direct Node execution alone does not establish browser-module loader
 compatibility. The protected inventory names the packetization case and rejects
@@ -378,7 +419,7 @@ match unique tool identities instead of list positions. Reject mixed forms,
 duplicates, added tools/options and changed schemas; never infer undocumented
 defaults. Safe fixed diagnostic categories distinguish remaining structural
 failures without retaining tool names, schema keys, URLs or values. Native
-`startup_wrapped_tools` and `startup_wrapped_extra` exercise all three real
+`startup_wrapped_tools` and `startup_wrapped_extra` exercise all six approved
 Canvas definitions, activation/rejection, original settlement and duplicate Stop.
 
 The subsequent `f899a1d3` live session activated and received input audio, then
@@ -499,8 +540,10 @@ response still supports ordinary barge-in. Relay and native Owner controls
 verify both paths, retaining the confirmed prefix through the following turn.
 
 Schema `0119_canvas_voice_sessions.sql` and the Voice frontend are published.
-The context/source association corrections affect Auth; the published frontend consumes
-the existing event unchanged. Compute the complete unpublished selection before
+The continuous-conversation extension affects Auth and frontend, including the
+matched playback acknowledgement. It requires no additional schema or binding.
+Older clients can continue ordinary audio but cannot supply the new spoken
+approval playback proof. Compute the complete unpublished selection before
 release and verify active identities independently.
 Use `release:local` with its existing protection, verification and publication
 lock. A published component or accepted WebSocket alone is not live speech

@@ -66,11 +66,12 @@ try {
   const verifyVoiceDiscovery = rows => {
     for (const project of ['chromium','webkit-canvas']) {
       const cases=rows.filter(row=>row.project===project&&['canvas.spec.js','canvas-voice-browser.cjs'].includes(row.file)&&row.title.startsWith('Canvas Voice '));
-      assert.equal(cases.length,26,'Every Voice browser case must be discovered by the existing Canvas entrypoint');
+      assert.equal(cases.length,28,'Every Voice browser case must be discovered by the existing Canvas entrypoint');
       assert(cases.every(row=>row.file==='canvas.spec.js'&&row.expectedStatus==='passed'),'Voice helper cases retain their owning entrypoint and execute');
       for(const locale of ['EN','DE'])assert.equal(cases.filter(row=>row.title===`Canvas Voice settings ${locale} are complete, persistent, keyboard accessible and do not start recording`).length,1);
       assert.equal(cases.filter(row=>row.title==='Canvas Voice real AudioWorklet and raw Opus browser pipeline uses synthetic audio and releases tracks').length,1);
       assert.equal(cases.filter(row=>row.title==='Canvas Voice real AudioWorklet batches PCM and G711, flushes tails and preserves mute and manual pause').length,1);
+      for(const locale of ['en','de'])assert.equal(cases.filter(row=>row.title===`Canvas Voice ${locale}: shared action confirmation remains usable by keyboard without weakening paid quotes`).length,1);
     }
   };
   verifyVoiceDiscovery(standard);
@@ -81,6 +82,9 @@ try {
   assert.throws(()=>verifyVoiceDiscovery(standard.map(row=>row===voiceCase?{...row,expectedStatus:'skipped'}:row)));
   const packetCase=standard.find(row=>row.title==='Canvas Voice real AudioWorklet batches PCM and G711, flushes tails and preserves mute and manual pause');
   assert.throws(()=>verifyVoiceDiscovery(standard.map(row=>row===packetCase?{...row,title:'replacement capture test'}:row)));
+  const confirmationCase=standard.find(row=>row.title==='Canvas Voice en: shared action confirmation remains usable by keyboard without weakening paid quotes');
+  assert(confirmationCase);
+  assert.throws(()=>verifyVoiceDiscovery(standard.map(row=>row===confirmationCase?{...row,title:'Canvas Voice unrelated replacement'}:row)));
   const verifyConsumerDiscovery = rows => {
     for (const project of ['chromium','webkit-consumer']) {
       const cases = rows.filter(row=>row.project===project && row.title.includes('@consumer-contract'));
@@ -111,7 +115,11 @@ try {
   const lines = workflow.split('\n').map(line => line.trim());
   const allDiscovery = lines.filter(line => line.includes('PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/canvas-discovery.json npm run test:static'));
   const allExecution = lines.filter(line => line.includes('PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:static') && line.includes('tests/canvas.spec.js'));
-  assert.equal(allDiscovery.length, 8); assert.equal(allExecution.length, 8);
+  assert.equal(allDiscovery.length, 9); assert.equal(allExecution.length, 9);
+  assert.equal(allDiscovery.filter(line=>line.includes("--grep 'Canvas Voice|")).length,1);
+  assert.equal(allExecution.filter(line=>line.includes("--grep 'Canvas Voice|")).length,1);
+  const completeCanvas=lines.filter(line=>line.includes('PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/canvas-complete-discovery.json npm run test:static'));
+  assert.equal(completeCanvas.length,1);assert(!completeCanvas[0].includes('--grep'));
   const focused = allDiscovery.find(line => line.includes("--grep 'Canvas completion metadata'"));
   assert(focused);
   assert.equal(focused.split(' npm ')[1].replace(' --list --reporter=json', ''),

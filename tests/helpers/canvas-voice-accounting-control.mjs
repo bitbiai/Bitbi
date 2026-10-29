@@ -10,6 +10,7 @@ import {quoteCanvasVoiceSession,admitCanvasVoiceSession,readOwnedCanvasVoiceSess
 import {canvasVoiceAllowanceCase} from './canvas-voice-allowance-control.mjs';
 import {canvasVoiceResumptionCase} from './canvas-voice-resumption-control.mjs';
 import {markMemberAiUsageAttemptProviderRunning} from '../../workers/auth/src/lib/member-ai-usage-attempts.js';
+import {canvasVoiceContinuityCase} from './canvas-voice-continuity-control.mjs';
 
 const check=(value,message)=>{if(!value)throw new Error(message);};
 async function reject(fn,code){try{await fn();}catch(error){check(!code||error.code===code||String(error).includes(code),`Expected ${code}, got ${error.code||String(error)}`);return;}throw new Error(`Expected ${code||'rejection'}`);}
@@ -19,7 +20,7 @@ function interruptedSessionProjection(env,state){
   const result=bind(...args);if(!failed&&sql.includes(`UPDATE canvas_voice_sessions SET state='${state}'`))result.run=async()=>{failed=true;throw Object.assign(new Error('synthetic_session_projection_interrupted'),{code:'synthetic_session_projection_interrupted'});};
   return result;};return prepared;},batch:DB.batch.bind(DB)}}};
 }
-export const CANVAS_VOICE_ACCOUNTING_CASES=['settlement','manual','guard','unknown','concurrency','deleted','allowance','late','lostack','resumption','authexpired','authrevoked'];
+export const CANVAS_VOICE_ACCOUNTING_CASES=['settlement','manual','guard','unknown','concurrency','deleted','allowance','late','lostack','resumption','authexpired','authrevoked','continuity'];
 export async function canvasVoiceAccountingCase(env,name){
  const DB=env.DB,userId='voice-account-'+name,projectId=(await sha256Hex(userId)).slice(0,32),sessionId=(await sha256Hex(userId+'-session')).slice(0,32),scope={userId,projectId,sessionId};
  const now=new Date().toISOString();
@@ -94,6 +95,7 @@ export async function canvasVoiceAccountingCase(env,name){
  const measured=await recordCanvasVoiceExposure(env,scope,exposure);
  check(measured.startedBlocks===(name==='manual'?3:2),'Started blocks count server duration or audio IN plus OUT, never client playback');
  await reject(()=>recordCanvasVoiceExposure(env,scope,{...exposure,elapsedMs:0}),'canvas_voice_exposure_invalid');
+ if(name==='continuity')await canvasVoiceContinuityCase(env,scope,exposure);
  if(name==='authrevoked'){
   await DB.prepare('DELETE FROM sessions WHERE id=?').bind(authSessionId).run();
   await reject(()=>readOwnedCanvasVoiceSession(env,scope),'canvas_voice_authority_changed');

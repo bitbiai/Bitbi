@@ -4,8 +4,9 @@ import {runCanvasVoiceOwnerTest} from './voice-owner.mjs';
 import assert from 'node:assert/strict';
 import {CANVAS_VOICE_CONVERSATION_CASES} from '../canvas-voice-conversation-control.mjs';
 import {CANVAS_VOICE_SETTINGS_CASES} from '../canvas-voice-settings-control.mjs';
+import {CANVAS_VOICE_ACTION_CASES} from '../canvas-voice-actions-control.mjs';
 
-export const canvasVoiceInventory=Object.freeze(['canvas_voice_empty_migration','canvas_voice_populated_migration',
+export const canvasVoiceInventory=Object.freeze(['canvas_voice_empty_migration','canvas_voice_populated_migration',...CANVAS_VOICE_ACTION_CASES.map(name=>'canvas_voice_action_'+name),
  ...CANVAS_VOICE_CONVERSATION_CASES.map(name=>'canvas_voice_conversation_'+name),
  ...CANVAS_VOICE_SETTINGS_CASES.map(name=>'canvas_voice_settings_'+name),'canvas_voice_authenticated_routes',...CANVAS_VOICE_ACCOUNTING_CASES.map(name=>'canvas_voice_accounting_'+name),'canvas_voice_native_owner',...CANVAS_VOICE_OWNER_LIFECYCLE_CASES.map(name=>'canvas_voice_owner_'+name)]);
 async function control(f,path,body){const response=await f.control(path,body);assert.equal(response.status,200,await response.clone().text());return response.json();}
@@ -28,6 +29,9 @@ export async function runCanvasVoiceTests(f){
  });
  for(const name of CANVAS_VOICE_CONVERSATION_CASES)await f.test('canvas_voice_conversation_'+name,async()=>{
   assert.deepEqual(await control(f,'/canvas-voice-conversation',{name}),{case:name,inferenceCalls:0,productionActions:0});
+ });
+ for(const name of CANVAS_VOICE_ACTION_CASES)await f.test('canvas_voice_action_'+name,async()=>{
+  assert.deepEqual(await control(f,'/canvas-voice-actions',{name}),{case:name,productions:['start','replay','action','text-handoff','lost-ack','action-lost-ack','terminal-save','terminal-cancel','terminal-clear'].includes(name)?1:0,providerCalls:0});
  });
  for(const name of CANVAS_VOICE_SETTINGS_CASES)await f.test('canvas_voice_settings_'+name,async()=>{
   assert.deepEqual(await control(f,'/canvas-voice-settings',{name}),{case:name,providerCalls:0});

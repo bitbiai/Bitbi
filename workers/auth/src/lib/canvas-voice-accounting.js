@@ -10,6 +10,7 @@ import { markAiDispatchUnknown } from './ai-dispatch-state.js';
 import { consumeMemberCredits } from './billing.js';
 import { nowIso, randomTokenHex, sha256Hex } from './tokens.js';
 import { findCanvasVoiceResumption, validateCanvasVoiceResumption } from './canvas-voice-resumption.js';
+import { firstCanvasVoiceTerminalDiagnostic } from './canvas-voice-diagnostics.js';
 
 const fail = (code, status = 409) => { throw Object.assign(new Error(code), { code, status }); };
 const table = 'member_ai_usage_attempts_v2', feature = 'ai.voice.realtime';
@@ -128,8 +129,9 @@ export async function admitCanvasVoiceSession(env, { userId, projectId, authSess
     }
     return { session: publicSession(await readOwnedCanvasVoiceSession(env, scope)), replay: false };
 }
-export async function readOwnedCanvasVoiceSession(env, scope, { allowTerminal = false } = {}) {
+export async function readOwnedCanvasVoiceSession(env, scope, { allowTerminal = false, expectedProjectRevision } = {}) {
     scopeValid(scope);
+    if (expectedProjectRevision !== undefined && (!Number.isSafeInteger(expectedProjectRevision) || expectedProjectRevision < 0)) fail('canvas_voice_scope_invalid', 400);
     const row = await env.DB.prepare(`SELECT s.*,c.state AS conversation_state,p.revision AS current_project_revision,
         COALESCE(v.revision,0) AS current_settings_revision FROM canvas_voice_sessions s JOIN canvas_projects p ON p.id=s.project_id
         JOIN canvas_agent_conversations c ON c.project_id=s.project_id JOIN users u ON u.id=s.user_id LEFT JOIN canvas_voice_settings v ON v.project_id=s.project_id
@@ -137,7 +139,7 @@ export async function readOwnedCanvasVoiceSession(env, scope, { allowTerminal = 
         .bind(scope.sessionId, scope.projectId, scope.userId).first();
     if (!row) fail('canvas_voice_session_unavailable');
     if (!allowTerminal && (!['admitted', 'connecting', 'active'].includes(row.state) || row.stop_requested || row.expires_at <= nowIso()
-        || row.conversation_state !== 'active' || row.current_project_revision !== row.project_revision
+        || row.conversation_state !== 'active' || row.current_project_revision !== (expectedProjectRevision ?? row.project_revision)
         || row.state === 'admitted' && (row.current_settings_revision !== row.settings_revision || !row.admit_by || row.admit_by <= nowIso())
         || !row.auth_session_id || !await env.DB.prepare('SELECT id FROM sessions WHERE id=? AND user_id=? AND expires_at>?').bind(row.auth_session_id, scope.userId, nowIso()).first()
         || row.state === 'admitted' && row.resume_expires_at && row.resume_expires_at <= nowIso()
@@ -174,13 +176,15 @@ export async function activateCanvasVoiceSession(env, scope) {
     if (result.meta?.changes !== 1) fail('canvas_voice_authority_changed');
     return { active: true };
 }
-export async function recordCanvasVoiceExposure(env, scope, input) {
-    const session = await readOwnedCanvasVoiceSession(env, scope), row = await usage(env, scope);
+export async function recordCanvasVoiceExposure(env, scope, input, { expectedProjectRevision } = {}) {
+    const session = await readOwnedCanvasVoiceSession(env, scope, { expectedProjectRevision }), row = await usage(env, scope);
     if (row.provider_outcome !== 'dispatched' || !session.accepted_at) fail('canvas_voice_exposure_invalid');
     const measured = canvasVoiceExposure(row.metadata.canvas_voice.pricing, session.settings, input, JSON.parse(session.exposure_json));
     const result = await env.DB.prepare(`UPDATE canvas_voice_sessions SET exposure_json=?,started_blocks=?,updated_at=?
-        WHERE id=? AND user_id=? AND project_id=? AND exposure_json=? AND state IN ('connecting','active') AND stop_requested=0`)
-        .bind(stablePricingJson(measured), measured.startedBlocks, nowIso(), scope.sessionId, scope.userId, scope.projectId, session.exposure_json).run();
+        WHERE id=? AND user_id=? AND project_id=? AND exposure_json=? AND state IN ('connecting','active') AND stop_requested=0
+        AND EXISTS(SELECT 1 FROM canvas_projects p WHERE p.id=canvas_voice_sessions.project_id AND p.user_id=canvas_voice_sessions.user_id
+            AND p.deleted_at IS NULL AND p.revision=?)`)
+        .bind(stablePricingJson(measured), measured.startedBlocks, nowIso(), scope.sessionId, scope.userId, scope.projectId, session.exposure_json, session.current_project_revision).run();
     if (result.meta?.changes !== 1) fail('canvas_voice_exposure_changed');
     if (measured.exceeded) {
         await markAiDispatchUnknown(env, table, row.id, { dispatchToken: row.dispatch_token, code: 'canvas_voice_exposure_exceeded' });
@@ -192,9 +196,20 @@ export async function recordCanvasVoiceExposure(env, scope, input) {
 }
 // Only the server-owned relay calls this function. A browser stop/request or a
 // timer by itself is not proof of a provider's completed/zero-cost outcome.
-export async function finishCanvasVoiceSession(env, scope, { outcome, exposure, code = 'canvas_voice_ended' }) {
+export async function finishCanvasVoiceSession(env, scope, { outcome, exposure, code = 'canvas_voice_ended', diagnostic }) {
     if (!['completed', 'rejected', 'not_submitted', 'unknown'].includes(outcome) || !/^[a-z0-9_]{1,100}$/.test(code)) fail('canvas_voice_outcome_invalid');
     let row = await usage(env, scope);
+    if (diagnostic && !row.metadata.canvas_voice_terminal_diagnostic) {
+        // This first-cause record is separate from the immutable provider/billing
+        // receipt. A later Stop, close acknowledgement or recovery cannot replace it.
+        const first = firstCanvasVoiceTerminalDiagnostic(null, diagnostic.code, diagnostic);
+        await env.DB.prepare(`UPDATE ${table} SET metadata_json=json_set(metadata_json,'$.canvas_voice_terminal_diagnostic',json(?))
+            WHERE id=? AND user_id=? AND json_extract(metadata_json,'$.canvas_voice.project_id')=?
+            AND json_extract(metadata_json,'$.canvas_voice.session_id')=? AND json_type(metadata_json,'$.canvas_voice_terminal_diagnostic') IS NULL`)
+            .bind(stablePricingJson(first), row.id, scope.userId, scope.projectId, scope.sessionId).run();
+        row = await usage(env, scope);
+    }
+    if (row.metadata.canvas_voice_terminal_diagnostic) code = firstCanvasVoiceTerminalDiagnostic(row.metadata.canvas_voice_terminal_diagnostic).code;
     const session = await env.DB.prepare('SELECT * FROM canvas_voice_sessions WHERE id=? AND user_id=? AND project_id=?').bind(scope.sessionId, scope.userId, scope.projectId).first();
     if (row.billing_status === 'finalized') {
         const receipt = row.metadata.canvas_voice_receipt;

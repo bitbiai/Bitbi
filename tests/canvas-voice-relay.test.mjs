@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { CanvasVoiceRelay } from '../workers/auth/src/lib/canvas-voice-relay.js';
 import { CanvasVoiceOwner } from '../workers/auth/src/lib/canvas-voice-owner.js';
+import { CanvasVoicePresentation } from '../workers/auth/src/lib/canvas-voice-presentation.js';
 import { canvasVoiceSettings } from '../js/shared/canvas-voice-settings.mjs';
 
 function fixture(patch = {}, clock = {}) {
@@ -23,6 +24,87 @@ function fixture(patch = {}, clock = {}) {
         advance: ms => { time += ms; }, revoke: () => { authority = false; },
         ready: async () => { await provider({ type: 'session.created', session: { id: 'session_1' } }); await provider({ type: 'conversation.created', conversation: { id: 'conversation_1' } }); await provider({ type: 'session.updated', session: { instructions: 'trusted' } }); } };
 }
+test('original malformed interrupt diagnosis survives cleanup, duplicate Stop and provider close', async () => {
+    const f = fixture(); await f.ready(); f.advance(22466);
+    await f.provider({ type: 'response.created', response: { id: 'answer' } });
+    await f.provider({ type: 'response.output_item.added', response_id: 'answer', item: { id: 'spoken', type: 'message' } });
+    await f.provider({ type: 'response.done', response: { id: 'answer', status: 'completed' } });
+    await f.client({ type: 'voice.interrupt', sequence: 0, responseId: 'answer', itemId: 'spoken', audioEndMs: 7339.999999999997 });
+    const ended = f.calls.filter(([kind]) => kind === 'ended'); assert.equal(ended.length, 1);
+    const diagnosis = ended[0][1].diagnostic;
+    assert.equal(ended[0][1].code, 'canvas_voice_frame_invalid');
+    assert.equal(diagnosis.code, 'canvas_voice_frame_invalid'); assert.equal(diagnosis.reason, 'interruption_time');
+    assert.equal(diagnosis.stage, 'client_frame'); assert.equal(diagnosis.direction, 'browser_to_server');
+    assert.equal(diagnosis.event, 'voice.interrupt'); assert.equal(diagnosis.elapsedMs, 22466);
+    await f.relay.stop('canvas_voice_stopped', { event: 'stop_request' });
+    await f.relay.stop('canvas_voice_disconnected', { event: 'close', direction: 'provider_to_server' });
+    assert.equal(f.calls.filter(([kind]) => kind === 'ended').length, 1); assert.deepEqual(f.relay.terminalDiagnostic, diagnosis);
+});
+async function spokenAnswer(f, { final = true, transcript = true } = {}) {
+    await f.ready();
+    await f.provider({ type: 'input_audio_buffer.speech_started', item_id: 'input' });
+    await f.provider({ type: 'input_audio_buffer.committed', item_id: 'input' });
+    if (transcript) await f.provider({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'input', transcript: 'What can we make?' });
+    await f.provider({ type: 'response.created', response: { id: 'answer' } });
+    await f.provider({ type: 'response.output_item.added', response_id: 'answer', item: { id: 'spoken', type: 'message' } });
+    await f.provider({ type: 'response.output_audio_transcript.delta', response_id: 'answer', delta: 'Start this film with a maximum of 3000 credits?' });
+    await f.provider({ type: 'response.output_audio.delta', response_id: 'answer', item_id: 'spoken', delta: Buffer.alloc(48000).toString('base64') });
+    if (final) await f.provider({ type: 'response.done', response: { id: 'answer', status: 'completed' } });
+}
+test('a complete played response remains listening into a second committed turn without truncation', async () => {
+    const played = [], timing = [], f = fixture({ playback: async value => played.push(value), userTurn: async (value, source) => { timing.push(source); return { id: value.itemId }; } });
+    await spokenAnswer(f); f.advance(1000);
+    assert.deepEqual(f.sent.find(event => event.type === 'voice.response_done'), { type: 'voice.response_done', responseId: 'answer', itemId: 'spoken', audioEndMs: 1000 });
+    await f.client({ type: 'voice.playback', sequence: 0, responseId: 'answer', itemId: 'spoken', audioEndMs: 1000 });
+    await f.client({ type: 'voice.playback', sequence: 1, responseId: 'answer', itemId: 'spoken', audioEndMs: 1000 });
+    assert.equal(played.length, 1);
+    f.advance(1); await f.provider({ type: 'input_audio_buffer.speech_started', item_id: 'second' });
+    assert.deepEqual(f.sent.at(-1), { type: 'voice.speech_started' });
+    await f.provider({ type: 'input_audio_buffer.committed', item_id: 'second' });
+    await f.provider({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'second', transcript: 'Yes, start now.' });
+    assert.equal(timing[1].startedAt, 101001); assert.equal(timing[1].committedAt, 101001);
+    assert.equal(f.relay.closed, false); assert.equal(f.upstream.some(event => event.type === 'conversation.item.truncate'), false);
+    await f.relay.stop();
+});
+test('playback evidence rejects early, partial, mismatched, interrupted and unfinished claims without authorizing actions', async () => {
+    for (const kind of ['early', 'partial', 'mismatched', 'interrupted', 'unfinished']) {
+        const played = [], f = fixture({ playback: async value => played.push(value) });
+        await spokenAnswer(f, { final: kind !== 'unfinished' });
+        if (kind !== 'early') f.advance(1000);
+        let sequence = 0;
+        if (kind === 'interrupted') await f.client({ type: 'voice.interrupt', sequence: sequence++, responseId: 'answer', itemId: 'spoken', audioEndMs: 200 });
+        await f.client({ type: 'voice.playback', sequence, responseId: 'answer', itemId: kind === 'mismatched' ? 'other' : 'spoken', audioEndMs: kind === 'partial' ? 200 : 1000 });
+        assert.equal(played.length, 0, kind); assert.equal(f.relay.closed, false, kind); await f.relay.stop();
+    }
+});
+test('a late final transcript gates playback proof until its canonical reply is saved', async () => {
+    const f = fixture(); await spokenAnswer(f, { transcript: false });
+    assert.equal(f.sent.some(event => event.type === 'voice.response_done'), false);
+    await f.provider({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'input', transcript: 'Make a film.' });
+    assert.equal(f.sent.filter(event => event.type === 'voice.response_done').length, 1); await f.relay.stop();
+});
+test('real relay distinguishes invalid JSON, unknown payload shape and sequence instead of retaining payloads', async () => {
+    for (const [raw, reason] of [['{"private_audio":', 'json'], [JSON.stringify({ type: 'voice.mute', sequence: 0, private: 'private token' }), 'payload_shape'],
+        [JSON.stringify({ type: 'voice.mute', sequence: 0.5 }), 'sequence_value'], [JSON.stringify({ type: 'voice.mute', sequence: 0, muted: 'private' }), 'muted_type']]) {
+        const f = fixture(); await f.ready(); await f.relay.clientMessage(raw);
+        const ended = f.calls.find(([kind]) => kind === 'ended')[1];
+        assert.equal(ended.code, 'canvas_voice_frame_invalid'); assert.equal(ended.diagnostic.reason, reason);
+        assert.equal(JSON.stringify(ended).includes('private'), false);
+    }
+});
+test('original authority and storage failures keep their stage and safe exception category', async () => {
+    const revoked = fixture(); await revoked.ready(); revoked.revoke();
+    await revoked.client({ type: 'audio.append', sequence: 0, audio: 'private' });
+    assert.equal(revoked.relay.terminalDiagnostic.stage, 'authority');
+    assert.equal(revoked.relay.terminalDiagnostic.code, 'canvas_voice_authority_changed');
+    const failed = fixture({ userTurn: async () => { throw new TypeError('private SQL statement'); } }); await failed.ready();
+    await failed.provider({ type: 'input_audio_buffer.committed', item_id: 'user' });
+    await failed.provider({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'user', transcript: 'private user message' });
+    const diagnosis = failed.relay.terminalDiagnostic;
+    assert.equal(diagnosis.stage, 'user_turn'); assert.equal(diagnosis.direction, 'provider_to_server');
+    assert.equal(diagnosis.exceptionType, 'TypeError'); assert.equal(diagnosis.code, 'canvas_voice_protocol_failed');
+    assert.equal(JSON.stringify(diagnosis).includes('private'), false);
+});
 test('only own conversation projections bridge a known presented context, never a changed semantic fence', () => {
     const owner = new CanvasVoiceOwner({}, {}), a = { revision: 5 };
     const context = { conversationRevision: 5, briefRevision: 2, projectRevision: 7 };
@@ -725,6 +807,8 @@ test('interrupt cancels only an in-progress provider response while completed qu
         assert.equal(f.calls.filter(call => call[0] === 'interrupted').length, 1);
         assert.equal(f.calls.find(call => call[0] === 'interrupted')[1].audioEndMs, 750);
         assert.equal(f.sent.at(-1).type, 'voice.interrupted');
+        await f.provider({ type: 'response.output_item.added', response_id: 'interrupt_response', item: { type: 'message', id: 'interrupt_item' } });
+        assert.equal(f.relay.output.interrupted, true, 'A repeated message item cannot resurrect interrupted playback');
         await f.provider({ type: 'response.output_audio.delta', response_id: 'interrupt_response', item_id: 'interrupt_item', delta: 'AAA=' });
         assert.equal(f.sent.filter(event => event.type === 'voice.audio').length, 1, 'Interrupted late audio remains suppressed');
         assert.equal(f.relay.outputSamples, 24001, 'Actually received late audio remains metered');
@@ -741,5 +825,29 @@ test('interrupt cancels only an in-progress provider response while completed qu
         assert.deepEqual(f.upstream.filter(event => event.type === 'conversation.item.truncate').at(-1), { type: 'conversation.item.truncate', item_id: 'next_item', content_index: 0, audio_end_ms: 0 });
         assert.equal(f.calls.filter(call => call[0] === 'interrupted')[0][1].audioEndMs, 750, 'A new output interruption cannot replace the earlier heard position');
         assert.equal(f.relay.closed, false); await f.relay.stop();
+    }
+});
+
+test('actual relay invalidates idle and intervening spoken question authority without denying a bound tool-only reply', async () => {
+    for (const idle of [false, true]) {
+        const p = new CanvasVoicePresentation({}, {}), f = fixture({
+            responseCreated: value => p.created(value), responseOutput: value => p.output(value),
+        });
+        await f.ready(); await user(f, 'approval_input');
+        p.proof = { key: 'approved-question', responseId: 'question', playedAt: 10 };
+        p.lastReply = 'question'; p.knownRevision = 1;
+        const turn = { turnId: 'final-answer' }, proof = { key: 'approved-question', responseId: 'question' };
+        p.user(turn, { startedAt: 11 }, 1);
+        await f.provider({ type: 'response.created', response: { id: 'confirmation-tools' } });
+        assert.equal(p.canUse(proof, turn, 1), true);
+        if (idle) {
+            await f.provider({ type: 'input_audio_buffer.timeout_triggered' });
+            await f.provider({ type: 'response.created', response: { id: 'idle-question' } });
+        } else {
+            await f.provider({ type: 'response.output_item.added', response_id: 'confirmation-tools', item: { id: 'another-question', type: 'message' } });
+        }
+        assert.equal(p.canUse(proof, turn, 1), false, 'No old budget authorization survives another question');
+        assert.equal(f.relay.closed, false, 'Clarification does not terminate the audio session');
+        await f.relay.stop();
     }
 });

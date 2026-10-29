@@ -1,5 +1,6 @@
 import {CANVAS_VOICE_ACCOUNTING_CASES,canvasVoiceAccountingCase} from '../canvas-voice-accounting-control.mjs';
 import {seedCanvasVoiceOwner} from '../canvas-voice-owner-control.mjs';
+import {CANVAS_VOICE_ACTION_CASES,canvasVoiceActionCase} from '../canvas-voice-actions-control.mjs';
 import {processTransactionalMessages} from '../../../workers/auth/src/lib/transactional-messages.js';
 import {CANVAS_VOICE_CONVERSATION_CASES,canvasVoiceConversationCase} from '../canvas-voice-conversation-control.mjs';
 import {canvasVoiceRouteCase} from '../canvas-voice-route-control.mjs';
@@ -117,6 +118,7 @@ export default {
     const path=new URL(request.url).pathname;
     const body=await request.json();
     if(path==='/canvas-voice-conversation'&&CANVAS_VOICE_CONVERSATION_CASES.includes(body.name))return Response.json(await canvasVoiceConversationCase(env,body.name));
+    if(path==='/canvas-voice-actions'&&CANVAS_VOICE_ACTION_CASES.includes(body.name))return Response.json(await canvasVoiceActionCase(env,body.name));
     if(path==='/canvas-voice-accounting'&&CANVAS_VOICE_ACCOUNTING_CASES.includes(body.name))return Response.json(await canvasVoiceAccountingCase(env,body.name));
     if(path==='/canvas-voice-owner-seed')return Response.json(await seedCanvasVoiceOwner(env,body));
     if(path==='/canvas-voice-owner-latency'){

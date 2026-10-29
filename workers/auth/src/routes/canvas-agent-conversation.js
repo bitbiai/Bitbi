@@ -39,7 +39,7 @@ export async function approveCanvasBriefingAllowance(ctx,row,body,key,{guard=[],
         ctx.env.DB.prepare('UPDATE canvas_agent_conversations SET allowance_credits=?,allowance_tariff=?,diagnostic_allowance=?,revision=revision+1,updated_at=? WHERE project_id=?')
             .bind(body.capCredits,tariff.revision,body.diagnostics===undefined?row.diagnostic_allowance||0:body.diagnostics?1:0,nowIso(),row.project_id),...after]);
 }
-export async function controlCanvasConversation(ctx,row,body,key,locale) {
+export async function controlCanvasConversation(ctx,row,body,key,locale,{voiceSource=null}={}) {
     check(body,['action','expectedConversationRevision','draft','locale']);
     if(body.locale!==undefined&&!['en','de'].includes(body.locale))agentFail('canvas_agent_conversation_input_invalid',400);
     locale=body.locale||locale;
@@ -53,7 +53,7 @@ export async function controlCanvasConversation(ctx,row,body,key,locale) {
         const count=await ctx.env.DB.prepare("SELECT COUNT(*) AS n FROM canvas_agent_turns t WHERE project_id=? AND state!='deleted' AND NOT EXISTS(SELECT 1 FROM canvas_agent_incident_explanations x WHERE x.turn_id=t.id)").bind(row.project_id).first();
         if(count.n>=80)agentFail('canvas_agent_conversation_limit');
     }
-    const brief=body.action==='clear'?emptyBrief():JSON.parse(row.brief_json),now=nowIso(),id=randomTokenHex(16);
+    const brief=body.action==='clear'?emptyBrief():JSON.parse(row.brief_json),now=nowIso(),id=voiceSource?.turnId||randomTokenHex(16);
     let changed=body.action==='clear',userText=null,assistant=null;
     if(body.action==='delegate_duration'){
         brief.duration={targetDurationSeconds:null,choice:'delegated',asked:brief.duration.asked,sourceMessageId:id};
@@ -82,7 +82,7 @@ export async function controlCanvasConversation(ctx,row,body,key,locale) {
             WHERE project_id=? ${body.action==='clear'?'':"AND state IN ('pending','review_required')"}`)
             .bind(body.action==='clear'?'deleted':'cancelled',body.action==='clear'?'deleted':'cancelled',body.action==='clear'?'deleted':'cancelled',now,row.project_id));
     }
-    if(userText)statements.push(ctx.env.DB.prepare(`INSERT INTO canvas_agent_turns(id,project_id,request_key,input_json,conversation_revision,brief_revision,user_text,assistant_text,state,created_at,updated_at)
+    if(userText&&!voiceSource)statements.push(ctx.env.DB.prepare(`INSERT INTO canvas_agent_turns(id,project_id,request_key,input_json,conversation_revision,brief_revision,user_text,assistant_text,state,created_at,updated_at)
         VALUES(?,?,?,?,?,?,?,?,'completed',?,?)`).bind(id,row.project_id,key,input,row.revision+1,brief.revision,userText,assistant,now,now));
     if(changed)statements.push(pauseForBriefChange(ctx.env,row.project_id));
     await ctx.env.DB.batch(statements);

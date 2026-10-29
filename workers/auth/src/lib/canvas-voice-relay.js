@@ -3,12 +3,17 @@
 // credits. Browser messages are NOT arbitrary xAI messages.
 import { opusPacketDuration } from '../../../../js/shared/canvas-voice-audio.mjs';
 import { canvasVoiceProviderRejectionCategory } from './canvas-voice-provider.js';
-import { canvasVoiceToolDiagnostic } from './canvas-voice-tools.js';
+import { canvasVoiceToolDiagnostic, isCanvasVoiceTool, voiceToolNeedsUserTurn } from './canvas-voice-tools.js';
 import { sha256Hex } from './tokens.js';
+import { canvasVoiceTerminalDiagnostic } from './canvas-voice-diagnostics.js';
 // UTF-8 wire bytes and retained UTF-16 string memory are different limits.
 const textFrameBytes = value => value.length > 280000 ? 280001 : new TextEncoder().encode(value).byteLength;
-const parse = value => { if (typeof value !== 'string' || value.length > 280000) throw new Error('canvas_voice_frame_invalid'); return JSON.parse(value); };
-const fail = code => { throw Object.assign(new Error(code), { code }); };
+const fail = (code, diagnosticReason) => { throw Object.assign(new Error(code), { code, diagnosticReason }); };
+const parse = value => {
+    if (typeof value !== 'string') fail('canvas_voice_frame_invalid', 'payload_type');
+    if (value.length > 280000) fail('canvas_voice_frame_invalid', 'payload_size');
+    try { return JSON.parse(value); } catch { fail('canvas_voice_frame_invalid', 'json'); }
+};
 const exact = (value, keys) => value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).every(k => keys.includes(k));
 const id = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,160}$/.test(value);
 // Diagnostic categories are fixed protocol names, never provider payloads or IDs.
@@ -71,7 +76,7 @@ export class CanvasVoiceRelay {
         this.manualPending = null; this.committedSamples = 0;
         const remaining = new Date(session.expiresAt).getTime() - now();
         if (!Number.isFinite(remaining) || remaining <= 0) fail('canvas_voice_session_expired');
-        this.deadline = setTimer(() => void this.stop('canvas_voice_session_limit'), remaining);
+        this.deadline = setTimer(() => void this.stop('canvas_voice_session_limit', { stage: 'deadline', event: 'timer' }), remaining);
     }
     send(message) { if (!this.closed) this.client.send(JSON.stringify(message)); }
     upstream(message) { if (!this.closed) this.provider.send(typeof message === 'string' || message instanceof ArrayBuffer ? message : JSON.stringify(message)); }
@@ -80,7 +85,14 @@ export class CanvasVoiceRelay {
         const configuration = this.services.configuration();
         this.configurationSent = true; this.upstream(configuration);
     }
-    async authorize() { if (this.closed || !await this.services.authorize(this.session)) fail('canvas_voice_authority_changed'); }
+    async authorize() { return this.observe('authority', async () => { if (this.closed || !await this.services.authorize(this.session)) fail('canvas_voice_authority_changed'); }); }
+    async observe(stage, work) {
+        const context = this.diagnosticContext, prior = context?.stage;
+        if (context) context.stage = stage;
+        const result = await work();
+        if (context) context.stage = prior;
+        return result;
+    }
     transcript(itemId) {
         if (!this.latestTranscript.has(itemId)) {
             if (this.latestTranscript.size >= 80) fail('canvas_voice_turn_limit');
@@ -105,39 +117,49 @@ export class CanvasVoiceRelay {
         // A provisional ASR completion is not yet a committed user message.
         // After publication, the canonical service still rejects changed text
         // for the same immutable item; only exact repeats are skipped here.
-        const turn = await this.services.userTurn({ itemId, text: transcript.text });
+        const turn = await this.observe('user_turn', () => this.services.userTurn({ itemId, text: transcript.text },
+            { startedAt: transcript.startedAt, committedAt: transcript.committedAt }));
         if (this.closed) return;
         transcript.persistedText = transcript.text; this.turns.set(itemId, turn);
         if (itemId === this.sourceItemId) this.turn = turn;
         for (const response of this.functionResponses.values()) if (response.sourceItemId === itemId) response.turn = turn;
         for (const response of this.responses.values()) if (response.sourceItemId === itemId) {
             response.turn = turn;
-            if (response.done && response.text && !response.persisted) { await this.services.reply(response); response.persisted = true; }
+            if (response.done && response.text && !response.persisted) {
+                await this.observe('reply_projection', () => this.services.reply(response)); response.persisted = true; this.responseDone(response);
+            }
         }
         this.send({ type: 'voice.changed' });
     }
-    enqueue(work, size = 0, frameBytes = size) {
+    enqueue(work, size = 0, frameBytes = size, context = { stage: 'checkpoint', direction: 'server_internal', event: 'timer' }) {
         if (this.closed) return Promise.resolve();
         const pressure = frameBytes > 280000 ? 'frame' : this.queuedCount >= 64 ? 'count' : this.queuedBytes + size > 2 * 1024 * 1024 ? 'bytes' : null;
-        if (pressure) return this.stop('canvas_voice_backpressure_' + pressure);
+        if (pressure) return this.stop('canvas_voice_backpressure_' + pressure, { ...context, stage: 'queue', reason: pressure, frameBytes });
         this.queuedCount++; this.queuedBytes += size;
-        this.queue = this.queue.then(async () => { if (!this.closed) await work(); }).catch(error => this.stop(error.code || 'canvas_voice_protocol_failed'))
+        this.queue = this.queue.then(async () => { if (!this.closed) { this.diagnosticContext = context; await work(); } })
+            .catch(error => this.stop(error.code || 'canvas_voice_protocol_failed', { ...context, frameBytes }, error))
             .finally(() => { this.queuedCount--; this.queuedBytes -= size; });
         return this.queue;
     }
-    clientMessage(raw) { return this.enqueue(async () => {
+    responseDone(answer) {
+        if (answer?.persisted && !answer.interrupted && answer.audioSamples)
+            this.send({ type: 'voice.response_done', responseId: answer.responseId, itemId: answer.itemId,
+                audioEndMs: Math.floor(answer.audioSamples * 1000 / this.session.settings.audio.output.format.rate) });
+    }
+    clientMessage(raw) { const context = { stage: 'client_frame', direction: 'browser_to_server', event: 'message' }; return this.enqueue(async () => {
         await this.authorize();
-        const event = parse(raw);
-        if (!exact(event, ['type', 'sequence', 'audio', 'muted', 'responseId', 'itemId', 'audioEndMs']) || !Number.isSafeInteger(event.sequence) || event.sequence < 0) fail('canvas_voice_frame_invalid');
+        const event = parse(raw); context.event = event?.type;
+        if (!exact(event, ['type', 'sequence', 'audio', 'muted', 'responseId', 'itemId', 'audioEndMs'])) fail('canvas_voice_frame_invalid', 'payload_shape');
+        if (!Number.isSafeInteger(event.sequence) || event.sequence < 0) fail('canvas_voice_frame_invalid', 'sequence_value');
         const prior = this.sequences.get(event.sequence);
         if (prior !== undefined) { if (prior !== raw) fail('canvas_voice_replay_conflict'); return; }
         if (event.sequence !== this.nextSequence) fail('canvas_voice_sequence_gap');
         this.sequences.set(event.sequence, raw); this.nextSequence++;
         if (this.sequences.size > 32) this.sequences.delete(this.sequences.keys().next().value);
-        if (event.type === 'voice.stop') { await this.stop('canvas_voice_stopped'); return; }
+        if (event.type === 'voice.stop') { await this.stop('canvas_voice_stopped', { ...context, stage: 'stop' }); return; }
         if (!this.active) fail('canvas_voice_not_ready');
         if (event.type === 'voice.mute') {
-            if (typeof event.muted !== 'boolean') fail('canvas_voice_frame_invalid');
+            if (typeof event.muted !== 'boolean') fail('canvas_voice_frame_invalid', 'muted_type');
             this.muted = event.muted; this.send({ type: 'voice.state', state: this.muted ? 'muted' : 'listening' }); return;
         }
         if (event.type === 'audio.append') {
@@ -149,9 +171,10 @@ export class CanvasVoiceRelay {
             // Enforce the reserved maximum before forwarding. The owner checkpoints
             // actually forwarded input, so a simultaneous Stop cannot bill this proposal.
             const proposed = this.inputSamples + count;
-            await this.services.recordExposure({ ...this.exposure(), inputSamples: proposed });
+            await this.observe('exposure', () => this.services.recordExposure({ ...this.exposure(), inputSamples: proposed }));
             if (this.closed) return;
             this.inputSamples = proposed; this.lastInputAt = this.now();
+            if (this.manualInputStartedAt === undefined) this.manualInputStartedAt = this.now();
             if (this.session.settings.audio.input.transport === 'binary') this.upstream(bytes.buffer);
             else this.upstream({ type: 'input_audio_buffer.append', audio: event.audio });
             return;
@@ -166,23 +189,40 @@ export class CanvasVoiceRelay {
         }
         if (event.type === 'voice.interrupt') {
             if (!this.output || event.responseId !== this.output.responseId || event.itemId !== this.output.itemId) return;
-            if (!Number.isSafeInteger(event.audioEndMs) || event.audioEndMs < 0 || event.audioEndMs > 7200000) fail('canvas_voice_frame_invalid');
+            if (!Number.isSafeInteger(event.audioEndMs) || event.audioEndMs < 0 || event.audioEndMs > 7200000) fail('canvas_voice_frame_invalid', 'interruption_time');
             this.output.interrupted = true;
             this.output.truncationRequested = event.audioEndMs;
             if (!this.output.done) this.upstream({ type: 'response.cancel', response_id: event.responseId });
             this.upstream({ type: 'conversation.item.truncate', item_id: event.itemId, content_index: 0, audio_end_ms: event.audioEndMs });
-            await this.services.interrupted({ ...this.output, audioEndMs: event.audioEndMs });
+            await this.observe('reply_projection', () => this.services.interrupted({ ...this.output, audioEndMs: event.audioEndMs }));
             this.send({ type: 'voice.interrupted', responseId: event.responseId }); return;
         }
+        if (event.type === 'voice.playback') {
+            if (!Number.isSafeInteger(event.audioEndMs) || event.audioEndMs < 1 || event.audioEndMs > 7200000)
+                fail('canvas_voice_frame_invalid', 'playback_time');
+            const answer = this.responses.get(event.responseId);
+            if (!answer || answer.itemId !== event.itemId || answer !== this.output || answer.interrupted || answer.playbackComplete) return;
+            const duration = (answer.audioSamples || 0) * 1000 / this.session.settings.audio.output.format.rate;
+            // A browser receipt cannot invent provider audio, a complete response,
+            // or elapsed playback time. The 1ms tolerance is conservative integer
+            // rounding, never permission to omit part of the spoken conditions.
+            if (!answer.done || !answer.persisted || !duration || event.audioEndMs > duration || duration - event.audioEndMs > 1
+                || this.now() - answer.firstAudioAt + 1 < duration) {
+                this.send({ type: 'voice.playback_unconfirmed' }); return;
+            }
+            answer.playbackComplete = true;
+            await this.observe('playback', () => this.services.playback?.({ ...answer, audioMs: event.audioEndMs, playedAt: this.now() }));
+            return;
+        }
         fail('canvas_voice_command_forbidden');
-    }, typeof raw === 'string' ? raw.length * 2 : 280001, typeof raw === 'string' ? textFrameBytes(raw) : 280001); }
-    providerMessage(raw) { return this.enqueue(async () => {
+    }, typeof raw === 'string' ? raw.length * 2 : 280001, typeof raw === 'string' ? textFrameBytes(raw) : 280001, context); }
+    providerMessage(raw) { const context = { stage: 'provider_frame', direction: 'provider_to_server', event: raw instanceof ArrayBuffer ? 'binary' : 'message' }; return this.enqueue(async () => {
         await this.authorize();
         if (raw instanceof ArrayBuffer) {
             if (!this.active || !this.output || this.session.settings.audio.output.transport !== 'binary') fail('canvas_voice_audio_unassociated');
             await this.audio(new Uint8Array(raw)); return;
         }
-        const event = parse(raw), type = event?.type;
+        const event = parse(raw), type = event?.type; context.event = type;
         if (event?.event_id) {
             if (!id(event.event_id)) fail('canvas_voice_provider_event_invalid');
             if (this.providerEvents.has(event.event_id)) return;
@@ -202,7 +242,7 @@ export class CanvasVoiceRelay {
         if (type === 'conversation.item.created' || type === 'conversation.item.added') return;
         if (type === 'session.updated') {
             if (!this.configurationSent) fail('canvas_voice_provider_not_ready_session_updated');
-            await this.services.verifyConfiguration(event.session);
+            await this.observe('configuration', () => this.services.verifyConfiguration(event.session));
             if (this.closed) return;
             if (!this.active) {
                 await this.services.active(); if (this.closed) return; this.active = true;
@@ -223,13 +263,14 @@ export class CanvasVoiceRelay {
                 const transcript = this.transcript(event.item_id);
                 if (transcript.speechStarted || transcript.committed || transcript.superseded) return;
                 transcript.speechStarted = true;
+                transcript.startedAt = this.now();
             }
             // xAI identifies the user item before its audio commit. Pin responses
             // now, but grant no turn until this exact item is committed and final.
             this.source(event.item_id || null); this.turn = null;
             // Do not restore a playback identity that the client already cleared
             // on interruption; a second empty playback would truncate it to zero.
-            const interruptible = this.output?.interrupted ? null : this.output;
+            const interruptible = this.output?.interrupted || this.output?.playbackComplete ? null : this.output;
             this.send({ type: 'voice.speech_started', responseId: interruptible?.responseId, itemId: interruptible?.itemId }); return;
         }
         if (event.type === 'input_audio_buffer.committed') {
@@ -237,13 +278,16 @@ export class CanvasVoiceRelay {
             const transcript = this.transcript(event.item_id);
             if (transcript.committed) return;
             transcript.committed = true;
+            transcript.committedAt = this.now();
+            if (this.session.settings.turn_detection.type === null) transcript.startedAt ??= this.manualInputStartedAt;
+            this.manualInputStartedAt = undefined;
             // Manual commits establish a source without VAD. A delayed commit
             // for older speech must never replace a newer observed utterance.
             const current = this.latestTranscript.get(this.sourceItemId);
             if (!transcript.superseded && !transcript.speechStarted && !(current?.speechStarted && !current.committed)) this.source(event.item_id);
             await this.publishTranscript(event.item_id);
             if (this.manualPending && !this.manualPending.sent) {
-                this.manualPending.sent = true; this.manualPending.itemId = event.item_id; this.upstream(await this.services.response());
+                this.manualPending.sent = true; this.manualPending.itemId = event.item_id; this.upstream(await this.observe('response', () => this.services.response()));
             }
             return;
         }
@@ -252,6 +296,7 @@ export class CanvasVoiceRelay {
             if (!this.functionResponses.has(event.response.id)) this.functionResponses.set(event.response.id,
                 { sourceItemId: this.sourceItemId, turn: this.turn, calls: [], continued: false });
             if (this.functionResponses.size > 160) fail('canvas_voice_turn_limit');
+            await this.services.responseCreated?.({ responseId: event.response.id, sourceItemId: this.sourceItemId });
             return;
         }
         if (event.type === 'conversation.item.input_audio_transcription.updated' || event.type === 'conversation.item.input_audio_transcription.completed') {
@@ -265,6 +310,12 @@ export class CanvasVoiceRelay {
         }
         if (event.type === 'response.output_item.added' && event.item?.type === 'message') {
             if (!id(event.response_id) || !id(event.item.id)) fail('canvas_voice_provider_event_invalid');
+            const retained = this.responses.get(event.response_id);
+            if (retained) {
+                if (retained.itemId !== event.item.id) fail('canvas_voice_audio_unassociated');
+                return; // Duplicate delivery cannot reset playback/interruption evidence.
+            }
+            await this.services.responseOutput?.({ responseId: event.response_id });
             const source = this.functionResponses.get(event.response_id);
             this.output = { responseId: event.response_id, itemId: event.item.id, text: '', interrupted: false, turn: source?.turn || null, sourceItemId: source?.sourceItemId || null };
             this.responses.set(event.response_id, this.output); if (this.responses.size > 160) fail('canvas_voice_turn_limit'); return;
@@ -279,7 +330,7 @@ export class CanvasVoiceRelay {
             response.text += event.delta; return;
         }
         if (event.type === 'response.function_call_arguments.done') {
-            if (!id(event.call_id) || !['canvas_context', 'canvas_update_brief', 'canvas_prepare_next_step'].includes(event.name)
+            if (!id(event.call_id) || !isCanvasVoiceTool(event.name)
                 || typeof event.arguments !== 'string' || event.arguments.length > 24000 || !this.session.settings.tools.canvas.enabled) fail('canvas_voice_tool_forbidden');
             const response = this.functionResponses.get(event.response_id);
             const fingerprint = JSON.stringify([event.response_id, event.name, event.arguments]);
@@ -287,13 +338,15 @@ export class CanvasVoiceRelay {
             if (previous) { if (previous.fingerprint !== fingerprint) fail('canvas_voice_replay_conflict'); return; }
             if (!response || response.continued) fail('canvas_voice_tool_response_unknown');
             if (this.functionCalls.size >= 80) fail('canvas_voice_tool_limit');
-            const sourceState = event.name === 'canvas_update_brief' ? this.sourceState(response) : null;
+            const sourceState = voiceToolNeedsUserTurn(event.name) ? this.sourceState(response) : null;
             const result = sourceState && sourceState !== 'ready' ? { ok: false,
                 code: sourceState === 'superseded' ? 'canvas_voice_source_changed' : 'canvas_voice_transcript_pending', retry: false }
-                : await this.services.tool({ callId: event.call_id, turn: response.turn, name: event.name, arguments: JSON.parse(event.arguments) });
+                : await this.observe('tool', () => this.services.tool({ callId: event.call_id, turn: response.turn, name: event.name, arguments: JSON.parse(event.arguments) }));
             this.functionCalls.set(event.call_id, { fingerprint, result });
             response.calls.push({ callId: event.call_id, result });
-            this.send({ type: 'voice.changed', tool: { ...canvasVoiceToolDiagnostic(event.name, result), ...(sourceState ? { sourceState } : {}) } }); return;
+            this.send({ type: 'voice.changed', tool: { ...canvasVoiceToolDiagnostic(event.name, result), ...(sourceState ? { sourceState } : {}) } });
+            if (result.ok && result.endVoice === true) await this.stop('canvas_voice_stopped', { stage: 'tool', direction: 'server_internal' });
+            return;
         }
         if (event.type === 'conversation.item.truncated') {
             if (!id(event.item_id)) fail('canvas_voice_provider_event_invalid');
@@ -301,22 +354,23 @@ export class CanvasVoiceRelay {
             if (!response || response.truncationRequested === undefined || event.audio_end_ms !== response.truncationRequested) fail('canvas_voice_truncation_unconfirmed');
             if (event.transcript !== undefined && (typeof event.transcript !== 'string' || event.transcript.length > 8000)) fail('canvas_voice_transcript_invalid');
             response.interrupted = true;
-            await this.services.interrupted({ responseId: response.responseId, itemId: response.itemId, audioEndMs: event.audio_end_ms,
-                ...(event.transcript !== undefined ? { transcript: event.transcript } : {}) });
+            await this.observe('reply_projection', () => this.services.interrupted({ responseId: response.responseId, itemId: response.itemId, audioEndMs: event.audio_end_ms,
+                ...(event.transcript !== undefined ? { transcript: event.transcript } : {}) }));
             return;
         }
         if (event.type === 'response.done') {
             const response = this.responses.get(event.response?.id);
             if (response) { response.done = true; response.interrupted ||= event.response.status !== 'completed'; }
             if (response && response.text && response.turn && !response.persisted) {
-                await this.services.reply(response); response.persisted = true; this.send({ type: 'voice.changed' });
+                await this.observe('reply_projection', () => this.services.reply(response)); response.persisted = true; this.send({ type: 'voice.changed' });
             }
+            this.responseDone(response);
             const functions = this.functionResponses.get(event.response?.id);
             if (functions && !functions.continued && functions.calls.length) {
                 functions.continued = true;
                 if (event.response.status === 'completed') {
                     for (const call of functions.calls) this.upstream({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: call.callId, output: JSON.stringify(call.result) } });
-                    this.upstream(await this.services.response());
+                    this.upstream(await this.observe('response', () => this.services.response()));
                 }
             }
             if (this.manualPending && functions?.sourceItemId === this.manualPending.itemId
@@ -326,7 +380,7 @@ export class CanvasVoiceRelay {
             this.send({ type: 'voice.state', state: this.muted ? 'muted' : 'listening' });
         }
     }, typeof raw === 'string' ? raw.length * 2 : raw instanceof ArrayBuffer ? raw.byteLength : 280001,
-    typeof raw === 'string' ? textFrameBytes(raw) : raw instanceof ArrayBuffer ? raw.byteLength : 280001); }
+    typeof raw === 'string' ? textFrameBytes(raw) : raw instanceof ArrayBuffer ? raw.byteLength : 280001, context); }
     async audio(bytes) {
         if (!bytes.length || bytes.length > 192000) fail('canvas_voice_audio_limit');
         const format = this.session.settings.audio.output.format;
@@ -334,18 +388,22 @@ export class CanvasVoiceRelay {
         const count = format.type === 'audio/opus' ? opusPacketDuration(bytes) * format.rate / 1000 : bytes.length / (format.type === 'audio/pcm' ? 2 : 1);
         if (this.outputSamples + count > format.rate * 7200) fail('canvas_voice_audio_limit');
         this.outputBytes += bytes.length; this.outputSamples += count;
+        this.output.firstAudioAt ??= this.now(); this.output.audioSamples = (this.output.audioSamples || 0) + count;
         // Received provider audio remains billable evidence even when the user
         // has interrupted playback. Never count compressed bytes as seconds.
-        await this.services.recordExposure(this.exposure());
+        await this.observe('exposure', () => this.services.recordExposure(this.exposure()));
         if (this.output.interrupted) return;
         this.send({ type: 'voice.audio', audio: base64(bytes), itemId: this.output.itemId, responseId: this.output.responseId });
     }
     exposure() { return { inputSamples: this.inputSamples, outputSamples: this.outputSamples, outputBytes: this.outputBytes,
         inputRate: this.session.settings.audio.input.format.rate, outputRate: this.session.settings.audio.output.format.rate,
         elapsedMs: Math.max(0, this.now() - this.startedAt) }; }
-    async stop(code = 'canvas_voice_disconnected') {
+    async stop(code = 'canvas_voice_disconnected', context = {}, error) {
         if (this.closed) return;
         this.closed = true;
+        this.terminalDiagnostic = canvasVoiceTerminalDiagnostic(error ? { code: error.code || code, name: error.name, diagnosticReason: error.diagnosticReason } : code, { ...this.exposure(), ...context,
+            queuedCount: this.queuedCount, queuedBytes: this.queuedBytes, occurredAtMs: this.now() });
+        code = this.terminalDiagnostic.code;
         const publicCode = typeof code === 'string' && (code.startsWith('canvas_voice_configuration_unconfirmed_')
             || code.startsWith('canvas_voice_provider_not_ready_')) ? 'canvas_voice_configuration_unconfirmed'
             : ['canvas_voice_backpressure_frame', 'canvas_voice_backpressure_count', 'canvas_voice_backpressure_bytes'].includes(code) ? 'canvas_voice_backpressure' : code;
@@ -353,7 +411,7 @@ export class CanvasVoiceRelay {
         try { this.provider.close(1000, 'session ended'); } catch { /* Already closed; the outcome is still recorded below. */ }
         try { this.client.send(JSON.stringify({ type: 'voice.ended', code: publicCode })); this.client.close(1000, 'session ended'); } catch { /* Disconnected browser cannot acknowledge termination. */ }
         this.latestTranscript.clear(); this.sequences.clear(); this.providerEvents.clear(); this.turns.clear();
-        await this.services.ended({ code, ...this.exposure(),
+        await this.services.ended({ code, diagnostic: this.terminalDiagnostic, ...this.exposure(),
             incompleteResponses: [...this.responses.values()].filter(value => !value.persisted).map(value => ({ ...value, interrupted: true })) });
         this.responses.clear();
         this.functionResponses.clear(); this.functionCalls.clear();

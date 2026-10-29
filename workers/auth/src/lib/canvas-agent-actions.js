@@ -36,6 +36,7 @@ const summary=(row,state,detail={})=>({code:detail.code||`canvas_agent_action_${
 async function finish(env,row,state,result) {
   const previous=parse(row.result_json)||{};
   if(previous.confirmationInput)result={...result,confirmationInput:previous.confirmationInput};
+  if(previous.confirmationVoice)result={...result,confirmationVoice:previous.confirmationVoice};
   const written=await env.DB.prepare('UPDATE canvas_agent_action_receipts SET state=?,result_json=?,updated_at=? WHERE id=? AND user_id=? AND state=? AND result_json IS ?')
     .bind(state,JSON.stringify(result),nowIso(),row.id,row.user_id,row.state,row.result_json).run();
   if(written.meta?.changes!==1)return env.DB.prepare('SELECT * FROM canvas_agent_action_receipts WHERE id=?').bind(row.id).first();
@@ -79,14 +80,15 @@ export async function canvasAgentActionContext(env,userId,projectId){
     production:run?{id:run.id,status:run.status,phase:run.phase,budgetCredits:run.budget_credits,budgetRevision:run.budget_revision,errorCode:run.error_code}:null,
     execution:await canvasConversationExecutionFacts(env,userId,projectId)};
 }
-export async function prepareCanvasAgentActionStatements(env,{userId,projectId,turnId,actions,expectedRevision,locale,expectedControlId}){
+export async function prepareCanvasAgentActionStatements(env,{userId,projectId,turnId,actions,expectedRevision,locale,expectedControlId,voiceSource=null}){
   const valid=validateCanvasAgentActions(actions,{projectRevision:expectedRevision});
   const controlId=expectedControlId===undefined?await canvasAgentActionControlId(env,projectId):expectedControlId;
   if(!/^[a-f0-9]{32}$/.test(controlId||''))agentFail('canvas_agent_action_context_invalid');
   const statements=[];
   for(let ordinal=0;ordinal<valid.length;ordinal++){
     const id=(await sha256Hex(`canvas-dialogue-action:${projectId}:${turnId}:${ordinal}`)).slice(0,32);
-    const input={version:1,action:valid[ordinal],expectedRevision,expectedControlId:controlId,locale:locale==='de'?'de':'en'};
+    const input={version:1,action:valid[ordinal],expectedRevision,expectedControlId:controlId,locale:locale==='de'?'de':'en',
+      ...(voiceSource?{voice:{sessionId:voiceSource.sessionId,conversationRevision:voiceSource.conversationRevision,briefRevision:voiceSource.briefRevision}}:{})};
     statements.push(env.DB.prepare(`INSERT INTO canvas_agent_action_receipts(id,project_id,user_id,turn_id,ordinal,input_json,state,created_at,updated_at)
       VALUES(?,?,?,?,?,?,'proposed',?,?)`).bind(id,projectId,userId,turnId,ordinal,stablePricingJson(input),nowIso(),nowIso()));
   }
@@ -196,7 +198,8 @@ async function prepareAction(env,row,user,view,expectedRevision){
   return base;
 }
 function confirmationFor(row,prepared){
-  const {action}=parse(row.input_json),kind={allowance_propose:'allowance',budget_accept:'budget',regenerate:'regenerate',conversation_clear:'clear'}[action.type];
+  const {action,voice}=parse(row.input_json),kind={allowance_propose:'allowance',budget_accept:'budget',regenerate:'regenerate',conversation_clear:'clear'}[action.type]
+    ||(voice&&!['status','brief_summary','show_project','show_result','focus_node'].includes(action.type)?'voice':null);
   if(!kind)return null;
   return {kind,expectedRevision:prepared.expectedRevision,expectedBriefRevision:prepared.expectedBriefRevision,
     ...(prepared.tariffRevision!==undefined?{tariffRevision:prepared.tariffRevision}:{}),
@@ -231,15 +234,18 @@ async function applyAction(env,row,user,view,prepared,originalRequest=null){
   if(briefControl[action.type]){
     const {controlCanvasConversation}=await import('../routes/canvas-agent-conversation.js');
     const conversation=await env.DB.prepare('SELECT * FROM canvas_agent_conversations WHERE project_id=? AND user_id=?').bind(row.project_id,user.id).first();
-    await controlCanvasConversation(ctx('agent/conversation/control',prepared.body),conversation,prepared.body,key,locale);
-    return {effect:{kind:'refresh'}};
+    const voiceConfirmation=parse(row.result_json)?.confirmationVoice;
+    const body=voiceConfirmation?{...prepared.body,expectedConversationRevision:voiceConfirmation.conversationRevision}:prepared.body;
+    await controlCanvasConversation(ctx('agent/conversation/control',body),conversation,body,key,locale,
+      parse(row.input_json).voice?{voiceSource:{turnId:row.turn_id}}:{});
+    return {effect:{kind:'refresh'},conversationRevision:conversation.revision+1,briefRevision:conversation.brief_revision+(['clear','skip_questions','delegate_duration'].includes(prepared.body.action)?1:0)};
   }
   if(action.type==='allowance_propose'){
     const {approveCanvasBriefingAllowance}=await import('../routes/canvas-agent-conversation.js');
     const conversation=await env.DB.prepare('SELECT * FROM canvas_agent_conversations WHERE project_id=? AND user_id=?').bind(row.project_id,user.id).first();
     await approveCanvasBriefingAllowance(ctx('agent/conversation/allowance',prepared.body,prepared.tariffRevision),conversation,prepared.body,key);
     const current=await env.DB.prepare('SELECT allowance_credits FROM canvas_agent_conversations WHERE project_id=? AND user_id=?').bind(row.project_id,user.id).first();
-    return {effect:{kind:'refresh'},text:locale==='de'?`Das Gesprächsbudget ist mit ${current.allowance_credits} Credits freigegeben. Das Projektlimit der Produktion wurde dadurch nicht verändert.`:`The briefing allowance is authorized at ${current.allowance_credits} credits. This has not changed the production project cap.`};
+    return {effect:{kind:'refresh'},conversationRevision:conversation.revision+1,briefRevision:conversation.brief_revision,text:locale==='de'?`Das Gesprächsbudget ist mit ${current.allowance_credits} Credits freigegeben. Das Projektlimit der Produktion wurde dadurch nicht verändert.`:`The briefing allowance is authorized at ${current.allowance_credits} credits. This has not changed the production project cap.`};
   }
   if(['budget_accept','budget_decline'].includes(action.type)){
     const limited=await enforceSensitiveUserRateLimit(ctx('agent',{}),{userId:user.id,scope:'canvas-agent-write-user',maxRequests:30,windowMs:3600000,component:'canvas-agent'});if(limited)await responseData(limited);
@@ -248,9 +254,9 @@ async function applyAction(env,row,user,view,prepared,originalRequest=null){
   }
   if(action.type.startsWith('node_')||action.type.startsWith('original_audio_')){
     const {updateCanvasNode}=await import('../routes/canvas.js');
-    await responseData(await updateCanvasNode(ctx(`nodes/${action.targetId}`,prepared.body),user.id,row.project_id,action.targetId,{expectedRevision:prepared.expectedRevision}));
-    if(action.type.startsWith('original_audio_'))return {effect:{kind:'focus_node',targetId:action.targetId},text:locale==='de'?'Die Toneinstellung ist gespeichert. Ein neuer Export übernimmt die Änderung.':'The audio setting is saved. A new export will include the change.'};
-    return {effect:{kind:'focus_node',targetId:action.targetId},text:locale==='de'?'Die Knoteneinstellung ist gespeichert. Vorhandene Medien bleiben unverändert, bis du neu generierst.':'The node setting is saved. Existing media stays unchanged until you regenerate.'};
+    const result=await responseData(await updateCanvasNode(ctx(`nodes/${action.targetId}`,prepared.body),user.id,row.project_id,action.targetId,{expectedRevision:prepared.expectedRevision}));
+    if(action.type.startsWith('original_audio_'))return {revision:result.mutationRevision,effect:{kind:'focus_node',targetId:action.targetId},text:locale==='de'?'Die Toneinstellung ist gespeichert. Ein neuer Export übernimmt die Änderung.':'The audio setting is saved. A new export will include the change.'};
+    return {revision:result.mutationRevision,effect:{kind:'focus_node',targetId:action.targetId},text:locale==='de'?'Die Knoteneinstellung ist gespeichert. Vorhandene Medien bleiben unverändert, bis du neu generierst.':'The node setting is saved. Existing media stays unchanged until you regenerate.'};
   }
   if(action.type==='regenerate'){
     if(!originalRequest)agentFail('canvas_agent_action_confirmation_required');
@@ -302,7 +308,7 @@ async function applyAction(env,row,user,view,prepared,originalRequest=null){
   agentFail('canvas_agent_action_invalid',400);
 }
 
-async function executeOne(env,row,{request=null,confirmed=false}={}){
+async function executeOne(env,row,{request=null,confirmed=false,voiceGuard=[]}={}){
   const currentRow=await env.DB.prepare('SELECT * FROM canvas_agent_action_receipts WHERE id=?').bind(row.id).first();
   if(!currentRow)return row;row=currentRow;
   const input=parse(row.input_json),{action}=input;
@@ -315,11 +321,13 @@ async function executeOne(env,row,{request=null,confirmed=false}={}){
       pending:accepted.status!=='completed',runId:accepted.id,revision:view.project.revision,controlId:input.expectedControlId,
       effect:{kind:'focus_node',targetId:action.targetId}}));
   }
+  // A completed stop/clear intentionally changes its source state. Subsequent
+  // observation must retain the completed receipt, not relabel it as failure.
+  if(['completed','failed','review_required'].includes(row.state))return row;
   const turn=await env.DB.prepare('SELECT state,user_text FROM canvas_agent_turns WHERE id=? AND project_id=?').bind(row.turn_id,row.project_id).first();
   const conversation=await env.DB.prepare('SELECT state FROM canvas_agent_conversations WHERE project_id=? AND user_id=?').bind(row.project_id,row.user_id).first();
   if((!conversation||conversation.state!=='active')&&!['brief_resume','status','brief_summary','show_project','show_result','focus_node'].includes(action.type)&&row.state!=='executing')return finish(env,row,'failed',summary(row,'failed',{code:'canvas_agent_conversation_stopped'}));
   if(!turn||['deleted','cancelled'].includes(turn.state))return finish(env,row,'failed',summary(row,'failed',{code:'canvas_agent_action_source_changed'}));
-  if(['completed','failed','review_required'].includes(row.state))return row;
   if(row.state==='proposed'&&canvasConversationReadIntent(turn.user_text)&&!['status','brief_summary','show_project','show_result','focus_node'].includes(action.type))
     return finish(env,row,'failed',summary(row,'failed',{code:'canvas_agent_explanation_only'}));
   if(row.state==='confirmation_required'&&!confirmed)return row;
@@ -361,7 +369,8 @@ async function executeOne(env,row,{request=null,confirmed=false}={}){
     const confirmation=confirmationFor(row,prepared);
     if(confirmation&&!confirmed)return finish(env,row,'confirmation_required',summary(row,'confirmation_required',{confirmation,prepared}));
     const claimResult=JSON.stringify({...parse(row.result_json),prepared,claimToken:randomTokenHex(16)});
-    const claim=await env.DB.prepare("UPDATE canvas_agent_action_receipts SET state='executing',result_json=?,updated_at=? WHERE id=? AND state=? AND result_json IS ?").bind(claimResult,nowIso(),row.id,row.state,row.result_json).run();
+    const claimStatement=env.DB.prepare("UPDATE canvas_agent_action_receipts SET state='executing',result_json=?,updated_at=? WHERE id=? AND state=? AND result_json IS ?").bind(claimResult,nowIso(),row.id,row.state,row.result_json);
+    const claim=voiceGuard.length?(await env.DB.batch([...voiceGuard,claimStatement])).at(-1):await claimStatement.run();
     if(claim.meta?.changes!==1)return await env.DB.prepare('SELECT * FROM canvas_agent_action_receipts WHERE id=?').bind(row.id).first();
     row={...row,state:'executing',result_json:claimResult};
   }
@@ -369,7 +378,10 @@ async function executeOne(env,row,{request=null,confirmed=false}={}){
   try { result=await applyAction(env,row,user,view,prepared,request); }
   catch(error){error=canvasMediaConstraintError(error);if(Number(error.status)>=400&&Number(error.status)<500)return finish(env,row,'failed',summary(row,'failed',{code:safeCode(error)}));throw error;}
   const revision=(await canvasAgentProject(env,user.id,row.project_id)).project.revision;
-  return finish(env,row,'completed',summary(row,result.pending?'pending':'completed',{...result,revision,controlId:await canvasAgentActionControlId(env,row.project_id)}));
+  return finish(env,row,'completed',summary(row,result.pending?'pending':'completed',{...result,revision,
+    ...(input.voice?{voiceRevision:{projectBefore:view.project.revision,projectAfter:result.revision??view.project.revision,
+      ...(result.conversationRevision!==undefined?{conversationAfter:result.conversationRevision,briefAfter:result.briefRevision}:{})}}:{}),
+    controlId:await canvasAgentActionControlId(env,row.project_id)}));
 }
 export async function executeCanvasAgentActions(env,{userId,projectId,turnId}){
   await owned(env,userId,projectId);
@@ -418,7 +430,7 @@ export async function recoverCanvasAgentActions(env,{projectId=null,userId=null,
     await executeCanvasAgentActions(env,{userId:row.user_id,projectId:row.project_id,turnId:row.turn_id});
   }
 }
-export async function confirmCanvasAgentAction(ctx,session,projectId,id,body){
+export async function confirmCanvasAgentAction(ctx,session,projectId,id,body,{voiceGuard=[],voiceSource=null}={}){
   const fields=['decision','expectedRevision','expectedBriefRevision','capCredits','tariffRevision','credits','mediaPolicyRevision'];
   if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).some(key=>!fields.includes(key))||!['accept','decline'].includes(body.decision))agentFail('canvas_agent_action_confirmation_invalid',400);
   const row=await ctx.env.DB.prepare('SELECT * FROM canvas_agent_action_receipts WHERE id=? AND project_id=? AND user_id=?').bind(id,projectId,session.user.id).first();
@@ -435,16 +447,17 @@ export async function confirmCanvasAgentAction(ctx,session,projectId,id,body){
   const {user,view}=await owned(ctx.env,session.user.id,projectId);
   const conversation=await ctx.env.DB.prepare('SELECT brief_revision FROM canvas_agent_conversations WHERE project_id=? AND user_id=?').bind(projectId,user.id).first();
   if(view.project.revision!==confirmation.expectedRevision||conversation.brief_revision!==confirmation.expectedBriefRevision)agentFail('canvas_agent_project_changed');
-  if(body.decision==='decline')return publicAction(await finish(ctx.env,row,'failed',summary(row,'failed',{confirmationInput,code:'canvas_agent_action_declined',text:parse(row.input_json).locale==='de'?'Nicht freigegeben. Es wurde kein neuer Auftrag gestartet.':'Not approved. No new job was started.'})));
+  if(body.decision==='decline')return publicAction(await finish(ctx.env,row,'failed',summary(row,'failed',{confirmationInput,...(voiceSource?{confirmationVoice:voiceSource}:{}),code:'canvas_agent_action_declined',text:parse(row.input_json).locale==='de'?'Nicht freigegeben. Es wurde kein neuer Auftrag gestartet.':'Not approved. No new job was started.'})));
   if(confirmation.kind==='regenerate'){
     const current=await regenerationQuote(ctx.env,user,view,parse(row.input_json).action);
     if(current.mediaPolicyRevision!==stored.prepared.mediaPolicyRevision||current.projectCapRunId!==stored.prepared.projectCapRunId)agentFail('canvas_agent_media_policy_changed');
     if(current.credits!==confirmation.credits||current.tariffRevision!==confirmation.tariffRevision||current.inputDigest!==stored.prepared.inputDigest)agentFail('model_pricing_stale');
   }
-  const bound=JSON.stringify({...stored,confirmationInput});
-  const binding=await ctx.env.DB.prepare("UPDATE canvas_agent_action_receipts SET result_json=? WHERE id=? AND state='confirmation_required' AND result_json IS ?").bind(bound,row.id,row.result_json).run();
+  const bound=JSON.stringify({...stored,confirmationInput,...(voiceSource?{confirmationVoice:voiceSource}:{})});
+  const bindStatement=ctx.env.DB.prepare("UPDATE canvas_agent_action_receipts SET result_json=? WHERE id=? AND state='confirmation_required' AND result_json IS ?").bind(bound,row.id,row.result_json);
+  const binding=voiceGuard.length?(await ctx.env.DB.batch([...voiceGuard,bindStatement])).at(-1):await bindStatement.run();
   if(binding.meta?.changes!==1)agentFail('canvas_agent_action_confirmation_changed');
-  const result=await executeOne(ctx.env,{...row,result_json:bound},{request:ctx.request,confirmed:true});
+  const result=await executeOne(ctx.env,{...row,result_json:bound},{request:ctx.request,confirmed:true,voiceGuard});
   await executeCanvasAgentActions(ctx.env,{userId:user.id,projectId,turnId:row.turn_id});
   return publicAction(result);
 }

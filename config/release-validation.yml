@@ -32,6 +32,7 @@ jobs:
       image_models: ${{ steps.selection.outputs.image_models }}
       appearance: ${{ steps.selection.outputs.appearance }}
       canvas_text: ${{ steps.selection.outputs.canvas_text }}
+      canvas_voice: ${{ steps.selection.outputs.canvas_voice }}
       canvas_completion: ${{ steps.selection.outputs.canvas_completion }}
       canvas_audio: ${{ steps.selection.outputs.canvas_audio }}
       canvas_transitions: ${{ steps.selection.outputs.canvas_transitions }}
@@ -339,6 +340,14 @@ jobs:
           elif [ "${{ needs.release-compatibility.outputs.canvas_completion }}" = 'true' ]; then
             node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs &&
             node scripts/test-q2-runtime.mjs --suite canvas-completion
+          elif [ "${{ needs.release-compatibility.outputs.canvas_voice }}" = 'true' ]; then
+            npm run check:ai-cost-policy && npm run test:ai-cost-policy && npm run test:ai-cost-operations &&
+            node --test tests/q2-recovery-staging.test.mjs scripts/test-q2-runtime-launcher.mjs tests/canvas-voice-browser-bridge.test.mjs &&
+            npx playwright test -c playwright.workers.config.js tests/q2-canvas-voice-contract.spec.js tests/q2-canvas-voice-conversation.spec.js tests/q2-canvas-voice-accounting.spec.js tests/q2-canvas-voice-actions.spec.js tests/q2-canvas-voice-film.spec.js tests/q2-canvas-conversation-decisions.spec.js tests/q2-canvas-agent-conversation.spec.js tests/q2-canvas-agent-action-recovery.spec.js tests/q2-canvas-agent-autonomy.spec.js tests/q2-canvas-agent.spec.js tests/q2-canvas-agent-model-operation.spec.js tests/q2-canvas-media-completion.spec.js tests/q2-canvas-media-action-policy.spec.js --retries=0 &&
+            npx playwright test -c playwright.workers.config.js tests/workers.spec.js --grep 'Canvas|canvas' --retries=0 &&
+            node scripts/test-q2-runtime.mjs --suite canvas-voice &&
+            Q2_RUNTIME_ARTIFACTS="$Q2_RUNTIME_ARTIFACTS/canvas" node scripts/test-q2-runtime.mjs --suite canvas &&
+            Q2_RUNTIME_ARTIFACTS="$Q2_RUNTIME_ARTIFACTS/canvas-reliability" node scripts/test-q2-runtime.mjs --suite canvas-reliability
           elif [ "${{ needs.release-compatibility.outputs.canvas_text }}" = 'true' ]; then
             npm run check:ai-cost-policy && npm run test:ai-cost-policy && npm run test:ai-cost-operations &&
             node --test tests/website-assistant-knowledge.test.mjs &&
@@ -595,7 +604,12 @@ jobs:
           CI_IMAGE_MODELS: ${{ needs.release-compatibility.outputs.image_models }}
           CI_APPEARANCE: ${{ needs.release-compatibility.outputs.appearance }}
         run: |
-          if [ "${{ needs.release-compatibility.outputs.appearance }}" = 'true' ] && [ "${{ needs.release-compatibility.outputs.model_pricing }}" != 'true' ]; then
+          if [ "${{ needs.release-compatibility.outputs.canvas_voice }}" = 'true' ]; then
+            rm -f test-results/canvas-complete-discovery.json test-results/canvas-discovery.json test-results/candidate-auth.json
+            PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/canvas-complete-discovery.json npm run test:static -- tests/canvas.spec.js --project=chromium --project=webkit-canvas --list --reporter=json
+            PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/canvas-discovery.json npm run test:static -- tests/canvas.spec.js --project=chromium --project=webkit-canvas --grep 'Canvas Voice|Canvas conversation|Canvas autonomy|Canvas editable film|Canvas agent|Canvas AI workspace' --list --reporter=json
+            PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:static -- tests/canvas.spec.js --project=chromium --project=webkit-canvas --grep 'Canvas Voice|Canvas conversation|Canvas autonomy|Canvas editable film|Canvas agent|Canvas AI workspace' --retries=0 --output=test-results/canvas-voice-artifacts --reporter=list,json
+          elif [ "${{ needs.release-compatibility.outputs.appearance }}" = 'true' ] && [ "${{ needs.release-compatibility.outputs.model_pricing }}" != 'true' ]; then
             rm -f test-results/appearance-discovery.json test-results/candidate-auth.json
             PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/appearance-discovery.json npm run test:static -- tests/oma2-q3-appearance.spec.js tests/auth-admin.spec.js --project=chromium --project=webkit-appearance --grep 'oma2-q3-appearance\.spec\.js|cold workspace exposes grouped tasks' --workers=1 --retries=0 --output=test-results/appearance-artifacts --list --reporter=json
             PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:static -- tests/oma2-q3-appearance.spec.js tests/auth-admin.spec.js --project=chromium --project=webkit-appearance --grep 'oma2-q3-appearance\.spec\.js|cold workspace exposes grouped tasks' --workers=1 --retries=0 --output=test-results/appearance-artifacts --reporter=list,json
@@ -651,6 +665,9 @@ jobs:
           else
             PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/candidate-auth.json npm run test:auth -- --output=test-results/browser-artifacts --reporter=list,json
           fi
+      - name: Run native Canvas Voice browser journey
+        if: needs.release-compatibility.outputs.canvas_voice == 'true' || needs.release-compatibility.outputs.full == 'true'
+        run: node scripts/test-canvas-voice-browser-native.mjs --artifacts test-results/canvas-voice-native-browser
       - name: Confirm tested browser candidate bytes
         if: needs.release-compatibility.outputs.homepage == 'true' || needs.release-compatibility.outputs.carousel == 'true' || needs.release-compatibility.outputs.assets == 'true' || needs.release-compatibility.outputs.auth == 'true'
         env:
