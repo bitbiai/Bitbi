@@ -130,6 +130,16 @@ export async function canvasVoiceConversationCase(env, name) {
         expectedConversationRevision:revision,expectedBriefRevision:updated.briefRevision,format}),'canvas_voice_format_invalid');
       check(JSON.stringify(await conversationRow(env,projectId,owner))===stable,'Malformed empty proposal cannot change canonical state');
     }
+    const unknown=JSON.parse((await conversationRow(env,projectId,owner)).brief_json);
+    unknown.duration={targetDurationSeconds:null,choice:null,asked:false,sourceMessageId:null};
+    await DB.prepare('UPDATE canvas_agent_conversations SET brief_json=? WHERE project_id=?').bind(JSON.stringify(unknown),projectId).run();
+    const story=await recordCanvasVoiceUserTurn(env,scope,{itemId:'unknown-duration-story',text:'Die Katze erkundet jetzt den Wald.'});
+    const unknownState=JSON.stringify(await conversationRow(env,projectId,owner));
+    for(const duration of [{choice:'explicit',targetDurationSeconds:45},{choice:'delegated',targetDurationSeconds:null},{choice:null,targetDurationSeconds:null},{}]) {
+      await reject(()=>applyCanvasVoiceBrief(env,scope,{...proposal,callId:'unknown-duration',turnId:story.turnId,
+        expectedConversationRevision:story.conversationRevision,expectedBriefRevision:story.briefRevision,updates:[],questions:[],duration}),'canvas_voice_duration_unconfirmed');
+      check(JSON.stringify(await conversationRow(env,projectId,owner))===unknownState,'Unknown duration cannot be promoted without current user confirmation');
+    }
 
   } else if (name === 'readonly') {
     const question = await recordCanvasVoiceUserTurn(env, scope, { itemId: 'item-question', text: 'What does production.reconcile mean?' });
@@ -149,17 +159,42 @@ export async function canvasVoiceConversationCase(env, name) {
     await canvasVoiceTextContinuation(env,scope,transcript,proposal);
   } else if (name === 'correction') {
     await applyCanvasVoiceBrief(env, scope, proposal);
+    const originalDuration=JSON.parse((await conversationRow(env,projectId,owner)).brief_json).duration;
     await DB.prepare("UPDATE canvas_agent_conversations SET draft='typed draft',assistant_model_id='anthropic/claude-fable-5' WHERE project_id=?").bind(projectId).run();
     const correction = await recordCanvasVoiceUserTurn(env, scope, { itemId: 'item-correction', text: 'Bitte ändere den Stil auf Cartoon.' });
     await applyCanvasVoiceBrief(env, scope, { ...proposal, callId: 'correction', turnId: correction.turnId, expectedConversationRevision: correction.conversationRevision,
-      expectedBriefRevision: correction.briefRevision, updates: [{ field: 'style', value: 'Cartoon', provenance: 'corrected' }], duration: null, questions: [] });
+      expectedBriefRevision: correction.briefRevision, updates: [{ field: 'style', value: 'Cartoon', provenance: 'corrected' }], questions: [] });
     const row = await conversationRow(env, projectId, owner), brief = JSON.parse(row.brief_json);
     check(brief.fields.style.value === 'Cartoon' && brief.fields.story.value === 'Eine Katze erkundet einen Garten.' && brief.duration.targetDurationSeconds === 45, 'Correction preserves already established facts');
+    check(JSON.stringify(brief.duration)===JSON.stringify(originalDuration),'An unchanged carried duration preserves its original source and metadata');
     check(row.draft === 'typed draft' && row.assistant_model_id === 'anthropic/claude-fable-5', 'Voice leaves text draft and selected text model intact');
     const repeated = await recordCanvasVoiceUserTurn(env, scope, { itemId: 'item-repeat', text: 'Der Stil bleibt Cartoon.' });
     const result = await applyCanvasVoiceBrief(env, scope, { ...proposal, callId: 'same-value', turnId: repeated.turnId, expectedConversationRevision: repeated.conversationRevision,
-      expectedBriefRevision: repeated.briefRevision, updates: [{ field: 'style', value: 'Cartoon', provenance: 'corrected' }], duration: null, questions: [] });
+      expectedBriefRevision: repeated.briefRevision, updates: [{ field: 'style', value: 'Cartoon', provenance: 'corrected' }], questions: [] });
     check(result.changed === false && result.briefRevision === row.brief_revision, 'Repeating an unchanged preference does not invalidate creative revision');
+    const story=await recordCanvasVoiceUserTurn(env,scope,{itemId:'story-only',text:'Die Katze erkundet jetzt den Wald.'});
+    const storyProposal={...proposal,callId:'story-only',turnId:story.turnId,expectedConversationRevision:story.conversationRevision,
+      expectedBriefRevision:story.briefRevision,updates:[{field:'story',value:'Eine Katze erkundet einen Wald.',provenance:'corrected'}],questions:[]};
+    const stable=JSON.stringify(await conversationRow(env,projectId,owner));
+    for(const duration of [{choice:'explicit',targetDurationSeconds:60},{choice:'delegated',targetDurationSeconds:null},
+      {choice:'explicit',targetDurationSeconds:45,extra:'invalid'},{choice:'explicit'}]) {
+      await reject(()=>applyCanvasVoiceBrief(env,scope,{...storyProposal,duration}),'canvas_voice_duration_unconfirmed');
+      check(JSON.stringify(await conversationRow(env,projectId,owner))===stable,'Unconfirmed changed or malformed duration cannot partially save a story');
+      check(!(await DB.prepare('SELECT call_id FROM canvas_voice_calls WHERE session_id=? AND call_id=?').bind(sessionId,storyProposal.callId).first()),'Rejected duration creates no successful call receipt');
+    }
+    const saved=await applyCanvasVoiceBrief(env,scope,storyProposal),storyBrief=JSON.parse((await conversationRow(env,projectId,owner)).brief_json);
+    check(saved.changed&&saved.briefRevision===story.briefRevision+1&&storyBrief.fields.story.sourceMessageId===story.turnId,'Story-only update advances the canonical brief once');
+    check(JSON.stringify(storyBrief.duration)===JSON.stringify(originalDuration),'Story-only update cannot reattribute an existing duration');
+    check((await applyCanvasVoiceBrief(env,scope,storyProposal)).replay,'Carried duration preserves exact call replay');
+    const durationTurn=await recordCanvasVoiceUserTurn(env,scope,{itemId:'duration-correction',text:'Bitte ändere die Dauer auf 60 Sekunden.'});
+    const durationProposal={...proposal,callId:'duration-correction',turnId:durationTurn.turnId,expectedConversationRevision:durationTurn.conversationRevision,
+      expectedBriefRevision:durationTurn.briefRevision,updates:[],questions:[]};
+    const beforeDuration=JSON.stringify(await conversationRow(env,projectId,owner));
+    await reject(()=>applyCanvasVoiceBrief(env,scope,durationProposal),'canvas_voice_duration_unconfirmed');
+    check(JSON.stringify(await conversationRow(env,projectId,owner))===beforeDuration,'Old canonical duration cannot override an explicit current correction');
+    await applyCanvasVoiceBrief(env,scope,{...durationProposal,duration:{choice:'explicit',targetDurationSeconds:60}});
+    const correctedDuration=JSON.parse((await conversationRow(env,projectId,owner)).brief_json).duration;
+    check(correctedDuration.choice==='explicit'&&correctedDuration.targetDurationSeconds===60&&correctedDuration.sourceMessageId===durationTurn.turnId,'Confirmed changed duration retains its new user source');
   } else throw new Error('Unknown voice fixture');
   if(!['text','tools'].includes(name))check(await counts() === before, 'Voice context and brief work cannot dispatch, bill, create decisions or edit graph');
   if(name==='tools'){

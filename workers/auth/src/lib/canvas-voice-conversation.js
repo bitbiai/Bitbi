@@ -237,8 +237,11 @@ export async function applyCanvasVoiceBrief(env, scope, input, trustedConversati
   }
   if (input.duration != null) {
     const parsed = userDuration(turn.user_text, brief, turn.id);
-    if (!exact(input.duration, ['choice', 'targetDurationSeconds']) || !parsed || input.duration.choice !== parsed.choice || input.duration.targetDurationSeconds !== parsed.targetDurationSeconds) fail('canvas_voice_duration_unconfirmed', 400);
-    if (brief.duration.choice !== parsed.choice || brief.duration.targetDurationSeconds !== parsed.targetDurationSeconds) brief.duration = parsed;
+    // A carried canonical value needs no new confirmation or source. An explicit
+    // current correction still takes precedence over that previously saved value.
+    const confirmed = parsed || (brief.duration.choice ? brief.duration : null);
+    if (!exact(input.duration, ['choice', 'targetDurationSeconds']) || !confirmed || input.duration.choice !== confirmed.choice || input.duration.targetDurationSeconds !== confirmed.targetDurationSeconds) fail('canvas_voice_duration_unconfirmed', 400);
+    if (parsed && (brief.duration.choice !== parsed.choice || brief.duration.targetDurationSeconds !== parsed.targetDurationSeconds)) brief.duration = parsed;
   }
   brief.openQuestions = brief.duration.choice ? input.questions.filter(question => !/(?:duration|how long|wie lang|dauer)/i.test(question)) : [...input.questions];
   if (!brief.duration.choice && brief.openQuestions.some(question => /(?:duration|how long|wie lang|dauer)/i.test(question))) brief.duration.asked = true;

@@ -274,6 +274,14 @@ silently adopted. The canonical mutation keeps
 the original tool arguments for replay and checks the trusted comparison revision
 inside its existing atomic guards. This does not rebase creative edits, refresh
 authority from model arguments or make a failed call successful retrospectively.
+An unchanged canonical duration may accompany a different brief-field update
+without requiring the user to repeat that duration. Preserve its original source;
+a new duration/delegation still requires the current committed utterance, and a
+current explicit correction must not be replaced with the older value. The
+native conversation correction/format cases cover this distinction, malformed
+proposals and replay. A rejected tool result is not a disconnected session;
+live observation must allow bounded clarification while retaining independent
+saved-brief and approval assertions.
 
 Cumulative transcription replaces the interim value. Late response IDs stay
 associated with their original source turn. A validated VAD `speech_started`
