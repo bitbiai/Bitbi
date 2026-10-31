@@ -305,6 +305,15 @@ number and unit. Stored prompts/hashes remain unchanged. Native decision/action
 cases retain missing-terms, changed-cap, negation and interrupted-playback
 counterchecks. Live observers must wait for the tool's actual follow-up response,
 not an earlier acknowledgement, before sending the next answer.
+The 2026-10-31 live canary on `de2bbc54` exposed a distinct boundary: a spoken
+acknowledgement of an already committed answer invalidated its complete question
+receipt before the decision tool ran. Preserve that receipt only for the same
+trusted input-item/turn binding, including a completed prelude; continue tracking
+new output so a later utterance cannot borrow the earlier question. Idle output,
+unbound sources, interruptions and unrelated revisions still invalidate it.
+Presentation/relay counterchecks and the native browser journey reproduce the
+failure. The eleven-turn EN/DE journey exercises both prelude completion orders,
+decline/replay without a run, then a fresh question and exactly one accepted start.
 The provider cannot supply an approval flag, actor, decision ID or cap argument.
 The shared decision parser recognizes “Nein, noch nicht starten” and “No, do not
 start yet” as declines. Native decision tests require cancellation of the current

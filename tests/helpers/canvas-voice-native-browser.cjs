@@ -50,8 +50,8 @@ async function runCanvasVoiceNativeBrowserJourney({page,native},expect,info){
     await approval.getByRole('checkbox').check();await approval.getByRole('button',{name:german?'Mikrofon freigeben und starten':'Allow microphone and start',exact:true}).click();
     await expect(page.locator('.canvas-voice__status')).toHaveText(german?'Hört zu':'Listening');
     await expect.poll(async()=>(await provider()).appends).toBeGreaterThan(2);
-    const turns=german?['Hallo.','Ich möchte einen lustigen Film über eine Dackeldame.','Ungefähr 12 Sekunden, realistisch, mit Hintergrundmusik.','Korrektur: lieber Cartoon.','Querformat 16:9, die übrigen kreativen Entscheidungen überlasse ich dir.','Noch nicht starten.','Maximal dreitausend Credits.','Ja, starte jetzt.']:
-      ['Hello.','I want a funny film about a female dachshund.','Approximately 12 seconds, realistic, with background music.','Correction: cartoon instead.','Landscape 16:9. You may choose the remaining creative details.','Do not start yet.','At most three thousand credits.','Yes, start now.'];
+    const turns=german?['Hallo.','Ich möchte einen lustigen Film über eine Dackeldame.','Ungefähr 12 Sekunden, realistisch, mit Hintergrundmusik.','Korrektur: lieber Cartoon.','Querformat 16:9, die übrigen kreativen Entscheidungen überlasse ich dir.','Noch nicht starten.','Maximal dreitausend Credits.','Nein, noch nicht starten.','Frage mich nach dem Budget.','Maximal dreitausend Credits.','Ja, starte jetzt.']:
+      ['Hello.','I want a funny film about a female dachshund.','Approximately 12 seconds, realistic, with background music.','Correction: cartoon instead.','Landscape 16:9. You may choose the remaining creative details.','Do not start yet.','At most three thousand credits.','No, do not start yet.','Ask me about the budget.','At most three thousand credits.','Yes, start now.'];
     const replies=german?['Hallo, welchen Film möchtest du erstellen?','Welche Dauer und welchen Stil möchtest du?','Realistisch mit Musik.','Cartoon ist gespeichert.','Ich bereite dein Briefing vor.','Ich starte noch nicht.']:
       ['Hello, what film would you like?','What duration and style would you like?','Realistic with music.','Cartoon is saved.','I am preparing your brief.','I am not starting yet.'];
     let interruptedPosition;
@@ -69,10 +69,10 @@ async function runCanvasVoiceNativeBrowserJourney({page,native},expect,info){
           updates,questions:[],format:index===4?{aspectRatio:'16:9',resolution:null,provenance:'user_stated'}:null,duration:index===2?{choice:'explicit',targetDurationSeconds:12}:null},'brief_'+index);
         expect(result.ok,JSON.stringify(result)).toBe(true);
       }
-      if(index<6){
-        const next=index===5?await invoke('canvas_prepare_next_step',{},'prepare_budget'):null;
+      if(index<6||index===8){
+        const next=index===5||index===8?await invoke('canvas_prepare_next_step',{},'prepare_budget_'+index):null;
         if(next)expect(next.ok,JSON.stringify(next)).toBe(true);
-        await provider({command:'answer',id:'answer_'+index,text:next?.data.spokenPrompt||replies[index],milliseconds:index===2?800:index===5?1000:160,open:index===2});
+        await provider({command:'answer',id:'answer_'+index,text:next?.data.spokenPrompt||replies[index],milliseconds:index===2?800:next?1000:160,open:index===2});
         if(index===2)await expect(page.locator('.canvas-voice__status')).toHaveText(german?'Spricht':'Speaking');
         if(index===3){
           await expect.poll(async()=>(await native.call('snapshot')).voiceTurns.find(turn=>turn.provider_response_id==='answer_2')?.interrupted).toBe(1);
@@ -81,8 +81,26 @@ async function runCanvasVoiceNativeBrowserJourney({page,native},expect,info){
         }
         if(index===4){await page.evaluate(()=>{window.source.gain.gain.value=0;});await page.waitForTimeout(650);await page.evaluate(()=>{window.source.gain.gain.value=.08;});}
       }else{
+        if(index===7||index===10){
+          // Real xAI can acknowledge the committed answer before its tool call.
+          // Exercise both a completed and an in-progress same-source prelude.
+          const id='approval_prelude_'+index;
+          await provider({command:'answer',id,text:german?'Ich prüfe deine Antwort.':'I am checking your answer.',milliseconds:160,open:german});
+          await expect.poll(()=>observed.some(event=>event.type==='voice.audio'&&event.responseId===id)).toBe(true);
+          if(!german)await expect.poll(async()=>(await native.call('snapshot')).voiceTurns.some(turn=>turn.provider_response_id===id)).toBe(true);
+        }
         const result=await invoke('canvas_decision',{},'decision_'+index);expect(result.ok,JSON.stringify(result)).toBe(true);
-        if(index===6){expect(result.data.spokenPrompt).toContain('3000');await provider({command:'answer',id:'budget_prompt',text:result.data.spokenPrompt,milliseconds:1000});}
+        if(index===6||index===9){expect(result.data.spokenPrompt).toContain('3000');await provider({command:'answer',id:'budget_prompt_'+index,text:result.data.spokenPrompt,milliseconds:1000});}
+        if(index===7){
+          expect(result.data.handled).toBe(true);expect(result.data.executed).toBe(false);expect(result.data.runId??null).toBeNull();
+          expect((await native.call('snapshot')).runs).toHaveLength(0);
+          const replay=await invoke('canvas_decision',{},'decline_replay');expect(replay.ok).toBe(true);expect(replay.data.replay).toBe(true);
+          expect((await native.call('snapshot')).runs).toHaveLength(0);
+        }
+        if(german&&(index===7||index===10)){
+          await provider({command:'done',id:'approval_prelude_'+index});
+          await expect.poll(async()=>(await native.call('snapshot')).voiceTurns.some(turn=>turn.provider_response_id==='approval_prelude_'+index)).toBe(true);
+        }
       }
       expect(socketError).toBeUndefined();expect(observed.filter(value=>value.type==='voice.ended')).toEqual([]);
     }

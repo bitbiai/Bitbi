@@ -20,23 +20,35 @@ export class CanvasVoicePresentation {
         this.responses.set(responseId, this.awaiting); this.awaiting = null;
         if (this.responses.size > 80) this.responses.delete(this.responses.keys().next().value);
     }
-    output({ responseId }) { if (this.proof?.responseId !== responseId) this.proof = null; }
+    sameAnswer(input) {
+        return Boolean(this.source?.itemId && input.sourceItemId === this.source.itemId
+            && this.source.key && this.source.key === this.proof?.key && this.source.afterPlayback);
+    }
+    output(input) {
+        this.latestOutput = input.responseId;
+        // Acknowledging an already committed answer cannot revoke its question.
+        // Still record this output: a subsequent answer cannot borrow that proof.
+        if (this.proof?.responseId !== input.responseId && !this.sameAnswer(input)) this.proof = null;
+    }
     revision(before, after, projection) {
         if (!projection || this.knownRevision !== undefined && this.knownRevision !== before) this.proof = null;
         this.knownRevision = after;
     }
     replied(input) {
         this.lastReply = input.responseId;
-        if (this.proof?.responseId !== input.responseId || input.interrupted) this.proof = null;
+        if (input.interrupted || this.proof?.responseId !== input.responseId
+            && !(this.sameAnswer(input) && input.turn?.turnId === this.source.turnId)) this.proof = null;
     }
     interrupted(responseId) { if (this.proof?.responseId === responseId) this.proof = null; this.responses.delete(responseId); }
     user(turn, timing, revision) {
-        this.source = { turnId: turn.turnId, key: this.proof?.key,
+        const current = this.proof && this.latestOutput === this.proof.responseId && this.lastReply === this.proof.responseId;
+        this.source = { turnId: turn.turnId, itemId: turn.itemId, key: current ? this.proof.key : null,
+            questionResponseId: current ? this.proof.responseId : null,
             afterPlayback: Number.isFinite(timing?.startedAt) && timing.startedAt >= (this.proof?.playedAt ?? Infinity), revision };
     }
     canUse(proof, turn, revision) {
         return Boolean(this.proof && this.source?.key === proof.key && this.proof.key === proof.key
-            && this.source.afterPlayback && this.source.turnId === turn?.turnId && this.lastReply === proof.responseId
+            && this.source.afterPlayback && this.source.turnId === turn?.turnId && this.source.questionResponseId === proof.responseId
             && this.knownRevision === revision && this.source.revision <= revision);
     }
     async playback(input, conversationRevision) {

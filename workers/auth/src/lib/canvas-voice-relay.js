@@ -315,8 +315,8 @@ export class CanvasVoiceRelay {
                 if (retained.itemId !== event.item.id) fail('canvas_voice_audio_unassociated');
                 return; // Duplicate delivery cannot reset playback/interruption evidence.
             }
-            await this.services.responseOutput?.({ responseId: event.response_id });
             const source = this.functionResponses.get(event.response_id);
+            await this.services.responseOutput?.({ responseId: event.response_id, sourceItemId: source?.sourceItemId || null });
             this.output = { responseId: event.response_id, itemId: event.item.id, text: '', interrupted: false, turn: source?.turn || null, sourceItemId: source?.sourceItemId || null };
             this.responses.set(event.response_id, this.output); if (this.responses.size > 160) fail('canvas_voice_turn_limit'); return;
         }

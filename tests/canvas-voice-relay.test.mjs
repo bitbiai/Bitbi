@@ -828,15 +828,15 @@ test('interrupt cancels only an in-progress provider response while completed qu
     }
 });
 
-test('actual relay invalidates idle and intervening spoken question authority without denying a bound tool-only reply', async () => {
+test('actual relay retains committed-answer preludes but rejects idle or subsequent-question assent', async () => {
     for (const idle of [false, true]) {
         const p = new CanvasVoicePresentation({}, {}), f = fixture({
             responseCreated: value => p.created(value), responseOutput: value => p.output(value),
         });
         await f.ready(); await user(f, 'approval_input');
         p.proof = { key: 'approved-question', responseId: 'question', playedAt: 10 };
-        p.lastReply = 'question'; p.knownRevision = 1;
-        const turn = { turnId: 'final-answer' }, proof = { key: 'approved-question', responseId: 'question' };
+        p.lastReply = 'question'; p.latestOutput = 'question'; p.knownRevision = 1;
+        const turn = { turnId: 'final-answer', itemId: 'approval_input' }, proof = { key: 'approved-question', responseId: 'question' };
         p.user(turn, { startedAt: 11 }, 1);
         await f.provider({ type: 'response.created', response: { id: 'confirmation-tools' } });
         assert.equal(p.canUse(proof, turn, 1), true);
@@ -845,6 +845,8 @@ test('actual relay invalidates idle and intervening spoken question authority wi
             await f.provider({ type: 'response.created', response: { id: 'idle-question' } });
         } else {
             await f.provider({ type: 'response.output_item.added', response_id: 'confirmation-tools', item: { id: 'another-question', type: 'message' } });
+            assert.equal(p.canUse(proof, turn, 1), true, 'The relay carries the already committed source into its own prelude');
+            p.user({ turnId: 'answer-to-another-question', itemId: 'next-input' }, { startedAt: 20 }, 1);
         }
         assert.equal(p.canUse(proof, turn, 1), false, 'No old budget authorization survives another question');
         assert.equal(f.relay.closed, false, 'Clarification does not terminate the audio session');

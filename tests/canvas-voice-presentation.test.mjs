@@ -5,7 +5,7 @@ import { CanvasVoicePresentation } from '../workers/auth/src/lib/canvas-voice-pr
 function heardQuestion() {
     const p = new CanvasVoicePresentation({}, {});
     p.proof = { key: 'server-proof', responseId: 'question', playedAt: 1000 };
-    p.lastReply = 'question'; p.knownRevision = 4;
+    p.lastReply = 'question'; p.latestOutput = 'question'; p.knownRevision = 4;
     return p;
 }
 test('only a new final source after the complete current question can use its receipt', () => {
@@ -54,4 +54,30 @@ test('idle or intervening speech invalidates assent while the current answer too
     idle.created({ responseId: 'idle-prompt', sourceItemId: null });
     idle.revision(4, 5, true); idle.user(turn, { startedAt: 1001 }, 5);
     assert.equal(idle.canUse(proof, turn, 5), false, 'An unbound response is not persisted as a reply but still invalidates the question');
+});
+
+test('a prelude to the committed answer preserves only that answer’s question proof', () => {
+    for (const completed of [false, true]) {
+        const p = heardQuestion(), proof = { key: 'server-proof', responseId: 'question' };
+        const turn = { turnId: 'answer', itemId: 'input-answer' };
+        p.revision(4, 5, true); p.user(turn, { startedAt: 1001 }, 5);
+        p.output({ responseId: 'acknowledgement', sourceItemId: 'input-answer' });
+        if (completed) {
+            p.revision(5, 6, true);
+            p.replied({ responseId: 'acknowledgement', sourceItemId: 'input-answer', turn });
+        }
+        assert.equal(p.canUse(proof, turn, p.knownRevision), true, 'The final answer preceded its own spoken acknowledgement');
+        p.user({ turnId: 'next-answer', itemId: 'next-input' }, { startedAt: 2000 }, p.knownRevision);
+        assert.equal(p.canUse(proof, { turnId: 'next-answer' }, p.knownRevision), false, 'A new answer to the prelude cannot borrow the older question');
+    }
+    for (const sourceItemId of [undefined, null, '', 'foreign-input']) {
+        const p = heardQuestion(), turn = { turnId: 'answer', itemId: 'input-answer' };
+        p.revision(4, 5, true); p.user(turn, { startedAt: 1001 }, 5);
+        p.output({ responseId: 'other-question', sourceItemId });
+        assert.equal(p.canUse({ key: 'server-proof', responseId: 'question' }, turn, 5), false);
+    }
+    const uncommitted = heardQuestion();
+    uncommitted.output({ responseId: 'early-prelude', sourceItemId: 'input-answer' });
+    uncommitted.revision(4, 5, true); uncommitted.user({ turnId: 'answer', itemId: 'input-answer' }, { startedAt: 1001 }, 5);
+    assert.equal(uncommitted.canUse({ key: 'server-proof', responseId: 'question' }, { turnId: 'answer' }, 5), false);
 });

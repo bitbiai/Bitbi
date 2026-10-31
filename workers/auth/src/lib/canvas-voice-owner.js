@@ -271,7 +271,7 @@ export class CanvasVoiceOwner {
                 // canonical projection without rebuilding the full project on
                 // the serial audio path. Tools and response creation read fresh
                 // context, and confirmed brief changes still update the session.
-                this.adoptRevision(a, result, false, true); a.presentation?.user(result, timing, a.revision); return result; },
+                this.adoptRevision(a, result, false, true); a.presentation?.user({ ...result, itemId: input.itemId }, timing, a.revision); return result; },
             reply: async input => { await this.authority(a, true); return this.reply(a, input); },
             tool: async input => { await this.authority(a, true); a.toolTurn = input.turn; const result = await dispatcher(input);
                 if (result.ok && result.data?.executed && result.data.actions?.some(action => action.state === 'completed'
