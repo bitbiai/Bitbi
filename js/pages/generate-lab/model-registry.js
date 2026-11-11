@@ -1,7 +1,7 @@
 import { SEEDANCE_25_MODEL, SEEDANCE_25_ROLES } from '../../shared/seedance-25-contract.mjs';
 import { modelAreaEnabled } from '../../shared/model-availability.js';
 import { OMNI_MODEL, OMNI_RESOLUTIONS, OMNI_RATIOS, OMNI_ROLES } from '../../shared/gemini-omni-contract.mjs';
-import { H3_MODEL, H3_ROLES, H3_RESOLUTIONS, H3_RATIOS } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
+import { H3_MODEL, H3_LITE_MODEL, H3_RATIOS, h3ModelDefinition } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
 import { sortGenerationModels } from '../../shared/generation-model-order.mjs?v=__ASSET_VERSION__';
 import { imageDimensionChoices } from '../../shared/image-dimensions.mjs?v=__ASSET_VERSION__';
 import { getAdminAiVideoModelSpec } from '../../shared/admin-ai-contract.mjs?v=__ASSET_VERSION__';
@@ -454,14 +454,17 @@ const elevenLabsMusicModel = Object.freeze({
     estimateCredits: values => estimateModelCredits('music', 'elevenlabs/music-v2', values),
 });
 
-const h3Model = Object.freeze({
-    id:H3_MODEL,displayName:'MiniMax H3',mediaType:'video',provider:'MiniMax / Cloudflare',route:'/api/ai/generate-video',outputType:'video',status:'LIVE',
+const h3Models = [H3_MODEL,H3_LITE_MODEL].map(id => {
+    const model=h3ModelDefinition(id);
+    return Object.freeze({
+    id,displayName:model.label,mediaType:'video',provider:'MiniMax / Cloudflare',route:'/api/ai/generate-video',outputType:'video',status:'LIVE',
     summary:DE?'Video aus Text, Anfangs-/Endbild oder Bild-, Video- und Audioreferenzen.':'Video from text, first/last frames or image, video and audio references.',
     capabilities:DE?['Text zu Video','Anfangs- und Endbild','Bild-, Video- und Audioreferenzen']:['Text to video','First and last frames','Image, video and audio references'],
-    defaults:{duration:5,resolution:'768P',aspectRatio:'16:9'},
-    options:{duration:{min:4,max:15},resolution:H3_RESOLUTIONS,aspectRatio:H3_RATIOS},
-    controls:{supportsImageInput:true,supportsVideoInput:true,supportsAudioInput:true,supportsReferenceImages:true,referenceRoles:H3_ROLES,maxReferenceImages:9,maxPromptLength:7000,resolutionField:'resolution',aspectField:'aspectRatio'},
-    estimateCredits:values=>estimateModelCredits('video',H3_MODEL,{...values,aspect_ratio:values.aspectRatio}),
+    defaults:{duration:5,resolution:model.defaultResolution,aspectRatio:'16:9'},
+    options:{duration:{min:4,max:15},resolution:model.resolutions,aspectRatio:H3_RATIOS},
+    controls:{supportsImageInput:true,supportsVideoInput:model.supportsVideoInput,supportsAudioInput:model.supportsAudioInput,supportsReferenceImages:true,referenceRoles:model.roles,maxReferenceImages:model.limits.image,maxPromptLength:7000,resolutionField:'resolution',aspectField:'aspectRatio'},
+    estimateCredits:values=>estimateModelCredits('video',id,{...values,aspect_ratio:values.aspectRatio}),
+    });
 });
 const omniModel = Object.freeze({
     id:OMNI_MODEL,displayName:'Gemini Omni Flash',mediaType:'video',provider:'Google / Cloudflare',route:'/api/ai/generate-video',outputType:'video',status:'PREVIEW',
@@ -482,7 +485,7 @@ const seedance25Model = Object.freeze({
 const modelDefinitions = Object.freeze([
     seedance25Model,
     omniModel,
-    h3Model,
+    ...h3Models,
     ...imageModels,
     pixverseV6Model,
     happyHorseT2vModel,

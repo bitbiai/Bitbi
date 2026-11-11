@@ -1,6 +1,26 @@
 const {test,expect}=require('@playwright/test');
 const {SqliteD1Database,applyAuthMigrations}=require('./helpers/sqlite-d1');
 const load=async()=>({...await import('../js/shared/model-tariff.mjs'),...await import('../js/shared/model-pricing-catalog.mjs'),...await import('../workers/auth/src/lib/model-tariffs.js')});
+test('H3 Lite pricing pins its own output-second tariff and cannot alter accepted full H3 or Lite quotes',async()=>{
+ const m=await load(),DB=new SqliteD1Database();applyAuthMigrations(DB);const env={DB};
+ try{
+  const modelId='minimax/h3-lite',input={duration:5,resolution:'480P'};
+  expect(m.modelFactoryPrice(modelId,input).price).toMatchObject({modelId,credits:82,providerCostUsd:0.125});
+  expect(m.modelFactoryPrice(modelId,{duration:5,resolution:'768P'}).price).toMatchObject({modelId,credits:131,providerCostUsd:0.2});
+  const full=await m.pinModelTariff(env,{modelId:'minimax/h3',input:{duration:5,resolution:'768P'}});
+  const lite=await m.pinModelTariff(env,{modelId,input});
+  expect(lite.factorySettlement.rateUsdPerSecond).toBe(0.025);expect(full.factorySettlement.rateUsdPerSecond).toBe(0.08);
+  expect(lite.tariff.key).not.toBe(full.tariff.key);
+  expect(m.settlePinnedModelTariff(lite,lite.credits,{second:4})).toBe(66);
+  await m.changeModelTariff(env,{id:'synthetic-lite-pricing-admin'},{modelId,revision:(await m.getModelTariff(env)).revision,action:'save',settings:input,rates:{second:10}});
+  const custom=await m.pinModelTariff(env,{modelId,input});expect(custom.credits).toBe(50);
+  expect(m.settlePinnedModelTariff(custom,custom.credits,{second:4})).toBe(40);
+  expect(m.settlePinnedModelTariff(lite,lite.credits,{second:4})).toBe(66);
+  expect((await m.pinModelTariff(env,{modelId:'minimax/h3',input:{duration:5,resolution:'768P'}})).credits).toBe(full.credits);
+  expect(()=>m.settlePinnedModelTariff(lite,lite.credits,{second:6})).toThrow(/exceeds/);
+  expect(()=>m.modelFactoryPrice(modelId,{resolution:'2K'})).toThrow();
+ }finally{DB.close();}
+});
 test('Canvas Grok context admission separates unchanged request controls from a conservative reasoning-inclusive monetary quote',async()=>{
  const m=await load(),{CANVAS_GROK_ADMISSION_VERSION,canvasGrokAdmissionPricePoints}=await import('../js/shared/canvas-grok-admission.mjs');
  const original=m.modelFactoryPrice('xai/grok-4.7',{previewInputTokens:56954,maxTokens:16384});

@@ -3,7 +3,7 @@ import { SEEDANCE_25_MODEL } from './seedance-25-contract.mjs';
 import { calculateSeedance25CreditPricing } from './seedance-25-pricing.mjs';
 import { calculateOmniCreditPricing } from './gemini-omni-pricing.mjs';
 import { browserModelTariff, mediaTariffBasis } from './model-tariff.mjs';
-import { H3_MODEL, calculateH3CreditPricing } from './minimax-h3.mjs';
+import { isH3Model, calculateH3CreditPricing } from './minimax-h3.mjs';
 import { FLUX_2_MAX_IMAGE_MODEL_ID } from './flux-2-max-identity.mjs';
 export { FLUX_2_MAX_IMAGE_MODEL_ID } from './flux-2-max-identity.mjs';
 import { GROK_IMAGE_2, calculateGrokImage2CreditCost } from './grok-imagine-image-2-pricing.mjs';
@@ -281,7 +281,7 @@ export function calculateAiVideoCreditCost(modelId, params = {}) {
   const id = String(modelId || "").trim();
   if (id === SEEDANCE_25_MODEL) return calculateSeedance25CreditPricing(params);
   if (id === OMNI_MODEL) return calculateOmniCreditPricing(params);
-  if (id === H3_MODEL) return calculateH3CreditPricing(params);
+  if (isH3Model(id)) return calculateH3CreditPricing({...params,model:id});
   if (id === PIXVERSE_V6_MODEL_ID) {
     return calculatePixverseV6CreditPricing(params);
   }

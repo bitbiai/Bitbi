@@ -1,3 +1,4 @@
+import { isH3Model } from '../../../../js/shared/minimax-h3.mjs';
 // Keep transport diagnostics separate from outcome certainty. In particular,
 // HTTP 400 does not prove that a paid task was never accepted.
 // Cloudflare's documented pre-inference validation errors:
@@ -38,7 +39,7 @@ export async function callH3Provider(env, model, payload, options, correlationId
   try {
     const account = env.CLOUDFLARE_ACCOUNT_ID;
     const token = env.H3_CLOUDFLARE_API_TOKEN;
-    if (model !== 'minimax/h3' || !/^[a-f0-9]{32}$/.test(account || '')
+    if (!isH3Model(model) || !/^[a-f0-9]{32}$/.test(account || '')
       || typeof token !== 'string' || !token.trim()) throw new Error('h3_transport_unavailable');
     // Exactly one REST dispatch; never retry/fall back to the binding after an
     // ambiguous response. The durable caller records intent before this call.

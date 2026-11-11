@@ -3,6 +3,7 @@ import { h3MemberReceipt, storedH3MemberTask } from './minimax-h3-callback.js';
 import { retainedImageDelivery, recordImageDelivery, IMAGE_DELIVERY_ATTEMPTS } from './image-delivery-recovery.js';
 import { isGptImage25Model } from '../../../../js/shared/gpt-image-25-contract.mjs';
 import { callH3Provider, h3Failure } from './h3-provider-result.js';
+import { isH3Model, parseH3Task } from '../../../../js/shared/minimax-h3.mjs';
 import { FLUX_SCHNELL, callFluxSchnell } from './flux-schnell-provider.js';
 import { reclaimCanvasMedia, canvasMediaRun } from './canvas-media-storage.js';
 import { THUMBNAIL_BACKEND_SQL, notifyPrivateMedia, recoverPrivateMedia } from './private-media-service.js';
@@ -25,6 +26,10 @@ const executions = new WeakMap();
 
 function safeCode(code) { return /^[a-z][a-z0-9_]{0,79}$/i.test(String(code||'')) ? String(code) : 'generation_execution_failed'; }
 function jobError(code) { code=safeCode(code); return Object.assign(new Error(code), { code }); }
+function assertH3Receipt(raw,model) {
+  try { parseH3Task(raw,model); }
+  catch { throw jobError('generation_provider_identity_mismatch'); }
+}
 export function generationExecution(env) { return executions.get(env) || null; }
 export function generationUser(ctx) { return generationExecution(ctx.env)?.user || null; }
 
@@ -115,7 +120,12 @@ export async function readMemberGenerationJobs(ctx, id = null) {
 }
 
 async function hasPrimaryReceipt(env, job) {
-  const h3=await storedH3MemberTask(env,job);
+  let h3;
+  try { h3=await storedH3MemberTask(env,job); }
+  catch(error) {
+    if(['h3_invalid_receipt','h3_output_missing','h3_input_missing'].includes(error.code))return false;
+    throw error;
+  }
   if(h3)return ['succeeded','failed','cancelled'].includes(h3.task.status);
   const receipts=JSON.parse(job.provider_receipts_json || '{}');
   const name=receipts['ai-0']?'ai-0':'service-0', receipt=receipts[name];
@@ -151,6 +161,7 @@ async function providerCall(env, job, name, fingerprint, call) {
       if(object) {
         const original=await new Response(object.body).json();
         if(original.kind!=='json'||String(original.value?.task?.id)!==String(h3.task.id))throw jobError('generation_provider_identity_mismatch');
+        assertH3Receipt(original.value,job.model);
       }
       return h3;
     }
@@ -159,6 +170,10 @@ async function providerCall(env, job, name, fingerprint, call) {
       throw jobError('generation_provider_outcome_unknown');
     }
     const stored = await new Response(object.body).json();
+    if(name==='ai-0' && isH3Model(job.model)) {
+      if(stored.kind!=='json')throw jobError('generation_provider_identity_mismatch');
+      assertH3Receipt(stored.value,job.model);
+    }
     return decodeProviderResult(stored,receipt.correlationId);
   }
   receipt = { key: `users/${job.user_id}/generation-jobs/${job.id}/provider-${name}.json`, fingerprint, correlationId: randomTokenHex(16) };
@@ -203,8 +218,11 @@ async function providerCall(env, job, name, fingerprint, call) {
   }); } catch (error) { checkpoint('provider_receipt_write_failed'); throw job.media_type === 'video' ? jobError('generation_receipt_write_failed') : error; }
   if (!written) throw jobError('generation_receipt_conflict');
   checkpoint('provider_receipt_stored');
+  // Retain the received evidence under its original dispatch intent, even
+  // when it cannot authorize replay, ingestion or settlement for this model.
+  if(name==='ai-0' && isH3Model(job.model))assertH3Receipt(result,job.model);
   await assertClaim(env, job);
-  if(name==='ai-0' && stored.kind==='json' && stored.value?.task?.model==='MiniMax-H3') {
+  if(name==='ai-0' && isH3Model(job.model) && stored.kind==='json') {
     const current=await env.DB.prepare('SELECT provider_receipts_json FROM member_generation_jobs WHERE id=?').bind(job.id).first();
     const callback=h3MemberReceipt({...job,...current});
     if(callback && String(callback.task.id)!==String(stored.value.task.id))throw jobError('generation_provider_identity_mismatch');
@@ -282,7 +300,7 @@ export async function processMemberGeneration(env, body, execute) {
   let calls = 0;
   if (env.AI) scoped.AI = { run: async (...args) => providerCall(env,job,`ai-${calls++}`,await sha256Hex(JSON.stringify(args.slice(0,2))),correlation=>{
     if(retained)throw jobError('generation_provider_identity_mismatch');
-    if(args[0]==='minimax/h3')return callH3Provider(env,args[0],args[1],args[2],correlation);
+    if(isH3Model(args[0]))return callH3Provider(env,args[0],args[1],args[2],correlation);
     if(args[0]===FLUX_SCHNELL)return callFluxSchnell(env.AI,...args);
     if(isGptImage25Model(args[0]))args[2]={...args[2],gateway:{...args[2]?.gateway,metadata:{...args[2]?.gateway?.metadata,bitbi_dispatch:correlation}}};
     return env.AI.run(...args);
@@ -292,6 +310,7 @@ export async function processMemberGeneration(env, body, execute) {
     const input = await env.USER_IMAGES.get(job.input_r2_key);
     if (!input) throw jobError('generation_input_missing');
     const bodyInput = await new Response(input.body).json();
+    job.model=bodyInput.model;
     let result;
     const resultKey = job.result_r2_key || `users/${job.user_id}/generation-jobs/${job.id}/result.json`;
     if (job.result_r2_key) {

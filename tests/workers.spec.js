@@ -6211,6 +6211,7 @@ test.describe('BITBI Canvas authenticated project and model contract', () => {
       'openai/gpt-image-2.5-flare',
       'google/gemini-omni-flash',
       'minimax/h3',
+      'minimax/h3-lite',
       'pixverse/v6',
       'vidu/q3-pro',
       'alibaba/hh1-t2v',
@@ -6243,6 +6244,7 @@ test.describe('BITBI Canvas authenticated project and model contract', () => {
       'xai/grok-imagine-video-1.5-preview',
       'minimax/music-2.6',
       'minimax/h3',
+      'minimax/h3-lite',
       'anthropic/claude-fable-5',
     ]) expect(getCanvasModel(id)?.runnable).toBe(true);
     for (const id of ['@cf/black-forest-labs/flux-2-dev', 'xai/grok-imagine-image', 'vidu/q3-pro', '@cf/baai/bge-m3', '@cf/google/embeddinggemma-300m']) {
@@ -41088,7 +41090,7 @@ test.describe('Worker routes', () => {
     const { imageDimensionChoices } = await import('../js/shared/image-dimensions.mjs');
     const catalog = listAdminAiCatalog({ includeCanvas: true }).models;
     expect(catalog.image).toHaveLength(9); expect(catalog.music).toHaveLength(2);
-    const expectedVideoIds=['bytedance/seedance-2.5','google/gemini-omni-flash','minimax/h3','pixverse/v6','vidu/q3-pro','alibaba/hh1-t2v','bytedance/seedance-2.0-fast','bytedance/seedance-2.0','xai/grok-imagine-video','xai/grok-imagine-video-1.5-preview'].sort();
+    const expectedVideoIds=['bytedance/seedance-2.5','google/gemini-omni-flash','minimax/h3','minimax/h3-lite','pixverse/v6','vidu/q3-pro','alibaba/hh1-t2v','bytedance/seedance-2.0-fast','bytedance/seedance-2.0','xai/grok-imagine-video','xai/grok-imagine-video-1.5-preview'].sort();
     const verifyVideoMembership=models=>expect(models.map(model=>model.id).sort()).toEqual(expectedVideoIds);
     verifyVideoMembership(catalog.video);
     for(const missing of expectedVideoIds)expect(()=>verifyVideoMembership(catalog.video.filter(model=>model.id!==missing))).toThrow();
@@ -54908,28 +54910,4 @@ test('Canvas MiniMax H3 rejection diagnostics preserve response identity without
 });
 
 
-test('Canvas MiniMax H3 inspects original media bounds and the AI task adapter disables private Gateway logs',async()=>{
-  const {inspectH3TimeReference,validateH3Dimensions}=await import(pathToFileURL(path.join(process.cwd(),'workers/auth/src/lib/h3-reference-metadata.js')).href);
-  const fixture=fs.readFileSync(path.join(__dirname,'fixtures/media/h3-reference.mp4'));
-  expect(inspectH3TimeReference(fixture,'video','video/mp4')).toMatchObject({duration:2,width:320,height:320,fps:24,frames:48});
-  expect(()=>inspectH3TimeReference(fixture.subarray(0,50),'video','video/mp4')).toThrow();
-  expect(()=>inspectH3TimeReference(fs.readFileSync(path.join(__dirname,'fixtures/media/detail-original.mp4')),'video','video/mp4')).toThrow();
-  expect(()=>validateH3Dimensions({width:320,height:180})).toThrow();
-  const env=createAuthTestEnv({privateVideoReferences:[
-    {user_id:'owner',status:'ready',storage_reserved_bytes:10},{user_id:'owner',status:'failed',storage_reserved_bytes:20},
-    {user_id:'owner',status:'retired',storage_reserved_bytes:80},{user_id:'other',status:'ready',storage_reserved_bytes:200},
-  ]});
-  const {calculateUserAssetStorageUsage}=await import(pathToFileURL(path.join(process.cwd(),'workers/auth/src/lib/asset-storage-quota.js')).href);
-  expect(await calculateUserAssetStorageUsage(env,'owner')).toBe(30);
-  const {createVideoProviderTask}=await loadInvokeAiVideoModule();let calls=0;
-  for(const status of ['queued','running','succeeded','failed','cancelled']) {
-    const result=await createVideoProviderTask({AI:{run:async(model,input,options)=>{
-      calls++;expect(model).toBe('minimax/h3');expect(options.gateway.collectLog).toBe(false);expect(options.gateway.skipCache).toBe(true);
-      expect(input.callback_url).toBe('https://bitbi.ai/api/internal/ai/h3-callback/synthetic');
-      return {task:{id:'task-'+status,model:'MiniMax-H3',status,content:{url:'https://fixture.invalid/output.mp4'},resolution:'768P',usage:{output_seconds:4}}};
-    }}},{id:'minimax/h3',proxied:true},{model:'minimax/h3',prompt:'Synthetic',duration:4,resolution:'768P',h3_callback:'https://bitbi.ai/api/internal/ai/h3-callback/synthetic'});
-    expect(result.status).toBe(['queued','running'].includes(status)?'provider_pending':['failed','cancelled'].includes(status)?'failed':'succeeded');
-    expect(result.providerTaskId).toBe('task-'+status);
-  }
-  expect(calls).toBe(5);
-});
+require('./helpers/h3-lite-worker-controls.cjs').registerH3LiteWorkerControls({createAuthTestEnv,loadInvokeAiVideoModule});

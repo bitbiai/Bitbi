@@ -16,8 +16,8 @@ import { sortGenerationModels } from '../../shared/generation-model-order.mjs?v=
 import { imageDimensionChoices } from '../../shared/image-dimensions.mjs?v=__ASSET_VERSION__';
 import { renderCanvasImageReferences } from './image-references.js?v=__ASSET_VERSION__';
 import { h3ReferenceError } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
-import { H3_MODEL, H3_ROLES, h3MediaType } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
-import { h3RoleLabel } from '../../shared/h3-reference-controls.js?v=__ASSET_VERSION__';
+import { isH3Model, h3ModelDefinition, h3MediaType } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
+import { h3RoleLabel, h3AspectRatioOptions } from '../../shared/h3-reference-controls.js?v=__ASSET_VERSION__';
 import { renderCanvasFullVideo } from './full-video.js?v=__ASSET_VERSION__';
 import { canvasAudioControls } from './audio-controls.js?v=__ASSET_VERSION__';
 import { canvasDisclosure, rememberCanvasDisclosures, hasCompletedMedia, inspectorRunError } from './inspector-disclosure.js?v=__ASSET_VERSION__';
@@ -551,10 +551,10 @@ function renderInputContext(node, analysis) {
                 ? `${source.sourceTitle}: ${source.inputKind}`
                 : `${source.sourceTitle}: ${source.reason}`;
             section.append(el('p', '', message));
-            if([H3_MODEL,OMNI_MODEL,SEEDANCE_25_MODEL].includes(analysis.model?.id) && source.assetId && ([OMNI_MODEL,SEEDANCE_25_MODEL].includes(analysis.model?.id) || source.kind !== 'video_asset')) {
+            if((isH3Model(analysis.model?.id)||[OMNI_MODEL,SEEDANCE_25_MODEL].includes(analysis.model?.id)) && source.assetId && ([OMNI_MODEL,SEEDANCE_25_MODEL].includes(analysis.model?.id) || source.kind !== 'video_asset')) {
                 const select=el('select','canvas-select');select.dataset.h3Role=source.edgeId;
                 const media=source.kind==='video_asset'?'video':source.kind==='audio_asset'?'audio':'image';
-                for(const role of (analysis.model?.id===SEEDANCE_25_MODEL?SEEDANCE_25_ROLES:analysis.model?.id===OMNI_MODEL?OMNI_ROLES:H3_ROLES).filter(role=>h3MediaType(role)===media)){const option=el('option');option.value=role;option.textContent=h3RoleLabel(role,isGerman);select.append(option);}
+                for(const role of (analysis.model?.id===SEEDANCE_25_MODEL?SEEDANCE_25_ROLES:analysis.model?.id===OMNI_MODEL?OMNI_ROLES:h3ModelDefinition(analysis.model.id).roles).filter(role=>h3MediaType(role)===media)){const option=el('option');option.value=role;option.textContent=h3RoleLabel(role,isGerman);select.append(option);}
                 select.value=source.h3Role;section.append(field(isGerman?'Eingaberolle':'Input role',select));
                 if([OMNI_MODEL,SEEDANCE_25_MODEL].includes(analysis.model.id)){
                     const order=analysis.sources.filter(item=>item.assetId).map(item=>item.edgeId),index=order.indexOf(source.edgeId);
@@ -565,7 +565,7 @@ function renderInputContext(node, analysis) {
                 select.addEventListener('change',()=>{
                     const roleKey=analysis.model.id===SEEDANCE_25_MODEL?'seedance25Roles':analysis.model.id===OMNI_MODEL?'omniRoles':'h3Roles';
                     const config={...node.config,[roleKey]:{...node.config[roleKey],[source.edgeId]:select.value}};
-                    if(analysis.model.id===H3_MODEL&&['first_frame','last_frame'].includes(select.value))config.aspectRatio='adaptive';
+                    if(isH3Model(analysis.model.id)&&['first_frame','last_frame'].includes(select.value))config.aspectRatio='adaptive';
                     if(analysis.model.id===SEEDANCE_25_MODEL&&['first_frame','last_frame'].includes(select.value))config.seedance25={...config.seedance25,aspect_ratio:'adaptive'};
                     scheduleNode(node,{config});renderGraph();renderInspector();
                     dom.inspector.querySelector(`[data-h3-role="${source.edgeId}"]`)?.focus({preventScroll:true});
@@ -573,7 +573,7 @@ function renderInputContext(node, analysis) {
             }
             if (source.videoInput) renderVideoInput({ source, model: analysis.model, section, projectId: store.state.project.id,
                 edge: store.state.edges.find(edge => edge.id === source.edgeId), beforePrepare: async method => {
-                    if (analysis.model?.id === H3_MODEL && method === 'last_frame') scheduleNode(node, { config: { ...node.config, aspectRatio: 'adaptive' } });
+                    if (isH3Model(analysis.model?.id) && method === 'last_frame') scheduleNode(node, { config: { ...node.config, aspectRatio: 'adaptive' } });
                     return flushSaves();
                 }, signal: inspectorAbort.signal, copy: videoCopy,
                 update(edge, focus) { store.upsertEdge(edge); renderGraph(); renderInspector(); if (focus) dom.inspector.querySelector(`[data-video-method="${edge.id}"]`)?.focus({ preventScroll: true }); }, report: showToast });
@@ -647,6 +647,9 @@ function renderInspector() {
         workflowAnalysis = analyzeWorkflow(store.state.nodes, store.state.edges, store.state.models, copy);
         const models = store.state.models.filter((model) => model.capability === capability);
         const model = models.find((item) => item.id === node.model_id) || models.find((item) => item.runnable) || null;
+        const videoRatios = isH3Model(model?.id)
+            ? h3AspectRatioOptions(model.id,(workflowAnalysis.byNode.get(node.id)?.sources || []).map(source=>({role:source.h3Role})))
+            : model?.controls?.aspectRatioOptions;
         if (capability === 'image' && model && model.areaEnabled!==false) {
             const c = model.controls || {}, config = { ...node.config };
             for (const key of ['width', 'height']) {
@@ -665,9 +668,10 @@ function renderInspector() {
         }
         if (capability === 'video' && model && model.areaEnabled!==false) {
             const c = model.controls || {}, config = { ...node.config };
+            if (isH3Model(model.id) && videoRatios?.length===1) config.aspectRatio=videoRatios[0];
             for (const [key, options, fallback] of [
                 ['resolution', c.resolutionOptions, c.defaultResolution], ['quality', c.qualityOptions, c.defaultQuality],
-                ['aspectRatio', c.aspectRatioOptions, c.defaultAspectRatio], ['size', c.sizeOptions, ''],
+                ['aspectRatio', videoRatios, videoRatios?.includes(c.defaultAspectRatio) ? c.defaultAspectRatio : videoRatios?.[0]], ['size', c.sizeOptions, ''],
             ]) {
                 if (options?.length && config[key] && !options.includes(config[key])) config[key] = fallback || options[0];
             }
@@ -784,7 +788,7 @@ function renderInspector() {
         } else if (capability === 'video') {
             const grid = el('div', 'canvas-field-grid');
             const duration = inputControl(node.config?.duration ?? model?.controls?.duration?.default ?? 5, 'number'); duration.min = String(model?.controls?.duration?.min || 1); duration.max = String(model?.controls?.duration?.max || 15); bindConfig(node, duration, 'duration', Number);
-            const ratios = model?.controls?.aspectRatioOptions?.length ? model.controls.aspectRatioOptions : ['16:9', '9:16', '1:1'];
+            const ratios = videoRatios?.length ? videoRatios : ['16:9', '9:16', '1:1'];
             const ratio = selectControl(ratios.map((value) => ({ value, label: value })), node.config?.aspectRatio || model?.controls?.defaultAspectRatio || '16:9'); bindConfig(node, ratio, 'aspectRatio');
             if(model.id!==OMNI_MODEL)grid.append(field(copy.duration, duration));
             grid.append(field(copy.aspectRatio, ratio));

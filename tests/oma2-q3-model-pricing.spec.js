@@ -133,7 +133,7 @@ for(const [locale,width]of [['en',1440],['de',390]])test.describe(`${locale} pri
  test('Admin exact configuration preview, cancel, save, reload and reset with keyboard/touch',async({page,baseURL},info)=>{
   await page.setViewportSize({width,height:900});const f=await setup(page,baseURL);
   try{await open(page);if(locale==='de')await root(page).getByLabel('Pricing language').selectOption('de');
-  const search=root(page).getByRole('searchbox');await search.fill('MiniMax H3');const row=root(page).locator('.model-pricing__row');await expect(row).toHaveCount(1);
+  const search=root(page).getByRole('searchbox');await search.fill('MiniMax H3');const row=root(page).locator('.model-pricing__row').filter({has:page.getByText('MiniMax H3',{exact:true})});await expect(root(page).locator('.model-pricing__row')).toHaveCount(2);await expect(row).toHaveCount(1);
   if(width<500)await row.tap();else{await row.focus();await page.keyboard.press('Enter');}
   const dialog=page.getByRole('dialog',{name:'MiniMax H3',exact:true});await expect(dialog.locator('.model-pricing__breakdown')).toContainText('262');
   await dialog.locator('input[step="0.00000001"]').fill('7.25');await expect(dialog.locator('.model-pricing__preview')).toContainText('37');
@@ -144,13 +144,13 @@ for(const [locale,width]of [['en',1440],['de',390]])test.describe(`${locale} pri
   expect(f.calls.filter(c=>c.method==='PATCH')[0].body).toMatchObject({revision:beforeSave.revision,action:'save',modelId:'minimax/h3',settings:{resolution:'768P'},rates:{second:7.25}});
   expect((await f.tariff.getModelTariff(f.env)).revision).toBe(beforeSave.revision+1);
   await page.reload();await expect(root(page).locator('.model-pricing__row').first()).toBeVisible();if(locale==='de')await root(page).getByLabel('Pricing language').selectOption('de');
-  await root(page).getByRole('searchbox').fill('MiniMax H3');await root(page).locator('.model-pricing__row').click();await expect(dialog.locator('.model-pricing__breakdown')).toContainText('37');
+  await root(page).getByRole('searchbox').fill('MiniMax H3');await root(page).locator('.model-pricing__row').filter({has:page.getByText('MiniMax H3',{exact:true})}).click();await expect(dialog.locator('.model-pricing__breakdown')).toContainText('37');
   await dialog.locator('[name=resolution]').selectOption('2K');await expect(dialog.locator('.model-pricing__breakdown')).toContainText('426');await expect(dialog.locator('.model-pricing__breakdown')).not.toContainText('37');
   await dialog.locator('[name=resolution]').selectOption('768P');await expect(dialog.locator('.model-pricing__breakdown')).toContainText('37');
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   await page.screenshot({path:path.join(info.outputDir,`${locale}-${width}-pricing.png`)});
   await dialog.getByRole('button',{name:locale==='de'?'Konfiguration zurücksetzen':'Reset configuration',exact:true}).click();await expect(dialog).toHaveCount(0);
-  await expect(root(page).locator('.model-pricing__row')).toContainText('262');expect(f.errors).toEqual([]);
+  await expect(row).toContainText('262');expect(f.errors).toEqual([]);
   await page.screenshot({path:path.join(info.outputDir,`${locale}-${width}-overview.png`)});
   expect(f.calls.every(c=>!/(generate|video-jobs|\/run)$/.test(c.path))).toBe(true);
   }finally{f.DB.close();}
@@ -163,7 +163,7 @@ for(const [locale,width]of [['en',1440],['de',390]])test(`GPT Image 2.5 pricing 
  const f=await setup(page,baseURL);await page.setViewportSize({width,height:900});
  try{await open(page);if(locale==='de')await root(page).getByLabel('Pricing language').selectOption('de');
   for(const suffix of ['sunburst','flare']){
-   await root(page).getByRole('searchbox').fill(`gpt-image-2.5-${suffix}`);const row=root(page).locator('.model-pricing__row');await expect(row).toHaveCount(1);
+   await root(page).getByRole('searchbox').fill(`gpt-image-2.5-${suffix}`);const row=root(page).locator('.model-pricing__row').filter({has:page.getByText('MiniMax H3',{exact:true})});await expect(root(page).locator('.model-pricing__row')).toHaveCount(2);await expect(row).toHaveCount(1);
    await expect(row).toContainText(locale==='de'?'Werkspreis':'Factory');await row.focus();await page.keyboard.press('Enter');
    const dialog=page.getByRole('dialog',{name:`GPT Image 2.5 ${suffix==='sunburst'?'Sunburst':'Flare'}`,exact:true});await expect(dialog).toBeVisible();
    const options={quality:['low','medium','high','xhigh','max','auto'],size:['1024x1024','1024x1536','1536x1024','auto'],background:['transparent','opaque','auto'],outputFormat:['png','webp','jpeg']};
@@ -199,7 +199,7 @@ for(const [locale,width]of [['en',1440],['de',390]])test(`GPT Image 2.5 pricing 
 test('pricing conflict preserves editor; a new retail snapshot refreshes existing cross-surface estimators and request revision',async({page,baseURL})=>{
  const f=await setup(page,baseURL);try{
  await pricingLifecycle(page);
- await open(page);await root(page).getByRole('searchbox').fill('MiniMax H3');await root(page).locator('.model-pricing__row').click();const dialog=page.getByRole('dialog',{name:'MiniMax H3',exact:true});await expect(dialog.locator('.model-pricing__breakdown')).toContainText('262');await dialog.locator('input[step="0.00000001"]').fill('7.25');
+ await open(page);await root(page).getByRole('searchbox').fill('MiniMax H3');await root(page).locator('.model-pricing__row').filter({has:page.getByText('MiniMax H3',{exact:true})}).click();const dialog=page.getByRole('dialog',{name:'MiniMax H3',exact:true});await expect(dialog.locator('.model-pricing__breakdown')).toContainText('262');await dialog.locator('input[step="0.00000001"]').fill('7.25');
  await f.tariff.changeModelTariff(f.env,{id:'other-admin'},{revision:(await f.tariff.getModelTariff(f.env)).revision,action:'save',modelId:'minimax/h3',settings:{duration:5,resolution:'768P'},rates:{second:9}});
  const activeRevision=String((await f.tariff.getModelTariff(f.env)).revision);
  await dialog.getByRole('button',{name:'Save tariff',exact:true}).click();await expect(dialog).toBeVisible();await expect(dialog.getByRole('status')).toContainText('Another administrator');

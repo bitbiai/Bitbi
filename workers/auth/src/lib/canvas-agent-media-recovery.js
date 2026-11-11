@@ -2,7 +2,7 @@
 // credit writer or authority-renewal operation. The original job remains intact.
 import { nowIso,sha256Hex } from './tokens.js';
 import { stablePricingJson } from '../../../../js/shared/model-tariff.mjs';
-import { parseH3Task } from '../../../../js/shared/minimax-h3.mjs';
+import { isH3Model, parseH3Task } from '../../../../js/shared/minimax-h3.mjs';
 import { canvasAgentAvailability } from './canvas-agent-capabilities.js';
 import { readCanvasAgentBudget } from './canvas-agent-budget.js';
 import { assertCanvasPlanReviewCurrent } from './canvas-agent-plan-correction-review.js';
@@ -44,7 +44,7 @@ async function evidence(env,{runId,userId,projectId}) {
       JOIN ai_text_assets t ON t.id=cr.asset_id AND t.user_id=cr.user_id
       WHERE cr.idempotency_key=? AND cr.project_id=? AND cr.user_id=? AND cr.node_id=? AND cr.deleted_at IS NULL AND cr.status='completed'`)
       .bind(`canvas-agent-${step.id}`,projectId,userId,step.node_id).first();
-    if(!row||row.model_id!=='minimax/h3'||!['succeeded','preview_pending'].includes(row.job_status)
+    if(!row||!isH3Model(row.model_id)||!['succeeded','preview_pending'].includes(row.job_status)
       ||row.asset_id!==row.job_asset||row.node_asset!==row.asset_id||row.node_deleted||row.node_revision!==row.creative_revision
       ||row.usage_attempt_id!==row.job_usage||step.usage_attempt_id&&step.usage_attempt_id!==row.job_usage
       ||row.billing_status!=='finalized'||row.provider_outcome!=='succeeded'||row.charged!==row.credit_cost
@@ -53,7 +53,7 @@ async function evidence(env,{runId,userId,projectId}) {
       ||row.result_r2_key!==`users/${userId}/generation-jobs/${row.job_id}/result.json`)fail('canvas_agent_media_recovery_evidence_invalid');
     const receipts=JSON.parse(row.provider_receipts_json),task=receipts['h3-task']?.task;
     if(!receipts['ai-0']?.fingerprint||receipts['ai-0'].rejection||!task)fail('canvas_agent_media_recovery_evidence_invalid');
-    const parsed=parseH3Task({task});
+    const parsed=parseH3Task({task},row.model_id);
     if(parsed.pending||parsed.failed||parsed.outputSeconds<=0)fail('canvas_agent_media_recovery_evidence_invalid');
     const budget=await readCanvasAgentBudget(env,run),cost=await env.DB.prepare('SELECT charged FROM canvas_agent_step_costs WHERE step_id=?').bind(step.id).first();
     const correctedCharged=budget.chargedCredits+row.charged-(cost?.charged||0);

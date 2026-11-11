@@ -53,6 +53,16 @@ async function assertWorkspaceModelHelp({page, section, expect, locale}) {
     const entry = section.locator(`[data-help-model="${model.id}"]`);
     await expect(entry.locator('.help-menu__item-title')).toHaveText(model.displayName);
     await entry.locator('summary').click();
+    if(model.id==='minimax/h3-lite') {
+      await expect(entry.locator('.help-menu__item-body')).toBeVisible();
+      await expect(entry).toContainText(locale==='de'?'480P 0,025 USD, 768P 0,04 USD':'480P $0.025, 768P $0.04');
+      await expect(entry).toContainText(locale==='de'?'konkretes Seitenverhältnis für reine Texteingaben und den Referenzmodus':'concrete aspect ratio for text-only and reference mode');
+      await expect(entry).toContainText(locale==='de'?'adaptive Format ist nur mit Anfangs-/Endbildern':'Adaptive ratio is available only with first/last frames');
+      await expect(entry).not.toContainText(/2K|0[.,]08|0[.,]13/);
+    } else if(model.id==='minimax/h3') {
+      await expect(entry).toContainText(locale==='de'?'768P 0,08 USD, 2K 0,13 USD':'768P $0.08, 2K $0.13');
+      await expect(entry).not.toContainText(/480P|0[.,]025/);
+    }
     for (const [key, value] of Object.entries(model.options || {})) {
       if (key === 'dimensions') {
         const dimensions = entry.locator('[data-help-option="dimensions"]');

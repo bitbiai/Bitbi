@@ -1,7 +1,7 @@
 import { canvasGenerationSettings } from '../../../../js/shared/canvas-generation-settings.mjs';
 import { canvasNodeMediaKind } from '../../../../js/shared/canvas-export.mjs';
 import { canvasVideoMethods } from '../../../../js/shared/canvas-video-input.mjs';
-import { H3_MODEL, h3References, h3MediaType, normalizeH3Request } from '../../../../js/shared/minimax-h3.mjs';
+import { isH3Model, h3References, h3MediaType, normalizeH3Request } from '../../../../js/shared/minimax-h3.mjs';
 import { OMNI_MODEL, omniReferences, omniOperation, normalizeOmniRequest } from '../../../../js/shared/gemini-omni-contract.mjs';
 import { SEEDANCE_25_MODEL, seedance25References, seedance25Settings, normalizeSeedance25Request } from '../../../../js/shared/seedance-25-contract.mjs';
 import { isGptImage25Model } from '../../../../js/shared/gpt-image-25-contract.mjs';
@@ -48,17 +48,17 @@ export function prepareCanvasAgentPriceInput({node, model, dependencies = [], ex
         return {dep, kind:actual === 'music' ? 'audio' : actual, source:placeholder(identity)};
     }).filter(Boolean);
 
-    if ([H3_MODEL, OMNI_MODEL, SEEDANCE_25_MODEL].includes(model.id)) {
+    if ((isH3Model(model.id)||[OMNI_MODEL, SEEDANCE_25_MODEL].includes(model.id))) {
         const references = media.map(({dep, kind, source}) => {
             // Role-based adapters receive native video references. Their edit /
             // extend intent belongs to supported model settings, not a generic
             // videoInput method that normal Canvas cannot execute for the model.
             if (dep.method && !['reference','reference_video'].includes(dep.method)
-                && !(model.id === H3_MODEL && kind === 'video' && dep.method === 'last_frame')) fail('canvas_agent_reference_unsupported');
+                && !(isH3Model(model.id) && kind === 'video' && dep.method === 'last_frame')) fail('canvas_agent_reference_unsupported');
             if (kind === 'video' && dep.method === 'last_frame') {
                 // The existing H3 adapter converts a prepared last frame to a
                 // first-frame image. Omni/Seedance accept native video roles.
-                if (model.id !== H3_MODEL) fail('canvas_agent_reference_unsupported');
+                if (!isH3Model(model.id)) fail('canvas_agent_reference_unsupported');
                 return {role:'first_frame', source:placeholder(`frame:${source.asset_id}`)};
             }
             if (h3MediaType(dep.role) !== kind) fail('canvas_agent_reference_unsupported');
@@ -66,22 +66,22 @@ export function prepareCanvasAgentPriceInput({node, model, dependencies = [], ex
         });
         const roles = new Set(references.map(ref => ref.role));
         const frames = roles.has('first_frame') || roles.has('last_frame');
-        if (model.id === H3_MODEL && frames && ['reference_image','reference_video','reference_audio'].some(role => roles.has(role))) fail('canvas_agent_h3_reference_modes_mixed');
-        if (model.id === H3_MODEL && frames && body.aspect_ratio !== 'adaptive') fail('canvas_agent_h3_frame_ratio_required');
+        if (isH3Model(model.id) && frames && ['reference_image','reference_video','reference_audio'].some(role => roles.has(role))) fail('canvas_agent_h3_reference_modes_mixed');
+        if (isH3Model(model.id) && frames && body.aspect_ratio !== 'adaptive') fail('canvas_agent_h3_frame_ratio_required');
         if (model.id === SEEDANCE_25_MODEL) {
             if (roles.has('last_frame') && !roles.has('first_frame')) fail('canvas_agent_seedance_last_frame_requires_first');
             if (body.workflow !== 'generate' && !roles.has('reference_video')) fail('canvas_agent_seedance_video_required');
             if (body.workflow === 'edit' && body.duration !== -1) fail('canvas_agent_seedance_edit_duration');
             if (frames && node.config?.seedance25?.aspect_ratio !== undefined && node.config.seedance25.aspect_ratio !== 'adaptive') fail('canvas_agent_seedance_frame_ratio_required');
         }
-        const validate = model.id === H3_MODEL ? h3References : model.id === OMNI_MODEL ? omniReferences : seedance25References;
-        body.references = validate(references);
+        const validate = isH3Model(model.id) ? h3References : model.id === OMNI_MODEL ? omniReferences : seedance25References;
+        body.references = validate(references, model.id);
         if (model.id === OMNI_MODEL) body.operation = omniOperation(body.references);
         if (model.id === SEEDANCE_25_MODEL) Object.assign(body, seedance25Settings(body, body.references));
         delete body.referenceOrder;
         // The normal routed request validators catch conditional controls before
         // an executable graph or paid media action is admitted.
-        return model.id === H3_MODEL ? normalizeH3Request(body)
+        return isH3Model(model.id) ? normalizeH3Request(body)
             : model.id === OMNI_MODEL ? normalizeOmniRequest(body) : normalizeSeedance25Request(body);
     }
 

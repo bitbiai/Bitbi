@@ -6,8 +6,8 @@ import { OMNI_MODEL, omniReferences as validateOmniReferences, omniSettings } fr
 import { omniMemberAvailable } from '../../shared/gemini-omni-pricing.mjs';
 import { isGptImage25Model, normalizeGptImage25Options } from '../../shared/gpt-image-25-contract.mjs?v=__ASSET_VERSION__';
 import { imageDimensionChoices } from '../../shared/image-dimensions.mjs?v=__ASSET_VERSION__';
-import { H3_MODEL, h3ReferenceError } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
-import { createH3ReferenceControls } from '../../shared/h3-reference-controls.js?v=__ASSET_VERSION__';
+import { isH3Model, h3ReferenceError } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
+import { createH3ReferenceControls, h3AspectRatioOptions } from '../../shared/h3-reference-controls.js?v=__ASSET_VERSION__';
 import { createGrokVideoControls } from './grok-video-controls.js?v=__ASSET_VERSION__';
 /* ============================================================
    BITBI — Generate Lab page
@@ -870,9 +870,9 @@ function syncVideoOptionState({ reset = false } = {}) {
     if (!grokVideoControls) grokVideoControls=createGrokVideoControls({anchor:referenceField,de:document.documentElement.lang==='de',changed:updateActionState,pick:openGrokSources});
     grokVideoControls.sync(model,state.busy);
     if(!h3Controls)h3Controls=createH3ReferenceControls({anchor:referenceField,de:document.documentElement.lang==='de',pick:openGrokSources,read:()=>h3References,write:value=>{h3References=value;},changed:()=>{
-        if(h3References.some(ref=>['first_frame','last_frame'].includes(ref.role)))refs.videoAspect.value='adaptive';updateActionState();
+        if(h3References.some(ref=>['first_frame','last_frame'].includes(ref.role)))refs.videoAspect.value='adaptive';syncVideoOptionState();updateActionState();
     }});
-    h3Controls.sync(model.id===H3_MODEL,state.busy);
+    h3Controls.sync(isH3Model(model.id),state.busy,model.id);
     readOmniDraft();
     if(!omniControls)omniControls=createH3ReferenceControls({omni:true,anchor:referenceField,de:document.documentElement.lang==='de',pick:openGrokSources,read:()=>omniReferences,write:value=>{omniReferences=value;},changed:()=>{saveOmniDraft();updateActionState();}});
     omniControls.sync(model.id===OMNI_MODEL,state.busy);
@@ -888,7 +888,7 @@ function syncVideoOptionState({ reset = false } = {}) {
     if(refs.videoDuration?.closest('label'))refs.videoDuration.closest('label').hidden=model.id===OMNI_MODEL;
 
     const supportsNegative = controls.supportsNegativePrompt === true;
-    const supportsReference = controls.supportsImageInput === true && ![H3_MODEL,OMNI_MODEL].includes(model.id);
+    const supportsReference = controls.supportsImageInput === true && !isH3Model(model.id) && model.id!==OMNI_MODEL;
     const supportsSeed = controls.supportsSeed === true;
     const supportsAudio = controls.supportsAudioToggle === true;
     const supportsWatermark = controls.supportsWatermark === true;
@@ -896,7 +896,7 @@ function syncVideoOptionState({ reset = false } = {}) {
     const resolutionField = controls.resolutionField || 'quality';
     const aspectField = controls.aspectField || 'aspectRatio';
     const resolutionValues = model.options?.[resolutionField] || [];
-    const aspectValues = model.options?.[aspectField] || [];
+    const aspectValues = isH3Model(model.id) ? h3AspectRatioOptions(model.id,h3References) : model.options?.[aspectField] || [];
 
     if (negativeField) negativeField.hidden = !supportsNegative;
     if (referenceField) referenceField.hidden = !supportsReference || model.id.startsWith("xai/grok-imagine-video");
@@ -2069,7 +2069,7 @@ async function generateVideo(prompt, observation) {
         if (!grokVideoControls.valid()) return {ok:false,error:document.documentElement.lang==='de'?'Ein Originalvideo ist erforderlich.':'An original video is required.'};
         Object.assign(payload,grokVideoControls.values());
     } else if(model.id===OMNI_MODEL)payload.references=omniControls.values();
-    else if(model.id===H3_MODEL)payload.references=h3Controls.values();
+    else if(isH3Model(model.id))payload.references=h3Controls.values();
     else if (controls.supportsImageInput && state.videoReferenceDataUri) payload.image_input = state.videoReferenceDataUri;
     if(model.id===SEEDANCE_25_MODEL){for(const key of Object.keys(payload))delete payload[key];Object.assign(payload,normalizeSeedance25Request({model:model.id,prompt,...seedance25Controls.values()}));}
     const folderId = refs.folderSelect?.value || '';

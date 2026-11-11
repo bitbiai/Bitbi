@@ -46,7 +46,7 @@ export async function quoteModelTariff(env, { modelId, input = {}, credits, cont
     }
     // Duration-settled adapters pin authoritative output-second pricing. Freeze
     // provider rate, conversion and margin, including under factory pricing.
-    const factorySettlement = ['minimax/h3', 'elevenlabs/music-v2', SEEDANCE_25_MODEL].includes(model.id) ? {
+    const factorySettlement = ['minimax/h3', 'minimax/h3-lite', 'elevenlabs/music-v2', SEEDANCE_25_MODEL].includes(model.id) ? {
         rateUsdPerSecond: price.formula.rateUsdPerSecond,
         usdToEur: BITBI_MODEL_PRICING_USD_TO_EUR,
         netEurPerCredit: BITBI_NET_EUR_PER_CREDIT_FOR_MODEL_PRICING,

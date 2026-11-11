@@ -85,7 +85,7 @@ exports.memberDimensions = async ({ page, expect, mockSession, locale }) => {
   await page.locator('[data-media-type="video"]').click();
   await expect(model).toHaveValue('minimax/h3');
   await exports.assertVideoOptions(model, expect, [
-    'alibaba/hh1-t2v', 'bytedance/seedance-2.0-fast', 'bytedance/seedance-2.5', 'google/gemini-omni-flash', 'minimax/h3', 'pixverse/v6', 'xai/grok-imagine-video', 'xai/grok-imagine-video-1.5-preview',
+    'alibaba/hh1-t2v', 'bytedance/seedance-2.0-fast', 'bytedance/seedance-2.5', 'google/gemini-omni-flash', 'minimax/h3', 'minimax/h3-lite', 'pixverse/v6', 'xai/grok-imagine-video', 'xai/grok-imagine-video-1.5-preview',
   ]);
   await model.selectOption('alibaba/hh1-t2v');
   await expect(page.locator('#labVideoQuality option')).toHaveText(['720P', '1080P']);

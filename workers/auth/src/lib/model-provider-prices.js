@@ -25,6 +25,7 @@ function evidence(model, factory) {
     if (model.id === '@cf/black-forest-labs/flux-2-klein-9b') return { status:'verified', checkedAt, sourceUrl:SOURCE, ratesUsd:{firstMegapixel:0.015,additionalMegapixel:0.002,inputMegapixel:0.002} };
     if (model.id === '@cf/black-forest-labs/flux-2-dev') return { status:'verified', checkedAt, sourceUrl:SOURCE, ratesUsd:{inputTilePerStep:0.00021,outputTilePerStep:0.00041} };
     if (model.id === 'minimax/h3') return { status:'owner_verified_dashboard', checkedAt:'2026-09-20', sourceUrl:model.sourceUrl, unit:'output_second', ratesUsd:{'768P':0.08,'2K':0.13} };
+    if (model.id === 'minimax/h3-lite') return { status:'verified', checkedAt:'2026-11-11', sourceUrl:'https://developers.cloudflare.com/ai/models/minimax/h3-lite/', unit:'output_second', ratesUsd:{'480P':0.025,'768P':0.04} };
     if (model.id === 'xai/grok-imagine-video-1.5-preview') return { status:'owner_verified_dashboard', checkedAt:'2026-09-20', sourceUrl:model.sourceUrl, unit:'output_second', ratesUsd:{'480p':0.08,'720p':0.14}, acquisitionMultiplier:1.05 };
     return { status:'not_currently_verified', checkedAt:null, sourceUrl:model.sourceUrl,
         factorySource:factory?.formula?.pricingSource || factory?.formula?.pricingVersion || null };

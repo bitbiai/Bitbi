@@ -2,7 +2,7 @@ import { SEEDANCE_25_MODEL, normalizeSeedance25Request } from '../../shared/seed
 import { OMNI_MODEL, omniReferences } from '../../shared/gemini-omni-contract.mjs';
 import { calculateAiImageCreditCost } from '../../shared/ai-model-pricing.mjs?v=__ASSET_VERSION__';
 import { isGptImage25Model, normalizeGptImage25Options } from '../../shared/gpt-image-25-contract.mjs?v=__ASSET_VERSION__';
-import { H3_MODEL, h3References } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
+import { isH3Model, h3References } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
 import { composeCanvasPrompt } from '../../shared/canvas-model-contract.mjs?v=__ASSET_VERSION__';
 import { canvasVideoMethods, resolveCanvasVideoInput, canvasInputRoleMatches } from '../../shared/canvas-video-input.mjs?v=__ASSET_VERSION__';
 import { isExportMusic, canvasNodeMediaKind } from '../../shared/canvas-export.mjs?v=__ASSET_VERSION__';
@@ -78,10 +78,10 @@ function compatibility(target, model, kind, copy) {
         return { compatible: false, inputKind: 'image_reference', reason: copy.imageInputUnsupported.replace('{model}', model?.label || copy.selectedModel) };
     }
     if (kind === 'video_asset' || kind === 'video_reference') {
-        if (target.type === 'video_generation' && ([H3_MODEL,OMNI_MODEL,SEEDANCE_25_MODEL].includes(model?.id) || canvasVideoMethods(model, { kind: 'video_asset', assetId: 'pending' }).length)) return { compatible: true, inputKind: 'video_reference' };
+        if (target.type === 'video_generation' && ((isH3Model(model?.id)||[OMNI_MODEL,SEEDANCE_25_MODEL].includes(model?.id)) || canvasVideoMethods(model, { kind: 'video_asset', assetId: 'pending' }).length)) return { compatible: true, inputKind: 'video_reference' };
         return { compatible: false, inputKind: 'video_reference', reason: copy.videoInputUnsupported.replace('{model}', model?.label || copy.selectedModel) };
     }
-    if (kind === 'audio_asset' && target.type==='video_generation' && [H3_MODEL,OMNI_MODEL,SEEDANCE_25_MODEL].includes(model?.id)) return {compatible:true,inputKind:'audio_reference'};
+    if (kind === 'audio_asset' && target.type==='video_generation' && (isH3Model(model?.id)||[OMNI_MODEL,SEEDANCE_25_MODEL].includes(model?.id))) return {compatible:true,inputKind:'audio_reference'};
     if (kind === 'audio_asset') return { compatible: false, inputKind: 'audio_asset', reason: copy.audioInputUnsupported };
     if (kind === 'json') return { compatible: false, inputKind: 'json', reason: copy.jsonInputUnsupported };
     return { compatible: false, inputKind: 'none', reason: copy.noUsableOutput };
@@ -107,7 +107,7 @@ export function analyzeNodeInputs(target, nodes, edges, models, copy) {
         let status = value.kind === 'none' ? (accepted.compatible ? 'unresolved' : 'incompatible') : (accepted.compatible ? 'compatible' : 'incompatible');
         const videoInput = target.type==='video_generation' && kind === 'video_asset' && ![OMNI_MODEL,SEEDANCE_25_MODEL].includes(model?.id) ? resolveCanvasVideoInput(model, value, edge.config) : null;
         const h3Role=videoInput?.method === 'last_frame' ? 'first_frame' : (model?.id===SEEDANCE_25_MODEL?target.config?.seedance25Roles:model?.id===OMNI_MODEL?target.config?.omniRoles:target.config?.h3Roles)?.[edge.id] || (kind==='video_asset'?'reference_video':kind==='audio_asset'?'reference_audio':'reference_image');
-        const roleMismatch=[H3_MODEL,OMNI_MODEL,SEEDANCE_25_MODEL].includes(model?.id)&&videoInput?.method!=='last_frame'&&!canvasInputRoleMatches(h3Role,kind);
+        const roleMismatch=(isH3Model(model?.id)||[OMNI_MODEL,SEEDANCE_25_MODEL].includes(model?.id))&&videoInput?.method!=='last_frame'&&!canvasInputRoleMatches(h3Role,kind);
         if(roleMismatch)status='incompatible';
         return { ...value, videoInput, h3Role, edgeId: edge.id, inputKind: accepted.inputKind, status, reason: roleMismatch?copy.mediaRoleChanged:status === 'unresolved' ? copy.runUpstream : accepted.reason || '' };
     });
@@ -157,12 +157,12 @@ export function validationForNode(node, analysis, copy) {
     if (analysis?.incompatible.length) return analysis.incompatible[0].reason;
     if (analysis?.unresolved.length) return `${analysis.unresolved[0].sourceTitle}: ${copy.runUpstream}`;
     if(analysis?.model?.id===OMNI_MODEL){try{omniReferences(analysis.compatible.filter(source=>source.assetId).map(source=>({role:source.h3Role,source:{source_type:'saved_asset',asset_id:source.assetId}})));}catch(error){return error.message;}}
-    if(analysis?.model?.id===H3_MODEL) {
-        try{h3References(analysis.compatible.filter(source=>source.assetId).map(source=>({role:source.h3Role,source:{source_type:'saved_asset',asset_id:source.assetId}})));}
+    if(isH3Model(analysis?.model?.id)) {
+        try{h3References(analysis.compatible.filter(source=>source.assetId).map(source=>({role:source.h3Role,source:{source_type:'saved_asset',asset_id:source.assetId}})),analysis.model.id);}
         catch(error){return error.message;}
     }
     const videos = analysis?.sources.filter(source => source.videoInput?.methods.length && source.videoInput.method !== 'reference_video') || [];
-    if (videos.length > 1 || (videos.length && analysis.compatible.some(source => source.inputKind === 'image_reference' && !(analysis.model?.id === H3_MODEL && source.h3Role === 'last_frame')))) return copy.videoAmbiguous;
+    if (videos.length > 1 || (videos.length && analysis.compatible.some(source => source.inputKind === 'image_reference' && !(isH3Model(analysis.model?.id) && source.h3Role === 'last_frame')))) return copy.videoAmbiguous;
     if (videos.some(source => !source.videoInput.method)) return copy.videoMethodRequired;
     if (videos.some(source => source.videoInput.method === 'last_frame' && !source.videoInput.frame)) return copy.videoPreparing;
     if (analysis?.model?.id === 'elevenlabs/music-v2') {

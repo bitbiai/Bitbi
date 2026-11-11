@@ -1,4 +1,4 @@
-import { H3_MODEL, parseH3Task } from '../../../../js/shared/minimax-h3.mjs';
+import { H3_MODEL, isH3Model, h3ModelDefinition, parseH3Task } from '../../../../js/shared/minimax-h3.mjs';
 import { readBodyBytesLimited } from '../../../../js/shared/request-body.mjs';
 import { getAiSaveReferenceSigningSecret, getAiSaveReferenceSigningSecretCandidates } from './security-secrets.js';
 import { nowIso } from './tokens.js';
@@ -21,7 +21,7 @@ async function find(env,kind,id) {
         if(!object)fail('h3_input_missing',410);
         const body=await new Response(object.body).json();job.model=body.model;
     }
-    if(job.model!==H3_MODEL)fail('h3_callback_identity',403);
+    if(!isH3Model(job.model))fail('h3_callback_identity',403);
     return job;
 }
 export async function prepareH3Callback(env,{kind,id,userId}) {
@@ -31,23 +31,39 @@ export async function prepareH3Callback(env,{kind,id,userId}) {
     const token=`${btoa(payload).replaceAll('+','-').replaceAll('/','_').replaceAll('=','')}.${await sign(getAiSaveReferenceSigningSecret(env),payload)}`;
     return `https://bitbi.ai/api/internal/ai/h3-callback/${token}`;
 }
-export function h3MemberReceipt(job) {
+export function h3MemberReceipt(job, expectedModel = job.model || H3_MODEL) {
     const receipts=JSON.parse(job.provider_receipts_json||'{}');
-    return !receipts['ai-0']?.rejection && receipts['ai-0'] && receipts['h3-task']?.task ? {task:receipts['h3-task'].task} : null;
+    if(receipts['ai-0']?.rejection || !receipts['ai-0'] || !receipts['h3-task']?.task)return null;
+    const result={task:receipts['h3-task'].task};
+    parseH3Task(result,expectedModel);
+    return result;
 }
 export async function storedH3MemberTask(env,job) {
     if(job.media_type!=='video')return null;
-    const direct=h3MemberReceipt(job);if(direct)return direct;
-    const receipt=JSON.parse(job.provider_receipts_json||'{}')['ai-0'];
+    const receipts=JSON.parse(job.provider_receipts_json||'{}');
+    if(!receipts['ai-0'] || receipts['ai-0'].rejection)return null;
+    // Accepted input, never the receipt's claimed provider model, selects the
+    // parser. Full H3 and Lite receipts cannot be interchanged during recovery.
+    let expectedModel=job.model;
+    if(!expectedModel) {
+        const input=await env.USER_IMAGES.get(job.input_r2_key);
+        if(!input)fail('h3_input_missing',410);
+        expectedModel=(await new Response(input.body).json()).model;
+    }
+    if(!isH3Model(expectedModel))return null;
+    const direct=h3MemberReceipt(job,expectedModel);if(direct)return direct;
+    const receipt=receipts['ai-0'];
     const expected=`users/${job.user_id}/generation-jobs/${job.id}/provider-ai-0.json`;
     if(receipt?.key!==expected)return null;
     const stored=await env.USER_IMAGES.get(expected);if(!stored)return null;
     const encoded=await new Response(stored.body).json();
-    return encoded.kind==='json'&&encoded.value?.task?.model==='MiniMax-H3'?encoded.value:null;
+    if(encoded.kind!=='json')return null;
+    parseH3Task(encoded.value,expectedModel);
+    return encoded.value;
 }
-export function h3ProviderResult(raw) {
-    const task=parseH3Task(raw);
-    return {status:task.pending?'provider_pending':task.failed?'failed':'succeeded',providerTaskId:task.taskId,
+export function h3ProviderResult(raw, expectedModel = H3_MODEL) {
+    const task=parseH3Task(raw,expectedModel);
+    return {status:task.pending?'provider_pending':task.failed?'failed':'succeeded',modelId:expectedModel,providerTaskId:task.taskId,
         providerState:task.state,videoUrl:task.videoUrl,outputSeconds:task.outputSeconds,resolution:task.resolution,duration:task.duration,retryAfterSeconds:60};
 }
 export async function handleH3Callback({env,request},token) {
@@ -73,8 +89,8 @@ export async function handleH3Callback({env,request},token) {
         const body=JSON.parse(new TextDecoder().decode(await readBodyBytesLimited(request,{maxBytes:16_384})));
         // Official H3 callback verification, still protected by this job's HMAC.
         if(typeof body.challenge==='string'&&body.challenge.length<=1024) return Response.json({challenge:body.challenge},{headers});
-        const parsed=parseH3Task(body);
-        const task={id:parsed.taskId,model:'MiniMax-H3',status:parsed.state,resolution:parsed.resolution,duration:parsed.duration,
+        const parsed=parseH3Task(body,job.model);
+        const task={id:parsed.taskId,model:h3ModelDefinition(job.model).providerModel,status:parsed.state,resolution:parsed.resolution,duration:parsed.duration,
             ...(parsed.videoUrl?{content:{url:parsed.videoUrl}}:{}),usage:{output_seconds:parsed.outputSeconds}};
         if(kind==='member') {
             const receipts=JSON.parse(job.provider_receipts_json||'{}'),previous=(await storedH3MemberTask(env,job))?.task;
@@ -98,8 +114,9 @@ export async function handleH3Callback({env,request},token) {
         } else {
             if(!job.dispatch_token)fail('h3_dispatch_not_recorded');
             const previous=JSON.parse(job.provider_result_json||'{}');
+            if(previous.status && (previous.modelId || H3_MODEL)!==job.model)fail('h3_task_identity');
             if(previous.providerTaskId && previous.providerTaskId!==parsed.taskId)fail('h3_task_identity');
-            const result=h3ProviderResult({task});
+            const result=h3ProviderResult({task},job.model);
             if(previous.providerState==='running' && parsed.state==='queued')return Response.json({ok:true},{headers});
             if(['succeeded','failed'].includes(previous.status)) {
                 if(previous.status!==result.status||previous.videoUrl!==result.videoUrl||previous.outputSeconds!==result.outputSeconds||previous.resolution!==result.resolution)fail('h3_terminal_conflict');

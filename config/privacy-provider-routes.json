@@ -105,7 +105,8 @@
       "id": "minimax-gateway",
       "models": [
         "minimax/music-2.6",
-        "minimax/h3"
+        "minimax/h3",
+        "minimax/h3-lite"
       ],
       "recipient": "MiniMax; published API terms name Nanonoble Pte. Ltd.; actual gateway entity unverified",
       "transport": "gateway",

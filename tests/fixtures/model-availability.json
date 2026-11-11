@@ -41,6 +41,10 @@
       "generation": true,
       "canvas": true
     },
+    "minimax/h3-lite": {
+      "generation": true,
+      "canvas": true
+    },
     "pixverse/v6": {
       "generation": true,
       "canvas": true

@@ -7,8 +7,8 @@ import { renderReferenceSlots, saveOwnedReference, showUnavailableImagePricing, 
 import { isGptImage25Model, normalizeGptImage25Options } from '../../shared/gpt-image-25-contract.mjs?v=__ASSET_VERSION__';
 import { sortGenerationModels } from '../../shared/generation-model-order.mjs?v=__ASSET_VERSION__';
 import { imageDimensionChoices } from '../../shared/image-dimensions.mjs?v=__ASSET_VERSION__';
-import { H3_MODEL, h3ReferenceError } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
-import { createH3ReferenceControls } from '../../shared/h3-reference-controls.js?v=__ASSET_VERSION__';
+import { isH3Model, h3ReferenceError } from '../../shared/minimax-h3.mjs?v=__ASSET_VERSION__';
+import { createH3ReferenceControls, h3AspectRatioOptions } from '../../shared/h3-reference-controls.js?v=__ASSET_VERSION__';
 import { GROK_IMAGE_2 } from '../../shared/grok-imagine-image-2-pricing.mjs?v=__ASSET_VERSION__';
 import {
     apiAiGetFolders,
@@ -2185,8 +2185,9 @@ export function createAdminAiLab({ showToast } = {}) {
             ? Math.min(Math.max(Math.round(duration), spec.minDuration || 1), spec.maxDuration || 16)
             : (spec.defaultDuration || 5);
 
-        if (!Array.isArray(spec.allowedAspectRatios) || !spec.allowedAspectRatios.includes(state.forms.video.aspectRatio)) {
-            state.forms.video.aspectRatio = spec.defaultAspectRatio || '16:9';
+        const aspectRatios = isH3Model(spec.id) ? h3AspectRatioOptions(spec.id,state.forms.video.h3References || []) : spec.allowedAspectRatios;
+        if (!Array.isArray(aspectRatios) || !aspectRatios.includes(state.forms.video.aspectRatio)) {
+            state.forms.video.aspectRatio = aspectRatios?.includes(spec.defaultAspectRatio) ? spec.defaultAspectRatio : aspectRatios?.[0] || '16:9';
         }
 
         if (spec.resolutionField === 'quality') {
@@ -2894,7 +2895,7 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.video.model.disabled = isBusy;
         if (refs.video.modelDesc) refs.video.modelDesc.textContent = modelSummary.description || spec.description || '';
 
-        h3Controls.sync(spec.id===H3_MODEL,isBusy);
+        h3Controls.sync(isH3Model(spec.id),isBusy,spec.id);
         omniControls.sync(spec.id===OMNI_MODEL,isBusy);
         seedance25Controls.sync(spec.id===SEEDANCE_25_MODEL,isBusy);
         if(refs.video.durationField)refs.video.durationField.hidden=spec.id===OMNI_MODEL;
@@ -3000,11 +3001,14 @@ export function createAdminAiLab({ showToast } = {}) {
         refs.video.duration.max = spec.maxDuration || 16;
         refs.video.duration.step = 1;
         refs.video.duration.disabled = isBusy;
+        const aspectRatios=isH3Model(spec.id)?h3AspectRatioOptions(spec.id,state.forms.video.h3References || []):spec.allowedAspectRatios;
+        if(isH3Model(spec.id)&&!aspectRatios.includes(state.forms.video.aspectRatio))state.forms.video.aspectRatio=aspectRatios.includes('16:9')?'16:9':aspectRatios[0];
         setAllowedSelectOptions(
             refs.video.aspectRatio,
-            spec.allowedAspectRatios,
-            spec.defaultAspectRatio || '16:9'
+            aspectRatios,
+            aspectRatios?.includes(spec.defaultAspectRatio) ? spec.defaultAspectRatio : aspectRatios?.[0] || '16:9'
         );
+        if(isH3Model(spec.id))refs.video.aspectRatio.value=state.forms.video.aspectRatio;
         const aspectRatioLabel = refs.video.aspectRatioField?.querySelector('.admin-ai__label');
         if (aspectRatioLabel) aspectRatioLabel.textContent = isHappyHorse ? 'Ratio' : 'Aspect Ratio';
 
@@ -3028,7 +3032,7 @@ export function createAdminAiLab({ showToast } = {}) {
         if (refs.video.qualityLabel) refs.video.qualityLabel.textContent = 'Quality';
 
         refs.video.resolutionField.hidden = spec.resolutionField !== 'resolution';
-        if (spec.id === OMNI_MODEL) for (const value of spec.allowedResolutions) {
+        if (spec.id === OMNI_MODEL || isH3Model(spec.id)) for (const value of spec.allowedResolutions) {
             if (![...refs.video.resolution.options].some(option => option.value === value)) refs.video.resolution.add(new Option(value, value));
         }
         setAllowedSelectOptions(
@@ -6502,7 +6506,7 @@ export function createAdminAiLab({ showToast } = {}) {
 
         if(videoSpec.id===SEEDANCE_25_MODEL){payload=normalizeSeedance25Request({model:videoSpec.id,prompt,...seedance25Controls.values()});}
         else if(videoSpec.id===OMNI_MODEL){payload=omniLabBody(state.forms.video,omniControls.values());}
-        else if(videoSpec.id===H3_MODEL){payload={...payload,prompt,resolution:state.forms.video.resolution,aspect_ratio:state.forms.video.aspectRatio,references:h3Controls.values()};}
+        else if(isH3Model(videoSpec.id)){payload={...payload,prompt,resolution:state.forms.video.resolution,aspect_ratio:state.forms.video.aspectRatio,references:h3Controls.values()};}
         else if (videoSpec.id === ADMIN_AI_VIDEO_HAPPYHORSE_T2V_MODEL_ID) {
             payload.prompt = prompt;
             payload.resolution = state.forms.video.resolution;

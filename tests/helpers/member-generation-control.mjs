@@ -20,7 +20,7 @@ function interceptDb(db, intercept, interceptBatch = (_, execute) => execute()) 
 }
 
 export async function memberGenerationCase(nativeEnv,name,fixture={}) {
-  if(!name.startsWith('clock-')&&!name.startsWith('h3-callback')) return runMemberGenerationCase(nativeEnv,name,fixture);
+  if(!name.startsWith('clock-')&&!name.replace('h3-lite-','h3-').startsWith('h3-callback')) return runMemberGenerationCase(nativeEnv,name,fixture);
   const RealDate=globalThis.Date;
   let offset=0;
   globalThis.Date=class extends RealDate {
@@ -32,6 +32,9 @@ export async function memberGenerationCase(nativeEnv,name,fixture={}) {
 }
 
 async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
+  const h3Case=name.replace('h3-lite-','h3-');
+  const h3Model=fixture.input?.model || 'minimax/h3', h3Lite=h3Model==='minimax/h3-lite';
+  const h3ProviderModel=h3Lite?'MiniMax-H3-Lite':'MiniMax-H3';
   const kind=fixture.kind || (name.startsWith('admin-lab-')?name.slice('admin-lab-'.length):(name==='image'||name.startsWith('asset-naming-image'))?'image':(name.startsWith('music')||name.startsWith('asset-naming-music'))?'music':'video');
   const videoBytes=fixture.videoBase64 ? bytes(fixture.videoBase64) : new Uint8Array([0,0,0,24,102,116,121,112]);
   const db=nativeEnv.DB, owner=`durable-${name}`, now=new Date().toISOString();
@@ -50,7 +53,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     HOMEPAGE_HERO_EXTERNAL_FFMPEG_SECRET:'synthetic-member-poster-secret-not-live',
     AI_VIDEO_JOBS_QUEUE:{async send(body){messages.push(body);}},
     AI_IMAGE_DERIVATIVES_QUEUE:{async send(){}},
-    AI:{async run(model,payload,options){check(model!=='minimax/h3','H3 must use REST, never binding');calls.provider++;await duringProvider(model,payload);if(model.startsWith('xai/grok-imagine-video'))try{await verifyGrokOutputUpload(env,payload,videoBytes);}catch(error){calls.fixtureFailure=error.message;throw error;}if(kind==='image'||kind==='music')return {image:(model==='xai/grok-imagine-image-2.0'||model.startsWith('openai/gpt-image-2.5-'))?`data:image/png;base64,${fixture.imageBase64||png}`:fixture.imageBase64||png};if(name==='provider-unknown') throw new Error('synthetic provider connection lost');if(model===SEEDANCE_25_MODEL)return {state:'Completed',result:{video:'https://fixture.invalid/member.mp4'}};if(model===OMNI_MODEL)return {state:'Completed',result:{video:name.startsWith('omni-')?'data:video/mp4;base64,'+fixture.videoBase64:'https://fixture.invalid/member.mp4'},interaction_id:'synthetic-explicit-interaction'};return {video_url:'https://fixture.invalid/member.mp4'};}},
+    AI:{async run(model,payload,options){check(!['minimax/h3','minimax/h3-lite'].includes(model),'H3 family must use REST, never binding');calls.provider++;await duringProvider(model,payload);if(model.startsWith('xai/grok-imagine-video'))try{await verifyGrokOutputUpload(env,payload,videoBytes);}catch(error){calls.fixtureFailure=error.message;throw error;}if(kind==='image'||kind==='music')return {image:(model==='xai/grok-imagine-image-2.0'||model.startsWith('openai/gpt-image-2.5-'))?`data:image/png;base64,${fixture.imageBase64||png}`:fixture.imageBase64||png};if(name==='provider-unknown') throw new Error('synthetic provider connection lost');if(model===SEEDANCE_25_MODEL)return {state:'Completed',result:{video:'https://fixture.invalid/member.mp4'}};if(model===OMNI_MODEL)return {state:'Completed',result:{video:name.startsWith('omni-')?'data:video/mp4;base64,'+fixture.videoBase64:'https://fixture.invalid/member.mp4'},interaction_id:'synthetic-explicit-interaction'};return {video_url:'https://fixture.invalid/member.mp4'};}},
     AI_SERVICE_AUTH_SECRET:'synthetic-service-secret-not-live',
     AI_LAB:{async fetch(request){calls.provider++;if(name==='music-failed')return Response.json({ok:false,code:'provider_rejected',error:'Synthetic confirmed rejection'},{status:422,headers:{'x-bitbi-provider-outcome':'failed'}});const input=await request.json();return Response.json({ok:true,result:{audioBase64:'SUQzBAAAAAAA',mimeType:'audio/mpeg',mode:'song',durationMs:1000},model:{id:input.model},preset:'music_studio'});}},
     CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),H3_CLOUDFLARE_API_TOKEN:`synthetic-h3-${name}-not-live`,
@@ -60,7 +63,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
         check(url===`https://api.cloudflare.com/client/v4/accounts/${'a'.repeat(32)}/ai/run` && init.method==='POST' && init.redirect==='manual','H3 fixed REST target and no redirect');
         check(init.headers.Authorization===`Bearer synthetic-h3-${name}-not-live`,'H3 scoped runtime credential');
         const {model,input:payload,options,...extra}=JSON.parse(init.body);
-        check(model==='minimax/h3' && Object.keys(extra).length===0 && options===undefined,'H3 exact REST envelope');
+        check(model===h3Model && Object.keys(extra).length===0 && options===undefined,'H3 exact REST envelope');
         const headers=new Headers(init.headers);
         check(options===undefined && headers.get('cf-aig-gateway-id')==='default' && headers.get('cf-aig-skip-cache')==='true' && headers.get('cf-aig-collect-log')==='false' && /^[a-f0-9]{32}$/.test(JSON.parse(headers.get('cf-aig-metadata')).bitbi_dispatch),'H3 REST private uncached Gateway and dispatch identity');
         await duringProvider(model,payload);
@@ -89,12 +92,12 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     if(fail && name==='finalization-response-lost' && sql.includes("SET status = 'succeeded'") && sql.includes("result_save_reference = ?")) {fail=false;throw new Error('synthetic finalized reply lost');}
     return result;
   });
-  if(['h3-rejection-settlement','h3-rejection-settlement-lost'].includes(name)) env.DB=interceptDb(db,async(sql,execute)=>{
+  if(['h3-rejection-settlement','h3-rejection-settlement-lost'].includes(h3Case)) env.DB=interceptDb(db,async(sql,execute)=>{
     if(fail && sql.includes("SET status = 'provider_failed'")) {
       fail=false;
-      const race=await worker.fetch(new Request(callbackUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task:{id:'late-task',model:'MiniMax-H3',status:'running'}})}),env,{});
+      const race=await worker.fetch(new Request(callbackUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task:{id:'late-task',model:h3ProviderModel,status:'running'}})}),env,{});
       check(race.status===409,'Durable rejection blocks callback before credit settlement/job completion');
-      if(name==='h3-rejection-settlement-lost')await execute();
+      if(h3Case==='h3-rejection-settlement-lost')await execute();
       throw new Error('Synthetic failure settlement unavailable');
     }
     return execute();
@@ -120,7 +123,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
   const fetch = (path,options={})=>worker.fetch(new Request('https://bitbi.ai'+path,options),env,{waitUntil(){throw new Error('No detached HTTP work allowed');}});
   const headers={'Content-Type':'application/json',Origin:'https://bitbi.ai',Cookie:`bitbi_session=${owner}`,'Idempotency-Key':`member-${name}-idempotency`,Prefer:'respond-async'};
   headers['X-Bitbi-Tariff-Revision']=String((await getModelTariff(env)).revision);
-  if(name.startsWith('h3-rejection-'))headers['Idempotency-Key']=`canvas-video-${name}`;
+  if(h3Case.startsWith('h3-rejection-'))headers['Idempotency-Key']=`canvas-video-${name}`;
   if(name.startsWith('admin-lab-')){
     const denied=await fetch(`/api/ai/generate-${kind}`,{method:'POST',headers,body:JSON.stringify({prompt:'Fixture'})});
     check(denied.status===403,'The generic Admin no-context guard is retained');
@@ -149,10 +152,18 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
   if(name.startsWith('asset-naming-')) input.prompt='a  little worm in a pile of leaves';
   if(name.startsWith('asset-naming-') && name.includes('manual')) input.title='My deliberately long manual video name';
   let sourceUrl=null,callbackUrl=null;
-  if(input.model==='minimax/h3')duringProvider=async(model,payload)=>{
+  const h3ExpectedCredits=h3Case==='h3-output-usage'?calculateAiVideoCreditCost(h3Model,{duration:4,resolution:input.resolution || (h3Lite?'480P':'768P')}).credits:null;
+  if(['minimax/h3','minimax/h3-lite'].includes(input.model))duringProvider=async(model,payload)=>{
     check(model===input.model && payload.content[0].text===input.prompt,'H3 exact alias and content');
-    check(payload.resolution===input.resolution || payload.resolution==='768P','H3 actual resolution');
+    check(payload.resolution===input.resolution || payload.resolution===(h3Lite?'480P':'768P'),'H3 actual resolution');
     callbackUrl=payload.callback_url;check(new URL(callbackUrl).pathname.startsWith('/api/internal/ai/h3-callback/'),'Internal completion destination');
+    if(h3Lite && h3Case==='h3-output-usage') {
+      const attempt=await db.prepare('SELECT metadata_json FROM member_ai_usage_attempts_v2 WHERE user_id=?').bind(owner).first();
+      const pinned=JSON.parse(attempt.metadata_json).model_tariff;
+      check(pinned.factorySettlement.rateUsdPerSecond===0.025 && pinned.tariff.key.startsWith('minimax/h3-lite:'),'Lite pins its own accepted factory rate');
+      const tariff=await getModelTariff(env);
+      await changeModelTariff(env,{id:owner},{action:'save',modelId:h3Model,revision:tariff.revision,settings:{resolution:'480P'},rates:{second:99}});
+    }
   };
   if(fixture.input?.model?.startsWith('xai/grok-imagine-video') && fixture.input._operation!=='generate') {
     const sourceId=(await sha256Hex(`source-${name}`)).slice(0,32), key=`users/${owner}/video/source.mp4`;
@@ -169,7 +180,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
       check(Boolean(held),'Native managed cleanup retains the accepted source');
     };
   }
-  if(['h3-references','omni-references'].includes(name)) {
+  if(['h3-references','omni-references'].includes(h3Case)) {
     const image=bytes(fixture.h3ImageBase64),video=bytes(fixture.h3VideoBase64),audio=new Uint8Array(64044),view=new DataView(audio.buffer);
     const text=(offset,value)=>audio.set(new TextEncoder().encode(value),offset);
     text(0,'RIFF');view.setUint32(4,audio.length-8,true);text(8,'WAVEfmt ');view.setUint32(16,16,true);view.setUint16(20,1,true);view.setUint16(22,1,true);view.setUint32(24,16000,true);view.setUint32(28,32000,true);view.setUint16(32,2,true);view.setUint16(34,16,true);text(36,'data');view.setUint32(40,64000,true);
@@ -325,11 +336,11 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     if(['area-running','seedance-running'].includes(name))await toggleArea(true);
     return {name,calls,status:(await row()).status};
   }
-  if(name==='h3-rejection-callback-race') {
+  if(h3Case==='h3-rejection-callback-race') {
     const inspect=duringProvider;
     duringProvider=async(model,payload)=>{
       await inspect(model,payload);
-      const response=await fetch(new URL(callbackUrl).pathname,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task:{id:'racing-task',model:'MiniMax-H3',status:'running'}})});
+      const response=await fetch(new URL(callbackUrl).pathname,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task:{id:'racing-task',model:h3ProviderModel,status:'running'}})});
       check(response.ok,'Authenticated task acceptance wins before rejection CAS');
     };
   }
@@ -364,17 +375,17 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     await db.prepare('DELETE FROM member_ai_usage_attempts_v2 WHERE id=? AND user_id=?').bind(current.usage_attempt_id,owner).run();
     return {name,calls,status:current.status};
   }
-  if(name.startsWith('h3-rejection-')) {
+  if(h3Case.startsWith('h3-rejection-')) {
     const state=await row(), receipts=JSON.parse(state.provider_receipts_json);
-    const uncertain=['h3-rejection-unknown','h3-rejection-callback-race'].includes(name);
+    const uncertain=['h3-rejection-unknown','h3-rejection-callback-race'].includes(h3Case);
     check(!JSON.stringify(receipts).includes('secret-token') && !JSON.stringify(receipts).includes('private prompt'),'No provider prose, private URLs or prompt enters durable diagnosis');
     check(Boolean(receipts['ai-0'].rejection)===!uncertain,'Only proven non-acceptance can be a terminal receipt');
-    if(name==='h3-rejection-settlement-lost') {
+    if(h3Case==='h3-rejection-settlement-lost') {
       check(!fail && state.status==='failed' && state.error_code==='generation_provider_rejected','Committed settlement survives a lost reply');
       const job=(await (await fetch(`/api/ai/generation-jobs/${id}`,{headers})).json()).data.job;
       check(job.rejection_settled===true,'Released credit is confirmed by independent D1 readback');
     }
-    if(name==='h3-rejection-settlement') {
+    if(h3Case==='h3-rejection-settlement') {
       check(!fail && state.status==='outcome_unknown' && state.error_code==='generation_rejection_settlement_pending','Failed credit release remains reconciliation');
       const job=(await (await fetch(`/api/ai/generation-jobs/${id}`,{headers})).json()).data.job;
       check(job.rejection_settled===false,'No premature claim of released credits');
@@ -385,7 +396,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     const usage=await db.prepare('SELECT provider_outcome,billing_status FROM member_ai_usage_attempts_v2 WHERE id=?').bind(state.usage_attempt_id).first();
     check(usage.billing_status===(uncertain?'reserved':'released'),'Only durable rejection releases reservation');
     check((await row()).status===(uncertain?'outcome_unknown':'failed'),'Correct terminal versus review status');
-    if(!uncertain) { const late=await fetch(new URL(callbackUrl).pathname,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task:{id:'late-task',model:'MiniMax-H3',status:'succeeded',content:{url:'https://fixture.invalid/member.mp4'}}})});
+    if(!uncertain) { const late=await fetch(new URL(callbackUrl).pathname,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task:{id:'late-task',model:h3ProviderModel,status:'succeeded',content:{url:'https://fixture.invalid/member.mp4'}}})});
     check(!late.ok,'Rejected job cannot be resurrected by authenticated late success'); }
     env.PUBLIC_RATE_LIMITER=browserLimiter;
     const replay=await fetch('/api/ai/generate-video',{method:'POST',headers,body});
@@ -400,7 +411,40 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     const other=await fetch(`/api/ai/generation-jobs/${id}`,{headers:{Cookie:`bitbi_session=${owner}-other`}});check(other.status===404,'Rejection status remains private');
     return {name,calls,status:(await row()).status,billing:usage.billing_status};
   }
-  if(name.startsWith('h3-callback')) {
+  if(h3Case==='h3-wrong-receipt') {
+    const current=await row();
+    check(current.status==='outcome_unknown','A foreign-model provider receipt cannot complete the accepted model');
+    await deliver();
+    check(calls.provider===1 && calls.download===0,'Wrong-model receipt neither downloads nor retries inference');
+    check((await db.prepare('SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first()).n===0,'Wrong-model receipt never debits');
+    return {name,calls,status:current.status};
+  }
+  if(h3Case.startsWith('h3-credit-review-')) {
+    const current=await row(),receipts=JSON.parse(current.provider_receipts_json);
+    check(current.status==='outcome_unknown' && current.error_code==='generation_result_requires_credit_review','Unverified Lite usage stays in credit review, never successful');
+    const evidence=await env.USER_IMAGES.get(receipts['ai-0'].key);
+    check(Boolean(evidence),'Raw provider evidence remains privately retained');
+    const raw=await new Response(evidence.body).json();
+    check(raw.kind==='json' && raw.value.task.model===h3ProviderModel && raw.value.task.status==='succeeded','Retained receipt preserves the accepted model and completed provider outcome');
+    if(h3Case==='h3-credit-review-resolution')check(raw.value.task.resolution==='2K','Wrong output resolution is retained unchanged for review');
+    if(h3Case==='h3-credit-review-missing')check(!Object.hasOwn(raw.value.task.usage,'output_seconds'),'Missing usage is never replaced with input/total or requested duration');
+    if(h3Case==='h3-credit-review-invalid')check(raw.value.task.usage.output_seconds===0,'Invalid usage is retained unchanged for review');
+    const asset=await db.prepare('SELECT * FROM ai_text_assets WHERE id=? AND user_id=?').bind(id,owner).first();
+    const output=asset?.r2_key && await nativeEnv.USER_IMAGES.get(asset.r2_key);
+    check(Boolean(output),'Already generated Lite output is retained before credit review');
+    const saved=new Uint8Array(await new Response(output.body).arrayBuffer());
+    check(saved.length===videoBytes.length && saved.every((value,index)=>value===videoBytes[index]),'Review output retains the exact provider bytes');
+    env.PUBLIC_RATE_LIMITER=browserLimiter;
+    const replay=await fetch('/api/ai/generate-video',{method:'POST',headers,body});
+    check(replay.status===202 && (await replay.json()).data.job.id===id,'Review preserves the original accepted job on browser replay');
+    await db.prepare("UPDATE member_generation_jobs SET next_attempt_at='2000-01-01T00:00:00.000Z' WHERE id=?").bind(id).run();
+    await worker.scheduled({cron:'*/5 * * * *'},env,{waitUntil(){throw new Error('Recovery must be awaited');}});await deliver();
+    check((await row()).status==='outcome_unknown' && calls.provider===1 && calls.download===1,'Review never retries paid inference or re-ingests an already retained video');
+    check((await db.prepare('SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first()).n===0,'Unverified output usage never debits');
+    check((await fetch(`/api/ai/generation-jobs/${id}`,{headers:{Cookie:`bitbi_session=${owner}-other`}})).status===404,'Retained review evidence remains owner-only');
+    return {name,calls,status:current.status};
+  }
+  if(h3Case.startsWith('h3-callback')) {
     check((await row()).status==='outcome_unknown','Queued H3 is unresolved, not complete');
     const attempts=(await row()).attempt_count;fixture.advance(5*60_000);
     await worker.scheduled({cron:'*/5 * * * *'},env,{waitUntil(){throw new Error('Recovery must be awaited');}});await deliver();
@@ -409,12 +453,27 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     const notify=body=>fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const forged=await fetch(path+'0',{method:'POST',body:'{}'});check(forged.status===403,'Callback HMAC is mandatory');
     const challenge=await notify({challenge:'synthetic'});check(challenge.ok&&(await challenge.json()).challenge==='synthetic','Provider challenge is authenticated');
-    const task={id:'synthetic-h3-'+name,model:'MiniMax-H3',status:'running',resolution:'768P',usage:{output_seconds:5}};
+    const task={id:'synthetic-h3-'+name,model:h3ProviderModel,status:'running',resolution:input.resolution || (h3Lite?'480P':'768P'),usage:{output_seconds:5}};
+    const foreignModel=h3Lite?'MiniMax-H3':'MiniMax-H3-Lite';
+    const before=await row();
+    const wrong=await notify({task:{...task,model:foreignModel,status:'succeeded',content:{url:'https://fixture.invalid/member.mp4'}}});
+    check(wrong.status===502 && (await wrong.json()).code==='h3_invalid_receipt','Signed callback cannot cross H3/Lite identity');
+    check((await row()).provider_receipts_json===before.provider_receipts_json && calls.download===0,'Rejected callback cannot change receipt or ingest output');
+    check((await db.prepare('SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first()).n===0,'Rejected callback cannot settle credits');
+    const {storedH3MemberTask}=await import('../../workers/auth/src/lib/minimax-h3-callback.js');
+    const receipts=JSON.parse(before.provider_receipts_json);
+    receipts['h3-task']={kind:'h3-task',task:{...task,model:foreignModel}};
+    let rejected=false;
+    try {await storedH3MemberTask(env,{...before,provider_receipts_json:JSON.stringify(receipts)});}catch(error){rejected=error.code==='h3_invalid_receipt';}
+    check(rejected,'Recovery validates a retained callback against original accepted input, not receipt model');
     check((await notify({task})).ok,'Persist running task receipt');
     check((await notify({task:{...task,id:'foreign-task'}})).status===409,'Different provider task cannot replace original');
-    task.status=name==='h3-callback-failed'?'failed':'succeeded';if(task.status==='succeeded')task.content={url:'https://fixture.invalid/member.mp4'};
+    task.status=h3Case==='h3-callback-failed'?'failed':'succeeded';if(task.status==='succeeded')task.content={url:'https://fixture.invalid/member.mp4'};
     check((await notify({task})).ok,'Completion resumes original accepted job');
+    const terminal=(await row()).provider_receipts_json;
     check((await notify({task})).ok,'Duplicate callback is idempotent');
+    check((await row()).provider_receipts_json===terminal,'Duplicate completion cannot replace terminal receipt');
+    check((await notify({task:{...task,usage:{output_seconds:14}}})).status===409,'A later callback cannot alter terminal billing usage');
     await db.prepare("UPDATE member_generation_jobs SET next_attempt_at='2000-01-01T00:00:00.000Z',locked_until=NULL WHERE id=?").bind(id).run();
     await deliver();check(calls.provider===1,'Callback never regenerates paid video');
   }
@@ -443,11 +502,11 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     check((await row()).status==='preview_pending',`Lease recovery: ${(await row()).status} ${(await row()).error_code}`);
   }
   check(internalLimitCalls===0,'Durably accepted execution does not consume the browser HTTP throttle again');
-  if(name==='h3-output-usage') {
+  if(h3Case==='h3-output-usage') {
     const debit=await db.prepare('SELECT amount FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first();
-    check(debit?.amount===-calculateAiVideoCreditCost('minimax/h3',{duration:4,resolution:'768P'}).credits,'Settlement uses output seconds, not input/total seconds');
+    check(debit?.amount===-h3ExpectedCredits,'Settlement uses output seconds, not input/total seconds');
   }
-  if(['music-failed','h3-failed','h3-callback-failed'].includes(name)) {
+  if(['music-failed','h3-failed','h3-callback-failed'].includes(h3Case)) {
     await deliver();
     const usage=await db.prepare('SELECT provider_outcome,billing_status FROM member_ai_usage_attempts_v2 WHERE id=?').bind((await row()).usage_attempt_id).first();
     const credits=await db.prepare('SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first();
@@ -569,7 +628,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
   const status=await fetch(`/api/ai/generation-jobs/${id}`,{headers:{Cookie:`bitbi_session=${owner}`}});
   const completedPayload=await status.json();
   check(status.ok && completedPayload.data.job.status==='succeeded','Later session sees completion');
-  if(name==='h3-output-usage')check(completedPayload.data.result.billing.credits_charged===calculateAiVideoCreditCost('minimax/h3',{duration:4,resolution:'768P'}).credits,'Restored result reports the actual output charge, not the reservation');
+  if(h3Case==='h3-output-usage')check(completedPayload.data.result.billing.credits_charged===h3ExpectedCredits,'Restored result reports the actual output charge, not the reservation');
   const denied=await fetch(`/api/ai/generation-jobs/${id}`,{headers:{Cookie:`bitbi_session=${owner}-other`}});
   check(denied.status===404,'Foreign user cannot inspect job');
   const ownedList=await fetch('/api/ai/assets',{headers:{Cookie:`bitbi_session=${owner}`}});
@@ -579,7 +638,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
   const credits=await db.prepare('SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first();
   check(credits.n===1 && calls.provider===1,'One successful generation debit, no poster debit');
   if(input.model?.startsWith('xai/grok-imagine-video')){const debit=await db.prepare('SELECT amount FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first();check(debit.amount===-calculateAiVideoCreditCost(input.model,input).credits,'Admin personal payer is charged the central model estimate once');}
-  check((await db.prepare('SELECT COUNT(*) AS n FROM ai_text_assets WHERE user_id=?').bind(owner).first()).n===(['h3-references','omni-references'].includes(name)?3:1),'One generated owner asset plus the explicitly seeded reference assets');
+  check((await db.prepare('SELECT COUNT(*) AS n FROM ai_text_assets WHERE user_id=?').bind(owner).first()).n===(['h3-references','omni-references'].includes(h3Case)?3:1),'One generated owner asset plus the explicitly seeded reference assets');
   await checkName(await db.prepare('SELECT * FROM ai_text_assets WHERE id=?').bind(id).first(),id);
   if(input.model===SEEDANCE_25_MODEL){
     const attempt=await db.prepare('SELECT metadata_json,credit_cost FROM member_ai_usage_attempts_v2 WHERE user_id=?').bind(owner).first();
@@ -594,6 +653,10 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     const stored=await nativeEnv.USER_IMAGES.get(finished.r2_key);check(new Uint8Array(await stored.arrayBuffer()).every((v,i)=>v===videoBytes[i]),'Omni durable decoded fixture bytes');
   }
   if(sourceUrl)check((await fetch(new URL(sourceUrl).pathname)).status===410,'Completed input capability revoked');
+  if(h3Lite && h3Case==='h3-output-usage') {
+    const tariff=await getModelTariff(env);
+    await changeModelTariff(env,{id:owner},{action:'reset',modelId:h3Model,revision:tariff.revision,settings:{resolution:'480P'}});
+  }
   const completion={name,calls,status:(await row()).status,debits:credits.n,ownerDenied:denied.status};
   if(name==='closed-browser') {
     const removed=await fetch(`/api/ai/text-assets/${id}`,{method:'DELETE',headers});
@@ -609,7 +672,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
 export default {async fetch(request,env) {
   if(request.method!=='POST'||request.headers.get('x-q2-control')!==env.Q2_CONTROL_TOKEN) return new Response(null,{status:403});
   const {name,...fixture}=await request.json();
-  if(!/^(admin-lab-(grok-(base|preview)-(generate|edit|extend)|catalog-[0-9]{1,2})|flux-(success|schema|5006|http400|transport))$/.test(name) && !['seedance-fixed','seedance-auto','seedance-storage-restart','seedance-queued','seedance-running','area-queued','area-running','omni-inline','omni-storage-restart','omni-references','h3-rejection-known','h3-rejection-unknown','h3-rejection-settlement','h3-rejection-settlement-lost','h3-rejection-callback-race','h3-references','h3-callback-failed','h3-callback','h3-failed','h3-output-usage','admin-lab-image','admin-lab-music','admin-lab-video','asset-naming-video','asset-naming-manual','asset-naming-image','asset-naming-music','asset-naming-image-manual','asset-naming-music-manual','clock-lease-expired','clock-credit-expired','clock-finalization-expired','closed-browser','execution-exhausted','poster-retry','stale-poster','insert-response-lost','provider-unknown','music-failed','image','music','music-cover-retry','debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart'].includes(name)) return new Response(null,{status:400});
+  if(!/^(admin-lab-(grok-(base|preview)-(generate|edit|extend)|catalog-[0-9]{1,2})|flux-(success|schema|5006|http400|transport))$/.test(name) && !['seedance-fixed','seedance-auto','seedance-storage-restart','seedance-queued','seedance-running','area-queued','area-running','omni-inline','omni-storage-restart','omni-references','h3-rejection-known','h3-rejection-unknown','h3-rejection-settlement','h3-rejection-settlement-lost','h3-rejection-callback-race','h3-references','h3-callback-failed','h3-callback','h3-failed','h3-wrong-receipt','h3-credit-review-resolution','h3-credit-review-missing','h3-credit-review-invalid','h3-output-usage','admin-lab-image','admin-lab-music','admin-lab-video','asset-naming-video','asset-naming-manual','asset-naming-image','asset-naming-music','asset-naming-image-manual','asset-naming-music-manual','clock-lease-expired','clock-credit-expired','clock-finalization-expired','closed-browser','execution-exhausted','poster-retry','stale-poster','insert-response-lost','provider-unknown','music-failed','image','music','music-cover-retry','debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart'].includes(name.replace('h3-lite-','h3-'))) return new Response(null,{status:400});
   return Response.json(await memberGenerationCase(env,name,fixture));
 }};
 

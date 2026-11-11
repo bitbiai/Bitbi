@@ -1,6 +1,6 @@
 import { OMNI_MODEL, buildOmniProviderInput, parseOmniResult } from '../../../../js/shared/gemini-omni-contract.mjs';
 import { SEEDANCE_25_MODEL, buildSeedance25ProviderInput, parseSeedance25Result } from '../../../../js/shared/seedance-25-contract.mjs';
-import { H3_MODEL, buildH3ProviderInput, parseH3Task } from '../../../../js/shared/minimax-h3.mjs';
+import { isH3Model, buildH3ProviderInput, parseH3Task } from '../../../../js/shared/minimax-h3.mjs';
 // @ts-check
 
 import {
@@ -733,14 +733,14 @@ function getAiGatewayId(env) {
 function buildVideoRunOptions(env, model) {
   if (!model?.proxied) return undefined;
   if (
-    model.id === H3_MODEL
+    isH3Model(model.id)
     || model.id === OMNI_MODEL
     || model.id === SEEDANCE_25_MODEL
     || model.id === ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID
     || model.id === ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID
   ) {
     // Private source/output capabilities must never enter Gateway request logs.
-    return { gateway: { id: getAiGatewayId(env), collectLog: false, ...([H3_MODEL,OMNI_MODEL,SEEDANCE_25_MODEL].includes(model.id)?{skipCache:true}:{}) } };
+    return { gateway: { id: getAiGatewayId(env), collectLog: false, ...((isH3Model(model.id)||[OMNI_MODEL,SEEDANCE_25_MODEL].includes(model.id))?{skipCache:true}:{}) } };
   }
   return { gateway: { id: DEFAULT_AI_GATEWAY_ID } };
 }
@@ -1091,7 +1091,11 @@ function buildGrokImagineVideo15PreviewPayload(input) {
 export function buildVideoPayload(model, input) {
   if(model.id===OMNI_MODEL) { const {correlationId,...body}=input; return {payload:buildOmniProviderInput(body),normalized:{...body,workflow:'omni-'+body.operation}}; }
   if(model.id===SEEDANCE_25_MODEL) { const {correlationId,...body}=input; return {payload:buildSeedance25ProviderInput(body),normalized:body}; }
-  if(model.id===H3_MODEL)return {payload:buildH3ProviderInput(input),normalized:{...input,hasImageInput:(input.references||[]).some(r=>r.role.includes('frame')||r.role==='reference_image'),hasVideoInput:(input.references||[]).some(r=>r.role==='reference_video'),workflow:'h3-generation'}};
+  if(isH3Model(model.id)) {
+    if(input.model!==undefined && input.model!==model.id)throw videoValidationError('H3 model identity mismatch.');
+    const normalized={...input,model:model.id};
+    return {payload:buildH3ProviderInput(normalized),normalized:{...normalized,hasImageInput:(input.references||[]).some(r=>r.role.includes('frame')||r.role==='reference_image'),hasVideoInput:(input.references||[]).some(r=>r.role==='reference_video'),workflow:'h3-generation'}};
+  }
   if (model.id === ADMIN_AI_VIDEO_MODEL_ID) {
     const payload = {
       prompt: input.prompt,
@@ -1228,9 +1232,9 @@ async function runWorkersAiVideoOnce(env, model, input, request, startedAt, runO
     const result=parseSeedance25Result(raw);
     return {...buildVideoTaskResult({status:'succeeded',request,startedAt,videoUrl:result.video,providerTaskId:null,providerState:'Completed'}),providerCostUsd:null};
   }
-  if(model.id===H3_MODEL) {
-    const task=parseH3Task(raw);
-    return {...buildVideoTaskResult({status:task.pending?'provider_pending':task.failed?'failed':'succeeded',request,startedAt,videoUrl:task.videoUrl,providerTaskId:task.taskId,providerState:task.state,retryAfterSeconds:60}),outputSeconds:task.outputSeconds,resolution:task.resolution};
+  if(isH3Model(model.id)) {
+    const task=parseH3Task(raw,model.id);
+    return {...buildVideoTaskResult({status:task.pending?'provider_pending':task.failed?'failed':'succeeded',request,startedAt,videoUrl:task.videoUrl,providerTaskId:task.taskId,providerState:task.state,retryAfterSeconds:60}),modelId:model.id,outputSeconds:task.outputSeconds,resolution:task.resolution};
   }
   const videoUrl = extractVideoUrl(raw);
   const providerTaskId = extractViduProviderTaskId(raw);

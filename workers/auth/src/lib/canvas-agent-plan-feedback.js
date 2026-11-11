@@ -1,5 +1,5 @@
 import { isGptImage25Model } from '../../../../js/shared/gpt-image-25-contract.mjs';
-import { H3_MODEL, H3_LIMITS } from '../../../../js/shared/minimax-h3.mjs';
+import { isH3Model, H3_LITE_MODEL, H3_LIMITS, H3_RATIOS } from '../../../../js/shared/minimax-h3.mjs';
 import { OMNI_MODEL } from '../../../../js/shared/gemini-omni-contract.mjs';
 import { SEEDANCE_25_MODEL, SEEDANCE_25_REFERENCE_LIMITS } from '../../../../js/shared/seedance-25-contract.mjs';
 import { getCanvasModelForRole } from '../../../../js/shared/canvas-model-contract.mjs';
@@ -39,10 +39,14 @@ export function canvasAgentParameterCorrectionFeedback(issue) {
 // independent provider API. Their validators remain authoritative at dispatch.
 export function canvasAgentModelConstraints(model) {
     if(isGptImage25Model(model.id))return {source:'workers/auth/src/lib/model-tariffs.js',operations:[{id:'text_to_image',priced:true},{id:'reference_edit',priced:false,reason:'gpt_image_25_reference_pricing_unavailable'}]};
-    if (model.id === H3_MODEL) return {
+    if (isH3Model(model.id)) return {
         source:'js/shared/minimax-h3.mjs',
         referenceModes:[{id:'frames',roles:['first_frame','last_frame'],requires:{aspectRatio:'adaptive'},limits:{first_frame:1,last_frame:1}},
-            {id:'reference',roles:['reference_image','reference_video','reference_audio'],limits:{reference_image:H3_LIMITS.image,reference_video:H3_LIMITS.video,reference_audio:H3_LIMITS.audio}}],
+            {id:'reference',roles:['reference_image','reference_video','reference_audio'],limits:{reference_image:H3_LIMITS.image,reference_video:H3_LIMITS.video,reference_audio:H3_LIMITS.audio},
+                ...(model.id===H3_LITE_MODEL?{requires:{aspectRatioAny:H3_RATIOS.filter(ratio=>ratio!=='adaptive')}}:{})}],
+        // No frame roles covers both text-only generation and reference mode.
+        // Keep original H3's existing reference-mode adaptive behavior intact.
+        ...(model.id===H3_LITE_MODEL?{conditional:[{when:{rolesNone:['first_frame','last_frame']},requires:{aspectRatioAny:H3_RATIOS.filter(ratio=>ratio!=='adaptive')}}]}:{}),
         mutuallyExclusiveModes:['frames','reference'],maxReferences:H3_LIMITS.total,
         videoLastFrame:{method:'last_frame',effectiveRole:'first_frame',requires:{aspectRatio:'adaptive'},cannotCombineWith:['reference_image','reference_video','reference_audio']},
         referenceDurationSeconds:{video:{min:2,max:15,totalMax:15},audio:{min:2,max:15,totalMax:15}},

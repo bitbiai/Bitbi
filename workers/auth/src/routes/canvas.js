@@ -9,7 +9,7 @@ import { SEEDANCE_25_MODEL, seedance25References, seedance25Settings } from '../
 import { areaCatalog, modelAreaEnvironment, assertModelArea, publicModelAvailability } from '../lib/model-availability.js';
 import { OMNI_MODEL, omniReferences, omniMediaType, omniOperation } from '../../../../js/shared/gemini-omni-contract.mjs';
 import { isGptImage25Model } from '../../../../js/shared/gpt-image-25-contract.mjs';
-import { H3_MODEL, h3References, h3MediaType } from '../../../../js/shared/minimax-h3.mjs';
+import { isH3Model, h3References, h3MediaType } from '../../../../js/shared/minimax-h3.mjs';
 import { canvasMediaRun, canvasMediaStatements, canvasMediaEnvironment, saveCanvasMedia, annotateCanvasMedia, reclaimCanvasMedia } from '../lib/canvas-media-storage.js';
 import { composeCanvasPrompt } from '../../../../js/shared/canvas-model-contract.mjs';
 import { GROK_4_6_MODEL_ID } from "../../../../js/shared/grok-text-contract.mjs";
@@ -404,7 +404,7 @@ async function applyConnectedMediaInputs(env, userId, model, resolution, body) {
     }));
     if(seedance)Object.assign(body,seedance25Settings(body,body.references));else body.operation=omniOperation(body.references);delete body.referenceOrder;return body;
   }
-  if(model.id===H3_MODEL) {
+  if(isH3Model(model.id)) {
     const continuations = resolution.videoReferences.filter(source => source.videoInput && source.videoInput.method !== 'reference_video');
     await applyCanvasVideoInput(env, userId, { ...resolution, videoReferences: continuations }, body, loadOwnedImageDataUri);
     body.references=h3References([...(body.references || []), ...resolution.sources.filter(source=>source.status==='compatible'&&source.assetId && !continuations.includes(source)).map(source=>{
@@ -412,7 +412,7 @@ async function applyConnectedMediaInputs(env, userId, model, resolution, body) {
       if(h3MediaType(source.h3Role)!==actual)throw Object.assign(new Error('H3 reference role does not match the connected medium.'),{status:400,code:'h3_reference_role'});
       source.used = true;
       return {role:source.h3Role,source:{source_type:'saved_asset',asset_id:source.assetId}};
-    })]);return body;
+    })],model.id);return body;
   }
   await applyCanvasVideoInput(env, userId, resolution, body, loadOwnedImageDataUri);
   const orderedReferences = [...resolution.imageReferences];
@@ -832,12 +832,12 @@ function compatibilityForInput(targetNode, model, kind) {
     return { compatible: false, inputKind: CANVAS_DATA_KINDS.IMAGE_REFERENCE, reason: `${model.label} does not support image input in Canvas.` };
   }
   if (kind === CANVAS_DATA_KINDS.VIDEO_ASSET || kind === CANVAS_DATA_KINDS.VIDEO_REFERENCE) {
-    if (targetNode.type === "video_generation" && ([H3_MODEL,OMNI_MODEL,SEEDANCE_25_MODEL].includes(model.id) || canvasVideoMethods(model, { kind: "video_asset", assetId: "pending" }).length)) {
+    if (targetNode.type === "video_generation" && ((isH3Model(model.id)||[OMNI_MODEL,SEEDANCE_25_MODEL].includes(model.id)) || canvasVideoMethods(model, { kind: "video_asset", assetId: "pending" }).length)) {
       return { compatible: true, inputKind: CANVAS_DATA_KINDS.VIDEO_REFERENCE, reason: null };
     }
     return { compatible: false, inputKind: CANVAS_DATA_KINDS.VIDEO_REFERENCE, reason: `${model.label} does not support video input, continuation, or extension in Canvas.` };
   }
-  if (kind === CANVAS_DATA_KINDS.AUDIO_ASSET && targetNode.type==="video_generation" && [H3_MODEL,OMNI_MODEL,SEEDANCE_25_MODEL].includes(model.id)) return {compatible:true,inputKind:"audio_reference",reason:null};
+  if (kind === CANVAS_DATA_KINDS.AUDIO_ASSET && targetNode.type==="video_generation" && (isH3Model(model.id)||[OMNI_MODEL,SEEDANCE_25_MODEL].includes(model.id))) return {compatible:true,inputKind:"audio_reference",reason:null};
   if (kind === CANVAS_DATA_KINDS.AUDIO_ASSET) {
     return { compatible: false, inputKind: CANVAS_DATA_KINDS.AUDIO_ASSET, reason: `${model.label} does not accept an audio asset input in Canvas.` };
   }
@@ -905,7 +905,7 @@ async function resolveCanvasNodeInputs(env, userId, projectId, node, model) {
       : (compatibility.compatible ? "compatible" : "incompatible");
     const videoInput = kindForCompatibility === CANVAS_DATA_KINDS.VIDEO_ASSET && ![OMNI_MODEL,SEEDANCE_25_MODEL].includes(model.id) ? resolveCanvasVideoInput(model, value, safeJsonParse(row.edge_config_json, {})) : null;
     const h3Role=videoInput?.method === 'last_frame' ? 'first_frame' : (model.id===SEEDANCE_25_MODEL?config.seedance25Roles:model.id===OMNI_MODEL?config.omniRoles:config.h3Roles)?.[row.edge_id] || (kindForCompatibility===CANVAS_DATA_KINDS.VIDEO_ASSET?'reference_video':kindForCompatibility===CANVAS_DATA_KINDS.AUDIO_ASSET?'reference_audio':'reference_image');
-    const roleMismatch=[H3_MODEL,OMNI_MODEL,SEEDANCE_25_MODEL].includes(model.id)&&videoInput?.method!=='last_frame'&&!canvasInputRoleMatches(h3Role,kindForCompatibility);
+    const roleMismatch=(isH3Model(model.id)||[OMNI_MODEL,SEEDANCE_25_MODEL].includes(model.id))&&videoInput?.method!=='last_frame'&&!canvasInputRoleMatches(h3Role,kindForCompatibility);
     if(roleMismatch)status='incompatible';
     sources.push({ ...value, videoInput, h3Role, inputKind: compatibility.inputKind, status, reason: roleMismatch?'The saved input role does not match this media type. Choose a compatible role.':status === 'unresolved' ? 'Run the upstream node first.' : compatibility.reason });
   }

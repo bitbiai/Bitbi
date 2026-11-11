@@ -127,15 +127,15 @@ test('privacy pages name every catalog vendor', () => {
 
 test('privacy copies retain route language, aliases, metadata and current publication version', () => {
   const english = pages['legal/privacy.html'];
-  assert.match(visibleText(english), /Version dated 27 October 2026/);
-  assert.match(english, /Last updated: October 27, 2026/);
+  assert.match(visibleText(english), /Version dated 11 November 2026/);
+  assert.match(english, /Last updated: November 11, 2026/);
   assert.match(english, /<link rel="canonical" href="https:\/\/bitbi\.ai\/legal\/privacy\.html">/);
   assert.match(english, /<html lang="en"/);
   assert.doesNotMatch(markupOutsideScripts(english), /AGB/);
   const german = pages['de/legal/datenschutz.html'];
   for (const file of ['de/legal/datenschutz.html', 'de/legal/privacy.html', 'legal/datenschutz.html']) {
-    assert.match(visibleText(pages[file]), /Stand: 27\. Oktober 2026/);
-    assert.match(pages[file], /<p class="last-updated">Stand: 27\. Oktober 2026<\/p>/);
+    assert.match(visibleText(pages[file]), /Stand: 11\. November 2026/);
+    assert.match(pages[file], /<p class="last-updated">Stand: 11\. November 2026<\/p>/);
     assert.match(pages[file], /<html lang="de"/);
     assert.deepEqual(legalBlocks(pages[file]), legalBlocks(german), `${file} German alias content drift`);
   }

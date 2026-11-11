@@ -5,6 +5,7 @@ import { getCanvasModelForRole } from '../../../../js/shared/canvas-model-contra
 import { agentFail } from './canvas-agent-store.js';
 import { canvasAgentDependencyKind } from './canvas-agent-price-input.js';
 import { nowIso } from './tokens.js';
+import { isH3Model } from '../../../../js/shared/minimax-h3.mjs';
 
 export async function prepareCanvasAgentReferences(env,run,step) {
     const input=JSON.parse(step.input_json),model=getCanvasModelForRole(input.modelId,'member');
@@ -16,7 +17,7 @@ export async function prepareCanvasAgentReferences(env,run,step) {
         const edge=await env.DB.prepare('SELECT * FROM canvas_edges WHERE project_id=? AND user_id=? AND source_node_id=? AND target_node_id=? AND deleted_at IS NULL').bind(run.project_id,run.user_id,dependency.nodeId,step.node_id).first();
         if(!edge)agentFail('canvas_agent_reference_removed');
         const method=dependency.method==='reference'?'reference_video':dependency.method||'reference_video';
-        if(method==='reference_video'&&['minimax/h3','google/gemini-omni-flash','bytedance/seedance-2.5'].includes(model.id))continue;
+        if(method==='reference_video'&&(isH3Model(model.id)||['google/gemini-omni-flash','bytedance/seedance-2.5'].includes(model.id)))continue;
         const original=await ownedCanvasVideo(env,run.user_id,source.asset_id,sourceVersion);
         const config=JSON.parse(edge.config_json);
         if(config.videoInput?.method===method&&config.videoInput.sourceVersion===original.version&&(method!=='last_frame'||config.videoInput.frame?.version===original.version))continue;

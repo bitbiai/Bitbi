@@ -11,6 +11,7 @@ import {
 
 function providerTaskPayload(result) {
   return {
+    ...(result.modelId ? {modelId:result.modelId} : {}),
     status: result.status,
     videoUrl: result.videoUrl || null,
     posterUrl: result.posterUrl || null,

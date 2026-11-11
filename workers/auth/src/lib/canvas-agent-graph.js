@@ -1,7 +1,7 @@
 import { canvasMediaPolicyContext, assertCanvasMediaPlan } from './canvas-agent-media-policy.js';
 import { CANVAS_AGENT_LIMITS } from '../../../../js/shared/canvas-agent-contract.mjs';
 import { assertOmniReady } from './gemini-omni-readiness.js';
-import { H3_MODEL } from '../../../../js/shared/minimax-h3.mjs';
+import { isH3Model } from '../../../../js/shared/minimax-h3.mjs';
 import { readCanvasAgentBudget } from './canvas-agent-budget.js';
 import { canvasAgentValidationIssue, canvasAgentFeedbackError, canvasAgentParameterError, CANVAS_AGENT_CHOICE_CONTROLS } from './canvas-agent-plan-feedback.js';
 import { validateCanvasAgentPlan } from '../../../shared/canvas-agent-plan.mjs';
@@ -115,7 +115,7 @@ async function calculateCanvasAgentGraph(env,run,view,inventory,rawPlan,repairNo
             }
         }
         const references=node.dependencies.map(dep=>({dep,source:specs.get(dep.key)}));
-        if(model.id===H3_MODEL&&node.config.aspectRatio===undefined){
+        if(isH3Model(model.id)&&node.config.aspectRatio===undefined){
             const roles=references.filter(({dep})=>dep.role!=='prompt').map(({dep,source})=>
                 canvasAgentDependencyKind(source,view.nodes)==='video'&&dep.method==='last_frame'?'first_frame':dep.role);
             if(roles.some(role=>['first_frame','last_frame'].includes(role))&&!roles.some(role=>role.startsWith('reference_'))){
@@ -230,8 +230,8 @@ export async function prepareCanvasAgentGraph(env,run,view,inventory,rawPlan,rep
         const config={...node.config,...(node.type==='note'?{}:{prompt:node.prompt})};
         for(const [i,dep] of (node.update?[]:node.dependencies).entries()){
             const edgeId=(await sha256Hex(`canvas-agent-edge:${run.id}:${node.key}:${i}`)).slice(0,32);
-            if(['minimax/h3','google/gemini-omni-flash','bytedance/seedance-2.5'].includes(node.modelId)){
-                const rolesKey=node.modelId==='minimax/h3'?'h3Roles':node.modelId==='google/gemini-omni-flash'?'omniRoles':'seedance25Roles';
+            if(isH3Model(node.modelId)||['google/gemini-omni-flash','bytedance/seedance-2.5'].includes(node.modelId)){
+                const rolesKey=isH3Model(node.modelId)?'h3Roles':node.modelId==='google/gemini-omni-flash'?'omniRoles':'seedance25Roles';
                 config[rolesKey]={...config[rolesKey],[edgeId]:dep.role};
             }
         }

@@ -1052,6 +1052,28 @@ Browser continuation correction (run 35507601764): legacy PixVerse `extend` fixt
 The integrated browser check also exposed a fixture ordering race: Admin Preview's custom media-source route was installed after navigation, allowing the generic initial response to populate the valid picker cache. Install scenario responses before navigation; keep exact expected source identity/payload and production caching unchanged. No sleeps, retries or timeout changes.
 
 
+### MiniMax H3 Lite family identity (2026-11-11)
+
+Lite is not an alias for Full H3: provider receipts, accepted inputs, presets,
+source capabilities, quotes and callback replay retain the exact model identity.
+Lite uses 480P/768P and its own output-second rates; Full H3 defaults and immutable
+historical factory snapshots remain unchanged. Text/reference Lite requests reject
+adaptive ratios; frame mode requires adaptive. An inherited model-help branch
+incorrectly advertised Full H3 prices/2K and is now covered by visible EN/DE checks.
+Completed private outputs with unverifiable usage retain the existing credit-review
+path; wrong-model receipts cannot settle or trigger another inference.
+
+Countercontrols: `tests/workers.spec.js` exercises exact REST/privacy, cross-model
+receipts/callbacks, preset-only selection, duplicate/terminal identity and pinned
+output-second accounting; `tests/model-pricing.spec.js` checks independent custom
+tariffs and the historical catalog. New durable fixtures run through the existing
+`member-generation` native caller. Existing Admin/Generate Lab/Canvas/model-help,
+model-status and pricing browser callers cover both engines/locales, decoded
+last-frame reuse and independent area switches. Discovery is not native execution;
+release evidence and live provider acceptance remain separate claims. Sources:
+https://developers.cloudflare.com/ai/models/minimax/h3-lite/ and the linked schemas;
+https://platform.minimax.io/docs/api-reference/video-generation-v2-create.md.
+
 ### MiniMax H3 and durable Generate Lab status (2026-09-20)
 
 Generate Lab duplicated accepted status below the form, used a PixVerse-only loading label and treated interrupted observation as failed output. Its existing upper banner now distinguishes submission, accepted processing, reconciliation, storage and preview completion. Only durable acceptance permits the close-tab message. Frozen submitted identity and owner-scoped GET-only restoration prevent selector/stale callbacks from relabelling or resubmitting a job.

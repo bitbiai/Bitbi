@@ -736,6 +736,24 @@ paid calls, top-ups, model substitution or inferred Cloudflare bill.
 
 ## Model area availability
 
+MiniMax H3 Lite (`minimax/h3-lite`) is a separate H3-family catalog entry for
+Generation Lab, Canvas and Admin Lab, with the same private-source and durable
+job/callback lifecycle. Existing H3 defaults remain unchanged. Lite supports
+4–15 seconds at 480P (default) or 768P; its Cloudflare catalog rates checked on
+2026-11-11 are $0.025/$0.04 per output second. Existing retail conversion,
+reservation and pinned settlement apply independently of H3/custom tariffs.
+Text/reference modes require a concrete ratio; first/last-frame mode requires
+adaptive. The shared v2 media limits apply, with BITBI retaining its conservative
+twelve-file mixed-reference cap. Receipts must match the accepted job's exact
+`MiniMax-H3` or `MiniMax-H3-Lite` identity. No new polling, background option,
+schema, credential or public-media route is introduced. Main remains the existing
+text assistant; its model help derives from the shared member catalog.
+Publish changed AI before dependent Auth, then the tested frontend through the
+existing protected continuation. Synthetic acceptance does not establish account
+entitlement, live provider quality or paid inference. Sources:
+[Cloudflare Lite](https://developers.cloudflare.com/ai/models/minimax/h3-lite/) and
+[MiniMax v2](https://platform.minimax.io/docs/api-reference/video-generation-v2-create).
+
 Admin → AI & Models → Model status (`/admin/index.html#model-status`) derives its
 availability overview from the shared member and runnable Canvas registries.
 Generation Lab and Canvas use independent versioned `app_settings` entries; an

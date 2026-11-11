@@ -201,6 +201,7 @@ test('@canvas-model-ui member model exposure is the sole Models overlay membersh
   expect(exposedIds).toContain('openai/gpt-image-2.5-sunburst');
   expect(exposedIds).toContain('openai/gpt-image-2.5-flare');
   expect(exposedIds).toContain('elevenlabs/music-v2');
+  expect(exposedIds.filter(id=>id==='minimax/h3-lite')).toHaveLength(1);
   for (const unavailableId of [
     'bytedance/seedance-2.0',
     'xai/grok-imagine-image',
@@ -10219,20 +10220,21 @@ for (const locale of ['en', 'de']) test(`@canvas-model-ui Generate Lab Grok vide
   await page.screenshot({ path: testInfo.outputPath(`grok-video-${locale}.png`), fullPage: true });
 });
 
-for(const locale of ['en','de']) test(`@canvas-model-ui H3 Generate Lab ${locale}: roles, durable single status and explicit Assets recovery`,async({page},testInfo)=>{
+for(const locale of ['en','de']) for(const lite of [false,true]) test(`@canvas-model-ui H3${lite?' Lite':''} Generate Lab ${locale}: roles, durable single status and explicit Assets recovery`,async({page},testInfo)=>{
+  const modelId=lite?'minimax/h3-lite':'minimax/h3',label=lite?'MiniMax H3 Lite':'MiniMax H3',resolutions=lite?['480P','768P']:['768P','2K'];
   await page.setViewportSize({width:1440,height:900});
   await mockGenerateLabMemberSession(page,{credits:3000});
   const assets=buildGenerateLabImageAssets(2);await mockGenerateLabSavedImageAssets(page,assets);
   let releaseAcceptance,submitted,postCount=0,restoring=false;
   const accepted=new Promise(resolve=>{releaseAcceptance=resolve;});
   const h3AssetId='a'.repeat(32);
-  const job={id:'h3-synthetic-job',status:'processing',media_type:'video',model_id:'minimax/h3'};
+  const job={id:'h3-synthetic-job',status:'processing',media_type:'video',model_id:modelId};
   await page.route('**/api/ai/generation-jobs',route=>route.fulfill({json:{ok:true,data:{jobs:restoring?[{...job,status:'preview_pending',asset_id:h3AssetId}]:[]}}}));
   await page.route('**/api/ai/generation-jobs/*',route=>restoring
     ?route.fulfill({json:{ok:true,data:{job:{...job,status:'preview_pending',asset_id:h3AssetId},result:{ok:true,data:{videoUrl:'/api/ai/text-assets/h3-output/file',asset:{id:h3AssetId,source_module:'video'}}}}}})
     :route.fulfill({status:503,json:{ok:false,code:'synthetic_observation_interruption'}}));
   await page.route('**/api/ai/text-assets/h3-output/file',route=>route.fulfill({contentType:'video/mp4',body:TEST_MP4_BYTES}));
-  await page.route(`**/api/ai/text-assets/${h3AssetId}/details`,route=>route.fulfill({json:{ok:true,details:{model:'minimax/h3',prompt:'Synthetic H3 request',mimeType:'video/mp4'}}}));
+  await page.route(`**/api/ai/text-assets/${h3AssetId}/details`,route=>route.fulfill({json:{ok:true,details:{model:modelId,prompt:'Synthetic H3 request',mimeType:'video/mp4'}}}));
   await page.route('**/api/ai/generate-video',async route=>{
     postCount++;submitted=route.request().postDataJSON();await accepted;
     await route.fulfill({status:202,json:{ok:true,data:{job}}});
@@ -10241,10 +10243,12 @@ for(const locale of ['en','de']) test(`@canvas-model-ui H3 Generate Lab ${locale
   page.on('request',request=>{if(new URL(request.url()).pathname.startsWith('/api/')&&request.method()!=='GET')writes.push(new URL(request.url()).pathname);});
   await page.goto(locale==='de'?'/de/generate-lab/':'/generate-lab/');
   await page.getByRole('tab',{name:'Video',exact:true}).click();
-  await page.locator('#labImageModel').selectOption('minimax/h3');
-  await expect(page.locator('#labVideoQuality option')).toHaveText(['768P','2K']);
+  await page.locator('#labImageModel').selectOption(modelId);
+  await expect(page.locator('#labVideoQuality option')).toHaveText(resolutions);
+  await expect(page.locator('#labVideoQuality')).toHaveValue(resolutions[0]);
+  if(lite)await expect(page.locator('#labVideoAspect option[value=adaptive]')).toHaveCount(0);
   const cost=await page.locator('#labCost').textContent();
-  await page.locator('#labVideoQuality').selectOption('2K');await expect(page.locator('#labCost')).not.toHaveText(cost);
+  await page.locator('#labVideoQuality').selectOption(resolutions[1]);await expect(page.locator('#labCost')).not.toHaveText(cost);
   const controls=page.locator('[data-h3-references]');await expect(controls).toBeVisible();
   for(const [role,id] of [['first_frame','asset-ref-1'],['last_frame','asset-ref-2']]) {
     await controls.locator('select').selectOption(role);
@@ -10256,15 +10260,15 @@ for(const locale of ['en','de']) test(`@canvas-model-ui H3 Generate Lab ${locale
   await expect(page.locator('#labWorkflowStatus')).toBeVisible();
   await expect(page.locator('#labWorkflowStatus')).not.toContainText(locale==='de'?'Tab schließen':'close the tab');
   releaseAcceptance();
-  await expect(page.locator('#labWorkflowStatus')).toContainText('MiniMax H3');
+  await expect(page.locator('#labWorkflowStatus')).toContainText(label);
   await expect(page.locator('#labWorkflowStatus')).toContainText(locale==='de'?'mehrere Minuten':'several minutes');
   await expect(page.locator('#labMessage')).toBeEmpty();await expect(page.locator('#labGenerate')).toBeEnabled();
-  expect(submitted).toMatchObject({model:'minimax/h3',resolution:'2K',aspect_ratio:'adaptive',references:[
+  expect(submitted).toMatchObject({model:modelId,resolution:resolutions[1],aspect_ratio:'adaptive',references:[
     {role:'first_frame',source:{source_type:'saved_asset',asset_id:'asset-ref-1'}},{role:'last_frame',source:{source_type:'saved_asset',asset_id:'asset-ref-2'}}]});
   await page.locator('#labImageModel').selectOption('pixverse/v6');
-  await expect(page.locator('#labWorkflowStatus')).toContainText('MiniMax H3');
+  await expect(page.locator('#labWorkflowStatus')).toContainText(label);
   await expect(page.locator('#labResultStage')).not.toContainText('PixVerse');
-  assets.push({id:h3AssetId,asset_type:'video',source_module:'video',model:'minimax/h3',title:'Synthetic H3 request',file_url:'/api/ai/text-assets/h3-output/file',mime_type:'video/mp4',size_bytes:TEST_MP4_BYTES.length,visibility:'private'});
+  assets.push({id:h3AssetId,asset_type:'video',source_module:'video',model:modelId,title:'Synthetic H3 request',file_url:'/api/ai/text-assets/h3-output/file',mime_type:'video/mp4',size_bytes:TEST_MP4_BYTES.length,visibility:'private'});
   restoring=true;await page.reload();
   await expect(page.locator('#labWorkflowStatus')).toBeHidden();await expect(page.locator('#labMessage')).toBeEmpty();
   await expect(page.locator('#labResultStage video')).toHaveCount(0);
@@ -10276,11 +10280,11 @@ for(const locale of ['en','de']) test(`@canvas-model-ui H3 Generate Lab ${locale
   const preview=page.locator('#studioImageModal.active');await expect(preview.locator('video')).toHaveAttribute('src',/h3-output\/file/);
   await expect.poll(()=>preview.locator('video').evaluate(video=>video.videoWidth>0&&video.duration>0)).toBe(true);
   await preview.getByRole('button',{name:locale==='de'?'Mehr Informationen':'More information',exact:true}).click();
-  await expect(preview.locator('.asset-preview-details')).toContainText('minimax/h3');
+  await expect(preview.locator('.asset-preview-details')).toContainText(modelId);
   await expect(preview.locator('.asset-preview-details')).toContainText('Synthetic H3 request');
   await expect(page.locator('#labWorkflowStatus')).toBeHidden();
   expect(postCount).toBe(1);expect(writes).toEqual(['/api/ai/generate-video']);expect(errors).toEqual([]);
-  await page.screenshot({path:testInfo.outputPath(`h3-status-${locale}.png`),fullPage:true});
+  await page.screenshot({path:testInfo.outputPath(`h3${lite?'-lite':''}-status-${locale}.png`),fullPage:true});
 });
 
 for (const locale of ['en', 'de']) test(`@canvas-model-ui GPT Image 2.5 Generate Lab ${locale} decoded upload and controls`, ({ page }) => require('./helpers/gpt-image25-ui.cjs').member({ page, expect, locale, mockGenerateLabMemberSession }));

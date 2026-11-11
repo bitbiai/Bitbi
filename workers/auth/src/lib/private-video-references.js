@@ -1,6 +1,7 @@
 import { nowIso } from './tokens.js';
 import { THUMBNAIL_BACKEND_SQL, notifyPrivateMedia } from './private-media-service.js';
 import { h3EncoderOverrun, h3DurationError } from './h3-reference-metadata.js';
+import { isH3Model } from '../../../../js/shared/minimax-h3.mjs';
 
 export const referenceError=(code,status=409)=>Object.assign(new Error(code),{code,status});
 export async function referenceId(userId,key,etag) {
@@ -21,7 +22,7 @@ export async function generatedReferencePlan(env,userId,row,head,metadata) {
       .bind(userId,row.r2_key).first();
     if(admin)input=JSON.parse(admin.input_json);
   }
-  if(input?.model!=='minimax/h3' || !h3EncoderOverrun(metadata,Number(input.duration)))throw h3DurationError();
+  if(!isH3Model(input?.model) || !h3EncoderOverrun(metadata,Number(input.duration)))throw h3DurationError();
   return {reference_id:await referenceId(userId,row.r2_key,head.etag),reference_metadata:metadata};
 }
 

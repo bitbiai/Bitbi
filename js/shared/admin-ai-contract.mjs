@@ -2,7 +2,7 @@ import { OMNI_MODEL, OMNI_PRESET, OMNI_RESOLUTIONS, OMNI_RATIOS, OMNI_ROLES, nor
 import { SEEDANCE_25_MODEL, SEEDANCE_25_PRESET, SEEDANCE_25_RESOLUTIONS, SEEDANCE_25_RATIOS, SEEDANCE_25_ROLES, normalizeSeedance25Request } from './seedance-25-contract.mjs';
 import { GPT_IMAGE_25_MODELS, isGptImage25Model, normalizeGptImage25Options } from "./gpt-image-25-contract.mjs";
 import { MULTIPART_IMAGE_DIMENSIONS } from './image-dimensions.mjs';
-import { H3_MODEL, H3_RESOLUTIONS, H3_RATIOS, H3_ROLES, normalizeH3Request } from './minimax-h3.mjs';
+import { H3_MODEL, H3_LITE_MODEL, H3_RATIOS, h3ModelDefinition, isH3Model, normalizeH3Request } from './minimax-h3.mjs';
 import { GROK_IMAGE_2, calculateGrokImage2CreditCost } from './grok-imagine-image-2-pricing.mjs';
 import { GROK_4_6_MODEL_ID, GROK_DEFAULT_REASONING_EFFORT, getGrokMaxCompletionTokens, normalizeGrokReasoningEffort, GROK_TEXT_PRICING } from "./grok-text-contract.mjs";
 import {
@@ -917,18 +917,20 @@ const VIDEO_MODELS = {
     supportedOperations: ['generate'], availableOperations: ['generate'], defaultPreset: OMNI_PRESET,
     description: 'Cloudflare preview: text, images and media references. Admin testing and member modes require separate runtime approval. Audio is requested in the instruction; duration and stateful continuation are unavailable.',
   },
-  [H3_MODEL]: {
-    id:H3_MODEL,task:'video',label:'MiniMax H3',vendor:'MiniMax',providerLabel:'Cloudflare AI Gateway',
+  ...Object.fromEntries([H3_MODEL,H3_LITE_MODEL].map(id => {
+    const model=h3ModelDefinition(id);
+    return [id, {
+    id,task:'video',label:model.label,vendor:'MiniMax',providerLabel:'Cloudflare AI Gateway',
     inputFormat:'minimax-h3',proxied:true,generationEnabled:true,pricingRequired:false,
-    supportsImageInput:true,supportsEndImage:true,supportsVideoInput:true,supportsAudioInput:true,
-    supportsReferenceImages:true,maxReferenceImages:9,referenceRoles:H3_ROLES,
+    supportsImageInput:true,supportsEndImage:true,supportsVideoInput:model.supportsVideoInput,supportsAudioInput:model.supportsAudioInput,
+    supportsReferenceImages:true,maxReferenceImages:model.limits.image,referenceRoles:model.roles,
     supportsNegativePrompt:false,supportsSeed:false,supportsAudioToggle:false,
     resolutionField:'resolution',aspectRatioMode:'always',maxPromptLength:7000,
-    minDuration:4,maxDuration:15,allowedAspectRatios:H3_RATIOS,allowedResolutions:H3_RESOLUTIONS,
-    defaultDuration:5,defaultResolution:'768P',defaultAspectRatio:'16:9',defaultGenerateAudio:true,
-    supportedOperations:['generate'],availableOperations:['generate'],defaultPreset:'video_minimax_h3',
+    minDuration:4,maxDuration:15,allowedAspectRatios:H3_RATIOS,allowedResolutions:model.resolutions,
+    defaultDuration:5,defaultResolution:model.defaultResolution,defaultAspectRatio:'16:9',defaultGenerateAudio:true,
+    supportedOperations:['generate'],availableOperations:['generate'],defaultPreset:model.preset,
     description:'Video generation from text, first/last frames or ordered image, video and audio references.',
-  },
+  }]; })),
   [ADMIN_AI_VIDEO_MODEL_ID]: {
     id: ADMIN_AI_VIDEO_MODEL_ID,
     task: "video",
@@ -1178,6 +1180,7 @@ const PRESETS = {
   [SEEDANCE_25_PRESET]: { name:SEEDANCE_25_PRESET, task:'video', label:'Seedance 2.5', model:SEEDANCE_25_MODEL, description:'Ordered multimodal video generation, editing and extension.' },
   [OMNI_PRESET]: { name: OMNI_PRESET, task: 'video', label: 'Gemini Omni Flash', model: OMNI_MODEL, description: 'Cloudflare video preview with manual retail pricing.' },
   video_minimax_h3: {name:'video_minimax_h3',task:'video',label:'MiniMax H3',model:H3_MODEL,description:'Multimodal video generation.'},
+  video_minimax_h3_lite: {name:'video_minimax_h3_lite',task:'video',label:'MiniMax H3 Lite',model:H3_LITE_MODEL,description:'Multimodal video generation at 480P or 768P.'},
   fast: {
     name: "fast",
     task: "text",
@@ -3004,11 +3007,11 @@ export function validateAdminAiVideoBody(body, options = {}) {
     if (seedance25_sources !== undefined && !allowResolvedGrokPreviewMediaUrls) throw new AdminAiValidationError('Internal Seedance sources are not accepted.', 400, 'validation_error');
     return { ...normalizeSeedance25Request(publicInput), ...(allowResolvedGrokPreviewMediaUrls ? { seedance25_sources } : {}) };
   }
-  if (selectedModel.id === H3_MODEL) {
+  if (isH3Model(selectedModel.id)) {
     // Only the authenticated AI service caller may carry resolved internal media.
     const {h3_content, h3_callback, ...publicInput} = input;
     if ((h3_content || h3_callback) && !allowResolvedGrokPreviewMediaUrls) throw new AdminAiValidationError('Internal H3 fields are not accepted.',400,'validation_error');
-    const normalized=normalizeH3Request(publicInput);
+    const normalized=normalizeH3Request({...publicInput,model:selectedModel.id});
     return {...normalized,...(allowResolvedGrokPreviewMediaUrls?{h3_content,h3_callback}:{})};
   }
 

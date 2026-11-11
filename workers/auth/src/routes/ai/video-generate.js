@@ -5,7 +5,7 @@ import { seedance25StoredOutputSeconds } from '../../lib/seedance-25-output.js';
 import { SEEDANCE_25_MODEL, normalizeSeedance25Request, buildSeedance25ProviderInput, parseSeedance25Result } from '../../../../../js/shared/seedance-25-contract.mjs';
 import { calculateSeedance25CreditPricing } from '../../../../../js/shared/seedance-25-pricing.mjs';
 import { prepareVideoReferences } from '../../lib/private-video-references.js';
-import { H3_MODEL, normalizeH3Request, buildH3ProviderInput, parseH3Task, calculateH3CreditPricing } from '../../../../../js/shared/minimax-h3.mjs';
+import { isH3Model, h3ModelDefinition, normalizeH3Request, buildH3ProviderInput, parseH3Task, calculateH3CreditPricing } from '../../../../../js/shared/minimax-h3.mjs';
 import { recordVideoLateError } from '../../lib/h3-provider-result.js';
 import { validateAdminAiVideoBody } from '../../../../../js/shared/admin-ai-contract.mjs';
 import { GROK_IMAGINE_VIDEO_15_PREVIEW_MODEL_ID } from '../../../../../js/shared/grok-imagine-video-15-preview-pricing.mjs';
@@ -221,7 +221,7 @@ function normalizeModelId(value) {
     ? PIXVERSE_V6_MODEL_ID
     : String(value).trim();
   if (
-    modelId === SEEDANCE_25_MODEL || modelId === OMNI_MODEL || modelId === H3_MODEL ||
+    modelId === SEEDANCE_25_MODEL || modelId === OMNI_MODEL || isH3Model(modelId) ||
     modelId === PIXVERSE_V6_MODEL_ID ||
     modelId === HAPPYHORSE_T2V_MODEL_ID ||
     modelId === SEEDANCE_2_FAST_MODEL_ID ||
@@ -553,13 +553,13 @@ async function normalizeMemberVideoBody(body) {
       title:normalizeOptionalString(title,MAX_TITLE_LENGTH,'title')||titleFromPrompt(validated.prompt,'Gemini Omni video'),
       folderId:normalizeFolderId({folder_id,folderId}),policyBody:validated};
   }
-  if(modelId===H3_MODEL) {
+  if(isH3Model(modelId)) {
     const {folder_id,folderId,title,...request}=body;
-    const validated=normalizeH3Request(request),pricing=calculateH3CreditPricing(validated);
-    return {modelId:H3_MODEL,modelLabel:'MiniMax H3',vendor:'MiniMax',provider:'ai_gateway_minimax',preset:'video_minimax_h3',
+    const validated=normalizeH3Request({...request,model:modelId}),pricing=calculateH3CreditPricing(validated),model=h3ModelDefinition(modelId);
+    return {modelId:model.id,modelLabel:model.label,vendor:'MiniMax',provider:'ai_gateway_minimax',preset:model.preset,
       pricingSource:pricing.formula.pricingSource,prompt:validated.prompt,duration:validated.duration,resolution:validated.resolution,aspectRatio:validated.aspect_ratio,
       operation:'generate',price:pricing.credits,seed:null,generateAudio:true,watermark:null,workflow:'h3-generation',
-      title:normalizeOptionalString(title,MAX_TITLE_LENGTH,'title')||titleFromPrompt(validated.prompt,'MiniMax H3 video'),
+      title:normalizeOptionalString(title,MAX_TITLE_LENGTH,'title')||titleFromPrompt(validated.prompt,`${model.label} video`),
       folderId:normalizeFolderId({folder_id,folderId}),policyBody:validated};
   }
   if (isGrokVideo(modelId)) {
@@ -906,12 +906,12 @@ async function invokeMemberVideoModel(env, modelId, payload, { correlationId, us
 
   try {
     const result = await runWithGenerationTimeout((signal) => env.AI.run(modelId, payload, {
-      gateway: { id: "default", ...([H3_MODEL,OMNI_MODEL].includes(modelId)?{skipCache:true,collectLog:false}:{}) }, signal,
+      gateway: { id: "default", ...((isH3Model(modelId)||[OMNI_MODEL].includes(modelId))?{skipCache:true,collectLog:false}:{}) }, signal,
     }), {
       signal: callerSignal,
       onLateResult: value => {
-        if(modelId!==H3_MODEL)return usagePolicy?.recordLateOutcome?.("succeeded");
-        const task=parseH3Task(value);
+        if(!isH3Model(modelId))return usagePolicy?.recordLateOutcome?.("succeeded");
+        const task=parseH3Task(value,modelId);
         return usagePolicy?.recordLateOutcome?.(task.pending?"unknown":task.failed?"failed":"succeeded",task.pending?"h3_provider_pending":null);
       },
       onLateError: (error) => recordVideoLateError(usagePolicy, error),
@@ -959,7 +959,7 @@ async function invokeMemberVideoModel(env, modelId, payload, { correlationId, us
 async function persistVideoResult({ env, userId, input, providerResult, elapsedMs, correlationId }) {
   const existing = await existingGenerationAsset(env,userId,'video');
   if(existing) return existing;
-  const videoUrl = input.modelId===SEEDANCE_25_MODEL?parseSeedance25Result(providerResult).video:input.modelId===OMNI_MODEL?parseOmniResult(providerResult).video:input.modelId===H3_MODEL?parseH3Task(providerResult).videoUrl:extractProviderVideoUrl(providerResult);
+  const videoUrl = input.modelId===SEEDANCE_25_MODEL?parseSeedance25Result(providerResult).video:input.modelId===OMNI_MODEL?parseOmniResult(providerResult).video:isH3Model(input.modelId)?parseH3Task(providerResult,input.modelId).videoUrl:extractProviderVideoUrl(providerResult);
   if (!videoUrl) {
     const error = new Error("Video provider returned no savable video.");
     error.status = 502;
@@ -1084,7 +1084,7 @@ export async function handleGenerateVideo(ctx) {
   let input;
   try {
     input = await normalizeMemberVideoBody(parsed.body);
-    if (isGrokVideo(input.modelId) || [H3_MODEL,OMNI_MODEL,SEEDANCE_25_MODEL].includes(input.modelId)) {
+    if (isGrokVideo(input.modelId) || (isH3Model(input.modelId)||[OMNI_MODEL,SEEDANCE_25_MODEL].includes(input.modelId))) {
       const existing = generationExecution(env)?.job || await env.DB.prepare("SELECT source_refs_json FROM member_generation_jobs WHERE user_id=? AND media_type='video' AND request_key=?")
         .bind(userId,request.headers.get('Idempotency-Key') || '').first();
       if (input.modelId===OMNI_MODEL) {
@@ -1133,7 +1133,7 @@ export async function handleGenerateVideo(ctx) {
   ctx.captureCanvasUsageAttemptId?.(usagePolicy.attempt?.id || null);
   const accepted = await acceptMemberGeneration(ctx, { usagePolicy, body: parsed.body, mediaType: 'video', sourceRefs: input.sourceRefs || [] });
   if (accepted) return accepted;
-  if(input.modelId===H3_MODEL && generationExecution(env)) {
+  if(isH3Model(input.modelId) && generationExecution(env)) {
     try {await prepareVideoReferences(env,userId,generationExecution(env).job.id);}
     catch(error) {
       if(error.code!=='h3_reference_preparing')await usagePolicy.markProviderFailed({code:error.code||'h3_reference_preparation_failed',definitelyNotDispatched:true});
@@ -1221,14 +1221,14 @@ export async function handleGenerateVideo(ctx) {
   }
 
   let providerPayload = buildProviderPayload(input);
-  if (isGrokVideo(input.modelId) || [H3_MODEL,OMNI_MODEL,SEEDANCE_25_MODEL].includes(input.modelId)) {
+  if (isGrokVideo(input.modelId) || (isH3Model(input.modelId)||[OMNI_MODEL,SEEDANCE_25_MODEL].includes(input.modelId))) {
     let resolved;
     try { resolved = await resolveAdminAiGrokPreviewMediaSourcesForProvider(env,session.user,input.policyBody,{jobId:generationExecution(env)?.job.id,origin:new URL(request.url).origin,prepareOutput:Boolean(generationExecution(env))}); }
     catch(error) {
       if(error.code!=='h3_reference_preparing')await markVideoProviderFailed(usagePolicy,{code:error.code||'video_source_resolution_failed',message:'Video reference preparation failed.'});
       throw error;
     }
-    const {model, preset, ...parameters} = resolved; providerPayload = input.modelId===SEEDANCE_25_MODEL?buildSeedance25ProviderInput(resolved):input.modelId===OMNI_MODEL?buildOmniProviderInput(resolved):input.modelId===H3_MODEL?buildH3ProviderInput(resolved):parameters;
+    const {model, preset, ...parameters} = resolved; providerPayload = input.modelId===SEEDANCE_25_MODEL?buildSeedance25ProviderInput(resolved):input.modelId===OMNI_MODEL?buildOmniProviderInput(resolved):isH3Model(input.modelId)?buildH3ProviderInput(resolved):parameters;
   }
   const providerResponse = await invokeMemberVideoModel(env, input.modelId, providerPayload, { correlationId, userId, signal: request.signal, usagePolicy });
   if (!providerResponse.ok) {
@@ -1256,8 +1256,8 @@ export async function handleGenerateVideo(ctx) {
   }
 
   let h3Usage=null,h3UsageReview=false;
-  if(input.modelId===H3_MODEL) {
-    const task=parseH3Task(providerResponse.result);
+  if(isH3Model(input.modelId)) {
+    const task=parseH3Task(providerResponse.result,input.modelId);
     if(task.pending) {
       await usagePolicy.recordLateOutcome('unknown','h3_provider_pending');
       return respond({ok:false,code:'generation_provider_outcome_unknown'},{status:202});

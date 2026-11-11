@@ -3,7 +3,7 @@ import { inspectOwnedTimeReference } from './h3-reference-metadata.js';
 import { assertOmniMediaSignature } from './gemini-omni-media.js';
 import { OMNI_MODEL, OMNI_OPERATIONS, omniReferences, omniMediaType } from '../../../../js/shared/gemini-omni-contract.mjs';
 import { generatedReferencePlan, prepareVideoReferences, readyVideoReference } from './private-video-references.js';
-import { H3_MODEL, h3References, h3MediaType } from '../../../../js/shared/minimax-h3.mjs';
+import { isH3Model, h3References, h3MediaType } from '../../../../js/shared/minimax-h3.mjs';
 import { inspectH3TimeReference, h3DurationError, validateH3Dimensions } from './h3-reference-metadata.js';
 import { prepareH3Callback } from './minimax-h3-callback.js';
 import { generationExecution } from './member-generation-jobs.js';
@@ -590,7 +590,7 @@ async function parseMediaSourceToken(env, token, { now = Date.now() } = {}) {
   const mediaType = isLegacyVideoToken ? "video" : String(payload.media || "").trim().toLowerCase();
   const operation = String(payload.operation || "").trim();
   const modelId = String(payload.model || "").trim();
-  const isH3 = modelId===H3_MODEL;
+  const isH3 = isH3Model(modelId);
   const isOmni = modelId===OMNI_MODEL;
   const isSeedance25 = modelId===SEEDANCE_25_MODEL;
   const isGrokVideoModel = [ADMIN_AI_VIDEO_GROK_IMAGINE_MODEL_ID, ADMIN_AI_VIDEO_GROK_IMAGINE_15_PREVIEW_MODEL_ID].includes(modelId);
@@ -741,7 +741,7 @@ export function isGrokVideo(model) {
 function grokSourceReferences(payload) {
   if(payload.model===SEEDANCE_25_MODEL)return seedance25References(payload.references).map((ref,i)=>[`seedance25.${i}.${ref.role}`,{...ref.source,media_type:seedance25MediaType(ref.role)}]);
   if(payload.model===OMNI_MODEL)return omniReferences(payload.references).map((ref,i)=>[`omni.${i}.${ref.role}`,{...ref.source,media_type:omniMediaType(ref.role)}]);
-  if(payload.model===H3_MODEL)return h3References(payload.references).map((ref,i)=>[`h3.${i}.${ref.role}`,{...ref.source,media_type:h3MediaType(ref.role)}]);
+  if(isH3Model(payload.model))return h3References(payload.references,payload.model).map((ref,i)=>[`h3.${i}.${ref.role}`,{...ref.source,media_type:h3MediaType(ref.role)}]);
   const refs = [];
   if (payload.source_image) refs.push(['image', normalizeAdminAiMediaSourceReference(payload.source_image, 'image')]);
   if (payload.source_video) refs.push(['video', normalizeAdminAiMediaSourceReference(payload.source_video, 'video')]);
@@ -752,7 +752,7 @@ function grokSourceReferences(payload) {
 // Authorize before accepting/reserving; snapshots are server-owned and pin the
 // exact existing bytes while the accepted job needs them, even after deletion.
 export async function snapshotGrokVideoSources(env, user, payload) {
-  if (!isGrokVideo(payload.model) && payload.model!==H3_MODEL && payload.model!==OMNI_MODEL && payload.model!==SEEDANCE_25_MODEL) return [];
+  if (!isGrokVideo(payload.model) && !isH3Model(payload.model) && payload.model!==OMNI_MODEL && payload.model!==SEEDANCE_25_MODEL) return [];
   if (payload.model!==OMNI_MODEL && payload.model!==SEEDANCE_25_MODEL && !getAdminAiVideoModelSpec(payload.model).availableOperations.includes(payload._operation || 'generate')) {
     throw new AdminAiVideoSourceError('Edit and Extend are temporarily unavailable pending exact-route billing verification.', {status:409,code:'video_operation_billing_unverified'});
   }
@@ -762,7 +762,7 @@ export async function snapshotGrokVideoSources(env, user, payload) {
   for (const [role, ref] of grokSourceReferences(payload)) {
     const row = await getSourceRow(env, ref, user.id);
     const head = await env.USER_IMAGES.head(row.r2_key);
-    if (!head || !head.etag || head.size > (payload.model===H3_MODEL ? {video:50_000_000,audio:15_000_000,image:30_000_000}[ref.media_type] : [OMNI_MODEL,SEEDANCE_25_MODEL].includes(payload.model) ? {video:80_000_000,audio:15*1024*1024,image:10*1024*1024}[ref.media_type] : ref.media_type === 'video' ? 80_000_000 : 10_000_000)) {
+    if (!head || !head.etag || head.size > (isH3Model(payload.model) ? {video:50_000_000,audio:15_000_000,image:30_000_000}[ref.media_type] : [OMNI_MODEL,SEEDANCE_25_MODEL].includes(payload.model) ? {video:80_000_000,audio:15*1024*1024,image:10*1024*1024}[ref.media_type] : ref.media_type === 'video' ? 80_000_000 : 10_000_000)) {
       throw new AdminAiVideoSourceError('Source media is unavailable or too large.', {code:'media_source_unavailable'});
     }
     const mime = head.httpMetadata?.contentType || row.mime_type || 'image/png';
@@ -783,7 +783,7 @@ export async function snapshotGrokVideoSources(env, user, payload) {
       }
     }
     let prepared={};
-    if(payload.model===H3_MODEL) {
+    if(isH3Model(payload.model)) {
       if(await env.DB.prepare('SELECT id FROM member_generation_unready_assets WHERE id=?').bind(row.id).first())throw new AdminAiVideoSourceError('Source is not ready.',{status:409,code:'h3_source_not_ready'});
       const object=await env.USER_IMAGES.get(row.r2_key,{onlyIf:{etagMatches:head.etag}});
       if(!object?.body)throw new AdminAiVideoSourceError('Source changed.',{code:'media_source_changed'});
@@ -823,12 +823,12 @@ export async function resolveAdminAiGrokPreviewMediaSourcesForProvider(env, admi
     }
     return {...stripPreviewMediaSourceFields(payload),omni_sources};
   }
-  if(payload?.model===H3_MODEL) {
+  if(isH3Model(payload?.model)) {
     if(!jobId)throw new AdminAiVideoSourceError('A durable H3 job is required.',{code:'h3_durable_job_required'});
     await prepareVideoReferences(env,adminUser.id,jobId);
     const content=[{type:'text',text:payload.prompt}];
     for(const [role,ref] of grokSourceReferences(payload)) {
-      const token=await createMediaSourceToken(env,ref,{model:H3_MODEL,operation:'generate',sourceRole:role,userId:adminUser.id,jobId,expiresAt:0});
+      const token=await createMediaSourceToken(env,ref,{model:payload.model,operation:'generate',sourceRole:role,userId:adminUser.id,jobId,expiresAt:0});
       const key=`${ref.media_type}_url`;
       content.push({type:key,[key]:{url:`${getProviderOrigin(env,origin)}/api/internal/ai/media-source/${encodeURIComponent(token)}`},role:role.split('.')[2]});
     }

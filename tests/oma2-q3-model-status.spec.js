@@ -65,7 +65,7 @@ test('model status pending request is cancelled on leave and cannot restore old 
  await page.evaluate(()=>location.hash='dashboard');release();await expect(section(page)).toBeEmpty();expect(e.calls.filter(c=>c.path==='/api/admin/ai/model-status')).toHaveLength(1);expect(e.errors).toEqual([]);
 });
 
-for(const width of [1280,390])test(`area switches save server state with keyboard, reload and independent areas at ${width}`,async({page,baseURL},info)=>{
+for(const width of [1280,390])for(const modelId of ['minimax/h3','minimax/h3-lite'])test(`area switches ${modelId} save server state with keyboard, reload and independent areas at ${width}`,async({page,baseURL},info)=>{
  await page.setViewportSize({width,height:900});const f=await setup(page,baseURL);await open(page);
  const view=page.getByRole('region',{name:'Model availability'});
  // Approved catalog fixture is independent of the server catalog renderer.
@@ -74,11 +74,12 @@ for(const width of [1280,390])test(`area switches save server state with keyboar
  await expect(view.locator('[data-availability-model]')).toHaveCount(expected.length);
  const ids=await view.locator('[data-availability-model]').evaluateAll(nodes=>nodes.map(node=>node.dataset.availabilityModel));assertCatalog(ids);
  for(const broken of [ids.slice(1),[...ids,ids[0]],['unknown-model',...ids.slice(1)]])expect(()=>assertCatalog(broken)).toThrow();await expect(view.locator('[data-area="main"]')).toHaveCount(1);
- const row=view.locator('[data-availability-model="minimax/h3"]'),gen=row.locator('[data-area="generation"]'),canvas=row.locator('[data-area="canvas"]');
+ const row=view.locator(`[data-availability-model="${modelId}"]`),gen=row.locator('[data-area="generation"]'),canvas=row.locator('[data-area="canvas"]');
  await gen.focus();await page.keyboard.press('Space');await expect(gen).toHaveAttribute('aria-checked','false');await expect(view.getByRole('status')).toContainText('Saved.');await expect(canvas).toHaveAttribute('aria-checked','true');
- expect(f.calls.filter(c=>c.method==='PATCH')[0].body).toEqual({modelId:'minimax/h3',area:'generation',enabled:false,revision:0});
+ expect(f.calls.filter(c=>c.method==='PATCH')[0].body).toEqual({modelId,area:'generation',enabled:false,revision:0});
  await page.reload();await expect(gen).toHaveAttribute('aria-checked','false');await canvas.click();await expect(canvas).toHaveAttribute('aria-checked','false');
  await gen.click();await expect(gen).toHaveAttribute('aria-checked','true');await expect(canvas).toHaveAttribute('aria-checked','false');
+ const sibling=view.locator(`[data-availability-model="${modelId==='minimax/h3'?'minimax/h3-lite':'minimax/h3'}"]`);await expect(sibling.locator('[data-area="generation"]')).toHaveAttribute('aria-checked','true');await expect(sibling.locator('[data-area="canvas"]')).toHaveAttribute('aria-checked','true');
  expect((await gen.boundingBox()).height).toBeGreaterThanOrEqual(44);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  await view.getByRole('searchbox').fill('Apertus');await expect(view.locator('[data-availability-model]')).toHaveCount(1);await expect(view.getByRole('switch')).toHaveAttribute('aria-checked','false');
  await view.getByRole('switch').click();await expect(view.getByRole('status')).toContainText('Main remains off');await expect(view.getByRole('switch')).toHaveAttribute('aria-checked','false');

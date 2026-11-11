@@ -900,12 +900,14 @@ test('Canvas video continuation methods follow connected adapters, role and chan
     expect(resolveCanvasVideoInput({...model,runnable:false},source).methods).toEqual([]);
     expect(resolveCanvasVideoInput({...model,controls:{}},source).methods).toEqual([]);
   }
-  const h3=getCanvasModelForRole('minimax/h3','user');
+  for(const modelId of ['minimax/h3','minimax/h3-lite']) {
+  const h3=getCanvasModelForRole(modelId,'user');
   expect(resolveCanvasVideoInput(h3,source)).toMatchObject({methods:['reference_video','last_frame'],method:'reference_video',frame:null});
   const selected={videoInput:{modelId:h3.id,assetId:source.assetId,runId:source.runId,method:'last_frame',frame,sourceVersion:'original-version'}};
   expect(resolveCanvasVideoInput(h3,source,selected)).toMatchObject({method:'last_frame',frame});
   for(const replacement of [{...source,runId:'new-run'},{...source,assetId:'new-original'}])
     expect(resolveCanvasVideoInput(h3,replacement,selected)).toMatchObject({method:'last_frame',frame:null,sourceVersion:null});
+  }
   // Explicit synthetic verified capabilities exercise the multi-method branch;
   // real Grok catalogs above remain Generate-only pending billing evidence.
   const verified={id:'synthetic-verified-adapter',capability:'video',runnable:true,controls:{supportsImageInput:true,nativeVideoInput:true,supportsVideoInput:true,supportedOperations:['generate','edit','extend'],availableOperations:['generate','edit','extend']}};
@@ -945,9 +947,9 @@ test('Canvas video continuation decodes the actual short last frame; rejects err
   await testInfo.attach('decoded-last-frame',{body:JSON.stringify(result),contentType:'application/json'});
 });
 
-for(const locale of ['en','de']) for(const family of ['pixverse','h3']) test(`Canvas video continuation ${locale} ${family}: last frame, real decoded frame, reload and one run`,async({page},testInfo)=>{
+for(const locale of ['en','de']) for(const family of ['pixverse','h3','h3-lite']) test(`Canvas video continuation ${locale} ${family}: last frame, real decoded frame, reload and one run`,async({page},testInfo)=>{
   await mockSharedAuth(page,true);
-  const h3=family==='h3', model=h3?'minimax/h3':'pixverse/v6';
+  const h3=family.startsWith('h3'), model=h3?`minimax/${family}`:'pixverse/v6';
   const { listCanvasModelsForRole } = await import('../js/shared/canvas-model-contract.mjs');
   const state=createCanvasApiMock(page,{modelPayload:{models:listCanvasModelsForRole(locale==='de'?'admin':'user'),organizations:[],access:{role:locale==='de'?'admin':'user'}}}),projectId='1'.repeat(32),src='a'.repeat(32),dest='b'.repeat(32),edgeId='c'.repeat(32),now=new Date().toISOString();
   state.projects.push({id:projectId,title:'Video continuation',locale,created_at:now,updated_at:now});
@@ -1593,13 +1595,14 @@ test.describe('Canvas private media controls',()=>{
   });
 });
 
-for(const locale of ['en','de']) test(`Canvas H3 ${locale}: connected input roles, estimates and persisted settings`,async({page},testInfo)=>{
+for(const locale of ['en','de']) for(const lite of [false,true]) test(`Canvas H3${lite?' Lite':''} ${locale}: connected input roles, estimates and persisted settings`,async({page},testInfo)=>{
+  const modelId=lite?'minimax/h3-lite':'minimax/h3',resolutions=lite?['480P','768P']:['768P','2K'];
   await mockSharedAuth(page);
   const {listCanvasModelsForRole}=await import('../js/shared/canvas-model-contract.mjs');
   const state=createCanvasApiMock(page,{modelPayload:{models:listCanvasModelsForRole('user'),organizations:[],access:{role:'user'}}});
   const project='1'.repeat(32),node='a'.repeat(32),now=new Date().toISOString();
   state.projects.push({id:project,title:'H3 inputs',locale,created_at:now,updated_at:now});
-  state.nodes.push({id:node,project_id:project,type:'video_generation',title:'H3 target',model_id:'minimax/h3',x:30,y:30,config:{prompt:'Synthetic motion',duration:5,resolution:'768P'},content:{}});
+  state.nodes.push({id:node,project_id:project,type:'video_generation',title:'H3 target',model_id:modelId,x:30,y:30,config:{prompt:'Synthetic motion',duration:5,resolution:resolutions[0]},content:{}});
   for(const [i,kind] of ['image','video','audio'].entries()) {
     const id=String(i+2).repeat(32);state.nodes.push({id,project_id:project,type:'asset_reference',title:kind,x:340,y:30+i*160,content:{asset:{id:'reference-'+kind,asset_type:kind,mime_type:kind==='image'?'image/png':kind==='video'?'video/mp4':'audio/wav'}},config:{}});
     state.edges.push({id:String(i+4).repeat(32),project_id:project,source_node_id:id,target_node_id:node,config:{}});
@@ -1610,8 +1613,9 @@ for(const locale of ['en','de']) test(`Canvas H3 ${locale}: connected input role
   await expect(roles).toHaveCount(2);
   await expect(inspector.getByRole('combobox',{name:locale==='de'?'Video weiterverwenden':'Reuse video'})).toHaveValue('reference_video');
   expect(await roles.evaluateAll(list=>list.map(s=>s.value))).toEqual(['reference_image','reference_audio']);
+  await expect(inspector.getByRole('combobox',{name:locale==='de'?'Auflösung':'Resolution',exact:true}).locator('option')).toHaveText(resolutions);
   const cost=await inspector.locator('.canvas-cost-note').textContent();
-  await inspector.getByRole('combobox',{name:locale==='de'?'Auflösung':'Resolution',exact:true}).selectOption('2K');
+  await inspector.getByRole('combobox',{name:locale==='de'?'Auflösung':'Resolution',exact:true}).selectOption(resolutions[1]);
   await expect(inspector.locator('.canvas-cost-note')).not.toHaveText(cost);
   await roles.first().selectOption('first_frame');
   await expect(roles.first()).toBeFocused();
@@ -1620,10 +1624,10 @@ for(const locale of ['en','de']) test(`Canvas H3 ${locale}: connected input role
   await page.reload();await page.locator(`[data-node-id="${node}"]`).first().click();await expect(roles.first()).toHaveValue('first_frame');
   await roles.first().selectOption('reference_image');await expect.poll(()=>state.nodes[0].config.h3Roles?.[state.edges[0].id]).toBe('reference_image');
   await expect(inspector.getByRole('button',{name:locale==='de'?'Ausführen':'Run',exact:true})).toBeEnabled();
-  await page.screenshot({path:testInfo.outputPath(`h3-canvas-${locale}.png`)});
+  await page.screenshot({path:testInfo.outputPath(`h3${lite?'-lite':''}-canvas-${locale}.png`)});
   await page.setViewportSize({width:390,height:844});await page.locator('#canvasInspectorToggle').click();await roles.first().scrollIntoViewIfNeeded();await expect(roles.first()).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-  await page.screenshot({path:testInfo.outputPath(`h3-canvas-${locale}-mobile.png`)});
+  await page.screenshot({path:testInfo.outputPath(`h3${lite?'-lite':''}-canvas-${locale}-mobile.png`)});
   let code='h3_reference_file_duration',calls=0;
   await page.route(`**/nodes/${node}/run`,route=>{calls++;return route.fulfill({status:400,json:{ok:false,code,error:'Specific reference error'}});});
   const run=inspector.getByRole('button',{name:locale==='de'?'Ausführen':'Run',exact:true});
