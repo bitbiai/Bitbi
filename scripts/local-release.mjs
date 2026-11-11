@@ -18,7 +18,8 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { ensureEnvironment, docker, PACKAGES, cacheRoot, TOOL_PREFLIGHT, toolchainPins } from './lib/local-release-environment.mjs';
+import { ensureEnvironment, docker, PACKAGES, cacheRoot, TOOL_PREFLIGHT, toolchainPins, resourceProfile, verifyResourceSelection, verifyContainerResources } from './lib/local-release-environment.mjs';
+import { requiresPrivateMediaImage } from './lib/ci-test-selection.mjs';
 import { LOCAL_POLICY, validationPlan, selectedCommands, sha256, commandRuntimes, nativeBrowserKey } from './lib/local-release-plan.mjs';
 import { gitSelection, tree, REPOSITORY, publishedBase } from './pages-candidate.mjs';
 import { verifyLocalEvidence, LOCAL_WORKER_REPAIR, LOCAL_IMPORT_REPAIR, localRepairCommand, verifyImportRepairEvidence, LOCAL_REPAIR_REFRESH, LOCAL_CORE_REUSE, LOCAL_HOMEPAGE_REPORTS, verifyRetainedHomepageReports, assertLocalRepairTree, verifyLocalWorkerRepair, localWorkerContinuation } from './lib/local-release-evidence.mjs';
@@ -222,8 +223,10 @@ async function runLocalRelease({ base, resume }) {
     'Commit the release execution/toolchain inputs before validation; unrelated worktree edits are preserved');
   assert(/^[a-f0-9]{40}$/.test(base || ''), 'Supply the verified published --base SHA');
   git(['merge-base','--is-ancestor',base,sha]);
-  const environment = ensureEnvironment(), selection = gitSelection(base, sha);
+  const selection = gitSelection(base, sha);
   const commands = selectedCommands(selection, { GITHUB_SHA: sha, CANDIDATE_BASE: base });
+  verifyResourceSelection(resourceProfile(),requiresPrivateMediaImage(selection.files));
+  const environment=ensureEnvironment();
   const nativeBrowsers=commands.some(command=>commandRuntimes(command).some(part=>part.runtime==='native-browser-v1'))?ensureNativeBrowsers():null;
   const nativeEvidence=nativeBrowsers?Object.fromEntries(Object.entries(nativeBrowsers).filter(([key])=>!['packages','browserRoot'].includes(key))):null;
   const progressProfile=resume&&[RELIABILITY_BROWSER_PREFLIGHT.proposalProgress,RELIABILITY_BROWSER_PREFLIGHT.browserProgress,RELIABILITY_BROWSER_PREFLIGHT.workerProgress,RELIABILITY_BROWSER_PREFLIGHT.progress,CANVAS_POLICY_NATIVE_PROGRESS,AUTONOMY_BROWSER_WORKER_PROGRESS,AUTONOMY_BROWSER_DOC_PROGRESS,AUTONOMY_BROWSER_PROGRESS].find(p=>json(path.join(resume,'checkpoint.json')).sha===p.source&&sha!==p.source);
@@ -788,6 +791,7 @@ async function runLocalRelease({ base, resume }) {
   }
   assert.equal(state.sha, sha); assert.equal(state.base, base); assert.equal(state.planHash, validationPlan().digest);
   assert.equal(state.environment.key, environment.key, 'Changed dependencies invalidate this resume');
+  assert.deepEqual(state.environment.resources,environment.resources,'Changed resource profile invalidates this resume');
   if(nativeBrowsers)assert.equal(state.nativeBrowsers?.key,nativeBrowsers.key,'Changed native browser environment invalidates this resume');
   if(state.status==='passed') {
     verifyLocalEvidence(bundle,{sha,base});
@@ -837,11 +841,16 @@ async function runLocalRelease({ base, resume }) {
   try {
     // Only this disposable source directory is mounted. No user home, GitHub/
     // Cloudflare token, host socket, SSH agent or production binding enters it.
-    docker(['run','-d','--name',name,'--platform','linux/arm64','--privileged','--cpus','4','--memory','10g','--shm-size','1g',
+    const limits=environment.resources.container;
+    docker(['run','-d','--name',name,'--platform','linux/arm64','--privileged','--cpus',String(limits.cpus),'--memory',`${limits.memoryGiB}g`,'--shm-size',`${limits.shmGiB}g`,
       '--mount',`type=bind,source=${work},target=/source,readonly`,'--user','0:0','--workdir','/workspace',
       ...Object.entries(env).flatMap(([key,value]) => ['--env',`${key}=${value}`]),
       environment.image,'sleep','infinity']);
     created=true;
+    const actual=JSON.parse(docker(['inspect','--format','{{json .HostConfig}}',name]));
+    const container={cpus:actual.NanoCpus/1e9,memoryBytes:actual.Memory,shmBytes:actual.ShmSize};
+    verifyContainerResources(environment.resources,container);
+    state.environment.resourceObservation={...environment.resourceObservation,container};
     const prep = 'set -eu\ncp -a /source/. /workspace/\nmkdir -p /tmp/bitbi-release/toolcache /tmp/bitbi-release/npm\n' + PACKAGES.map(dir => `cp -a /opt/bitbi-deps/${dir ? dir + '/' : ''}node_modules ./${dir ? dir + '/' : ''}`).join('\n') + '\nchown -R 1001:1001 /workspace /tmp/bitbi-release';
     docker(['exec',name,'bash','-c',prep]);
     const savedRuntime=path.join(directory,'runtime');

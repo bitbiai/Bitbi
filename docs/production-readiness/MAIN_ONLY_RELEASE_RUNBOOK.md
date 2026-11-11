@@ -35,9 +35,31 @@ versions and CI settings, but browser launch alone does not prove codec support.
 The native browser dependency cache and official browser installations persist; each
 run gets a disposable home, profile and test server without credentials. A warm check
 reuses verified versions/binary hashes; changed inputs require preparation.
-Affected media images retain their actual Linux AMD64
-build/test target. The VM uses 6 CPUs/12 GiB; one run uses 4 CPUs/10 GiB and the
-existing one-worker browser defaults. Record architecture, not a claimed x64 run.
+The host's physical RAM automatically selects a bounded resource profile:
+16–<24 GiB uses `compact-16g-v1` (VM 4 CPUs/4 GiB; test container 4 CPUs/3 GiB),
+and >=24 GiB retains `standard-24g-v1` (VM 6 CPUs/12 GiB; container 4 CPUs/10 GiB).
+Both retain the 80 GiB VM disk, 1 GiB container shared-memory limit and existing
+one-worker browser commands. Hosts below 16 GiB fail before provisioning. A
+conflicting running release VM fails without resizing or restarting it; stop and
+explicitly reconfigure only `bitbi-release` before retrying. This does not pause
+other VMs or services. On constrained hosts, coordinate any separately authorized
+temporary test-VM pause and restoration; allocation limits alone do not prove
+adequate free capacity, so observe host pressure during setup and acceptance.
+
+Evidence records and verifies the named profile, host RAM, configured/observed VM
+capacity and actual container limits. Changing profiles invalidates resume; it
+does not relabel old evidence or change the seven-day freshness rule. Dependency
+cache identity remains source/lock/image based, not host-resource based. Changing
+the environment manager still changes its existing input hash and cache key.
+
+Affected media images retain their actual Linux AMD64 build/test target. Their
+separate fixed 1 CPU/6 GiB test container and exact command-digest contract are
+unchanged. Compact hosts reject a selection requiring that private media image
+before VM preparation, builds or suites: no selected test is silently omitted.
+Use a qualified standard host until compact AMD64 media acceptance is separately
+implemented and verified, including concurrent-container memory demand. Compact
+environment readiness is not Full/media or current-candidate product acceptance.
+Record architecture, not a claimed x64 run.
 
 Only `~/Library/Caches/bitbi-local-release` is shared with the VM; no personal home,
 SSH agent or Docker socket is shared with tests. Sources, browser sessions, services

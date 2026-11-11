@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { LOCAL_POLICY, selectedCommands, validationPlan, sha256, commandRuntimes, nativeBrowserKey } from './local-release-plan.mjs';
-import { environmentInputs, environmentKey, toolchainPins } from './local-release-environment.mjs';
+import { environmentInputs, environmentKey, toolchainPins, verifyResourceEvidence, verifyResourceSelection } from './local-release-environment.mjs';
 import { gitSelection, tree, verifyManifest, verifyProofs, candidateProof, proofJobs, REPOSITORY } from '../pages-candidate.mjs';
 import { verifyFrontend } from './frontend-hosting.mjs';
 import { browserRows } from './browser-fixture-repair.mjs';
@@ -507,6 +507,8 @@ export function verifyLocalEvidence(directory, expected, { now = Date.now(), sel
   assert.equal(evidence.environment.platform, 'linux/arm64');
   assert.match(evidence.environment.image, /^sha256:[a-f0-9]{64}$/);
   for(const [key,value] of Object.entries(toolchainPins()))assert.equal(evidence.environment[key],value);
+  verifyResourceEvidence(evidence.environment);
+  verifyResourceSelection(evidence.environment.resources,requiresPrivateMediaImage(selection.files));
   assert.equal(evidence.ci, true); assert.equal(evidence.origin, 'development-mac');
   const env = { GITHUB_SHA: expected.sha, CANDIDATE_BASE: expected.base };
   const commands = selectedCommands(selection, env);

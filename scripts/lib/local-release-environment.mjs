@@ -14,6 +14,44 @@ export const cacheRoot = () => path.join(os.homedir(), 'Library/Caches/bitbi-loc
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const require=createRequire(import.meta.url);
 const parseYaml=source=>require('../../node_modules/playwright-core/lib/utilsBundle.js').yaml.parse(source);
+
+const GiB=1024 ** 3;
+const RESOURCE_PROFILES={
+  'compact-16g-v1':{name:'compact-16g-v1',minimumHostGiB:16,vm:{cpus:4,memoryGiB:4,diskGiB:80},container:{cpus:4,memoryGiB:3,shmGiB:1}},
+  'standard-24g-v1':{name:'standard-24g-v1',minimumHostGiB:24,vm:{cpus:6,memoryGiB:12,diskGiB:80},container:{cpus:4,memoryGiB:10,shmGiB:1}},
+};
+export function resourceProfile(hostMemoryBytes=os.totalmem()) {
+  assert(Number.isSafeInteger(hostMemoryBytes)&&hostMemoryBytes>=16*GiB,'Local release requires at least 16 GiB host RAM');
+  return structuredClone(RESOURCE_PROFILES[hostMemoryBytes<24*GiB?'compact-16g-v1':'standard-24g-v1']);
+}
+export function verifyVmResources(resources,configuration,actual) {
+  assert.deepEqual(resources,RESOURCE_PROFILES[resources?.name],'Unknown local release resource profile');
+  for(const [field,value] of Object.entries({cpu:resources.vm.cpus,memory:resources.vm.memoryGiB,disk:resources.vm.diskGiB}))
+    assert.equal(configuration?.[field],value,`Release VM ${field} conflicts with ${resources.name}; stop and explicitly reconfigure only ${PROFILE}`);
+  assert.equal(actual?.cpus,resources.vm.cpus,'Running release VM CPU allocation differs from the selected profile');
+  // Linux reserves some guest RAM for its kernel; validate observed capacity,
+  // not an impossible equality between MemTotal and the configured VM size.
+  assert(Number.isSafeInteger(actual?.memoryBytes)&&actual.memoryBytes>=(resources.vm.memoryGiB-0.5)*GiB&&actual.memoryBytes<=resources.vm.memoryGiB*GiB,
+    'Running release VM memory differs from the selected profile');
+}
+export function verifyContainerResources(resources,actual) {
+  assert.deepEqual(resources,RESOURCE_PROFILES[resources?.name],'Unknown local release resource profile');
+  assert.deepEqual(actual,{cpus:resources.container.cpus,memoryBytes:resources.container.memoryGiB*GiB,shmBytes:resources.container.shmGiB*GiB},
+    'Running test container limits differ from the selected resource profile');
+}
+export function verifyResourceEvidence(environment,{requireContainer=true}={}) {
+  const {resources,resourceObservation:observed}=environment;
+  assert(Number.isSafeInteger(observed?.hostMemoryBytes),'Missing observed host memory');
+  assert.deepEqual(resources,resourceProfile(observed?.hostMemoryBytes),'Resource profile differs from the observed host capacity');
+  verifyVmResources(resources,observed.vm.configuration,observed.vm.actual);
+  if(requireContainer)verifyContainerResources(resources,observed.container);
+}
+export function verifyResourceSelection(resources,privateMediaImageRequired) {
+  assert.deepEqual(resources,RESOURCE_PROFILES[resources?.name],'Unknown local release resource profile');
+  assert.equal(typeof privateMediaImageRequired,'boolean','Missing private media image selection');
+  assert(resources.name!=='compact-16g-v1'||!privateMediaImageRequired,
+    'Compact 16 GiB hosts are not qualified for selected private AMD64 media-image acceptance; use a qualified standard host. No selected test was skipped.');
+}
 export function toolchainPins(root='.') {
   const source=fs.readFileSync(path.join(root,'scripts/local-release.Dockerfile'),'utf8');
   const node=source.match(/^FROM node:(\d+\.\d+\.\d+)-/m)?.[1];
@@ -36,7 +74,7 @@ export function docker(args, options = {}) {
 }
 export function ensureEnvironment(root = '.') {
   assert.equal(process.platform, 'darwin', 'Local release preparation belongs on the development Mac');
-  const started = Date.now(), inputs = environmentInputs(root), key = environmentKey(inputs);
+  const started = Date.now(), hostMemoryBytes=os.totalmem(),resources=resourceProfile(hostMemoryBytes),inputs = environmentInputs(root), key = environmentKey(inputs);
   const pins=toolchainPins(root);
   const directory = path.join(cacheRoot(), 'environments', key);
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -49,15 +87,18 @@ export function ensureEnvironment(root = '.') {
     assert.equal(profile.forwardAgent,false,'Do not forward the development SSH agent');
   }
   if (spawnSync('docker', ['--context', CONTEXT, 'info'], { stdio: 'ignore' }).status !== 0) {
-    execFileSync('colima', ['start', '--profile', PROFILE, '--cpu', '6', '--memory', '12', '--disk', '80', '--vm-type', 'vz', '--activate=false', '--ssh-agent=false', '--mount',`${cacheRoot()}:w`], { stdio: 'inherit', timeout: 240000 });
+    execFileSync('colima', ['start', '--profile', PROFILE, '--cpu', String(resources.vm.cpus), '--memory', String(resources.vm.memoryGiB), '--disk', String(resources.vm.diskGiB), '--vm-type', 'vz', ...(resources.name==='compact-16g-v1'?['--vz-rosetta=false']:[]), '--activate=false', '--ssh-agent=false', '--ssh-config=false', '--mount',`${cacheRoot()}:w`], { stdio: 'inherit', timeout: 240000 });
   }
+  const configuration=parseYaml(fs.readFileSync(profileFile,'utf8')),info=JSON.parse(docker(['info','--format','{{json .}}']));
+  const resourceObservation={hostMemoryBytes,vm:{configuration:{cpu:configuration.cpu,memory:configuration.memory,disk:configuration.disk},actual:{cpus:info.NCPU,memoryBytes:info.MemTotal}}};
+  verifyResourceEvidence({resources,resourceObservation},{requireContainer:false});
   const state = fs.existsSync(stateFile) ? JSON.parse(fs.readFileSync(stateFile)) : null;
   if (state && state.key === key) {
     const present = spawnSync('docker', ['--context', CONTEXT, 'image', 'inspect', state.image], { encoding: 'utf8' });
     if (present.status === 0) {
       const actual = JSON.parse(present.stdout)[0];
       assert.equal(actual.Id, state.image); assert.equal(actual.Architecture, 'arm64');
-      return { ...state, reused: true, preparationMs: Date.now() - started };
+      return { ...state, resources,resourceObservation,reused: true, preparationMs: Date.now() - started };
     }
   }
   const runtimeKey = hash(fs.readFileSync(path.join(root, 'scripts/local-release.Dockerfile')));
@@ -84,6 +125,6 @@ export function ensureEnvironment(root = '.') {
     const image = JSON.parse(docker(['image', 'inspect', tag]))[0];
     const record = { key, inputs, image: image.Id, ...pins, createdAt: new Date().toISOString() };
     fs.writeFileSync(stateFile, JSON.stringify(record, null, 2) + '\n');
-    return { ...record, reused: false, preparationMs: Date.now() - started };
+    return { ...record, resources,resourceObservation,reused: false, preparationMs: Date.now() - started };
   } finally { fs.rmSync(build, { recursive: true, force: true }); }
 }

@@ -8,9 +8,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { yaml } from '../node_modules/playwright-core/lib/utilsBundle.js';
-import { selectCiTests } from './lib/ci-test-selection.mjs';
+import { selectCiTests, requiresPrivateMediaImage } from './lib/ci-test-selection.mjs';
 import { validationPlan, selectedCommands, sha256, commandRuntimes, nativeBrowserKey, verifyImportWorkflow } from './lib/local-release-plan.mjs';
-import { environmentInputs, environmentKey, TOOL_PREFLIGHT, toolchainPins } from './lib/local-release-environment.mjs';
+import { environmentInputs, environmentKey, TOOL_PREFLIGHT, toolchainPins, resourceProfile, verifyVmResources, verifyContainerResources, verifyResourceEvidence, verifyResourceSelection } from './lib/local-release-environment.mjs';
 import { validateLocator, extractEvidence, stageImportedCandidate } from './lib/local-release-transport.mjs';
 import { scanRepoForSecrets } from './lib/quality-gates.mjs';
 import { verifyLocalEvidence, rebindLocalCandidate, verifyNativeLocalReports, workerListResults, verifyWorkerUnion, assertLocalRepairTree, verifyLocalWorkerRepair, localWorkerContinuation, tapResults, verifyNativeCaseUnion, NATIVE_REPAIRED_CASES, verifyNativeBrowserEnvironment, verifyMigrationCandidateBytes, LOCAL_HOMEPAGE_REPORTS, verifyRetainedHomepageReports, verifyRetainedFrontendLog } from './lib/local-release-evidence.mjs';
@@ -23,6 +23,42 @@ import { LOCAL_IMPORT_REPAIR, assertImportRepairWorkflow, localRepairCommand, ve
 import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,assertPermissionContinuationTree,permissionContinuationPrefix,CANVAS_STAGE_CASES,canvasStageContinuation} from './lib/local-release-evidence.mjs';
 import {testLocalMediaProcess} from './test-local-media-process.mjs';
 
+function resourceFixture(hostGiB=16) {
+  const GiB=1024**3,resources=resourceProfile(hostGiB*GiB);
+  return {resources,resourceObservation:{hostMemoryBytes:hostGiB*GiB,
+    vm:{configuration:{cpu:resources.vm.cpus,memory:resources.vm.memoryGiB,disk:80},actual:{cpus:resources.vm.cpus,memoryBytes:resources.vm.memoryGiB*GiB-128*1024**2}},
+    container:{cpus:resources.container.cpus,memoryBytes:resources.container.memoryGiB*GiB,shmBytes:GiB}}};
+}
+function testResourceProfiles() {
+  const GiB=1024**3,compact=resourceFixture(),standard=resourceFixture(24);
+  assert.equal(compact.resources.name,'compact-16g-v1');assert.equal(compact.resources.vm.memoryGiB,4);assert.equal(compact.resources.container.memoryGiB,3);
+  assert.equal(standard.resources.name,'standard-24g-v1');assert.equal(standard.resources.vm.memoryGiB,12);assert.equal(standard.resources.container.memoryGiB,10);
+  assert.equal(resourceProfile(20*GiB).name,compact.resources.name);assert.equal(resourceProfile(64*GiB).name,standard.resources.name);
+  for(const memory of [0,15*GiB,NaN,Infinity,16*GiB+0.5])assert.throws(()=>resourceProfile(memory));
+  verifyResourceEvidence(compact);verifyResourceEvidence(standard);
+  const prepared=structuredClone(compact);delete prepared.resourceObservation.container;
+  verifyResourceEvidence(prepared,{requireContainer:false});assert.throws(()=>verifyResourceEvidence(prepared));
+  for(const mutate of [
+    e=>delete e.resources,e=>e.resources.name='unknown',e=>e.resources.container.memoryGiB=10,
+    e=>delete e.resourceObservation,e=>delete e.resourceObservation.hostMemoryBytes,e=>e.resourceObservation.hostMemoryBytes=15*GiB,
+    e=>e.resourceObservation.vm.configuration.cpu=6,e=>e.resourceObservation.vm.configuration.memory=12,e=>e.resourceObservation.vm.configuration.disk=40,
+    e=>e.resourceObservation.vm.actual.cpus=6,e=>e.resourceObservation.vm.actual.memoryBytes=2*GiB,e=>e.resourceObservation.vm.actual.memoryBytes=7*GiB,
+    e=>e.resourceObservation.container.cpus=2,e=>e.resourceObservation.container.memoryBytes=10*GiB,e=>e.resourceObservation.container.shmBytes=0,
+  ]) {const broken=structuredClone(compact);mutate(broken);assert.throws(()=>verifyResourceEvidence(broken));}
+  const wrongHost=structuredClone(standard);wrongHost.resourceObservation.hostMemoryBytes=16*GiB;assert.throws(()=>verifyResourceEvidence(wrongHost));
+  verifyVmResources(compact.resources,compact.resourceObservation.vm.configuration,compact.resourceObservation.vm.actual);
+  verifyContainerResources(compact.resources,compact.resourceObservation.container);
+  const media=selectCiTests(['services/homepage-ffmpeg-processor/server.mjs']),voice=selectCiTests(['js/pages/canvas/voice.js','scripts/test-canvas-voice-browser-native.mjs']);
+  assert(requiresPrivateMediaImage(media.files),'Countercontrol must select actual private media acceptance');
+  assert.throws(()=>verifyResourceSelection(compact.resources,requiresPrivateMediaImage(media.files)),/not qualified/);
+  verifyResourceSelection(standard.resources,requiresPrivateMediaImage(media.files));
+  assert(!requiresPrivateMediaImage(voice.files));
+  verifyResourceSelection(compact.resources,requiresPrivateMediaImage(voice.files));
+  assert.throws(()=>verifyResourceSelection(compact.resources));
+  console.log('Resource profiles: 16/24 GiB capacities, actual VM/container limits, missing/tampered observations and low-host countercontrols passed (synthetic; no VM or product acceptance).');
+}
+if(process.argv.length===2||process.argv.includes('--resources-only'))testResourceProfiles();
+if(process.argv.includes('--resources-only'))process.exit(0);
 if(process.argv.length===2){testLinearPublicationHistory();await testLinearReuse();}
 
 if(process.argv.includes('--media-window-only')) {
@@ -759,15 +795,18 @@ try {
   const eInputs=environmentInputs(), now=Date.now();
   const accepted={policy:'development-mac-v1',repository:'bitbiai/Bitbi',id:manifest.run,sha,base,sourceTree:git('rev-parse','HEAD^{tree}'),planHash:validationPlan().digest,
     selection,status:'passed',ci:true,origin:'development-mac',startedAt:new Date(now-1000).toISOString(),completedAt:new Date(now-1).toISOString(),
-    environment:{inputs:eInputs,key:environmentKey(eInputs),platform:'linux/arm64',image:'sha256:'+'d'.repeat(64),node:'v22.23.1',playwright:'1.58.2'},commands:commandRows,candidateFiles:tree(path.join(bundle,'candidate'))};
+    environment:{inputs:eInputs,key:environmentKey(eInputs),platform:'linux/arm64',image:'sha256:'+'d'.repeat(64),node:'v22.23.1',playwright:'1.58.2',...resourceFixture()},commands:commandRows,candidateFiles:tree(path.join(bundle,'candidate'))};
   const write=value=>fs.writeFileSync(path.join(bundle,'evidence.json'),JSON.stringify(value));write(accepted);
   const verified=verifyLocalEvidence(bundle,{sha,base});
   const rebound=rebindLocalCandidate(verified,{run:123,attempt:1,receipt:9});
   verifyManifest(rebound.manifest,{sha,base,run:'123',attempt:'1',selection},path.join(bundle,'candidate/site'));verifyProofs(rebound.manifest,rebound.proofs);
   for(const change of [e=>e.status='failed',e=>e.sha='0'.repeat(40),e=>e.sourceTree='0'.repeat(40),e=>e.planHash='0'.repeat(64),e=>e.commands.pop(),e=>e.commands[0].exitCode=1,
-    e=>e.commands[0].command.run='echo pretend',e=>e.ci=false,e=>e.environment.inputs['package-lock.json']='changed',e=>e.startedAt='2000-01-01T00:00:00Z',e=>e.selection.workers=true,e=>e.candidateFiles['site/index.html']='changed']) {
+    e=>e.commands[0].command.run='echo pretend',e=>e.ci=false,e=>e.environment.inputs['package-lock.json']='changed',e=>e.startedAt='2000-01-01T00:00:00Z',e=>e.selection.workers=true,e=>e.candidateFiles['site/index.html']='changed',
+    e=>delete e.environment.resourceObservation,e=>e.environment.resourceObservation.container.memoryBytes=10*1024**3,e=>e.environment.resources=resourceFixture(24).resources]) {
     const wrong=structuredClone(accepted);change(wrong);write(wrong);assert.throws(()=>verifyLocalEvidence(bundle,{sha,base}));
   }
+  const mediaEvidence=structuredClone(accepted);mediaEvidence.selection=selectCiTests(['services/homepage-ffmpeg-processor/server.mjs']);write(mediaEvidence);
+  assert.throws(()=>verifyLocalEvidence(bundle,{sha,base},{selection:mediaEvidence.selection}),/not qualified/,'The actual importer must reject compact private-media evidence too');
   write(accepted);fs.renameSync(path.join(bundle,'test-results/frontend-runtime.log'),path.join(bundle,'saved.log'));assert.throws(()=>verifyLocalEvidence(bundle,{sha,base}));
   fs.renameSync(path.join(bundle,'saved.log'),path.join(bundle,'test-results/frontend-runtime.log'));
   fs.writeFileSync(path.join(bundle,'test-results/frontend-runtime.log'),'Changed report');assert.throws(()=>verifyLocalEvidence(bundle,{sha,base}));
@@ -781,7 +820,7 @@ try {
     const broken=structuredClone(jobs);broken[0].steps[2].conclusion=conclusion;
     assert.throws(()=>validateSource({run,jobs:broken,artifacts,mainSha:sha,laterRuns:[]},expectedSource));
   }
-  console.log('Synthetic evidence: matching exact Git/candidate/commands accepted; 14 missing, stale, failed, changed and skipped controls rejected through the actual verifier.');
+  console.log('Synthetic evidence: matching exact Git/candidate/commands accepted; missing, stale, failed, changed, resource-mismatched and skipped controls rejected through the actual verifier.');
 } finally { process.chdir(repo);fs.rmSync(fixtureRoot,{recursive:true,force:true}); }
 
 if(process.env.BITBI_LOCAL_RELEASE_CONTAINER==='1') {
