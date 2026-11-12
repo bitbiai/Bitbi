@@ -11,6 +11,42 @@ const realDirectory = directory => {
   assert.equal(fs.realpathSync(directory), directory, `Symlinked directory: ${directory}`);
 };
 
+const reportFolders = ['test-results', 'candidate-proofs'];
+function regularReportTree(directory) {
+  realDirectory(directory);
+  for (const name of fs.readdirSync(directory)) {
+    const file = path.join(directory, name), stat = fs.lstatSync(file);
+    if (stat.isDirectory()) regularReportTree(file);
+    else assert(stat.isFile(), 'Native report transport accepts only regular files/directories');
+  }
+}
+
+function reportDirectoriesInsideContainer(ownership) {
+  assert.equal(process.platform, 'linux');assert.equal(process.getuid(), 0);
+  assert.equal(process.env.BITBI_LOCAL_RELEASE_CONTAINER, '1');
+  realDirectory('/workspace');
+  for (const folder of reportFolders) {
+    const directory = path.join('/workspace', folder);
+    fs.mkdirSync(directory, {recursive:true,mode:0o700});
+    regularReportTree(directory);
+    // Docker cp creates root-owned files. Preserve private modes and bytes;
+    // transfer ownership only in these disposable output trees, never source,
+    // dependencies or the host originals. Refuse links rather than follow them.
+    if (ownership) execFileSync('chown', ['-R','-P','-h','1001:1001',directory]);
+  }
+}
+
+export function transferNativeReports(name, work, {run = docker} = {}) {
+  assert(/^bitbi-release-[a-zA-Z0-9-]+$/.test(name), 'Unexpected release container name');
+  realDirectory(work);
+  const folders = reportFolders.filter(folder => fs.lstatSync(path.join(work, folder), {throwIfNoEntry:false}));
+  for (const folder of folders) regularReportTree(path.join(work, folder));
+  const helper = '/source/scripts/lib/local-release-workspace.mjs';
+  run(['exec',name,'node',helper,'--report-directories']);
+  for (const folder of folders) run(['cp',`${path.join(work,folder)}/.`,`${name}:/workspace/${folder}/`]);
+  run(['exec',name,'node',helper,'--report-owner']);
+}
+
 // Resume source may contain only the exact native cache links installed by the
 // caller. Never follow those host paths, copy dependency trees, or delete an
 // unknown populated directory. Validate every input before changing any of them.
@@ -107,7 +143,10 @@ export function prepareReleaseWorkspace(name, image, { nativePackages = {}, run 
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  assert.equal(process.argv[2], '--prepare');
-  assert.equal(process.argv.length, 4);
-  console.log(JSON.stringify(prepareInsideContainer(JSON.parse(process.argv[3]))));
+  if (['--report-directories','--report-owner'].includes(process.argv[2])) {
+    assert.equal(process.argv.length, 3);reportDirectoriesInsideContainer(process.argv[2] === '--report-owner');
+  } else {
+    assert.equal(process.argv[2], '--prepare');assert.equal(process.argv.length, 4);
+    console.log(JSON.stringify(prepareInsideContainer(JSON.parse(process.argv[3]))));
+  }
 }

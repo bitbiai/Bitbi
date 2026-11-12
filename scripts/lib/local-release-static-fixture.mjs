@@ -11,7 +11,7 @@ import {passedBrowserCase,verifyBrowserUnion} from './local-release-browser.mjs'
 import {LINEAR_REFRESH,assertLinearInputs} from './local-release-linear.mjs';
 import {verifyResourceEvidence} from './local-release-environment.mjs';
 import {verifyMigrationCandidateBytes} from './local-release-evidence.mjs';
-import {gitSelection,tree} from '../pages-candidate.mjs';
+import {gitSelection,tree,candidateProof} from '../pages-candidate.mjs';
 
 export const STATIC_FIXTURE_POLICY='local-h3-pricing-static-fixture-v1';
 export const STATIC_FIXTURE_REUSE=Object.freeze({
@@ -23,6 +23,14 @@ export const STATIC_FIXTURE_REUSE=Object.freeze({
   checkpoint:"fcf73883a0958a9c1488c54b88f20653b79d6239c979fd31826f9c8ad9d3d7b0",inventory:"f120cbc7ed3619c79775d71cf2e7e55c5a7fc3836a1a614607a03b92237b5a20",report:"a8530d65b0d5b4a49698dac57d326484de0b8a97e02ceb2308b1959fc3003f71",rows:"7c975a02e8b7df503b07c9fbd97496a51b90c4bc859ceab8655748fa26b11224",discovery:"4aabaac3e14480de40599b2e873d524fb4c0dd7725cccb890f944fd0f6d2af20",exclusions:"c0c8119854b64da4fc905a8cf575021f15d2727c45a30a29bf1a12eb83207ca4",
   required:2390,fixture:'4cd3f24b7a8fd3be329c1b77cbfa94ecc3a38f3440c309e8bb95ca21895dbf41',
 });
+export const STATIC_PROOF_REUSE=Object.freeze({
+  source:'b8387ec7f7a5d6b4dfd520b5b6ea95b54021bd8b',
+  run:'b8387ec7f7a5d6b4dfd520b5b6ea95b54021bd8b-a5386997-d501-46df-89f0-e321438fc36b',
+  checkpoint:'56cece7ea43476b5e353d741a840593bc2f81fb180aaccb584100f678fac6cde',
+  bundle:'2c573708f541d9280f1459cbedbd3a1831ea262e52f11e0cc868d6a544315231',
+  reports:'e4d7ee4abeb57007192a0385121af82da888716f4c844c3b615803991db008e7',
+  candidate:'2a25befe12f825918e295d08b1aa70e337fe54c62f509f2a6e1bb3c68593ca4b',
+});
 const p=STATIC_FIXTURE_REUSE;
 const fixture='tests/oma2-q3-model-pricing.spec.js';
 const allowed=new Set([fixture,'scripts/local-release.mjs','scripts/lib/local-release-static-fixture.mjs',
@@ -31,6 +39,8 @@ const allowed=new Set([fixture,'scripts/local-release.mjs','scripts/lib/local-re
   'docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md','docs/runbooks/REGRESSION_REGISTER.md']);
 const resourceRepairFiles=new Set(['scripts/lib/local-release-static-fixture.mjs','scripts/test-local-release-static-fixture.mjs',
   'docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md','docs/runbooks/REGRESSION_REGISTER.md']);
+const proofRepairFiles=new Set([...resourceRepairFiles,'scripts/local-release.mjs','scripts/pages-candidate.mjs',
+  'scripts/lib/local-release-workspace.mjs','scripts/test-local-release-workspace.mjs']);
 export function requiresStaticFixtureRefresh(name){return LINEAR_REFRESH.has(name);}
 const json=file=>JSON.parse(fs.readFileSync(file));
 const git=args=>execFileSync('git',['--no-replace-objects',...args],{stdio:['ignore','pipe','pipe']});
@@ -63,6 +73,13 @@ export function copyStaticFixtureReports(source,destination) {
 export function assertStaticFixtureTree(sha) {
   assert.match(sha,/^[a-f0-9]{40}$/);
   const parent=git(['show','-s','--format=%P',sha]).toString().trim();
+  if(parent===STATIC_PROOF_REUSE.source) {
+    assertStaticFixtureTree(parent);
+    const repair=git(['diff','--name-only','--no-renames',parent,sha]).toString().trim().split('\n').filter(Boolean);
+    assert(repair.length&&repair.every(file=>proofRepairFiles.has(file)),'Proof transport repair may change only its caller, verifier, tests and documentation');
+    for(const file of repair)assert.match(git(['ls-tree',sha,'--',file]).toString(),/^100644 blob /,'Only regular nonexecutable reviewed files may change');
+    return repair;
+  }
   assert([p.source,p.resourceRepairParent].includes(parent),'Only the reviewed direct fixture/tooling successor may reuse this source');
   if(parent===p.resourceRepairParent) {
     assert.equal(git(['show','-s','--format=%P',parent]).toString().trim(),p.source);
@@ -117,6 +134,8 @@ function originalEvidence(directory) {
 }
 
 export function prepareStaticFixtureReuse(originalDirectory,directory,state,commands) {
+  if(json(path.join(originalDirectory,'checkpoint.json')).sha===STATIC_PROOF_REUSE.source)
+    return prepareStaticProofReuse(originalDirectory,directory,state,commands);
   assertStaticFixtureTree(state.sha);assert.equal(state.base,p.base);assert.equal(path.basename(originalDirectory),p.run);
   const origin=originAt(directory);assert(!fs.existsSync(origin),'Do not overwrite original fixture evidence');fs.mkdirSync(origin,{recursive:true});
   fs.copyFileSync(path.join(originalDirectory,'checkpoint.json'),path.join(origin,'checkpoint.json'));
@@ -138,6 +157,7 @@ export function prepareStaticFixtureReuse(originalDirectory,directory,state,comm
 }
 
 export function verifyStaticFixtureReuse(directory,evidence,commands,{allowPending=false}={}) {
+  if(evidence.staticProofContinuation)return verifyStaticProofReuse(directory,evidence,commands,{allowPending});
   assertStaticFixtureTree(evidence.sha);assert.equal(evidence.base,p.base);assert.deepEqual(evidence.staticFixtureContinuation,marker());
   const {original,bundle,previous,manifest:oldManifest}=originalEvidence(directory);
   assertStaticFixtureInputs(original,evidence);assert.deepEqual(evidence.selection,gitSelection(evidence.base,evidence.sha));
@@ -169,6 +189,117 @@ export function verifyStaticFixtureReuse(directory,evidence,commands,{allowPendi
     assert.deepEqual(report.previous,previous);
   }
   return {original,previous,oldManifest};
+}
+
+const proofMarker=()=>({source:STATIC_PROOF_REUSE.source,run:STATIC_PROOF_REUSE.run,checkpoint:STATIC_PROOF_REUSE.checkpoint});
+function proofOrigin(directory) {
+  const relative='reuse/test-results/static-proof-origin';
+  const direct=path.join(directory,relative);
+  return fs.existsSync(direct)?direct:path.join(directory,'.local-release',relative);
+}
+function assertProofTree(sha) {
+  assert.equal(git(['show','-s','--format=%P',sha]).toString().trim(),STATIC_PROOF_REUSE.source,'Proof reuse requires the exact direct tooling successor');
+  assertStaticFixtureTree(sha);
+}
+export function isStaticProofSuccessor(sha) {
+  assert.match(sha,/^[a-f0-9]{40}$/);
+  return git(['show','-s','--format=%P',sha]).toString().trim()===STATIC_PROOF_REUSE.source;
+}
+export function verifyStaticProofOrigin(directory) {
+  const q=STATIC_PROOF_REUSE,origin=proofOrigin(directory),raw=fs.readFileSync(path.join(origin,'checkpoint.json'));
+  assert.equal(sha256(raw),q.checkpoint,'Changed failed proof checkpoint');
+  const prior=JSON.parse(raw);assert.equal(prior.sha,q.source);assert.equal(prior.id,q.run);assert.equal(prior.status,'failed');
+  assert.equal(prior.commands.length,55);assert(prior.commands.slice(0,54).every(row=>row.exitCode===0));
+  assert.equal(prior.commands[54].exitCode,1);assert.equal(prior.commands[54].command.name,'Confirm tested browser candidate bytes');
+  for(const [folder,hash]of [['bundle',q.bundle],['source/test-results',q.reports],['source/candidate',q.candidate]])
+    assert.equal(sha256(JSON.stringify(tree(path.join(origin,folder)))),hash,`Changed proof origin ${folder}`);
+  const bundle=path.join(origin,'bundle'),source=path.join(origin,'source');
+  // Validate the actual failed origin, not a manufactured success. Only a clone
+  // used for prefix verification omits the pinned failing final command.
+  const pending=structuredClone(prior);pending.commands[54]=null;
+  verifyStaticFixtureReuse(bundle,pending,prior.commands.map(row=>row.command),{allowPending:true});
+  const manifest=json(path.join(source,'candidate/manifest.json'));
+  assert.equal(manifest.sha,q.source);assert.equal(manifest.base,p.base);assert.deepEqual(manifest.selection,prior.selection);
+  const original=originalEvidence(bundle).manifest;
+  assert.deepEqual(manifest.hosting,original.hosting);verifyMigrationCandidateBytes(source,original,manifest,{allowLabGuard:false});
+  candidateProof(manifest,{job:'browser-validation',evidenceDirectory:source,readJson:file=>json(path.join(source,file))});
+  return {origin,prior,bundle,source,manifest};
+}
+
+function prepareStaticProofReuse(originalDirectory,directory,state,commands) {
+  assertProofTree(state.sha);assert.equal(path.basename(originalDirectory),STATIC_PROOF_REUSE.run);
+  const origin=path.join(directory,'reuse/test-results/static-proof-origin');assert(!fs.existsSync(origin),'Do not overwrite proof origin');
+  fs.mkdirSync(path.join(origin,'source'),{recursive:true});
+  fs.copyFileSync(path.join(originalDirectory,'checkpoint.json'),path.join(origin,'checkpoint.json'));
+  fs.cpSync(path.join(originalDirectory,'bundle'),path.join(origin,'bundle'),{recursive:true});
+  for(const folder of ['test-results','candidate'])fs.cpSync(path.join(originalDirectory,'source',folder),path.join(origin,'source',folder),{recursive:true});
+  const {prior,bundle,source}=verifyStaticProofOrigin(directory);
+  assertStaticFixtureInputs(prior,state,{preparing:true});assert.equal(commands.length,55);
+  copyStaticFixtureReports(bundle,directory);
+  // The bundle was collected before the final browser job. Its immutable tail
+  // lives in the finally snapshot, including private raw reports and Voice.
+  for(const name of ['candidate-static.json','candidate-carousel.json','static-fixture-attempts','canvas-voice-native-browser'])
+    fs.cpSync(path.join(source,'test-results',name),path.join(directory,'test-results',name),{recursive:true});
+  fs.cpSync(path.join(bundle,'runtime'),path.join(directory,'runtime'),{recursive:true});
+  fs.mkdirSync(path.join(directory,'logs'),{recursive:true});
+  const rows=commands.map((command,index)=>{
+    if(requiresStaticFixtureRefresh(command.name))return null;
+    const before=prior.commands[index];assert.equal(before.exitCode,0);
+    assert.deepEqual(command,JSON.parse(JSON.stringify(before.command).replaceAll(prior.sha,state.sha)),'Changed proof-retained command');
+    fs.copyFileSync(path.join(bundle,before.log),path.join(directory,before.log));
+    return {...before,command,originalCommand:before.command,reusedFrom:prior.sha};
+  });
+  return {...state,startedAt:prior.startedAt,commands:rows,staticFixtureContinuation:marker(),staticProofContinuation:proofMarker()};
+}
+
+export function restoreStaticProofReports(directory) {
+  const {source}=verifyStaticProofOrigin(directory);
+  for(const name of ['candidate-static.json','candidate-carousel.json'])
+    fs.copyFileSync(path.join(source,'test-results',name),path.join(directory,'test-results',name));
+}
+
+// Shared by CLI final proof and protected import recomputation. Raw execution
+// source fields remain b838; only the new proof is bound to the new candidate.
+export function verifyStaticProofCandidate(directory,manifest) {
+  assertProofTree(manifest.sha);
+  const {source,manifest:before}=verifyStaticProofOrigin(directory);
+  assert.equal(manifest.base,p.base);assert.deepEqual(manifest.selection,gitSelection(p.base,manifest.sha));
+  assert.deepEqual(manifest.hosting,before.hosting,'Changed hosting cannot reuse browser proof');
+  verifyMigrationCandidateBytes(directory,before,manifest,{allowLabGuard:false});
+  for(const name of ['candidate-static.json','candidate-carousel.json','static-fixture-attempts','canvas-voice-native-browser']) {
+    const from=path.join(source,'test-results',name),to=path.join(directory,'test-results',name);
+    if(fs.statSync(from).isDirectory())assert.deepEqual(tree(to),tree(from),'Retained browser tree changed');
+    else assert.equal(sha256(fs.readFileSync(to)),sha256(fs.readFileSync(from)),'Retained browser report changed');
+  }
+  return STATIC_PROOF_REUSE.source;
+}
+
+function verifyStaticProofReuse(directory,evidence,commands,{allowPending}) {
+  assertProofTree(evidence.sha);assert.equal(evidence.base,p.base);
+  assert.deepEqual(evidence.staticFixtureContinuation,marker());assert.deepEqual(evidence.staticProofContinuation,proofMarker());
+  const {prior,bundle}=verifyStaticProofOrigin(directory);assertStaticFixtureInputs(prior,evidence);
+  assert.deepEqual(evidence.selection,gitSelection(evidence.base,evidence.sha));assert.equal(evidence.startedAt,prior.startedAt);
+  assert.equal(commands.length,55);assert.equal(evidence.commands.length,55);
+  for(const [index,command]of commands.entries()) {
+    const row=evidence.commands[index],before=prior.commands[index];
+    if(requiresStaticFixtureRefresh(command.name)) {
+      if(allowPending&&!row)continue;
+      assert(row&&!row.reusedFrom&&!row.originalCommand&&!row.continuation&&!row.browserContinuation,'Affected proof tooling must execute');assert.equal(row.exitCode,0);
+    } else {
+      assert.deepEqual(command,JSON.parse(JSON.stringify(before.command).replaceAll(prior.sha,evidence.sha)));
+      assert.deepEqual(row,{...before,command,originalCommand:before.command,reusedFrom:prior.sha},'Retained proof command differs');
+      assert.equal(sha256(fs.readFileSync(path.join(directory,row.log))),before.logHash);
+    }
+  }
+  for(const [file,hash]of Object.entries(tree(path.join(bundle,'runtime'))))assert.equal(sha256(fs.readFileSync(path.join(directory,'runtime',file))),hash,'Retained runtime changed');
+  for(const [file,hash]of Object.entries(tree(path.join(bundle,'test-results'))))if(retainedName(file.split('/')[0]))
+    assert.equal(sha256(fs.readFileSync(path.join(directory,'test-results',file))),hash,`Retained report changed: ${file}`);
+  if(!allowPending) {
+    const before=json(path.join(bundle,'test-results/homepage-runtime.json'));
+    assert.deepEqual(json(path.join(directory,'test-results/homepage-runtime.json')),{...before,sourceCommit:evidence.sha});
+    verifyStaticProofCandidate(directory,json(path.join(directory,'candidate/manifest.json')));
+  }
+  return {prior};
 }
 
 // The same-source resume path consumes the same raw execution proof as import.

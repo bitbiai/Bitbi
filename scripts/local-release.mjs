@@ -1,5 +1,5 @@
 import {LINEAR_REUSE,assertLinearTree,prepareLinearReuse} from './lib/local-release-linear.mjs';
-import {STATIC_FIXTURE_REUSE,STATIC_FIXTURE_POLICY,assertStaticFixtureTree,prepareStaticFixtureReuse,runStaticFixtureContinuation} from './lib/local-release-static-fixture.mjs';
+import {STATIC_FIXTURE_REUSE,STATIC_PROOF_REUSE,STATIC_FIXTURE_POLICY,assertStaticFixtureTree,prepareStaticFixtureReuse,runStaticFixtureContinuation} from './lib/local-release-static-fixture.mjs';
 import {assertLinearPublicationHistory} from './lib/local-release-history.mjs';
 import {MEDIA_WINDOW_PREFLIGHT,MEDIA_COMPLETION_PREFLIGHT,mediaCompletionGuard,mediaCompletionContinuation,verifyMediaCompletionRepair} from './lib/local-release-evidence.mjs';
 import {INCIDENT_BROWSER_PREFLIGHT,incidentBrowserGuard,incidentBrowserContinuation,verifyIncidentBrowserOrigin,verifyIncidentBrowserReports} from './lib/local-release-evidence.mjs';
@@ -29,7 +29,7 @@ import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,SMOOTH_REFRESH,permissionRefr
 import {runMediaImageStep,restoreMediaTestDiagnostics} from './lib/local-media-test-process.mjs';
 import {EXPORT_DELIVERY_SDK_PREFLIGHT,EXPORT_DELIVERY_BROWSER_PREFLIGHT,verifyExportDeliveryNative} from './lib/canvas-export-release.mjs';
 import {EXPORT_DELIVERY_BROWSER_POLICY,runExportDeliveryBrowserContinuation} from './lib/canvas-export-browser.mjs';
-import { prepareReleaseWorkspace } from './lib/local-release-workspace.mjs';
+import { prepareReleaseWorkspace, transferNativeReports } from './lib/local-release-workspace.mjs';
 
 const git = (args, cwd = '.') => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore','pipe','pipe'] }).trim();
 const json = file => JSON.parse(fs.readFileSync(file));
@@ -235,7 +235,7 @@ async function runLocalRelease({ base, resume }) {
   const progressDirectory=progressProfile?path.resolve(resume):null;
   const originalDirectory=progressDirectory?path.join(path.dirname(progressDirectory),[RELIABILITY_BROWSER_PREFLIGHT.progress,RELIABILITY_BROWSER_PREFLIGHT.workerProgress,RELIABILITY_BROWSER_PREFLIGHT.browserProgress,RELIABILITY_BROWSER_PREFLIGHT.proposalProgress].includes(progressProfile)?RELIABILITY_BROWSER_PREFLIGHT.run:progressProfile===CANVAS_POLICY_NATIVE_PROGRESS?CANVAS_POLICY_NATIVE_PROGRESS.baseRun:AUTONOMY_BROWSER_PREFLIGHT.run):resume&&json(path.join(resume,'checkpoint.json')).sha!==sha?path.resolve(resume):null;
   const linearContinuation=originalDirectory&&json(path.join(originalDirectory,'checkpoint.json')).sha===LINEAR_REUSE.source;
-  const staticFixtureContinuation=originalDirectory&&json(path.join(originalDirectory,'checkpoint.json')).sha===STATIC_FIXTURE_REUSE.source;
+  const staticFixtureContinuation=originalDirectory&&[STATIC_FIXTURE_REUSE.source,STATIC_PROOF_REUSE.source].includes(json(path.join(originalDirectory,'checkpoint.json')).sha);
   const readinessWorkerProgress=originalDirectory&&json(path.join(originalDirectory,'checkpoint.json')).sha===READINESS_CONTINUATION.worker.source;
   const readinessProgress=readinessWorkerProgress||originalDirectory&&json(path.join(originalDirectory,'checkpoint.json')).sha===READINESS_CONTINUATION.progress.source;
   const readinessContinuation=readinessProgress||originalDirectory&&json(path.join(originalDirectory,'checkpoint.json')).sha===READINESS_CONTINUATION.source;
@@ -877,12 +877,14 @@ async function runLocalRelease({ base, resume }) {
         docker(['cp',path.join(reports,file),`${name}:/workspace/test-results/${file}`]);
       docker(['exec',name,'chown','-R','1001:1001','/workspace/test-results']);
     };
+    const restoreProofTail=()=>docker([...unprivileged,'node','--input-type=module','-e',"import{restoreStaticProofReports}from'./scripts/lib/local-release-static-fixture.mjs';restoreStaticProofReports('.');"]);
     for (let index = 0; index < commands.length; index++) {
       const command = commands[index], prior = state.commands[index];
       if (prior?.exitCode === 0) {
         assert.deepEqual(prior.command, command);
         assert.equal(sha256(fs.readFileSync(path.join(bundle, prior.log))), prior.logHash);
         if(state.linearContinuation&&command.name==='Restore exact candidate static site')restoreLinearReports();
+        if(state.staticProofContinuation&&index===51)restoreProofTail();
         if(state.readinessContinuation&&['Record candidate build','Restore exact candidate static site'].includes(command.name))docker([...unprivileged,'node','--input-type=module','-e',"import fs from 'node:fs';import{restoreReadinessProofs}from'./scripts/lib/local-release-evidence.mjs';fs.cpSync('.local-release/reuse','reuse',{recursive:true});restoreReadinessProofs('.',process.env.GITHUB_SHA,{browser:"+(command.name==='Restore exact candidate static site')+"});fs.rmSync('reuse',{recursive:true});"]);
         if(state.storedPlanContinuation&&['Record candidate build','Restore exact candidate static site'].includes(command.name))docker([...unprivileged,'node','--input-type=module','-e',"import fs from 'node:fs';import{restoreStoredPlanProofs}from'./scripts/lib/local-release-evidence.mjs';fs.cpSync('.local-release/reuse','reuse',{recursive:true});restoreStoredPlanProofs('.',process.env.GITHUB_SHA,{browser:"+(command.name==='Restore exact candidate static site')+"});fs.rmSync('reuse',{recursive:true});"]);
         continue; // Resume exact unchanged source only; no repeated passed command.
@@ -950,9 +952,7 @@ async function runLocalRelease({ base, resume }) {
           assert.equal(git(['status','--porcelain','--untracked-files=no'],work),'','Native tests modified committed inputs');
           assert.deepEqual(json(path.join(work,'candidate/manifest.json')),nativeManifest,'Native tests changed candidate metadata');
           assert.deepEqual(tree(path.join(work,'_site')),nativeManifest.files,'Native tests changed candidate bytes');
-          for(const item of ['test-results','candidate-proofs'])if(fs.existsSync(path.join(work,item))) {
-            docker(['exec',name,'mkdir','-p',`/workspace/${item}`]);docker(['cp',`${path.join(work,item)}/.`,`${name}:/workspace/${item}/`]);
-          }
+          transferNativeReports(name,work);
         } else {
         // Native Q2 alone needs the reviewed privileged bootstrap. All ordinary
         // test/build processes have an empty capability set and no-new-privs.
@@ -1036,6 +1036,7 @@ async function runLocalRelease({ base, resume }) {
       state.commands[index] = record; state.status = record.exitCode === 0 ? 'running' : 'failed'; save(checkpoint, state);
       assert.equal(record.exitCode, 0, `Local check failed: ${command.name}. Evidence: ${logFile}. Resume this exact source with --resume ${directory}`);
       if(state.linearContinuation&&command.name==='Restore exact candidate static site')restoreLinearReports();
+      if(state.staticProofContinuation&&index===51)restoreProofTail();
       if(state.readinessContinuation&&['Record candidate build','Restore exact candidate static site'].includes(command.name))docker([...unprivileged,'node','--input-type=module','-e',"import fs from 'node:fs';import{restoreReadinessProofs}from'./scripts/lib/local-release-evidence.mjs';fs.cpSync('.local-release/reuse','reuse',{recursive:true});restoreReadinessProofs('.',process.env.GITHUB_SHA,{browser:"+(command.name==='Restore exact candidate static site')+"});fs.rmSync('reuse',{recursive:true});"]);
       if(state.storedPlanContinuation&&['Record candidate build','Restore exact candidate static site'].includes(command.name))docker([...unprivileged,'node','--input-type=module','-e',"import fs from 'node:fs';import{restoreStoredPlanProofs}from'./scripts/lib/local-release-evidence.mjs';fs.cpSync('.local-release/reuse','reuse',{recursive:true});restoreStoredPlanProofs('.',process.env.GITHUB_SHA,{browser:"+(command.name==='Restore exact candidate static site')+"});fs.rmSync('reuse',{recursive:true});"]);
       if(([INCIDENT_BROWSER_PREFLIGHT.source,ASSISTANT_BROWSER_PREFLIGHT.source,ASSISTANT_NATIVE_RATE.source,ASSISTANT_NATIVE_TAIL.source,ASSISTANT_NATIVE_PROGRESS.source,ASSISTANT_NATIVE_PREFLIGHT.source,SETTLEMENT_BROWSER_PREFLIGHT.source,SETTLEMENT_NATIVE_PROGRESS.source,SETTLEMENT_NATIVE_PREFLIGHT.source,CANVAS_POLICY_NATIVE_PREFLIGHT.source,CANVAS_POLICY_WORKER_PREFLIGHT.source,AUTONOMY_BROWSER_PREFLIGHT.source,AUTONOMY_NATIVE_PREFLIGHT.source,EXAMPLE_BROWSER_PREFLIGHT.source,MODEL_BROWSER_PREFLIGHT.source].includes(state.preflightContinuation?.source)||state.permissionContinuation&&state.permissionContinuation.source!==PERMISSION_CONTINUATION.source)&&index===34)docker([...unprivileged,'node','--input-type=module','-e',"import fs from 'node:fs';import{restoreCanvasHostingProof}from'./scripts/lib/local-release-evidence.mjs';fs.cpSync('.local-release/reuse','reuse',{recursive:true});restoreCanvasHostingProof('.');fs.rmSync('reuse',{recursive:true});"]);

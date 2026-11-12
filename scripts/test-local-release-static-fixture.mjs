@@ -6,16 +6,17 @@ import path from 'node:path';
 import vm from 'node:vm';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {STATIC_FIXTURE_POLICY,STATIC_FIXTURE_REUSE,assertStaticFixtureTree,assertStaticFixtureInputs,copyStaticFixtureReports,verifyStaticBrowserUnion,recoverStaticFixtureCompletion,verifyStaticBrowserFiles,prepareStaticFixtureReuse,verifyStaticFixtureReuse} from './lib/local-release-static-fixture.mjs';
+import {STATIC_FIXTURE_POLICY,STATIC_FIXTURE_REUSE,STATIC_PROOF_REUSE,assertStaticFixtureTree,assertStaticFixtureInputs,copyStaticFixtureReports,verifyStaticBrowserUnion,recoverStaticFixtureCompletion,verifyStaticBrowserFiles,prepareStaticFixtureReuse,verifyStaticFixtureReuse,verifyStaticProofOrigin,verifyStaticProofCandidate,restoreStaticProofReports} from './lib/local-release-static-fixture.mjs';
 import {sha256,commandRuntimes,selectedCommands,LOCAL_POLICY} from './lib/local-release-plan.mjs';
-import {gitSelection,candidateProof,REPOSITORY} from './pages-candidate.mjs';
+import {gitSelection,candidateProof,REPOSITORY,tree} from './pages-candidate.mjs';
 import {verifyLocalEvidence} from './lib/local-release-evidence.mjs';
 import {browserRows} from './lib/browser-fixture-repair.mjs';
 import {passedBrowserCase} from './lib/local-release-browser.mjs';
 import {resourceProfile} from './lib/local-release-environment.mjs';
+import {transferNativeReports} from './lib/local-release-workspace.mjs';
 
 const p=STATIC_FIXTURE_REUSE,identity=({key,file,title,project})=>({key,file,title,project});
-export async function testStaticFixtureReuse() {
+export async function testStaticFixtureReuse({proofOrigin}={}) {
   const root=process.cwd(),scratch=fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-static-fixture-guard-'));
   const write=(file,bytes)=>{fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,bytes);};
   const git=(args,options={})=>execFileSync('git',args,{encoding:'utf8',stdio:['pipe','pipe','pipe'],...options}).trim();
@@ -44,6 +45,14 @@ export async function testStaticFixtureReuse() {
     assert.throws(()=>check(commit(resourceTree,[resourceHead])),/direct fixture\/tooling successor/);
     command(['update-index','--cacheinfo','100644',blob,'scripts/local-release.mjs']);
     assert.throws(()=>check(commit(command(['write-tree']),[p.resourceRepairParent])),/Resource repair may change only/);
+    command(['read-tree',STATIC_PROOF_REUSE.source]);command(['update-index','--cacheinfo','100644',blob,'scripts/lib/local-release-workspace.mjs']);
+    const proofTree=command(['write-tree']),proofHead=commit(proofTree,[STATIC_PROOF_REUSE.source]);
+    assert.deepEqual(check(proofHead),['scripts/lib/local-release-workspace.mjs']);
+    assert.throws(()=>check(commit(proofTree,[proofHead])),/direct fixture\/tooling successor/);
+    for(const wrong of [file,'workers/auth/src/routes/canvas.js','package-lock.json','.github/workflows/static.yml']) {
+      command(['read-tree',proofTree]);command(['update-index','--add','--cacheinfo','100644',command(['hash-object','-w','--stdin'],fixed+'\nproof-negative-control\n'),wrong]);
+      assert.throws(()=>check(commit(command(['write-tree']),[STATIC_PROOF_REUSE.source])),/Proof transport repair may change only/);
+    }
     for(const wrong of ['workers/auth/src/routes/canvas.js','tests/helpers/canvas-agent-ui.cjs','package-lock.json','config/release-compat.json','.github/workflows/static.yml']) {
       command(['read-tree',correctedTree]);command(['update-index','--add','--cacheinfo','100644',blob,wrong]);
       assert.throws(()=>check(commit(command(['write-tree']))),/Product, shared fixture, dependency, workflow or configuration changed/);
@@ -123,10 +132,11 @@ export async function testStaticFixtureReuse() {
     const globals={...await import('./lib/local-release-evidence.mjs'),...await import('./lib/local-release-browser.mjs'),...await import('./lib/canvas-export-release.mjs'),...await import('./lib/canvas-export-browser.mjs'),...await import('./lib/local-release-static-fixture.mjs'),commandRuntimes};
     const full=selectedCommands(gitSelection(p.base,p.source),{GITHUB_SHA:p.source,CANDIDATE_BASE:p.base}).find(command=>command.name==='Run full static browser regression');
     const execute=nativeStatus=>{
-      const calls=[],context={...globals,assert,path,command:full,state:{staticFixtureContinuation:{policy:STATIC_FIXTURE_POLICY}},nativeBrowsers:{browserRoot:'locked',packages:{}},PACKAGES:[],directory:'/guard',work:'/guard/work',bundle:'/guard/bundle',name:'guard-container',index:52,env:{},fd:1,sha:head,result:null,
+      let transferred=false;const calls=[],transport=[],context={...globals,assert,path,command:full,state:{staticFixtureContinuation:{policy:STATIC_FIXTURE_POLICY}},nativeBrowsers:{browserRoot:'locked',packages:{}},PACKAGES:[],directory:'/guard',work:target,bundle:'/guard/bundle',name:'bitbi-release-dispatch-fixture',index:52,env:{},fd:1,sha:head,result:null,
+        transferNativeReports:(name,work)=>{transferNativeReports(name,work,{run:args=>transport.push(args)});assert(transport.some(args=>args[0]==='cp'));assert.equal(transport.at(-1).at(-1),'--report-owner');transferred=true;},
         fs:{mkdirSync(){},existsSync(){return false;},rmSync(){},cpSync(){},symlinkSync(){}},docker(){},json:()=>({files:{}}),tree:()=>({}),git:()=>'',safeEnv:()=>({}),cacheRoot:()=>'/guard/cache',
-        spawnSync:(file,args)=>{calls.push({file,args});return {status:file==='/bin/bash'?nativeStatus:0};}};
-      vm.runInNewContext(body,context);return calls;
+        spawnSync:(file,args)=>{if(file==='docker')assert(transferred,'Ownership handoff must precede the Linux consumer');calls.push({file,args});return {status:file==='/bin/bash'?nativeStatus:0};}};
+      vm.runInNewContext(body,context);assert(transferred,'Actual dispatcher must transfer native private reports before Linux continues');return calls;
     };
     const calls=execute(0);assert.equal(calls.length,2);assert.equal(calls[0].file,'/bin/bash');assert.equal(calls[0].args.at(-1),'node scripts/local-release.mjs static-fixture-continuation');
     assert.equal(calls[1].file,'docker');assert.equal(calls[1].args.at(-1),commandRuntimes(full)[1].run);assert.match(calls[1].args.at(-1),/test:homepage-carousel/);
@@ -178,6 +188,53 @@ export async function testStaticFixtureReuse() {
         assert.throws(()=>verifyStaticBrowserFiles(prefix,report,head));assert.throws(()=>recoverStaticFixtureCompletion(prefix,head,old));
         assert.throws(()=>candidateProof(manifest,{job:'browser-validation',evidenceDirectory:prefix,readJson}),error=>!error.message.includes('Voice'));
         console.log('Pinned-origin guard path passed: actual prefix admission, eight-case synthetic union, changed raw rejection, same-source recovery and cross-directory final proof tail.');
+      } finally {process.chdir(root);}
+    }
+    const suppliedProof=proofOrigin||path.join(root,'.local-release/reuse/test-results/static-proof-origin');
+    if(fs.existsSync(suppliedProof)) {
+      const origin=path.join(scratch,STATIC_PROOF_REUSE.run),prefix=path.join(scratch,'proof-tail');
+      // Test input is the real failed run, or its same-layout pinned transport.
+      fs.mkdirSync(origin);for(const name of ['checkpoint.json','bundle','source'])
+        fs.cpSync(path.join(suppliedProof,name),path.join(origin,name),{recursive:true,filter:file=>name!=='source'||file===path.join(suppliedProof,'source')||['test-results','candidate'].some(folder=>file===path.join(suppliedProof,'source',folder)||file.startsWith(path.join(suppliedProof,'source',folder)+path.sep))});
+      const prior=JSON.parse(fs.readFileSync(path.join(origin,'checkpoint.json'))),state={...structuredClone(prior),sha:proofHead,sourceTree:proofTree,id:'proof-guard-only',status:'running',commands:[]};
+      const commands=selectedCommands(prior.selection,{GITHUB_SHA:proofHead,CANDIDATE_BASE:p.base});
+      process.chdir(repository);
+      try {
+        state.selection=gitSelection(p.base,proofHead);
+        const prepared=prepareStaticFixtureReuse(origin,prefix,state,commands);
+        verifyStaticFixtureReuse(prefix,prepared,commands,{allowPending:true});
+        assert.equal(prepared.commands.filter(Boolean).length,34);assert.equal(prepared.commands[52].reusedFrom,STATIC_PROOF_REUSE.source);assert.equal(prepared.commands[53].reusedFrom,STATIC_PROOF_REUSE.source);assert.equal(prepared.commands[54],null);
+        const manifest=JSON.parse(fs.readFileSync(path.join(origin,'source/candidate/manifest.json')));
+        fs.cpSync(path.join(origin,'source/candidate'),path.join(prefix,'candidate'),{recursive:true});
+        for(const file of Object.keys(manifest.files)) {
+          const target=path.join(prefix,'candidate/site',file),bytes=fs.readFileSync(target);
+          const updated=bytes.toString().replaceAll(`?v=${prior.sha.slice(0,12)}`,`?v=${proofHead.slice(0,12)}`).replace(`const ADMIN_AI_UI_VERSION = '${prior.sha.slice(0,12)}';`,`const ADMIN_AI_UI_VERSION = '${proofHead.slice(0,12)}';`);
+          if(updated!==bytes.toString())fs.writeFileSync(target,updated);
+        }
+        manifest.sha=proofHead;manifest.selection=state.selection;manifest.files=tree(path.join(prefix,'candidate/site'));
+        write(path.join(prefix,'candidate/manifest.json'),JSON.stringify(manifest));
+        const proof=()=>candidateProof(manifest,{job:'browser-validation',evidenceDirectory:prefix,readJson:file=>JSON.parse(fs.readFileSync(path.join(prefix,file)))});
+        assert.equal(verifyStaticProofCandidate(prefix,manifest),prior.sha);proof();
+        assert.equal(JSON.parse(fs.readFileSync(path.join(prefix,'test-results/candidate-static.json'))).sha,prior.sha,'Raw browser source must not be relabelled');
+        assert.equal(JSON.parse(fs.readFileSync(path.join(prefix,'test-results/canvas-voice-native-browser/result.json'))).sourceSha,prior.sha,'Raw Voice source must not be relabelled');
+        // The real restore command removes both reports. Re-stage only these
+        // pinned tail files, preserving the freshly built candidate/runtime.
+        for(const file of ['candidate-static.json','candidate-carousel.json'])fs.unlinkSync(path.join(prefix,'test-results',file));
+        assert.throws(proof);restoreStaticProofReports(prefix);proof();
+        const reportFile=path.join(prefix,'test-results/candidate-static.json'),raw=fs.readFileSync(reportFile);
+        write(reportFile,JSON.stringify({...JSON.parse(raw),sha:proofHead}));assert.throws(proof);write(reportFile,raw);
+        const attemptPath=JSON.parse(raw).attempt,attemptFiles=['attempt.json','fresh-started.json'].map(file=>path.join(prefix,attemptPath,file)),attemptBytes=attemptFiles.map(file=>fs.readFileSync(file));
+        write(reportFile,JSON.stringify({...JSON.parse(raw),sha:proofHead}));
+        attemptFiles.forEach((file,index)=>write(file,JSON.stringify({...JSON.parse(attemptBytes[index]),sha:proofHead})));
+        assert.throws(proof,/Retained browser/,'Combined source relabelling cannot choose the ordinary proof path');
+        write(reportFile,raw);attemptFiles.forEach((file,index)=>write(file,attemptBytes[index]));
+        const voice=path.join(prefix,'test-results/canvas-voice-native-browser/result.json'),voiceRaw=fs.readFileSync(voice);fs.unlinkSync(voice);assert.throws(proof);write(voice,voiceRaw);
+        const asset=path.join(prefix,'candidate/site/index.html'),assetRaw=fs.readFileSync(asset);write(asset,Buffer.concat([assetRaw,Buffer.from('broken product')]));assert.throws(proof);write(asset,assetRaw);
+        const hosting=manifest.hosting;manifest.hosting={...hosting,provider:'changed'};assert.throws(proof,/hosting/);manifest.hosting=hosting;
+        const bad=structuredClone(prepared);bad.environment.image='changed';assert.throws(()=>verifyStaticFixtureReuse(prefix,bad,commands,{allowPending:true}));
+        const pin=path.join(prefix,'reuse/test-results/static-proof-origin/checkpoint.json'),pinRaw=fs.readFileSync(pin);write(pin,Buffer.concat([pinRaw,Buffer.from(' ')]));assert.throws(proof,/checkpoint/);write(pin,pinRaw);
+        proof();verifyStaticProofOrigin(prefix);
+        console.log('Pinned proof-tail guards passed:34 retained/21 fresh, raw source preserved, actual restore bridge, shared candidate/import proof, wrong raw/Voice/product/hosting/environment/origin rejected.');
       } finally {process.chdir(root);}
     }
     console.log('Static fixture guards passed: exact Git tree, real dispatcher native/Linux split, immutable attempts, reports, exclusions and fail-closed proof admission.');

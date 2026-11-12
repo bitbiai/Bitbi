@@ -1,5 +1,5 @@
 import {EXPORT_DELIVERY_POLICY,verifyExportDeliveryDiscovery,exportDeliverySources} from './lib/canvas-export-release.mjs';
-import {STATIC_FIXTURE_POLICY,verifyStaticBrowserFiles} from './lib/local-release-static-fixture.mjs';
+import {STATIC_FIXTURE_POLICY,verifyStaticBrowserFiles,verifyStaticProofCandidate,isStaticProofSuccessor} from './lib/local-release-static-fixture.mjs';
 import {EXPORT_DELIVERY_BROWSER_POLICY,verifyExportDeliveryBrowserReport} from './lib/canvas-export-browser.mjs';
 import {verifyCanvasTransitionDiscovery,verifyCanvasExampleDiscovery} from './lib/homepage-test-selection.mjs';
 import {verifyCanvasVoiceDiscovery,verifyCanvasVoiceNativeBrowserReport,CANVAS_COST_REGISTRY,canvasCostRegistrySources} from './lib/canvas-voice-selection.mjs';
@@ -393,11 +393,13 @@ export function candidateProof(manifest, { job, reportFile, evidenceDirectory='.
     ? (manifest.selection.adminRelease ? ['admin-release'] : manifest.selection.full ? ['static','carousel'] : ['homepage','carousel','assets','auth'].filter(key=>manifest.selection[key])).map(key=>`test-results/candidate-${key}.json`)
     : [reportFile];
   const reports=names.map(name=>readJson(name));
+  const browserSource=job==='browser-validation'&&reports[0]?.policy===STATIC_FIXTURE_POLICY&&isStaticProofSuccessor(manifest.sha)
+    ?verifyStaticProofCandidate(evidenceDirectory,manifest):manifest.sha;
   const counts=[];
   for(const [index,report] of reports.entries()) {
     if(report.policy===STATIC_FIXTURE_POLICY) {
       assert.equal(job,'browser-validation');assert.equal(manifest.selection.full,true);assert.equal(names[index],'test-results/candidate-static.json');
-      counts.push(verifyStaticBrowserFiles(evidenceDirectory,report,manifest.sha).required);continue;
+      counts.push(verifyStaticBrowserFiles(evidenceDirectory,report,browserSource).required);continue;
     }
     if(report.policy===EXPORT_DELIVERY_BROWSER_POLICY){
       assert.equal(job,'browser-validation');assert.equal(names[index],'test-results/candidate-auth.json');assert.equal(manifest.selection.policy,EXPORT_DELIVERY_POLICY);
@@ -447,7 +449,7 @@ export function candidateProof(manifest, { job, reportFile, evidenceDirectory='.
   if (manifest.selection?.canvasText || manifest.selection?.canvasVoice) verifyCanvasCandidateReports(names, reports, readJson('test-results/canvas-discovery.json'), manifest.selection,
     manifest.selection.canvasVoice ? readJson('test-results/canvas-complete-discovery.json') : undefined);
   if (job === 'browser-validation' && (manifest.selection?.canvasVoice || manifest.selection?.full))
-    verifyCanvasVoiceNativeBrowserReport(readJson('test-results/canvas-voice-native-browser/result.json'),manifest.sha);
+    verifyCanvasVoiceNativeBrowserReport(readJson('test-results/canvas-voice-native-browser/result.json'),browserSource);
   if (manifest.selection?.appearance && !manifest.selection?.modelPricing) verifyAppearanceCandidateReports(names, reports, readJson('test-results/appearance-discovery.json'));
   if (manifest.selection?.modelPricing) verifyModelPricingReport(report, readJson('test-results/model-pricing-discovery.json'), manifest.selection);
   if (manifest.selection?.modelStatus) verifyModelStatusReport(report, readJson('test-results/model-status-discovery.json'), manifest.selection);

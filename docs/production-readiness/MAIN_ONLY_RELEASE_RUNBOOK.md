@@ -140,6 +140,29 @@ VM configuration/CPU, container limits, image and toolchain identities stay exac
 Only the closed verifier/test/documentation follow-up is admitted; original
 browser evidence and all unresolved acceptance remain mandatory.
 
+The exact `b8387ec7` proof-tail follow-up retains its completed static/carousel
+and native Voice execution after final proof failed on root-owned private
+reports. Native output transport validates regular output trees and transfers
+ownership only in the disposable Linux `test-results`/`candidate-proofs` trees
+to the existing UID/GID 1001 consumer; private 0600/0700 modes and host originals
+remain unchanged. Never make reports world-readable or run proof as root.
+The actual dispatcher invokes this helper before returning to Linux. Its
+guarded Linux regression includes missing-transfer EACCES, unprivileged byte
+readback, unrelated-user denial and symlink rejection.
+
+Only a direct transport/caller/verifier/test/documentation successor is admitted.
+The failed checkpoint, original bundle and finally-snapshotted candidate/reports
+are pinned separately: the failed job had not collected its browser reports into
+the bundle. Thirty-four unchanged blocks retain their original execution; the
+21 affected tooling/build/proof blocks run on final inputs. Restore only pinned
+static/carousel reports after browser candidate restoration clears them. Raw
+static attempt and Voice source fields remain `b8387ec7`; the shared final and
+import proof verifies those original reports plus the new candidate's exact
+membership/hosting and existing version-token-normalized bytes. Missing or
+changed reports, source lineage, product inputs, hosting, environment or proof
+remain fatal. Preserve the original start time and failed final row; these
+guard controls are not completed release or live acceptance.
+
 The `97e0ec95` Auth browser run retained 664 first-attempt passes, with 44 failures
 and one retry-only case still unresolved. Native Mac `a4d3f433` repaired 42/43
 non-Lab cases; `004ff2ec` repaired only the remaining authorized Admin locale fixture.

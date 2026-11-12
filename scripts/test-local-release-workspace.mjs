@@ -3,8 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PACKAGES } from './lib/local-release-environment.mjs';
-import { dependencyTargets, readMounts, verifyDependencyMounts, prepareReleaseWorkspace } from './lib/local-release-workspace.mjs';
+import { PACKAGES,docker } from './lib/local-release-environment.mjs';
+import { dependencyTargets, readMounts, verifyDependencyMounts, prepareReleaseWorkspace,transferNativeReports } from './lib/local-release-workspace.mjs';
 import { stageRuntimeInputs } from '../tests/helpers/q2-runtime/linux-hosted.mjs';
 import { selectCiTests } from './lib/ci-test-selection.mjs';
 
@@ -73,6 +73,17 @@ export function testReleaseWorkspace() {
     assert.throws(() => prepareReleaseWorkspace('unrelated-service', image, { run }), /container name/);
     assert.throws(() => prepareReleaseWorkspace('bitbi-release-fixture', image, { run: args => args[0] === 'inspect' ? image : '{"packages":0}' }));
 
+    const reports=path.join(base,'reports');fs.mkdirSync(path.join(reports,'test-results/private'),{recursive:true,mode:0o700});
+    fs.writeFileSync(path.join(reports,'test-results/private/report.json'),'private',{mode:0o600});
+    const transport=[];transferNativeReports('bitbi-release-fixture',reports,{run:args=>transport.push(args)});
+    assert.deepEqual(transport,[['exec','bitbi-release-fixture','node','/source/scripts/lib/local-release-workspace.mjs','--report-directories'],
+      ['cp',`${reports}/test-results/.`,'bitbi-release-fixture:/workspace/test-results/'],
+      ['exec','bitbi-release-fixture','node','/source/scripts/lib/local-release-workspace.mjs','--report-owner']]);
+    assert.equal(fs.statSync(path.join(reports,'test-results/private/report.json')).mode&0o777,0o600);
+    fs.symlinkSync('/outside',path.join(reports,'test-results/escape'));
+    assert.throws(()=>transferNativeReports('bitbi-release-fixture',reports,{run:()=>assert.fail('Invalid tree must reject before transport')}),/regular files/);
+    assert.throws(()=>transferNativeReports('unrelated-service',reports,{run}),/container name/);
+
     for (const file of ['scripts/lib/local-release-workspace.mjs', 'scripts/test-local-release-workspace.mjs']) {
       const selection = selectCiTests([file]);
       assert.equal(selection.static, true, file);
@@ -83,4 +94,36 @@ export function testReleaseWorkspace() {
   } finally { fs.rmSync(base, { recursive: true, force: true }); }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) testReleaseWorkspace();
+// Actual root-copy -> unprivileged-consumer regression, run by the guarded host
+// qualification against a dedicated disposable release container. Never creates
+// a VM, starts services or acquires root in the ordinary portable test caller.
+export function testNativeReportTransfer(name) {
+  const root=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'bitbi-private-report-')));
+  const files=['test-results/candidate-static.json','test-results/private/attempt/report.json','candidate-proofs/proof.json'];
+  const identity=()=>files.map(file=>({file,mode:fs.statSync(path.join(root,file)).mode&0o777,bytes:fs.readFileSync(path.join(root,file),'utf8')}));
+  const read=(uid)=>{
+    const code=`const fs=require('fs'),assert=require('assert/strict');assert.equal(process.getuid(),${uid});const rows=${JSON.stringify(files)}.map(file=>({file,mode:fs.statSync('/workspace/'+file).mode&511,bytes:fs.readFileSync('/workspace/'+file,'utf8')}));console.log(JSON.stringify(rows));`;
+    return docker(['exec',name,'/usr/bin/setpriv',`--reuid=${uid}`,`--regid=${uid}`,'--clear-groups','--bounding-set=-all','--inh-caps=-all','--ambient-caps=-all','--no-new-privs','node','-e',code]);
+  };
+  try {
+    for(const file of files){fs.mkdirSync(path.dirname(path.join(root,file)),{recursive:true,mode:0o700});fs.writeFileSync(path.join(root,file),JSON.stringify({private:file}),{mode:0o600});}
+    const before=identity();let rejectedBeforeOwnership=false;
+    transferNativeReports(name,root,{run:args=>{
+      if(args.at(-1)==='--report-owner'){
+        assert.throws(()=>read(1001),/EACCES|permission denied/,'Missing ownership transfer must fail for the real consumer');rejectedBeforeOwnership=true;
+      }
+      return docker(args);
+    }});
+    assert(rejectedBeforeOwnership);assert.deepEqual(JSON.parse(read(1001)),before);assert.deepEqual(identity(),before,'Host originals changed');
+    assert.throws(()=>read(1002),/EACCES|permission denied/,'Private reports must remain inaccessible to an unrelated user');
+    docker(['exec',name,'node','-e',"const fs=require('fs'),assert=require('assert/strict');for(const p of ['test-results','test-results/private','test-results/private/attempt','candidate-proofs']){const s=fs.statSync('/workspace/'+p);assert.equal(s.uid,1001);assert.equal(s.gid,1001);assert.equal(s.mode&511,448);}fs.writeFileSync('/tmp/do-not-own','outside');fs.symlinkSync('/tmp/do-not-own','/workspace/test-results/escape');"]);
+    assert.throws(()=>transferNativeReports(name,root),/regular files/,'Destination symlink must reject before copying');
+    docker(['exec',name,'node','-e',"const fs=require('fs'),assert=require('assert/strict');assert.equal(fs.statSync('/tmp/do-not-own').uid,0);assert.equal(fs.readFileSync('/tmp/do-not-own','utf8'),'outside');"]);
+    console.log('Actual native report transport passed: missing-fix EACCES; UID1001 reads exact private bytes;0600/0700 preserved;UID1002 denied;host originals unchanged;destination symlink rejected without touching its target.');
+  } finally {fs.rmSync(root,{recursive:true,force:true});}
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  if(process.argv[2]==='--native-report-linux'){assert.equal(process.argv.length,4);testNativeReportTransfer(process.argv[3]);}
+  else {assert.equal(process.argv.length,2);testReleaseWorkspace();}
+}
