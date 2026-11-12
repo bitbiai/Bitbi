@@ -1,4 +1,5 @@
 import {EXPORT_DELIVERY_POLICY,verifyExportDeliveryDiscovery,exportDeliverySources} from './lib/canvas-export-release.mjs';
+import {STATIC_FIXTURE_POLICY,verifyStaticBrowserFiles} from './lib/local-release-static-fixture.mjs';
 import {EXPORT_DELIVERY_BROWSER_POLICY,verifyExportDeliveryBrowserReport} from './lib/canvas-export-browser.mjs';
 import {verifyCanvasTransitionDiscovery,verifyCanvasExampleDiscovery} from './lib/homepage-test-selection.mjs';
 import {verifyCanvasVoiceDiscovery,verifyCanvasVoiceNativeBrowserReport,CANVAS_COST_REGISTRY,canvasCostRegistrySources} from './lib/canvas-voice-selection.mjs';
@@ -387,13 +388,17 @@ export function verifyAssetReport(report, discovery) {
   verifyAdminReport(report, discovery, [['cards',['assets-manager-focused.spec.js']],['jobs',['oma2-q1-member.spec.js']],['actions',['auth-admin.spec.js']],['canvas',['canvas.spec.js','oma2-q1-canvas.spec.js']]]);
 }
 
-export function candidateProof(manifest, { job, reportFile, readJson = file => JSON.parse(fs.readFileSync(file)) }) {
+export function candidateProof(manifest, { job, reportFile, evidenceDirectory='.', readJson = file => JSON.parse(fs.readFileSync(file)) }) {
   const names=job==='browser-validation'
     ? (manifest.selection.adminRelease ? ['admin-release'] : manifest.selection.full ? ['static','carousel'] : ['homepage','carousel','assets','auth'].filter(key=>manifest.selection[key])).map(key=>`test-results/candidate-${key}.json`)
     : [reportFile];
   const reports=names.map(name=>readJson(name));
   const counts=[];
   for(const [index,report] of reports.entries()) {
+    if(report.policy===STATIC_FIXTURE_POLICY) {
+      assert.equal(job,'browser-validation');assert.equal(manifest.selection.full,true);assert.equal(names[index],'test-results/candidate-static.json');
+      counts.push(verifyStaticBrowserFiles(evidenceDirectory,report,manifest.sha).required);continue;
+    }
     if(report.policy===EXPORT_DELIVERY_BROWSER_POLICY){
       assert.equal(job,'browser-validation');assert.equal(names[index],'test-results/candidate-auth.json');assert.equal(manifest.selection.policy,EXPORT_DELIVERY_POLICY);
       const discovery=readJson('test-results/canvas-discovery.json');verifyExportDeliveryDiscovery(flattenHomepageDiscovery(discovery));

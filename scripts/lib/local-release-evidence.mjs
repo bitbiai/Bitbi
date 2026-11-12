@@ -1,4 +1,5 @@
 import {verifyLinearReuse} from './local-release-linear.mjs';
+import {STATIC_FIXTURE_POLICY,verifyStaticFixtureReuse} from './local-release-static-fixture.mjs';
 import {requiresPrivateMediaImage} from './ci-test-selection.mjs';
 import {EXPORT_DELIVERY_BROWSER_POLICY,verifyExportDeliveryBrowserReport} from './canvas-export-browser.mjs';
 import {EXPORT_DELIVERY_PREFLIGHT,EXPORT_DELIVERY_SELECTION_PREFLIGHT,EXPORT_DELIVERY_DISCOVERY_PREFLIGHT,EXPORT_DELIVERY_HOSTING_PREFLIGHT,EXPORT_DELIVERY_SDK_PREFLIGHT,EXPORT_DELIVERY_BROWSER_PREFLIGHT,exportDeliveryCorrectionProfile,assertExportDeliveryTree,assertExportDeliverySelectionTree,exportDeliveryPrefix,exportDeliverySelectionPrefix,verifyExportDeliveryReuse} from './canvas-export-release.mjs';
@@ -512,7 +513,8 @@ export function verifyLocalEvidence(directory, expected, { now = Date.now(), sel
   assert.equal(evidence.ci, true); assert.equal(evidence.origin, 'development-mac');
   const env = { GITHUB_SHA: expected.sha, CANDIDATE_BASE: expected.base };
   const commands = selectedCommands(selection, env);
-  if(evidence.linearContinuation)verifyLinearReuse(directory,evidence,commands);
+  if(evidence.staticFixtureContinuation)verifyStaticFixtureReuse(directory,evidence,commands);
+  else if(evidence.linearContinuation)verifyLinearReuse(directory,evidence,commands);
   else if(evidence.readinessContinuation)verifyReadinessContinuation(directory,evidence,commands);
   else if(evidence.storedPlanContinuation)verifyStoredPlanContinuation(directory,evidence,commands);
   else if(evidence.preflightContinuation)verifyCanvasPreflight(directory,evidence,commands);
@@ -528,7 +530,8 @@ export function verifyLocalEvidence(directory, expected, { now = Date.now(), sel
     assert.equal(result.exitCode, 0, `Local command failed: ${command.name}`);
     const runtimes=commandRuntimes(command).map(part=>part.runtime);
     if(runtimes.includes('native-browser-v1'))assert.deepEqual(result.runtimes,runtimes,'Missing/mismatched browser execution environment');
-    if(evidence.repair&&['Run selected auth and admin tests','Run selected homepage core tests'].includes(command.name))assert.equal(result.browserContinuation,LOCAL_BROWSER_POLICY);
+    if(evidence.staticFixtureContinuation&&command.name==='Run full static browser regression')assert.equal(result.browserContinuation,STATIC_FIXTURE_POLICY);
+    else if(evidence.repair&&['Run selected auth and admin tests','Run selected homepage core tests'].includes(command.name))assert.equal(result.browserContinuation,LOCAL_BROWSER_POLICY);
     else if(evidence.preflightContinuation?.source===EXPORT_DELIVERY_BROWSER_PREFLIGHT.source&&command.name==='Run selected auth and admin tests')assert.equal(result.browserContinuation,EXPORT_DELIVERY_BROWSER_POLICY);
     else if(evidence.preflightContinuation?.source===AUTONOMY_BROWSER_PREFLIGHT.source&&['Run selected homepage core tests','Run selected auth and admin tests'].includes(command.name))assert.equal(result.browserContinuation,AUTONOMY_BROWSER_POLICY);
     else if((evidence.readinessContinuation||evidence.storedPlanContinuation||[INCIDENT_BROWSER_PREFLIGHT.source,RELIABILITY_BROWSER_PREFLIGHT.source,ASSISTANT_BROWSER_PREFLIGHT.source,SETTLEMENT_BROWSER_PREFLIGHT.source,MODEL_BROWSER_PREFLIGHT.source].includes(evidence.preflightContinuation?.source))&&['Run selected homepage core tests','Run selected auth and admin tests'].includes(command.name))assert.equal(result.browserContinuation,MODEL_BROWSER_POLICY);
@@ -549,7 +552,7 @@ export function verifyLocalEvidence(directory, expected, { now = Date.now(), sel
   verifyProofs(manifest, proofs);
   assert.equal(proofs.length, proofJobs(selection).length + 1, 'Duplicate/extra local proofs');
   for (const job of proofJobs(selection)) {
-    const expectedProof = candidateProof(manifest, { job, reportFile: 'test-results/homepage-functional.json',
+    const expectedProof = candidateProof(manifest, { job, reportFile: 'test-results/homepage-functional.json', evidenceDirectory:directory,
       readJson: file => JSON.parse(fs.readFileSync(path.join(directory, file))) });
     assert.deepEqual(proofs.find(proof => proof.job === job), expectedProof, 'Local proof differs from required executed reports');
   }

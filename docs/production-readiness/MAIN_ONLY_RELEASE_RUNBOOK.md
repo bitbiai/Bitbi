@@ -110,6 +110,27 @@ this exception; failed originals remain failed. Archive tools (`zip`, `unzip`)
 are checked before suites alongside the browser/media prerequisites. There is
 no hosted fallback, blind rerun, or retention of browser/database sessions.
 
+The closed `1b3b6deb` H3 pricing-fixture continuation uses that same `--resume`
+entrypoint. Its GPT Image 2.5 dimension loop incorrectly filtered its GPT results for MiniMax H3;
+only that exact fixture correction plus bounded release-verifier tooling is
+admitted as a direct successor. Original checkpoint, logs, reports, full discovery
+and intentional exclusions stay source-pinned under `reuse/test-results/`.
+Unchanged first-attempt browser passes are retained; failed, retry-only and
+unexecuted required cases remain unresolved until fresh one-worker, zero-retry
+execution. A skip is never counted as a pass. Affected tooling/build/byte checks
+run again; native static continuation cannot replace the following Linux carousel,
+native Canvas Voice journey or final candidate proof. Product assets and hosting
+membership must match, allowing only existing source-version token normalization.
+UUID-scoped attempts preserve raw discovery, execution and exit records. An
+interruption before fresh execution may start a new attempt; one after fresh
+execution starts requires diagnosis unless complete raw success is verifiable.
+A verified same-source static success can survive a later carousel failure without
+repeating those static cases. Final local verification and protected upload/import
+read and verify those same raw reports from their actual evidence directory.
+No old failed receipt is rewritten, no new pipeline or timeout relaxation exists,
+and these continuation guards do not themselves establish publication or live
+acceptance.
+
 The `97e0ec95` Auth browser run retained 664 first-attempt passes, with 44 failures
 and one retry-only case still unresolved. Native Mac `a4d3f433` repaired 42/43
 non-Lab cases; `004ff2ec` repaired only the remaining authorized Admin locale fixture.

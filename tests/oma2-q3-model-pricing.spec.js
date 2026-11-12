@@ -163,7 +163,7 @@ for(const [locale,width]of [['en',1440],['de',390]])test(`GPT Image 2.5 pricing 
  const f=await setup(page,baseURL);await page.setViewportSize({width,height:900});
  try{await open(page);if(locale==='de')await root(page).getByLabel('Pricing language').selectOption('de');
   for(const suffix of ['sunburst','flare']){
-   await root(page).getByRole('searchbox').fill(`gpt-image-2.5-${suffix}`);const row=root(page).locator('.model-pricing__row').filter({has:page.getByText('MiniMax H3',{exact:true})});await expect(root(page).locator('.model-pricing__row')).toHaveCount(2);await expect(row).toHaveCount(1);
+   await root(page).getByRole('searchbox').fill(`gpt-image-2.5-${suffix}`);const row=root(page).locator('.model-pricing__row');await expect(row).toHaveCount(1);await expect(row).toContainText(`GPT Image 2.5 ${suffix==='sunburst'?'Sunburst':'Flare'}`);
    await expect(row).toContainText(locale==='de'?'Werkspreis':'Factory');await row.focus();await page.keyboard.press('Enter');
    const dialog=page.getByRole('dialog',{name:`GPT Image 2.5 ${suffix==='sunburst'?'Sunburst':'Flare'}`,exact:true});await expect(dialog).toBeVisible();
    const options={quality:['low','medium','high','xhigh','max','auto'],size:['1024x1024','1024x1536','1536x1024','auto'],background:['transparent','opaque','auto'],outputFormat:['png','webp','jpeg']};

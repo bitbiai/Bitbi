@@ -1,3 +1,4 @@
+import {testStaticFixtureReuse} from './test-local-release-static-fixture.mjs';
 import {testLinearReuse} from './test-local-release-linear.mjs';
 import {testLinearPublicationHistory} from './test-local-release-history.mjs';
 import {SMOOTH_BROWSER_POLICY,SMOOTH_BROWSER_CONTINUATION, WORKSPACE_CONTINUATION,AUDIO_FIT_CONTINUATION, INSPECTOR_CONTINUATION,EXPORT_BROWSER_CONTINUATION,smoothProfile,smoothRetained,isSmoothContinuation,assertSmoothContinuationTree,verifySmoothBrowserReport,verifySmoothImageReuse,verifyImportedSmoothImage,restoreSmoothBrowserProof,passedBrowserCase} from './lib/local-release-browser.mjs';
@@ -63,7 +64,7 @@ function testResourceProfiles() {
 }
 if(process.argv.length===2||process.argv.includes('--resources-only'))testResourceProfiles();
 if(process.argv.includes('--resources-only'))process.exit(0);
-if(process.argv.length===2){testLinearPublicationHistory();await testLinearReuse();}
+if(process.argv.length===2){testLinearPublicationHistory();await testLinearReuse();await testStaticFixtureReuse();}
 
 if(process.argv.includes('--media-window-only')) {
   assert.deepEqual(process.argv.slice(2),['--media-window-only']);
