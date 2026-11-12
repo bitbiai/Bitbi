@@ -131,6 +131,15 @@ No old failed receipt is rewritten, no new pipeline or timeout relaxation exists
 and these continuation guards do not themselves establish publication or live
 acceptance.
 
+The exact `b0b16249` verifier-only successor repairs a pre-suite resume rejection:
+Docker guest-usable `MemTotal` changed by 8 KiB across a VM restart, although the
+configured allocation did not change. Both original and fresh raw observations
+must pass the existing resource validator before that single measured value is
+normalized for identity comparison. Raw evidence remains intact; profile, host,
+VM configuration/CPU, container limits, image and toolchain identities stay exact.
+Only the closed verifier/test/documentation follow-up is admitted; original
+browser evidence and all unresolved acceptance remain mandatory.
+
 The `97e0ec95` Auth browser run retained 664 first-attempt passes, with 44 failures
 and one retry-only case still unresolved. Native Mac `a4d3f433` repaired 42/43
 non-Lab cases; `004ff2ec` repaired only the remaining authorized Admin locale fixture.

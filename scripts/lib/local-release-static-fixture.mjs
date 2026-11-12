@@ -9,12 +9,14 @@ import {sha256,commandRuntimes} from './local-release-plan.mjs';
 import {browserRows} from './browser-fixture-repair.mjs';
 import {passedBrowserCase,verifyBrowserUnion} from './local-release-browser.mjs';
 import {LINEAR_REFRESH,assertLinearInputs} from './local-release-linear.mjs';
+import {verifyResourceEvidence} from './local-release-environment.mjs';
 import {verifyMigrationCandidateBytes} from './local-release-evidence.mjs';
 import {gitSelection,tree} from '../pages-candidate.mjs';
 
 export const STATIC_FIXTURE_POLICY='local-h3-pricing-static-fixture-v1';
 export const STATIC_FIXTURE_REUSE=Object.freeze({
   source:'1b3b6deb20796971ef1030d8dce412e526f5a8c5',
+  resourceRepairParent:'b0b162495177591348801973f3ff348cf128c5ec',
   base:'de2bbc54ef3777722bfada0ee87b88fdfc5db645',
   run:'1b3b6deb20796971ef1030d8dce412e526f5a8c5-deec4835-d54b-4cad-bba0-a3de40267de4',
   // Hashes from the immutable terminal original, never a relabelled success.
@@ -27,6 +29,8 @@ const allowed=new Set([fixture,'scripts/local-release.mjs','scripts/lib/local-re
   'scripts/lib/local-release-evidence.mjs','scripts/pages-candidate.mjs',
   'scripts/test-local-release.mjs','scripts/test-local-release-static-fixture.mjs',
   'docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md','docs/runbooks/REGRESSION_REGISTER.md']);
+const resourceRepairFiles=new Set(['scripts/lib/local-release-static-fixture.mjs','scripts/test-local-release-static-fixture.mjs',
+  'docs/production-readiness/MAIN_ONLY_RELEASE_RUNBOOK.md','docs/runbooks/REGRESSION_REGISTER.md']);
 export function requiresStaticFixtureRefresh(name){return LINEAR_REFRESH.has(name);}
 const json=file=>JSON.parse(fs.readFileSync(file));
 const git=args=>execFileSync('git',['--no-replace-objects',...args],{stdio:['ignore','pipe','pipe']});
@@ -36,11 +40,16 @@ const identity=({key,file,title,project})=>({key,file,title,project});
 const retainedName=name=>!name.startsWith('frontend-')&&!['homepage-runtime.json','candidate-static.json'].includes(name);
 
 export function assertStaticFixtureInputs(original,current,{preparing=false}={}) {
-  if(preparing&&current.environment.resourceObservation?.container===undefined) {
-    const before=structuredClone(original);
-    delete before.environment.resourceObservation.container;
-    assertLinearInputs(before,current);
-  } else assertLinearInputs(original,current);
+  const before=structuredClone(original),after=structuredClone(current);
+  verifyResourceEvidence(before.environment);
+  verifyResourceEvidence(after.environment,{requireContainer:!preparing||after.environment.resourceObservation?.container!==undefined});
+  // Docker MemTotal is guest-usable RAM, not its configured allocation. It can
+  // change across boots (observed +8192 bytes). Validate both raw observations
+  // with the existing reservation bounds, then compare their resource identity.
+  // Persisted evidence is never normalized; every other environment field stays exact.
+  for(const value of [before,after])value.environment.resourceObservation.vm.actual.memoryBytes=value.environment.resources.vm.memoryGiB*1024**3;
+  if(preparing&&after.environment.resourceObservation.container===undefined)delete before.environment.resourceObservation.container;
+  assertLinearInputs(before,after);
 }
 
 export function copyStaticFixtureReports(source,destination) {
@@ -53,7 +62,13 @@ export function copyStaticFixtureReports(source,destination) {
 
 export function assertStaticFixtureTree(sha) {
   assert.match(sha,/^[a-f0-9]{40}$/);
-  assert.equal(git(['show','-s','--format=%P',sha]).toString().trim(),p.source,'Only the reviewed direct fixture/tooling successor may reuse this source');
+  const parent=git(['show','-s','--format=%P',sha]).toString().trim();
+  assert([p.source,p.resourceRepairParent].includes(parent),'Only the reviewed direct fixture/tooling successor may reuse this source');
+  if(parent===p.resourceRepairParent) {
+    assert.equal(git(['show','-s','--format=%P',parent]).toString().trim(),p.source);
+    const repair=git(['diff','--name-only','--no-renames',parent,sha]).toString().trim().split('\n').filter(Boolean);
+    assert(repair.length&&repair.every(file=>resourceRepairFiles.has(file)),'Resource repair may change only its verifier, tests and documentation');
+  }
   const files=git(['diff','--name-only','--no-renames',p.source,sha]).toString().trim().split('\n').filter(Boolean);
   assert(files.includes(fixture)&&files.every(file=>allowed.has(file)),'Product, shared fixture, dependency, workflow or configuration changed');
   assert.equal(sha256(git(['show',`${sha}:${fixture}`])),p.fixture,'Corrected pricing fixture differs');

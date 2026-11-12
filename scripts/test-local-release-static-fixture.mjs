@@ -12,6 +12,7 @@ import {gitSelection,candidateProof,REPOSITORY} from './pages-candidate.mjs';
 import {verifyLocalEvidence} from './lib/local-release-evidence.mjs';
 import {browserRows} from './lib/browser-fixture-repair.mjs';
 import {passedBrowserCase} from './lib/local-release-browser.mjs';
+import {resourceProfile} from './lib/local-release-environment.mjs';
 
 const p=STATIC_FIXTURE_REUSE,identity=({key,file,title,project})=>({key,file,title,project});
 export async function testStaticFixtureReuse() {
@@ -36,6 +37,13 @@ export async function testStaticFixtureReuse() {
     assert.deepEqual(check(head),[file]);
     assert.throws(()=>check(commit(correctedTree,[head])),/direct fixture\/tooling successor/);
     assert.throws(()=>check(commit(correctedTree,[p.source,p.base])),/direct fixture\/tooling successor/);
+    command(['read-tree',p.resourceRepairParent]);
+    command(['update-index','--cacheinfo','100644',blob,'scripts/lib/local-release-static-fixture.mjs']);
+    const resourceTree=command(['write-tree']),resourceHead=commit(resourceTree,[p.resourceRepairParent]);
+    assert(check(resourceHead).includes('scripts/lib/local-release-static-fixture.mjs'));
+    assert.throws(()=>check(commit(resourceTree,[resourceHead])),/direct fixture\/tooling successor/);
+    command(['update-index','--cacheinfo','100644',blob,'scripts/local-release.mjs']);
+    assert.throws(()=>check(commit(command(['write-tree']),[p.resourceRepairParent])),/Resource repair may change only/);
     for(const wrong of ['workers/auth/src/routes/canvas.js','tests/helpers/canvas-agent-ui.cjs','package-lock.json','config/release-compat.json','.github/workflows/static.yml']) {
       command(['read-tree',correctedTree]);command(['update-index','--add','--cacheinfo','100644',blob,wrong]);
       assert.throws(()=>check(commit(command(['write-tree']))),/Product, shared fixture, dependency, workflow or configuration changed/);
@@ -45,12 +53,39 @@ export async function testStaticFixtureReuse() {
     command(['read-tree',correctedTree]);command(['update-index','--cacheinfo','100644',command(['hash-object','-w','--stdin'],fixed+'\n'),file]);
     assert.throws(()=>check(commit(command(['write-tree']))),/fixture differs/);
 
-    const original={planHash:'plan',selection:{full:true,workers:true,files:['old']},environment:{key:'image',resourceObservation:{hostMemoryBytes:16,container:{cpus:4,memory:3}},reused:false,preparationMs:1},nativeBrowsers:{key:'native',reused:false,preparationMs:1}},current=structuredClone(original);
+    const GiB=1024**3,resources=resourceProfile(16*GiB);
+    const original={planHash:'plan',selection:{full:true,workers:true,files:['old']},environment:{key:'image',resources,resourceObservation:{hostMemoryBytes:16*GiB,
+      vm:{configuration:{cpu:4,memory:4,disk:80},actual:{cpus:4,memoryBytes:4095193088}},container:{cpus:4,memoryBytes:3*GiB,shmBytes:GiB}},reused:false,preparationMs:1},nativeBrowsers:{key:'native',reused:false,preparationMs:1}},current=structuredClone(original);
     current.selection.files=['new'];current.environment.reused=true;assertStaticFixtureInputs(original,current);
+    const unchanged=JSON.stringify(original);
+    for(const delta of [-8192,8192]) {
+      const drift=structuredClone(current);drift.environment.resourceObservation.vm.actual.memoryBytes+=delta;
+      const observed=JSON.stringify(drift);assertStaticFixtureInputs(original,drift);
+      const preparedDrift=structuredClone(drift);delete preparedDrift.environment.resourceObservation.container;
+      assertStaticFixtureInputs(original,preparedDrift,{preparing:true});
+      assert.equal(JSON.stringify(drift),observed,'Raw current observation must remain unchanged');
+    }
+    assert.equal(JSON.stringify(original),unchanged,'Raw original observation must remain unchanged');
+    for(const mutate of [
+      e=>delete e.resources,e=>delete e.resourceObservation,e=>delete e.resourceObservation.vm.actual.memoryBytes,
+      e=>e.resourceObservation.vm.actual.memoryBytes=2*GiB,e=>e.resourceObservation.vm.actual.memoryBytes=5*GiB,
+      e=>e.resourceObservation.vm.actual.memoryBytes=NaN,e=>e.resourceObservation.vm.actual.memoryBytes=4095193088.5,e=>e.resourceObservation.vm.actual.cpus=2,
+      e=>e.resourceObservation.vm.configuration.cpu=2,e=>e.resourceObservation.vm.configuration.memory=12,e=>e.resourceObservation.vm.configuration.disk=40,
+      e=>e.resourceObservation.hostMemoryBytes=24*GiB,e=>e.resourceObservation.hostMemoryBytes=20*GiB,
+      e=>e.resourceObservation.container.memoryBytes=2*GiB,e=>e.resourceObservation.container.shmBytes=0,
+      e=>e.resources.container.memoryGiB=2,e=>e.key='changed-key',e=>e.image='changed-image',e=>e.node='changed-toolchain',
+    ]) {
+      const broken=structuredClone(current);mutate(broken.environment);
+      assert.throws(()=>assertStaticFixtureInputs(original,broken));
+      assert.throws(()=>assertStaticFixtureInputs(broken,current),'Both raw observations must be validated');
+    }
+    for(const mutate of [e=>e.nativeBrowsers.key='changed',e=>e.planHash='changed',e=>e.selection.workers=false]) {
+      const broken=structuredClone(current);mutate(broken);assert.throws(()=>assertStaticFixtureInputs(original,broken));
+    }
     const preparing=structuredClone(current);delete preparing.environment.resourceObservation.container;
-    assertStaticFixtureInputs(original,preparing,{preparing:true});assert.throws(()=>assertStaticFixtureInputs(original,preparing),/Changed/);
-    preparing.environment.resourceObservation.hostMemoryBytes=24;assert.throws(()=>assertStaticFixtureInputs(original,preparing,{preparing:true}),/Changed/);
-    current.environment.resourceObservation.container.cpus=2;assert.throws(()=>assertStaticFixtureInputs(original,current,{preparing:true}),/Changed/);
+    assertStaticFixtureInputs(original,preparing,{preparing:true});assert.throws(()=>assertStaticFixtureInputs(original,preparing));
+    preparing.environment.resourceObservation.hostMemoryBytes=24*GiB;assert.throws(()=>assertStaticFixtureInputs(original,preparing,{preparing:true}));
+    current.environment.resourceObservation.container.cpus=2;assert.throws(()=>assertStaticFixtureInputs(original,current,{preparing:true}));
 
     const row=(id,status='passed')=>({key:`chromium:${id}`,file:'fixture.spec.js',title:id,project:'chromium',expectedStatus:'passed',status:status==='passed'?'expected':'unexpected',results:[{status,retry:0,error:status!=='passed'}]});
     const pass=row('retained'),fail=row('pending','failed'),skip={...row('excluded','skipped'),expectedStatus:'skipped',status:'skipped',results:[{status:'skipped',retry:0,error:false}]};
@@ -115,7 +150,8 @@ export async function testStaticFixtureReuse() {
       write(path.join(originalRun,'source/test-results/candidate-static.json'),fs.readFileSync(path.join(supplied,'failed-static.json')));
       fs.cpSync(path.join(supplied,'bundle'),path.join(originalRun,'bundle'),{recursive:true});
       const before=JSON.parse(fs.readFileSync(path.join(originalRun,'checkpoint.json'))),commands=selectedCommands(before.selection,{GITHUB_SHA:head,CANDIDATE_BASE:p.base});
-      const state={...before,sha:head,sourceTree:correctedTree,id:'guard-only',status:'running',commands:[]};
+      const state={...structuredClone(before),sha:head,sourceTree:correctedTree,id:'guard-only',status:'running',commands:[]};
+      state.environment.resourceObservation.vm.actual.memoryBytes+=8192;
       process.chdir(repository);
       try {
         state.selection=gitSelection(p.base,head);
