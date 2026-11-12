@@ -1075,6 +1075,14 @@ release evidence and live provider acceptance remain separate claims. Sources:
 https://developers.cloudflare.com/ai/models/minimax/h3-lite/ and the linked schemas;
 https://platform.minimax.io/docs/api-reference/video-generation-v2-create.md.
 
+Native acceptance at `a2039d2c` exposed the separate independent model-status
+fixture still omitting Lite, after all 1,830 Worker cases passed. Add the exact
+reviewed Lite identity, retain the complete catalog comparison and reject both
+missing Lite and a missing Generation area. The real isolated `--suite model-status`
+caller passes all seven cases with authorization, CSRF, independent persistence
+and billing controls intact. The failed full-run evidence remains failed; this
+focused fixture proof does not certify the unreached browser tail.
+
 ### MiniMax H3 and durable Generate Lab status (2026-09-20)
 
 Generate Lab duplicated accepted status below the form, used a PixVerse-only loading label and treated interrupted observation as failed output. Its existing upper banner now distinguishes submission, accepted processing, reconciliation, storage and preview completion. Only durable acceptance permits the close-tab message. Frozen submitted identity and owner-scoped GET-only restoration prevent selector/stale callbacks from relabelling or resubmitting a job.

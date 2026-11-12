@@ -8,7 +8,7 @@ const offeredInBothAreas = [
  '@cf/black-forest-labs/flux-1-schnell', '@cf/black-forest-labs/flux-2-klein-9b',
  'black-forest-labs/flux-2-max', 'openai/gpt-image-2', 'openai/gpt-image-2.5-flare',
  'openai/gpt-image-2.5-sunburst', 'xai/grok-imagine-image-2.0', 'google/gemini-omni-flash',
- 'elevenlabs/music-v2', 'minimax/h3', 'pixverse/v6', 'alibaba/hh1-t2v',
+ 'elevenlabs/music-v2', 'minimax/h3', 'minimax/h3-lite', 'pixverse/v6', 'alibaba/hh1-t2v',
  'bytedance/seedance-2.0-fast', 'xai/grok-imagine-video', 'xai/grok-imagine-video-1.5-preview',
  'minimax/music-2.6', 'bytedance/seedance-2.5',
 ];
@@ -73,6 +73,9 @@ export async function runModelStatusTests(f) {
   assert.throws(()=>checkAreaCatalog([...data.models,data.models[0]]),assert.AssertionError);
   assert.throws(()=>checkAreaCatalog([{...data.models[0],id:'unapproved/model'},...data.models.slice(1)]),assert.AssertionError);
   assert.throws(()=>checkAreaCatalog(data.models.map(model=>model.id==='xai/grok-4.7'?{...model,switches:{...model.switches,generation:{enabled:true}}}:model)),assert.AssertionError);
+  assert.throws(()=>checkAreaCatalog(data.models.filter(model=>model.id!=='minimax/h3-lite')),assert.AssertionError);
+  assert.throws(()=>checkAreaCatalog(data.models.map(model=>model.id==='minimax/h3-lite'?{...model,switches:{canvas:model.switches.canvas}}:model)),assert.AssertionError);
+  const lite=data.models.find(model=>model.id==='minimax/h3-lite');assert.ok(lite.switches.generation.enabled&&lite.switches.canvas.enabled);
   for(const id of ['xai/grok-4.6','xai/grok-4.7'])assert.equal(data.models.find(model=>model.id===id).switches.canvas.enabled,true);
   const seedance=data.models.find(m=>m.id==='bytedance/seedance-2.5');assert.ok(seedance.switches.generation.enabled && seedance.switches.canvas.enabled);assert.equal(Object.hasOwn(seedance.switches,'main'),false);
   assert.deepEqual(data.models.filter(m=>m.switches.main).map(m=>[m.id,m.switches.main.enabled]),[['@cf/swiss-ai/apertus-v1.5-8b',false]]);
