@@ -46,6 +46,19 @@ other VMs or services. On constrained hosts, coordinate any separately authorize
 temporary test-VM pause and restoration; allocation limits alone do not prove
 adequate free capacity, so observe host pressure during setup and acceptance.
 
+Each disposable Linux workspace reuses the selected immutable image's five
+dependency installations through container-internal read-only binds, rather than
+copying and recursively changing their ownership on every attempt. Both the
+workspace paths and image-source aliases are read-only; source/output ownership
+is prepared before mounting. Preparation verifies the actual container image,
+real paths, mount flags and device/inode identity, rejecting unexpected populated
+directories, nested mounts and unknown dependency symlinks. Only the exact native
+cache links recorded by the caller may be replaced in the disposable copy; the
+original resume checkout is unchanged. There is no writable/install fallback.
+Q2 still stages its own isolated dependency copies and retains its escape guards.
+This reduces preparation work, not selected coverage or the VM/container limits;
+actual memory sufficiency requires measured Linux and native-browser acceptance.
+
 Evidence records and verifies the named profile, host RAM, configured/observed VM
 capacity and actual container limits. Changing profiles invalidates resume; it
 does not relabel old evidence or change the seven-day freshness rule. Dependency

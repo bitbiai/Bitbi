@@ -22,6 +22,10 @@ import { acquireLocalReleaseLock, prepareCandidateRestore, copyEvidenceToolInput
 import { LOCAL_IMPORT_REPAIR, assertImportRepairWorkflow, localRepairCommand, verifyImportRepairEvidence } from './lib/local-release-evidence.mjs';
 import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,assertPermissionContinuationTree,permissionContinuationPrefix,CANVAS_STAGE_CASES,canvasStageContinuation} from './lib/local-release-evidence.mjs';
 import {testLocalMediaProcess} from './test-local-media-process.mjs';
+import {testReleaseWorkspace} from './test-local-release-workspace.mjs';
+
+if(process.argv.length===2||process.argv.includes('--workspace-only'))testReleaseWorkspace();
+if(process.argv.includes('--workspace-only')){assert.deepEqual(process.argv.slice(2),['--workspace-only']);process.exit(0);}
 
 function resourceFixture(hostGiB=16) {
   const GiB=1024**3,resources=resourceProfile(hostGiB*GiB);

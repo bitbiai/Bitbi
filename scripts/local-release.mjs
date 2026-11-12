@@ -28,6 +28,7 @@ import {PERMISSION_CONTINUATION,PERMISSION_REFRESH,SMOOTH_REFRESH,permissionRefr
 import {runMediaImageStep,restoreMediaTestDiagnostics} from './lib/local-media-test-process.mjs';
 import {EXPORT_DELIVERY_SDK_PREFLIGHT,EXPORT_DELIVERY_BROWSER_PREFLIGHT,verifyExportDeliveryNative} from './lib/canvas-export-release.mjs';
 import {EXPORT_DELIVERY_BROWSER_POLICY,runExportDeliveryBrowserContinuation} from './lib/canvas-export-browser.mjs';
+import { prepareReleaseWorkspace } from './lib/local-release-workspace.mjs';
 
 const git = (args, cwd = '.') => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore','pipe','pipe'] }).trim();
 const json = file => JSON.parse(fs.readFileSync(file));
@@ -851,8 +852,7 @@ async function runLocalRelease({ base, resume }) {
     const container={cpus:actual.NanoCpus/1e9,memoryBytes:actual.Memory,shmBytes:actual.ShmSize};
     verifyContainerResources(environment.resources,container);
     state.environment.resourceObservation={...environment.resourceObservation,container};
-    const prep = 'set -eu\ncp -a /source/. /workspace/\nmkdir -p /tmp/bitbi-release/toolcache /tmp/bitbi-release/npm\n' + PACKAGES.map(dir => `cp -a /opt/bitbi-deps/${dir ? dir + '/' : ''}node_modules ./${dir ? dir + '/' : ''}`).join('\n') + '\nchown -R 1001:1001 /workspace /tmp/bitbi-release';
-    docker(['exec',name,'bash','-c',prep]);
+    prepareReleaseWorkspace(name, environment.image, { nativePackages: nativeBrowsers?.packages });
     const savedRuntime=path.join(directory,'runtime');
     if(fs.existsSync(savedRuntime)) {
       docker(['cp',`${savedRuntime}/.`,`${name}:/tmp/bitbi-release/`]);

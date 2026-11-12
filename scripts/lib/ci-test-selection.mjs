@@ -709,6 +709,7 @@ const RELEASE_TOOLING_FILES = new Set([
   'scripts/test-canvas-agent-release.mjs',
   'config/release-validation.yml', 'scripts/local-release.mjs', 'scripts/local-release.Dockerfile', 'scripts/release-preflight.mjs',
   'scripts/lib/local-release-plan.mjs', 'scripts/lib/local-release-environment.mjs',
+  'scripts/lib/local-release-workspace.mjs', 'scripts/test-local-release-workspace.mjs',
   'scripts/lib/local-release-evidence.mjs', 'scripts/lib/local-release-transport.mjs',
   'scripts/lib/local-release-browser.mjs',
   'scripts/lib/release-validation-source.mjs', 'scripts/test-local-release.mjs',
