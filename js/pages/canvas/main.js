@@ -1,3 +1,4 @@
+import { ensureMinimaxConsent,renderMinimaxNotice,confirmMinimaxReference } from '../../shared/minimax-consent-ui.js?v=__ASSET_VERSION__';
 import { transitionControls } from './transition-controls.js?v=__ASSET_VERSION__';
 import { createWorkspaceView } from './workspace-view.js?v=__ASSET_VERSION__';
 import { createCanvasGraphActions } from './graph-actions.js?v=__ASSET_VERSION__';
@@ -692,6 +693,7 @@ function renderInspector() {
             scheduleNode(node, { model_id: modelSelect.value, config }); window.setTimeout(renderInspector);
         });
         dom.inspector.append(field(copy.model, modelSelect));
+        const consentNotice=el('p');renderMinimaxNotice(consentNotice,model?.id);dom.inspector.append(consentNotice);
         if (model) {
             if (!model.runnable) dom.inspector.append(el('p', 'canvas-muted', model.disabledReason));
             const cost = el('p', 'canvas-cost-note');
@@ -841,12 +843,15 @@ function renderInspector() {
 
     if (node.type === 'asset_reference') {
         const choose = el('button', 'canvas-button', copy.selectAsset);
+        const needsAssurance=()=>store.state.edges.some(edge=>edge.source_node_id===node.id&&isH3Model(store.state.nodes.find(target=>target.id===edge.target_node_id)?.model_id));
         const upload=inputControl('','file');upload.accept='image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime,audio/mpeg,audio/wav';
-        upload.addEventListener('change',async()=>{const file=upload.files[0],project=store.state.project;upload.value='';if(!file)return;upload.disabled=true;try{const asset=await uploadOmniReference(file);if(store.state.project===project&&selectedNode()===node)await assignAsset({node,isCurrent:()=>store.state.project===project&&selectedNode()===node},asset);}catch(error){showToast(isGerman?'Referenz konnte nicht gespeichert werden.':error.message);}finally{upload.disabled=false;}});
+        upload.addEventListener('change',async()=>{const file=upload.files[0],project=store.state.project;upload.value='';if(!file)return;if(needsAssurance()&&!await confirmMinimaxReference())return;if(store.state.project!==project||selectedNode()!==node)return;upload.disabled=true;try{const asset=await uploadOmniReference(file);if(store.state.project===project&&selectedNode()===node)await assignAsset({node,isCurrent:()=>store.state.project===project&&selectedNode()===node},asset);}catch(error){showToast(isGerman?'Referenz konnte nicht gespeichert werden.':error.message);}finally{upload.disabled=false;}});
         dom.inspector.append(field(isGerman?'Privates Medium hochladen':'Upload private media',upload));
         choose.id = 'canvasAssetChoose'; choose.type = 'button'; choose.setAttribute('aria-haspopup', 'dialog');
-        choose.addEventListener('click', () => {
+        choose.addEventListener('click', async () => {
             const project = store.state.project;
+            if(needsAssurance()&&!await confirmMinimaxReference())return;
+            if(store.state.project!==project||selectedNode()!==node)return;
             void assetPicker.open({ node, isCurrent: () => store.state.project === project && selectedNode() === node });
         });
         dom.inspector.append(choose);
@@ -1062,6 +1067,7 @@ async function connectNodes(sourceId, targetId) {
     if (store.state.edges.some((edge) => edge.source_node_id === sourceId && edge.target_node_id === targetId)) return showToast(copy.duplicateEdge);
     const projectId = store.state.project.id;
     const source=store.state.nodes.find(node=>node.id===sourceId),target=store.state.nodes.find(node=>node.id===targetId);
+    if(isH3Model(target?.model_id)&&['image','video','audio'].includes(canvasNodeMediaKind(source))&&!await confirmMinimaxReference())return;
     const config=canvasNodeMediaKind(source)==='audio'&&canvasNodeMediaKind(target)==='video'?{purpose:EXPORT_MUSIC_PURPOSE}:{};
     const result = await canvasApi.createEdge(projectId, { source_node_id: sourceId, target_node_id: targetId,config });
     if (!result.ok) return reportError(result);
@@ -1134,6 +1140,7 @@ async function runSelectedNode(node) {
     const validation = validationForNode(node, workflowAnalysis.byNode.get(node.id), copy);
     if (validation) { runningNodeId = null; return showToast(validation); }
     const model = store.state.models.find((item) => item.id === node.model_id);
+    if(!await ensureMinimaxConsent(model?.id)){runningNodeId=null;renderInspector();return;}
     const organizationId = model?.requiresOrganization ? store.state.selectedOrganizationId : null;
     if (model?.requiresOrganization && !organizationId) { runningNodeId = null; return showToast(copy.organizationRequired); }
     inspectorRunError(node, '');
@@ -1144,7 +1151,8 @@ async function runSelectedNode(node) {
     const idempotencyKey = pendingRunKeys.get(node.id) || pendingSave?.retry_key || `canvas-${crypto.randomUUID()}`;
     pendingRunKeys.set(node.id, idempotencyKey);
     const projectId = store.state.project.id;
-    const result = await canvasApi.runNode(projectId, node.id, idempotencyKey, organizationId);
+    let result = await canvasApi.runNode(projectId, node.id, idempotencyKey, organizationId);
+    if(result.code==='consent_required'&&await ensureMinimaxConsent(model?.id,{force:true}))result=await canvasApi.runNode(projectId,node.id,idempotencyKey,organizationId);
     if (store.state.project?.id !== projectId || !store.state.nodes.includes(node)) { runningNodeId = null; return; }
     if (result.code === 'canvas_video_pending') {
         runningNodeId = null;

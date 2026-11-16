@@ -1,3 +1,5 @@
+import { MINIMAX_CONSENT_TEXT_VERSION, isMinimaxConsentModel } from '../../../../js/shared/minimax-consent.mjs';
+import { assertMinimaxConsent } from './minimax-consent.js';
 import { modelAreaEnvironment } from './model-availability.js';
 import { h3MemberReceipt, storedH3MemberTask } from './minimax-h3-callback.js';
 import { retainedImageDelivery, recordImageDelivery, IMAGE_DELIVERY_ATTEMPTS } from './image-delivery-recovery.js';
@@ -23,6 +25,8 @@ const LEASE_MS = 15 * 60_000;
 const MAX_ATTEMPTS = 8;
 const runnable = new Set(['queued', 'processing', 'ingesting']);
 const executions = new WeakMap();
+const jobExecutions = new WeakMap();
+const generationExecutionForJob = job => jobExecutions.get(job);
 
 function safeCode(code) { return /^[a-z][a-z0-9_]{0,79}$/i.test(String(code||'')) ? String(code) : 'generation_execution_failed'; }
 function jobError(code) { code=safeCode(code); return Object.assign(new Error(code), { code }); }
@@ -119,14 +123,14 @@ export async function readMemberGenerationJobs(ctx, id = null) {
   return json({ ok: true, data: { job: publicJob(row), result } }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
-async function hasPrimaryReceipt(env, job) {
+async function hasPrimaryReceipt(env, job, { includePending = false } = {}) {
   let h3;
   try { h3=await storedH3MemberTask(env,job); }
   catch(error) {
     if(['h3_invalid_receipt','h3_output_missing','h3_input_missing'].includes(error.code))return false;
     throw error;
   }
-  if(h3)return ['succeeded','failed','cancelled'].includes(h3.task.status);
+  if(h3)return includePending || ['succeeded','failed','cancelled'].includes(h3.task.status);
   const receipts=JSON.parse(job.provider_receipts_json || '{}');
   const name=receipts['ai-0']?'ai-0':'service-0', receipt=receipts[name];
   const expected=`users/${job.user_id}/generation-jobs/${job.id}/provider-${name}.json`;
@@ -176,13 +180,30 @@ async function providerCall(env, job, name, fingerprint, call) {
     }
     return decodeProviderResult(stored,receipt.correlationId);
   }
+  // A receipt is delivery-only recovery. A new invocation must recheck the
+  // current consent even after admission/credit reservation and source preparation.
+  const execution=generationExecutionForJob(job);
+  const consentModel=execution?.minimaxModel || job.model || (job.media_type==='music'?'minimax/music-2.6':'');
+  const requiresConsent=name!=='music-cover' && isMinimaxConsentModel(consentModel);
+  const checkConsent=async()=>{
+    try { if(requiresConsent)await assertMinimaxConsent(env,job.user_id,consentModel); }
+    catch(error) {
+      if(error.code==='consent_required')await execution?.minimaxUsagePolicy?.markProviderFailed({confirmedOutcome:true,code:error.code,message:error.message});
+      throw error;
+    }
+  };
+  await checkConsent();
   receipt = { key: `users/${job.user_id}/generation-jobs/${job.id}/provider-${name}.json`, fingerprint, correlationId: randomTokenHex(16) };
   receipts[name] = receipt;
   job.providerCorrelationId=receipt.correlationId;
   const intent = await env.DB.prepare(`UPDATE member_generation_jobs SET provider_receipts_json = ?
-    WHERE id = ? AND processing_token = ? AND locked_until > ? AND provider_receipts_json = ?`)
-    .bind(JSON.stringify(receipts), job.id, job.processing_token, nowIso(), row.provider_receipts_json).run();
-  if (!intent.meta?.changes) throw jobError('generation_claim_lost');
+    WHERE id = ? AND processing_token = ? AND locked_until > ? AND provider_receipts_json = ?
+    AND (?=0 OR EXISTS(SELECT 1 FROM minimax_consent_current c WHERE c.user_id=member_generation_jobs.user_id
+      AND c.granted_at IS NOT NULL AND c.revoked_at IS NULL AND c.text_version=?))`)
+    .bind(JSON.stringify(receipts), job.id, job.processing_token, nowIso(), row.provider_receipts_json,requiresConsent?1:0,MINIMAX_CONSENT_TEXT_VERSION).run();
+  // Serialize the final dispatch admission with withdrawal in D1. A failed CAS
+  // writes no provider intent; only its still-owned, never-called claim may release.
+  if (!intent.meta?.changes) { await assertClaim(env,job); await checkConsent(); throw jobError('generation_claim_lost'); }
   // Content-free checkpoints distinguish invocation, return and receipt durability.
   // Dispatch intent is not proof of provider acceptance. No job/user/input IDs.
   const checkpoint = event => logDiagnostic({ service: 'bitbi-auth', component: 'member-generation', event, media_type: job.media_type });
@@ -295,8 +316,9 @@ export async function processMemberGeneration(env, body, execute) {
     return { status:'failed' };
   }
   const scoped = modelAreaEnvironment(env, job.canvas_run_id ? 'canvas' : 'generation');
-  const execution = { job, user, retainedImage:retained, receiptReplay: await hasPrimaryReceipt(env,job), assertClaim: () => assertClaim(env,job) };
+  const execution = { job, user, retainedImage:retained, receiptReplay: await hasPrimaryReceipt(env,job,{includePending:true}), assertClaim: () => assertClaim(env,job) };
   executions.set(scoped, execution);
+  jobExecutions.set(job,execution);
   let calls = 0;
   if (env.AI) scoped.AI = { run: async (...args) => providerCall(env,job,`ai-${calls++}`,await sha256Hex(JSON.stringify(args.slice(0,2))),correlation=>{
     if(retained)throw jobError('generation_provider_identity_mismatch');
@@ -398,14 +420,14 @@ export async function processMemberGeneration(env, body, execute) {
         && receipt.key === `users/${job.user_id}/generation-jobs/${job.id}/provider-ai-0.json`
         && /^[a-f0-9]{64}$/.test(receipt.fingerprint || '')) code = 'generation_provider_rejected';
     }
-    const unknown = code==='generation_result_requires_credit_review' || code==='generation_rejection_settlement_pending' || usage?.provider_outcome === 'unknown' || /outcome_unknown|dispatch_not_claimed/.test(code || '');
+    const unknown = (code==='consent_required' && usage?.provider_outcome==='dispatched') || code==='generation_result_requires_credit_review' || code==='generation_rejection_settlement_pending' || usage?.provider_outcome === 'unknown' || /outcome_unknown|dispatch_not_claimed/.test(code || '');
     const closed = usage?.provider_outcome === 'failed' || usage?.billing_status === 'released';
     const retry = !unknown && !closed && job.attempt_count+1 < MAX_ATTEMPTS;
     const status=unknown?'outcome_unknown':retry?(job.result_r2_key?'ingesting':'queued'):'failed';
     await env.DB.prepare(`UPDATE member_generation_jobs SET status=?,error_code=?,locked_until=NULL,next_attempt_at=?,updated_at=? WHERE id=? AND processing_token=?`)
       .bind(status, safeCode(code),new Date(Date.now()+60_000).toISOString(),nowIso(),job.id,token).run();
     return {status:retry?'retry':status,delaySeconds:60};
-  } finally { executions.delete(scoped); }
+  } finally { executions.delete(scoped); jobExecutions.delete(job); }
 }
 
 export async function requeueMemberGenerations(env) {

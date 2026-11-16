@@ -1400,7 +1400,7 @@ export function createAdminAiLab({ showToast } = {}) {
         foldersUnavailableMessage: 'Could not load folders. Showing all saved assets.',
     });
 
-    const h3Controls=createH3ReferenceControls({anchor:refs.video.prompt.closest('label')||refs.video.prompt,
+    const h3Controls=createH3ReferenceControls({requireMinimaxAssurance:false,anchor:refs.video.prompt.closest('label')||refs.video.prompt,
         classes:{root:'admin-ai__field',select:'admin-ai__select',button:'admin-ai__btn admin-ai__btn--secondary'},
         read:()=>state.forms.video.h3References||[],write:value=>{state.forms.video.h3References=value;},
         changed:()=>{if((state.forms.video.h3References||[]).some(ref=>['first_frame','last_frame'].includes(ref.role)))state.forms.video.aspectRatio='adaptive';persistState();syncVideoFieldState();},

@@ -1,3 +1,4 @@
+import { runMinimaxConsentTests } from '../../minimax-consent-runtime.mjs';
 import {runCanvasExportDeliveryTests} from './canvas-export-delivery.mjs';
 import {runCanvasReliabilityTests} from './canvas-reliability.mjs';
 import { runAppearanceTests } from '../../appearance-runtime.mjs';
@@ -24,6 +25,7 @@ import { runSubscriptionTests } from '../../q4-runtime-subscription.mjs';
 import { runPublicVideoTests } from '../../q4-runtime-public-video.mjs';
 
 export const runtimeSuites = Object.freeze([
+  ['minimax-consent', runMinimaxConsentTests, {}],
   ['website-assistant', runWebsiteAssistantTests, { q4Control: 'website-assistant-control.mjs' }],
   ['canvas', runCanvasTests, {}],
   ['canvas-reliability', runCanvasReliabilityTests, {}],
@@ -64,7 +66,7 @@ export function selectedRuntimeSuites(suite) {
   if (suite === 'canvas-audio-fit') return [['canvas-audio-fit', runCanvasAudioFitTests, {}]];
   if (suite === 'canvas-audio') return [['canvas-audio', runCanvasAudioTests, {}]];
   if (suite === 'canvas-completion') return [['canvas-completion', runCanvasCompletionTests, {}]];
-  if (suite && !['member-generation','model-status','model-pricing','appearance','canvas','canvas-reliability','canvas-voice','q4-stream','q4-subscription','website-assistant'].includes(suite)) throw new Error('Unsupported native suite');
+  if (suite && !['minimax-consent','member-generation','model-status','model-pricing','appearance','canvas','canvas-reliability','canvas-voice','q4-stream','q4-subscription','website-assistant'].includes(suite)) throw new Error('Unsupported native suite');
   return suite ? runtimeSuites.filter(([name]) => name === suite) : runtimeSuites;
 }
 

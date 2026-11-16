@@ -17,7 +17,7 @@ const read = (name) => name === '.github/workflows/static.yml' ? releaseValidati
 const fixture = (file, project, index) => ({ file, project, title: `case ${index}`, expectedStatus: 'passed', tags: [] });
 const coreFixtures = [...HOMEPAGE_CORE_FILES.map(file => fixture(file, 'chromium', 0)),
   ...HOMEPAGE_CORE_WEBKIT_FILES.map(file => fixture(file, 'webkit-canvas', 0)),
-  ...['website-assistant.spec.js', 'admin-website-assistant.spec.js'].map(file => fixture(file, 'webkit-assistant', 0)), fixture('smoke.spec.js','webkit-consumer',0)];
+  ...['website-assistant.spec.js', 'admin-website-assistant.spec.js'].map(file => fixture(file, 'webkit-assistant', 0)), fixture('smoke.spec.js','webkit-consumer',0),fixture('minimax-consent.spec.js','webkit-consumer',0)];
 assert.deepEqual(HOMEPAGE_CORE_WEBKIT_FILES, ['canvas.spec.js', 'oma2-q1-canvas.spec.js', 'smoke.spec.js']);
 const adminFixture = fixture('auth-admin.spec.js', 'webkit-canvas', 0);
 assert.throws(() => verifyHomepageCoreDiscovery([...coreFixtures, adminFixture], [...coreFixtures, adminFixture]), /lost or added/);
@@ -44,8 +44,8 @@ assert.equal(canvasProject?.use.browserName, 'webkit');
 assert.deepEqual(canvasProject.testMatch, CANVAS_WEBKIT_FILES.map(file => '**/' + file));
 assert.deepEqual(canvasProject.grep, /Canvas|P13|@canvas-model-ui/);
 const consumerProject=standardConfig.projects.find(project=>project.name==='webkit-consumer');
-assert.deepEqual(consumerProject.testMatch,['**/smoke.spec.js','**/auth-admin.spec.js']);
-assert.deepEqual(consumerProject.grep,/@consumer-contract/);
+assert.deepEqual(consumerProject.testMatch,['**/smoke.spec.js','**/auth-admin.spec.js','**/minimax-consent.spec.js']);
+assert.deepEqual(consumerProject.grep,/@consumer-contract|MiniMax/);
 assert.equal(consumerProject.use.browserName,'webkit');
 
 // Exercise the actual npm caller and the exact discovery line used by CI. The

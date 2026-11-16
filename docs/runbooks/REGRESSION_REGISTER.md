@@ -2945,3 +2945,35 @@ scenarios; retain a negative non-provider-error control and the original timeout
 assertions. Preserve all 630 passes and rerun only the four affected cases before
 fresh Auth acceptance. Progress reporting must inspect cumulative failures and
 retries, not infer a clean run from the most recent successful log lines.
+
+## MiniMax consent admission and delivery (2026-11-16)
+
+Consent belongs before reservation/source preparation and again before fresh
+provider dispatch, not before receipt-only recovery. Initial negative native
+controls found two real integration defects: adapters flattened consent denial to
+`upstream_error`, and a job-level gate also blocked non-MiniMax cover delivery.
+The video/music adapters now retain `403 consent_required`; provider recovery gates
+only new MiniMax calls. New `member_generation_minimax_*` native queue cases assert
+zero invocation/no debit on denial, released reservations/no retry, retained primary
+receipt delivery, accessible old results, default Music selection and Admin-Lab
+versus administrator-member distinction. Current execution: member-generation99/99,
+consent API/schema12/12 under native workerd/D1 (no live-provider acceptance).
+
+A daily retention task initially used detached `waitUntil` on every scheduled path;
+the existing lease-expiry native case rejected it. Cleanup now runs awaited only on
+the existing daily lifecycle, preserving five-minute/Memvid recovery. API/schema
+cases exercise the actual scheduled purge, immutable evidence/deadlines,
+withdrawal/regrant cycles, operational and physical account deletion, and stale
+legal-version rejection. Browser scenarios cover unchecked optional registration,
+first-use decline/grant, stale403, one-click withdrawal and dialog-only regrant in
+both locales/engines; caller mapping is in [MiniMax consent](MINIMAX_CONSENT.md).
+
+Final native review controls also cover interruption after a pending H3 receipt
+but before outcome settlement, withdrawal between the final read and provider-intent
+CAS, and Canvas rejection/regrant using the same idempotency key. Pending receipts
+stay callback-recoverable, intent admission checks current consent atomically, and
+Canvas re-admits only consent-only failures with no usage, provider job or output.
+Browser controls reject decline-induced session expiry, stale grant notices and
+retrying undisplayed legal versions; an updated version requires a page reload.
+Reference replacement on an already connected H3 Canvas source also requires a
+fresh unchecked assurance before selecting or uploading another file.

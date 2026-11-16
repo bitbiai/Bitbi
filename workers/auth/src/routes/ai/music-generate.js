@@ -1,3 +1,5 @@
+import { assertMinimaxConsent } from '../../lib/minimax-consent.js';
+import { markMemberAiUsageAttemptProviderFailed } from '../../lib/member-ai-usage-attempts.js';
 import { promptAssetTitle } from '../../lib/asset-names.js';
 import { ELEVENLABS_MUSIC_V2_MODEL_ID, ELEVENLABS_MUSIC_V2_AUTH_PROXY_TIMEOUT_MS } from '../../../../../js/shared/elevenlabs-music-v2-pricing.mjs';
 import { MEMBER_MUSIC_PLAN_BODY_BYTES, validateElevenLabsMemberBody, elevenLabsCreditPrice, elevenLabsDurationMs } from '../../../../../js/shared/member-music-contract.mjs';
@@ -334,6 +336,7 @@ async function signedAiLabJsonRequest({
       },
     });
   } catch (error) {
+    if(error.code==='consent_required')return {ok:false,status:403,code:error.code,error:error.message};
     if (isGenerationTimeoutError(error)) {
       logDiagnostic({
         service: "bitbi-auth",
@@ -761,6 +764,14 @@ export async function handleGenerateMusic(ctx) {
   let input;
   try {
     input = normalizeMemberMusicBody(parsed.body);
+    if (!generationExecution(env)?.receiptReplay) {
+      try { await assertMinimaxConsent(env,userId,input.modelId); }
+      catch(error) {
+        const execution=generationExecution(env);
+        if(error.code==='consent_required' && execution)await markMemberAiUsageAttemptProviderFailed(env,execution.job.usage_attempt_id,{definitelyNotDispatched:true,code:error.code,message:error.message});
+        throw error;
+      }
+    }
   } catch (error) {
     return respond({ ok: false, error: error.message, code: error.code || "validation_error" }, {
       status: error.status || 400,
@@ -796,6 +807,10 @@ export async function handleGenerateMusic(ctx) {
       ...getErrorFields(error),
     });
     return respond(policyError.body, { status: policyError.status });
+  }
+  if(generationExecution(env)) {
+    generationExecution(env).minimaxUsagePolicy=usagePolicy;
+    generationExecution(env).minimaxModel=input.modelId;
   }
   ctx.captureCanvasUsageAttemptId?.(usagePolicy.attempt?.id || null);
   const accepted = await acceptMemberGeneration(ctx, { usagePolicy, body: parsed.body, mediaType: 'music' });
@@ -903,6 +918,10 @@ export async function handleGenerateMusic(ctx) {
     lyricsElapsedMs = lyricsResponse.elapsedMs;
   }
 
+  if(!generationExecution(env)) {
+    try { await assertMinimaxConsent(env,userId,input.modelId); }
+    catch(error) { await usagePolicy.markProviderFailed({confirmedOutcome:true,code:error.code,message:error.message}); return respond({ok:false,code:error.code,error:error.message},{status:error.status||503}); }
+  }
   let musicResponse;
   try {
     musicResponse = await generateMusic({

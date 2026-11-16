@@ -1,3 +1,4 @@
+import { minimaxGrantStatements } from '../../workers/auth/src/lib/minimax-consent.js';
 import worker from '../../workers/auth/src/index.js';
 import aiWorker from '../../workers/ai/src/index.js';
 import { sha256Hex } from '../../workers/auth/src/lib/tokens.js';
@@ -49,6 +50,7 @@ export async function canvasAgentModelOperationFixture(base,{scope='model-operat
         const now=new Date().toISOString();
         await db.prepare("INSERT INTO users(id,email,password_hash,created_at,role,status,email_verified_at) VALUES(?,?,?,?,'user','active',?)")
             .bind(owner,owner+'@example.invalid','synthetic',now,now).run();
+    await env.DB.batch(minimaxGrantStatements(env,owner,{source:'first_use',locale:'en'}));
         await db.prepare('INSERT INTO sessions(id,user_id,token_hash,created_at,expires_at,last_seen_at) VALUES(?,?,?,?,?,?)')
             .bind(owner,owner,await sha256Hex(`${owner}:${env.SESSION_HASH_SECRET}`),now,new Date(clock+24*3600_000).toISOString(),now).run();
         await topUpMemberDailyCredits({env,userId:owner});

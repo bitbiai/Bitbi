@@ -1,3 +1,4 @@
+import { minimaxGrantStatements } from '../../../workers/auth/src/lib/minimax-consent.js';
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import {verifyCanvasExportSchema,verifyCanvasAssemblyRetentionSchema} from '../../../scripts/lib/canvas-export-readiness.mjs';
@@ -184,6 +185,7 @@ export async function runCanvasTests(f) {
   await f.test('canvas_export_release_schema_queries',()=>verifyCanvasExportSchema(sql=>f.rows(sql)));
   const now = new Date().toISOString(), adminId = 'q2-workerd-admin', memberId = 'q2-workerd-member';
   for (const [id, role] of [[adminId, 'admin'], [memberId, 'user']]) await f.sql('INSERT INTO users(id,email,password_hash,created_at,role,status,email_verified_at,verification_method) VALUES(?,?,?,?,?,?,?,?)', id, id+'@example.invalid', 'synthetic', now, role, 'active', now, 'email').run();
+  for(const id of [adminId,memberId])await f.db.batch(minimaxGrantStatements({DB:f.db},id,{source:'first_use',locale:'en'}));
   const cookie = async id => (await (await f.control('/session', { userId: id })).json()).cookie;
   let admin = await cookie(adminId); const member = await cookie(memberId); let count = 0;
   const tariffRevision=await f.scalar('SELECT revision AS value FROM model_pricing_state WHERE id=1');

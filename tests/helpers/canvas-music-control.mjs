@@ -1,3 +1,4 @@
+import { minimaxGrantStatements } from '../../workers/auth/src/lib/minimax-consent.js';
 import worker from '../../workers/auth/src/index.js';
 import { sha256Hex } from '../../workers/auth/src/lib/tokens.js';
 import { grantMemberCredits } from '../../workers/auth/src/lib/billing.js';
@@ -25,6 +26,7 @@ export async function canvasMusicCase(base, name, role, imageBase64) {
   };
   for(const id of [owner,other]) {
     await db.prepare('INSERT INTO users(id,email,password_hash,created_at,role,email_verified_at) VALUES(?,?,?,?,?,?)').bind(id,id+'@example.invalid','synthetic',now,id===owner?role:'user',now).run();
+    await db.batch(minimaxGrantStatements(env,id));
     await db.prepare('INSERT INTO sessions(id,user_id,token_hash,created_at,expires_at,last_seen_at) VALUES(?,?,?,?,?,?)')
       .bind(id,id,await sha256Hex(`${id}:${env.SESSION_HASH_SECRET}`),now,new Date(Date.now()+3600000).toISOString(),now).run();
   }

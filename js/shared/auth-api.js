@@ -265,8 +265,11 @@ export function apiContractConfirmation(checkoutId) {
     return request('GET', `/account/billing/contracts/${encodeURIComponent(checkoutId)}`);
 }
 
-export function apiRegister(email, password) {
-    return request('POST', '/register', { email, password });
+export function apiMinimaxConsent() { return request('GET','/account/minimax-consent'); }
+export function apiGrantMinimaxConsent(body) { return request('POST','/account/minimax-consent',body); }
+export function apiRevokeMinimaxConsent() { return request('POST','/account/minimax-consent/revoke',{}); }
+export function apiRegister(email, password, consent = {}) {
+    return request('POST', '/register', { email, password, minimaxConsent:consent.minimaxConsent===true,locale:consent.locale,displayedTextVersion:consent.displayedTextVersion });
 }
 
 export function apiLogin(email, password) {

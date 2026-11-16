@@ -1,3 +1,4 @@
+import { minimaxGrantStatements } from '../../workers/auth/src/lib/minimax-consent.js';
 import { canvasMediaConstraintError } from '../../workers/auth/src/lib/canvas-agent-media-errors.js';
 import { canvasProductionFailure } from '../../workers/auth/src/lib/canvas-agent-execution-failure.js';
 import worker from '../../workers/auth/src/index.js';
@@ -36,6 +37,7 @@ async function fixture(base, name) {
   };
   for (const user of [owner, foreign]) {
     await DB.prepare("INSERT INTO users(id,email,password_hash,created_at,role,status,email_verified_at) VALUES(?,?,?,?,'user','active',?)").bind(user, user + '@example.invalid', 'synthetic', now, now).run();
+    await env.DB.batch(minimaxGrantStatements(env,user,{source:'first_use',locale:'en'}));
     await DB.prepare('INSERT INTO sessions(id,user_id,token_hash,created_at,expires_at,last_seen_at) VALUES(?,?,?,?,?,?)').bind(user, user, await sha256Hex(`${user}:${env.SESSION_HASH_SECRET}`), now, new Date(Date.now() + 3600000).toISOString(), now).run();
   }
   await topUpMemberDailyCredits({ env, userId: owner });
