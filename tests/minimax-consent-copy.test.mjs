@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { parseFragment } from 'parse5';
 import { MINIMAX_CONSENT_COPY } from '../js/shared/minimax-consent-copy.mjs';
 
 // Digests derived independently from Justiziar v3 section 7 (2026-11-16),
@@ -25,9 +26,19 @@ const APPROVED = {
 const read = file => readFileSync(new URL('../' + file, import.meta.url), 'utf8');
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 function text(html) {
-  return html.replace(/<[^>]*>/g, '').replace(/&(?:amp|lt|gt|quot|#x27);/g,
-    entity => ({ '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#x27;': "'" })[entity]).trim();
+  // Extract text for comparison only; this is not an HTML sanitizer or renderer.
+  const contents = node => node.nodeName === '#text' ? node.value
+    : (node.childNodes || []).map(contents).join('');
+  return contents(parseFragment(html)).trim();
 }
+test('legal-copy extraction respects markup boundaries and decodes text once', () => {
+  assert.equal(text('<a title="1 > 0">Complete <strong>risk</strong></a> disclosure'), 'Complete risk disclosure');
+  assert.equal(text('A &amp; B &lt;script&gt; &quot;quote&quot; &#x27; &#39; &amp;lt;'),
+    'A & B <script> "quote" \' \' &lt;');
+  assert.equal(text('<scrip<script>t>'), 't>');
+  assert.equal(text('<script'), '');
+  assert.equal(text('before<!-- a > comment -->after'), 'beforeafter');
+});
 for (const locale of ['en', 'de']) {
   test(`MiniMax ${locale} product copy preserves complete approved risk disclosures`, () => {
     const c = MINIMAX_CONSENT_COPY[locale];
