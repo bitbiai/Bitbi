@@ -127,15 +127,15 @@ test('privacy pages name every catalog vendor', () => {
 
 test('privacy copies retain route language, aliases, metadata and current publication version', () => {
   const english = pages['legal/privacy.html'];
-  assert.match(visibleText(english), /Version dated 11 November 2026/);
-  assert.match(english, /Last updated: November 11, 2026/);
+  assert.match(visibleText(english), /Version dated 16 November 2026/);
+  assert.match(english, /Last updated: November 16, 2026/);
   assert.match(english, /<link rel="canonical" href="https:\/\/bitbi\.ai\/legal\/privacy\.html">/);
   assert.match(english, /<html lang="en"/);
   assert.doesNotMatch(markupOutsideScripts(english), /AGB/);
   const german = pages['de/legal/datenschutz.html'];
   for (const file of ['de/legal/datenschutz.html', 'de/legal/privacy.html', 'legal/datenschutz.html']) {
-    assert.match(visibleText(pages[file]), /Stand: 11\. November 2026/);
-    assert.match(pages[file], /<p class="last-updated">Stand: 11\. November 2026<\/p>/);
+    assert.match(visibleText(pages[file]), /Stand: 16\. November 2026/);
+    assert.match(pages[file], /<p class="last-updated">Stand: 16\. November 2026<\/p>/);
     assert.match(pages[file], /<html lang="de"/);
     assert.deepEqual(legalBlocks(pages[file]), legalBlocks(german), `${file} German alias content drift`);
   }
@@ -312,7 +312,7 @@ test('terms preserve withdrawal, usable-result rights and bounded input and outp
   const englishHtml = read('legal/terms.html'), germanHtml = read('de/legal/terms.html');
   const english = visibleText(legalBody(englishHtml)), german = visibleText(legalBody(germanHtml));
   for (const html of [englishHtml, germanHtml]) assert.match(html, /<meta name="robots" content="noindex, follow">/);
-  assert.match(english, /Version dated 25 October 2026/);
+  assert.match(english, /Version dated 16 November 2026/);
   assert.match(english, /Model withdrawal form/);
   assert.match(english, /Schwarzwaldstraße 20, 78647 Trossingen, Germany/);
   assert.match(english, /saved, playable exported video with the agreed audio or music and its editable Canvas project/);
@@ -326,7 +326,7 @@ test('terms preserve withdrawal, usable-result rights and bounded input and outp
   assert.match(english, /internal supplier invoice or credit entry alone does not determine/);
   assert.match(english, /payment-provider change has already occurred/);
   assert.match(english, /Existing contracts are not automatically replaced/);
-  assert.match(german, /Fassung vom 25\. Oktober 2026/);
+  assert.match(german, /Fassung vom 16\. November 2026/);
   assert.match(german, /Muster-Widerrufsformular/);
   assert.match(german, /Schwarzwaldstraße 20, 78647 Trossingen, Deutschland/);
   assert.match(german, /§ 356 Abs\. 6 Nr\. 2 BGB/);
@@ -343,7 +343,7 @@ test('terms preserve withdrawal, usable-result rights and bounded input and outp
 });
 
 test('checkout, complete legal texts and immutable historical content keep explicit versions', () => {
-  assert.equal(CONSUMER_TERMS_VERSION, '2026-10-25');
+  assert.equal(CONSUMER_TERMS_VERSION, '2026-11-16');
   for (const file of ['js/pages/pricing/main.js', 'js/pages/credits/main.js', 'workers/auth/src/lib/stripe-billing.js']) {
     assert.match(read(file), /consumer-contract\.mjs/);
   }
@@ -353,7 +353,7 @@ test('checkout, complete legal texts and immutable historical content keep expli
   for (const [locale, file] of [['en', 'legal/terms.html'], ['de', 'de/legal/terms.html']]) {
     const content = CONSUMER_TERMS_CONTENT[locale];
     assert.equal(content.version, CONSUMER_TERMS_VERSION);
-    assert.match(consumerConsentText(locale).terms, locale === 'de' ? /25\.10\.2026/ : /25 October 2026/);
+    assert.match(consumerConsentText(locale).terms, locale === 'de' ? /16\.11\.2026/ : /16 November 2026/);
     verifyTermsContent(read(file), content.text);
     const missingParagraph = read(file).replace(/<p>[^<]*<\/p>/, '');
     assert.notEqual(missingParagraph, read(file), 'countercontrol must remove a real paragraph');

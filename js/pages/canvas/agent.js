@@ -1,3 +1,4 @@
+import { showMinimaxConsentDialog } from '../../shared/minimax-consent-ui.js?v=__ASSET_VERSION__';
 import { canvasRequest } from './api.js?v=__ASSET_VERSION__';
 import { canvasAgentCopy } from './agent-copy.js?v=__ASSET_VERSION__';
 import { createCanvasAgentActivity } from './agent-live.js?v=__ASSET_VERSION__';
@@ -97,7 +98,9 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
         if (action === 'resume') return run.status === 'paused';
         return action === 'cancel' || action === 'takeover';
     }
+    let consentPromptRun=null;
     function render() {
+        if(run?.errorCode==='consent_required'&&consentPromptRun!==run.id){consentPromptRun=run.id;void showMinimaxConsentDialog();}
         const canStart = availability?.available === true;
         availabilityNote.hidden = canStart;
         availabilityNote.textContent = availability === null ? copy.checking : availability?.code === 'grok_47_unverified' ? copy.unavailableModel : copy.unavailable;
@@ -175,6 +178,7 @@ export function createCanvasAgentPanel({ root, german, getState, flush, newProje
         }
     }
     function error(result) {
+        if(result.code==='consent_required'){void showMinimaxConsentDialog();return;}
         const policyError=canvasMediaPolicyError(result.code,german);
         if(policyError){message(policyError,result);return;}
         if (['model_pricing_stale', 'canvas_project_revision_conflict', 'project_revision_conflict', 'canvas_agent_project_changed', 'canvas_agent_tariff_changed','canvas_agent_budget_request_stale','canvas_agent_budget_request_conflict','canvas_agent_budget_request_changed','canvas_agent_budget_decision_conflict'].includes(result.code)) { message(copy.stale,result); }

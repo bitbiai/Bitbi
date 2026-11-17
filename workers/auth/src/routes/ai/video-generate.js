@@ -1,3 +1,5 @@
+import { assertMinimaxConsent } from '../../lib/minimax-consent.js';
+import { markMemberAiUsageAttemptProviderFailed } from '../../lib/member-ai-usage-attempts.js';
 import { OMNI_MODEL, normalizeOmniRequest, buildOmniProviderInput, parseOmniResult } from '../../../../../js/shared/gemini-omni-contract.mjs';
 import { assertOmniReady } from '../../lib/gemini-omni-readiness.js';
 import { quoteModelTariff } from '../../lib/model-tariffs.js';
@@ -927,6 +929,7 @@ async function invokeMemberVideoModel(env, modelId, payload, { correlationId, us
     });
     return { ok: true, result, elapsedMs: getDurationMs(startedAt) };
   } catch (error) {
+    if(error.code==='consent_required')return {ok:false,status:403,code:error.code,error:error.message};
     logDiagnostic({
       service: "bitbi-auth",
       component: "ai-generate-video",
@@ -1084,6 +1087,14 @@ export async function handleGenerateVideo(ctx) {
   let input;
   try {
     input = await normalizeMemberVideoBody(parsed.body);
+    if (!generationExecution(env)?.receiptReplay) {
+      try { await assertMinimaxConsent(env,userId,input.modelId); }
+      catch(error) {
+        const execution=generationExecution(env);
+        if(error.code==='consent_required' && execution)await markMemberAiUsageAttemptProviderFailed(env,execution.job.usage_attempt_id,{definitelyNotDispatched:true,code:error.code,message:error.message});
+        throw error;
+      }
+    }
     if (isGrokVideo(input.modelId) || (isH3Model(input.modelId)||[OMNI_MODEL,SEEDANCE_25_MODEL].includes(input.modelId))) {
       const existing = generationExecution(env)?.job || await env.DB.prepare("SELECT source_refs_json FROM member_generation_jobs WHERE user_id=? AND media_type='video' AND request_key=?")
         .bind(userId,request.headers.get('Idempotency-Key') || '').first();
@@ -1129,6 +1140,10 @@ export async function handleGenerateVideo(ctx) {
       ...getErrorFields(error),
     });
     return respond(policyError.body, { status: policyError.status });
+  }
+  if(generationExecution(env)) {
+    generationExecution(env).minimaxUsagePolicy=usagePolicy;
+    generationExecution(env).minimaxModel=input.modelId;
   }
   ctx.captureCanvasUsageAttemptId?.(usagePolicy.attempt?.id || null);
   const accepted = await acceptMemberGeneration(ctx, { usagePolicy, body: parsed.body, mediaType: 'video', sourceRefs: input.sourceRefs || [] });
@@ -1229,6 +1244,10 @@ export async function handleGenerateVideo(ctx) {
       throw error;
     }
     const {model, preset, ...parameters} = resolved; providerPayload = input.modelId===SEEDANCE_25_MODEL?buildSeedance25ProviderInput(resolved):input.modelId===OMNI_MODEL?buildOmniProviderInput(resolved):isH3Model(input.modelId)?buildH3ProviderInput(resolved):parameters;
+  }
+  if(!generationExecution(env)) {
+    try { await assertMinimaxConsent(env,userId,input.modelId); }
+    catch(error) { await usagePolicy.markProviderFailed({confirmedOutcome:true,code:error.code,message:error.message}); return respond({ok:false,code:error.code,error:error.message},{status:error.status||503}); }
   }
   const providerResponse = await invokeMemberVideoModel(env, input.modelId, providerPayload, { correlationId, userId, signal: request.signal, usagePolicy });
   if (!providerResponse.ok) {

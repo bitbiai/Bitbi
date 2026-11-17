@@ -2,6 +2,7 @@
    BITBI — Sound Lab Create: inline MiniMax Music generation
    ============================================================ */
 
+import { createMinimaxNotice } from '../../shared/minimax-consent-ui.js?v=__ASSET_VERSION__';
 import {
     apiAiGenerateMusic,
     apiAiGetAssets,
@@ -319,7 +320,7 @@ async function handleGenerate() {
     }
 
     if (!res.ok) {
-        renderPreviewEmpty(localeText(res.phase==='preflight'?'generation.sessionStopped':'studio.musicGenerationFailed'));
+        renderPreviewEmpty(res.code==='consent_required'?res.error:localeText(res.phase==='preflight'?'generation.sessionStopped':'studio.musicGenerationFailed'));
         showMsg($msg, res.error || localeText('studio.generationFailed'), res.pending ? 'info' : 'error');
         if (res.code === 'insufficient_member_credits' && creditBalance !== null) {
             renderQuota();
@@ -347,6 +348,7 @@ export function initSoundLabCreate() {
     $instrumental = document.getElementById('soundMusicInstrumental');
     $generateLyrics = document.getElementById('soundMusicGenerateLyrics');
     $generateBtn = document.getElementById('soundMusicGenerate');
+    if($generateBtn)createMinimaxNotice($generateBtn,MINIMAX_MUSIC_2_6_MODEL_ID);
     $preview = document.getElementById('soundMusicPreview');
     $msg = document.getElementById('soundMusicMsg');
     $costLabel = document.getElementById('soundMusicCreditEstimate');

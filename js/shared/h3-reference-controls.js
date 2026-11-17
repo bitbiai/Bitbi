@@ -1,3 +1,4 @@
+import { minimaxReferenceConfirmation } from './minimax-consent-ui.js?v=__ASSET_VERSION__';
 import { SEEDANCE_25_ROLES, seedance25References } from './seedance-25-contract.mjs?v=__ASSET_VERSION__';
 import { uploadOmniReference } from './omni-reference-upload.js?v=__ASSET_VERSION__';
 import { OMNI_ROLES, omniReferences } from './gemini-omni-contract.mjs?v=__ASSET_VERSION__';
@@ -15,7 +16,7 @@ export function h3RoleLabel(role,de=false) {
 }
 
 // Uses each workspace's existing owned-asset picker and saved form settings.
-export function createH3ReferenceControls({anchor,de=false,pick,changed,read,write,classes={},omni=false,seedance25=false}) {
+export function createH3ReferenceControls({anchor,de=false,pick,changed,read,write,classes={},omni=false,seedance25=false,requireMinimaxAssurance=true}) {
     const root=document.createElement('fieldset');if(seedance25)root.dataset.seedance25References='';else if(omni)root.dataset.omniReferences='';else root.dataset.h3References='';root.hidden=true;
     root.className=classes.root||'generate-lab__settings-group';anchor.after(root);
     const legend=document.createElement('legend');legend.textContent=de?'Referenzen':'References';root.append(legend);
@@ -26,6 +27,7 @@ export function createH3ReferenceControls({anchor,de=false,pick,changed,read,wri
     const add=document.createElement('button');add.type='button';add.className=classes.button||'generate-lab__secondary-btn';add.textContent=de?'Gespeichertes Medium auswählen':'Choose saved media';root.append(add);
     const notice=document.createElement('p');notice.setAttribute('role','status');root.append(notice);
     if(omni){const hint=document.createElement('p');hint.textContent=de?'Ton im Prompt beschreiben. Dauer und Gesprächsfortsetzung sind nicht verfügbar; 4K ist eine Ausgabeoption, keine Zusicherung nativer 4K-Erzeugung.':'Describe generated audio in the instruction. Duration and conversation continuation are unavailable; 4K is an output option, not a claim of native 4K generation.';root.append(hint);}
+    const assurance=requireMinimaxAssurance&&!omni&&!seedance25?minimaxReferenceConfirmation():null;if(assurance)root.append(assurance.label);
     const list=document.createElement('ol');root.append(list);
     let version=0,disabled=false,uploading=false,modelId=H3_MODEL;
     const file=document.createElement('input');file.type='file';file.hidden=true;file.accept='image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime,audio/mpeg,audio/wav';
@@ -61,18 +63,19 @@ export function createH3ReferenceControls({anchor,de=false,pick,changed,read,wri
         add.disabled=disabled||entries.length>=(seedance25?52:omni?14:h3ModelDefinition(modelId).limits.total);select.disabled=disabled;uploadButton.disabled=disabled||uploading;
     }
     add.addEventListener('click',()=>{
+        if(assurance&&!assurance.input.checked){assurance.input.focus();notice.textContent=de?'Bitte bestätigen Sie die Zusicherung für diese Referenzdatei.':'Please confirm the assurance for this reference file.';return;}
         const role=select.value,epoch=version;
         pick({media:h3MediaType(role),max:1,trigger:add,onApply:assets=>{
-            if(epoch!==version||disabled||!assets[0])return false;
+            if(epoch!==version||disabled||!assets[0]||assurance&&!assurance.input.checked)return false;
             const entry={role,source:{source_type:'saved_asset',asset_id:assets[0].id},title:assets[0].title||assets[0].file_name||''};
             const old=read(),frame=['first_frame','last_frame'].includes(role);
             const next=seedance25?(frame?old.filter(e=>e.role!==role):old):omni?(role==='reference_image'?old:old.filter(e=>e.role!==role)):frame?old.filter(e=>['first_frame','last_frame'].includes(e.role)&&e.role!==role):old.filter(e=>!['first_frame','last_frame'].includes(e.role));
             try{const refs=[...next,entry].map(({role,source})=>({role,source}));if(omni||seedance25)(seedance25?seedance25References:omniReferences)(refs);else h3References(refs,modelId);}catch(error){notice.textContent=de?'Für diese Rolle sind keine weiteren Referenzen erlaubt.':error.message;return false;}
-            notice.textContent='';write([...next,entry]);render();changed();return true;
+            notice.textContent='';write([...next,entry]);if(assurance)assurance.input.checked=false;render();changed();return true;
         }});
     });
     return {sync(visible,busy,selectedModel=H3_MODEL){
-        if(root.hidden===visible||visible&&modelId!==selectedModel)version++;
+        if(root.hidden===visible||visible&&modelId!==selectedModel){version++;if(assurance)assurance.input.checked=false;}
         if(visible&&!omni&&!seedance25){
             modelId=selectedModel;
             const roles=h3ModelDefinition(modelId).roles;

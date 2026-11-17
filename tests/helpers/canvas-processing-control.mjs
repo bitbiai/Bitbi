@@ -1,3 +1,4 @@
+import { minimaxGrantStatements } from '../../workers/auth/src/lib/minimax-consent.js';
 import { canvasMergeView, canvasVideoSelection } from '../../workers/auth/src/lib/canvas-merge-selection.js';
 import { canvasClipIdentity, canvasMergeStrand, canvasMergeSequence } from '../../js/shared/canvas-export.mjs';
 import { registerCanvasMedia,canvasMediaEnvironment,reclaimCanvasMedia } from '../../workers/auth/src/lib/canvas-media-storage.js';
@@ -13,6 +14,7 @@ export async function canvasProcessingCase(base,fixture) {
   const db=env.DB,video=Uint8Array.from(atob(fixture.videoBase64),c=>c.charCodeAt(0));
   for(const id of [owner,other]) {
     await db.prepare("INSERT INTO users(id,email,password_hash,created_at,role,email_verified_at) VALUES(?,?,?,?,'user',?)").bind(id,id+'@example.invalid','synthetic',now,now).run();
+    await env.DB.batch(minimaxGrantStatements(env,id,{source:'first_use',locale:'en'}));
     await db.prepare('INSERT INTO sessions(id,user_id,token_hash,created_at,expires_at,last_seen_at) VALUES(?,?,?,?,?,?)').bind(id,id,await sha256Hex(`${id}:${env.SESSION_HASH_SECRET}`),now,new Date(Date.now()+3600000).toISOString(),now).run();
   }
   await db.prepare("INSERT INTO canvas_projects(id,user_id,title,created_at,updated_at) VALUES(?,?,'Synthetic chain',?,?)").bind(project,owner,now,now).run();
@@ -397,6 +399,7 @@ export async function canvasStorageCases(env, fixture) {
   const now=new Date().toISOString(),owner='canvas-storage-owner',other='canvas-storage-other';
   for(const id of [owner,other]) {
     await env.DB.prepare("INSERT INTO users(id,email,password_hash,created_at,role,email_verified_at) VALUES(?,?,?,?,'user',?)").bind(id,id+'@example.invalid','synthetic',now,now).run();
+    await env.DB.batch(minimaxGrantStatements(env,id,{source:'first_use',locale:'en'}));
     await env.DB.prepare('INSERT INTO sessions(id,user_id,token_hash,created_at,expires_at,last_seen_at) VALUES(?,?,?,?,?,?)').bind(id,id,await sha256Hex(`${id}:${env.SESSION_HASH_SECRET}`),now,new Date(Date.now()+3600000).toISOString(),now).run();
   }
   const request=(path,method='GET',user=owner)=>worker.fetch(new Request('https://bitbi.ai'+path,{method,headers:{Origin:'https://bitbi.ai',Cookie:`__Host-bitbi_session=${user}`,...(method==='POST'?{'Content-Type':'application/json'}:{})},body:method==='POST'?'{}':undefined}),env,{waitUntil(){}});

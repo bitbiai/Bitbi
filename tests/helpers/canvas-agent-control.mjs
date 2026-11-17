@@ -1,3 +1,4 @@
+import { minimaxGrantStatements } from '../../workers/auth/src/lib/minimax-consent.js';
 import { canvasAgentEnvironment, canvasAgentSession, canvasAgentUsageMetadata } from '../../workers/auth/src/lib/canvas-agent-authority.js';
 import { sha256Hex } from '../../workers/auth/src/lib/tokens.js';
 import { beginMemberAiUsageAttempt, markMemberAiUsageAttemptProviderRunning } from '../../workers/auth/src/lib/member-ai-usage-attempts.js';
@@ -35,6 +36,7 @@ export async function canvasAgentAuthorityCase(env) {
   const id = async suffix => (await sha256Hex(owner + suffix)).slice(0, 32);
   const project = await id('project'), run = await id('run'), step = await id('step'), modelId = 'xai/grok-4.7';
   await db.prepare("INSERT INTO users(id,email,password_hash,created_at,role,status,email_verified_at) VALUES(?,?,?,?,'user','active',?)").bind(owner, owner + '@example.invalid', 'synthetic', now, now).run();
+    await env.DB.batch(minimaxGrantStatements(env,owner,{source:'first_use',locale:'en'}));
   await topUpMemberDailyCredits({ env, userId: owner });
   await grantMemberCredits({ env, userId: owner, amount: 1000, createdByUserId: owner, idempotencyKey: 'agent-authority-credits' });
   await db.prepare("INSERT INTO canvas_projects(id,user_id,title,locale,created_at,updated_at) VALUES(?,?,'Authority fixture','en',?,?)").bind(project, owner, now, now).run();
@@ -115,6 +117,7 @@ export async function canvasAgentApiCase(base) {
   };
   for (const user of [owner, foreign]) {
     await db.prepare("INSERT INTO users(id,email,password_hash,created_at,role,status,email_verified_at) VALUES(?,?,?,?,'user','active',?)").bind(user, user + '@example.invalid', 'synthetic', now, now).run();
+    await env.DB.batch(minimaxGrantStatements(env,user,{source:'first_use',locale:'en'}));
     await db.prepare('INSERT INTO sessions(id,user_id,token_hash,created_at,expires_at,last_seen_at) VALUES(?,?,?,?,?,?)')
       .bind(user, user, await sha256Hex(`${user}:${env.SESSION_HASH_SECRET}`), now, new Date(Date.now() + 3600000).toISOString(), now).run();
   }
@@ -379,6 +382,7 @@ export async function canvasAgentCapabilityCase(env) {
   await rejected(()=>prepareCanvasAgentPriceInput({node:{type:'video_generation',modelId:seedance.id,prompt:'Continue this shot.',config:{}},model:seedance,dependencies:[{...videoReference,dep:{...videoReference.dep,method:'last_frame'}}],existingNodes:[videoReference.row]}),'canvas_agent_reference_unsupported');
   const owner = 'canvas-agent-capability-member', now = new Date().toISOString();
   await env.DB.prepare("INSERT INTO users(id,email,password_hash,created_at,role,status,email_verified_at) VALUES(?,?,?,?,'user','active',?)").bind(owner,owner+'@example.invalid','synthetic',now,now).run();
+    await env.DB.batch(minimaxGrantStatements(env,owner,{source:'first_use',locale:'en'}));
   const inventory = await canvasAgentCapabilities(env);
   check(inventory.models.every(model => Number.isSafeInteger(model.pricing.defaultCredits) && model.pricing.defaultCredits > 0), 'Inventory advertises only priced eligible models');
   check(inventory.models.every(model => model.suitability.status === 'provisional' && !('score' in model.suitability)), 'Creative expectations are not invented benchmark scores');
@@ -445,6 +449,7 @@ export async function canvasAgentNativeDurationCase(env) {
   const {getCanvasModelForRole}=await import('../../js/shared/canvas-model-contract.mjs');
   const owner='canvas-native-duration-member',now=new Date().toISOString(),project=(await sha256Hex('native-duration-project')).slice(0,32),runId=(await sha256Hex('native-duration-run')).slice(0,32);
   await env.DB.prepare("INSERT INTO users(id,email,password_hash,created_at,role,status,email_verified_at) VALUES(?,?,?,?,'user','active',?)").bind(owner,owner+'@example.invalid','synthetic',now,now).run();
+    await env.DB.batch(minimaxGrantStatements(env,owner,{source:'first_use',locale:'en'}));
   await env.DB.prepare("INSERT INTO canvas_projects(id,user_id,title,locale,created_at,updated_at) VALUES(?,?,'Native duration','en',?,?)").bind(project,owner,now,now).run();
   await env.DB.prepare(`INSERT INTO canvas_agent_runs(id,project_id,user_id,request_key,input_json,status,expected_revision,budget_credits,target_seconds,tolerance_seconds,lease_token,lease_until,next_attempt_at,created_at,updated_at,expires_at)
     VALUES(?,?,?,?,?,'planning',0,10000,45,.5,'native-duration-lease',?,?,?,?,?)`).bind(runId,project,owner,runId,JSON.stringify({brief:'Four scenes with a creative target of forty-five seconds.'}),new Date(Date.now()+600000).toISOString(),now,now,now,new Date(Date.now()+3600000).toISOString()).run();

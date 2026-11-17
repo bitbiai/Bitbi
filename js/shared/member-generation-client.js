@@ -1,3 +1,4 @@
+import { ensureMinimaxConsent,minimaxConsentDeclined } from './minimax-consent-ui.js?v=__ASSET_VERSION__';
 import { localeText } from './locale.js?v=__ASSET_VERSION__';
 import { getAuthState } from './auth-state.js';
 
@@ -55,7 +56,14 @@ async function intent(owner,kind,body) {
     return {key,clear(){intents.delete(name);try{localStorage.removeItem(name);}catch{}}};
 }
 export async function runMemberGeneration(request,kind,body,options={}) {
-    if(options.durable!==true) return request('POST',`/ai/generate-${kind}`,body,options);
+    const model=body.model || (kind==='music'?'minimax/music-2.6':'');
+    const submit=async(options)=>{
+        if(!await ensureMinimaxConsent(model,{signal:options.signal}))return minimaxConsentDeclined();
+        let result=await request('POST',`/ai/generate-${kind}`,body,options);
+        if(result.status===403&&result.code==='consent_required'&&await ensureMinimaxConsent(model,{force:true,signal:options.signal}))result=await request('POST',`/ai/generate-${kind}`,body,options);
+        return result;
+    };
+    if(options.durable!==true) return submit(options);
     if(sessionChanges) return preflightFailure('sessionChanged');
     if(activeSubmission) return preflightFailure('submissionBusy');
     const controller=new AbortController(), original=options;
@@ -78,7 +86,7 @@ export async function runMemberGeneration(request,kind,body,options={}) {
         if(controller.signal.aborted || sessionChanges)return preflightFailure('sessionChanged');
         options.onPreflight?.('verified');
         if(controller.signal.aborted)return preflightFailure('sessionChanged');
-        const accepted=await request('POST',`/ai/generate-${kind}`,body,{...options,headers:{...options.headers,'Idempotency-Key':current.key,Prefer:'respond-async'}});
+        const accepted=await submit({...options,headers:{...options.headers,'Idempotency-Key':current.key,Prefer:'respond-async'}});
         const job=accepted.data?.data?.job;
         if(!accepted.ok || accepted.status!==202 || !job?.id) return accepted;
         window.dispatchEvent(new CustomEvent('bitbi:generation-accepted',{detail:{id:job.id}}));

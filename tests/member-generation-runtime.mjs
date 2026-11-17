@@ -28,6 +28,32 @@ export async function runMemberGenerationTests(f) {
   }
   assert.deepEqual(JSON.parse((await f.sql("SELECT value_json FROM app_settings WHERE key='private_media_service'").first()).value_json),{backend:'github',thumbnailBackend:'github'});
   const fixture={h3VideoBase64:fs.readFileSync(new URL('./fixtures/media/h3-reference.mp4',import.meta.url)).toString('base64'),h3ImageBase64:fs.readFileSync(new URL('./fixtures/media/h3-frame.png',import.meta.url)).toString('base64'),imageBase64:fs.readFileSync(new URL('./fixtures/media/member-image.png',import.meta.url)).toString('base64'),videoBase64:fs.readFileSync(new URL('./fixtures/media/test-video-changing.mp4',import.meta.url)).toString('base64'),posterBase64:fs.readFileSync(new URL('./fixtures/media/member-video-poster.webp',import.meta.url)).toString('base64')};
+  const consentFixtures={...fixture,h3OverrunBase64:fs.readFileSync(new URL('./fixtures/media/h3-overrun.mp4',import.meta.url)).toString('base64'),h3PreparedBase64:fs.readFileSync(new URL('./fixtures/media/h3-prepared.mp4',import.meta.url)).toString('base64')};
+  for(const family of ['h3','h3-lite','music']) for(const phase of ['queued','boundary','intent','receipt',...(family==='music'?[]:['interrupted'])]) {
+    const name=`consent-${family}-${phase}`,kind=family==='music'?'music':'video';
+    await f.test(`member_generation_actual_queue_${name}`,async()=>{
+      const input=kind==='music'?{prompt:'Synthetic consent recovery song',instrumental:true}:{model:`minimax/${family}`,prompt:'Synthetic consent recovery video',duration:5,resolution:'768P'};
+      const response=await f.control('/member-generation',{name,kind,input,...consentFixtures});
+      assert.equal(response.status,200,`Native consent queue ${name}`);const result=await response.json();
+      const recovery=phase==='receipt'||phase==='interrupted';
+      assert.equal(result.calls.provider,recovery?(kind==='music'?2:1):0);
+      assert.equal(result.status,recovery?'succeeded':'failed');
+      if(phase!=='interrupted')assert.equal(phase==='receipt'?result.retained:result.released,true);
+      assert.equal(f.counters.outboundDenied,0);assert.equal(f.counters.serviceDenied,0);f.metrics.push(result);
+    });
+  }
+  await f.test('member_generation_actual_Canvas_stale_consent_and_same_key_safe_readmission',async()=>{
+    const response=await f.control('/member-generation',{name:'consent-canvas',kind:'video',input:{model:'minimax/h3',prompt:'Synthetic consent Canvas retry',duration:5,resolution:'768P'},...consentFixtures});
+    assert.equal(response.status,200);const result=await response.json();assert.equal(result.status,'succeeded');assert.equal(result.calls.provider,1);assert.equal(result.debits,1);
+    assert.equal(f.counters.outboundDenied,0);assert.equal(f.counters.serviceDenied,0);f.metrics.push(result);
+  });
+  for(const [name,kind,input] of [['consent-admin-member','music',{prompt:'Synthetic admin member no consent',instrumental:true}],['consent-admin-lab','video',{}]]) {
+    await f.test(`member_generation_actual_queue_${name}`,async()=>{
+      const response=await f.control('/member-generation',{name,kind,input,...consentFixtures});assert.equal(response.status,200);
+      const result=await response.json();assert.equal(result.status,name==='consent-admin-lab'?'succeeded':'consent_required');
+      assert.equal(result.calls.provider,name==='consent-admin-lab'?1:0);f.metrics.push(result);
+    });
+  }
   const grokCases = ['base','preview'].flatMap(alias=>['generate','edit','extend'].map(operation=>({name:`admin-lab-grok-${alias}-${operation}`,kind:'video',input:{model:alias==='base'?'xai/grok-imagine-video':'xai/grok-imagine-video-1.5-preview',prompt:'Synthetic motion',_operation:operation,duration:2,resolution:'480p'}})));
   const h3Cases=['h3-rejection-known','h3-rejection-unknown','h3-rejection-settlement','h3-rejection-settlement-lost','h3-rejection-callback-race','h3-callback','h3-callback-failed','h3-failed','h3-output-usage','h3-references'].map(name=>({name,kind:'video',input:{model:'minimax/h3',prompt:'Synthetic H3 motion',duration:5,resolution:'768P'}}));
   h3Cases.push({name:'h3-wrong-receipt',kind:'video',input:{model:'minimax/h3',prompt:'Synthetic wrong-model receipt',duration:5,resolution:'768P'}});

@@ -280,6 +280,7 @@ async function mockGenerateLabMemberSession(page, {
   credits = 900,
 } = {}) {
   await require('./helpers/generation-selectors.cjs').mockAvailability(page);
+  await page.route('**/api/account/minimax-consent',route=>route.fulfill({json:{ok:true,consent:{granted:true,grantedAt:'2026-11-16T00:00:00.000Z',textVersion:'minimax-consent-v3-2026-11-16'}}}));
   let logoutRequests = 0;
   let loggedIn = true;
 
@@ -10252,6 +10253,7 @@ for(const locale of ['en','de']) for(const lite of [false,true]) test(`@canvas-m
   const controls=page.locator('[data-h3-references]');await expect(controls).toBeVisible();
   for(const [role,id] of [['first_frame','asset-ref-1'],['last_frame','asset-ref-2']]) {
     await controls.locator('select').selectOption(role);
+    await controls.locator('[data-minimax-reference-assurance]').check();
     await controls.getByRole('button',{name:locale==='de'?'Gespeichertes Medium auswählen':'Choose saved media'}).click();
     await page.locator(`#labAssetsGrid [data-asset-id="${id}"]`).click();await page.locator('#labAssetsPickerApply').click();
   }

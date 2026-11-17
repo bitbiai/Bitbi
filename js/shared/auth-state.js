@@ -41,8 +41,8 @@ export async function authLogin(email, password) {
     return res;
 }
 
-export async function authRegister(email, password) {
-    return apiRegister(email, password);
+export async function authRegister(email, password, consent) {
+    return apiRegister(email, password, consent);
 }
 
 export async function authLogout({ redirectTo = '' } = {}) {

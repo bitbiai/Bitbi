@@ -1,3 +1,4 @@
+import { minimaxGrantStatements } from '../../workers/auth/src/lib/minimax-consent.js';
 import { changeModelTariff, getModelTariff } from '../../workers/auth/src/lib/model-tariffs.js';
 import { verifyGrokOutputUpload } from './member-generation-control.mjs';
 import { encodeAdminMfaProofToken } from '../../workers/auth/src/lib/admin-mfa.js';
@@ -64,6 +65,7 @@ export async function canvasVideoCase(base, name, fixture) {
   } });
   for (const id of [owner, other]) {
     await db.prepare("INSERT INTO users(id,email,password_hash,created_at,role,email_verified_at) VALUES(?,?,?,?,'user',?)").bind(id, `${id}@example.invalid`, 'synthetic', now, now).run();
+    await env.DB.batch(minimaxGrantStatements(env,id,{source:'first_use',locale:'en'}));
     await db.prepare('INSERT INTO sessions(id,user_id,token_hash,created_at,expires_at,last_seen_at) VALUES(?,?,?,?,?,?)')
       .bind(id,id,await sha256Hex(`${id}:${env.SESSION_HASH_SECRET}`),now,new Date(Date.now()+3600000).toISOString(),now).run();
   }
@@ -421,6 +423,7 @@ export async function adminPixverseCase(base, name, fixture) {
     }};
   for(const [id,role] of [[user,'admin'],[other,'user']]) {
     await db.prepare('INSERT INTO users(id,email,password_hash,created_at,role,email_verified_at) VALUES(?,?,?,?,?,?)').bind(id,id+'@example.invalid','synthetic',now,role,now).run();
+
     await db.prepare('INSERT INTO sessions(id,user_id,token_hash,created_at,expires_at,last_seen_at) VALUES(?,?,?,?,?,?)')
       .bind(id,id,await sha256Hex(`${id}:${env.SESSION_HASH_SECRET}`),now,new Date(Date.now()+3600000).toISOString(),now).run();
   }

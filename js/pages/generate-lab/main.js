@@ -1,3 +1,4 @@
+import { createMinimaxNotice,renderMinimaxNotice } from '../../shared/minimax-consent-ui.js?v=__ASSET_VERSION__';
 import { SEEDANCE_25_MODEL, normalizeSeedance25Request } from '../../shared/seedance-25-contract.mjs';
 import { createSeedance25Controls } from '../../shared/seedance-25-controls.js';
 import { modelAreaEnabled } from '../../shared/model-availability.js';
@@ -383,7 +384,7 @@ function setMessage(text = '', type = 'info') {
 }
 
 function isAuthFailure(result) {
-    return result?.status === 401 || result?.status === 403;
+    return result?.status === 401 || (result?.status === 403 && result?.code !== 'consent_required');
 }
 
 function jobWorkflowStatus(job) {
@@ -973,7 +974,10 @@ function renderLoadingResult(text) {
     refs.resultStage?.replaceChildren(el('div', { className: 'generate-lab__loading-state' }, spinner, ...(text ? [el('span', { text })] : [])));
 }
 
+let minimaxNotice;
 function renderAllForSelection({ keepResult = false } = {}) {
+    minimaxNotice ||= createMinimaxNotice(refs.generate,state.modelId);
+    renderMinimaxNotice(minimaxNotice,state.modelId);
     document.body.dataset.labMode = state.mediaType;
     document.body.dataset.labMobileImage = String(isGptImage25Model(state.modelId));
     for (const tab of document.querySelectorAll('.generate-lab__media-tab')) {
@@ -2179,6 +2183,7 @@ async function handleGenerate() {
     if(res?.job?.delivery_status==='failed'){setMessage('');setWorkflowStatus('deliveryFailed',submitted.modelLabel);return;}
     if (!res?.ok) {
         if(res?.code==='model_area_disabled') { state.currentImageData=previousResult.imageData;state.currentImageMeta=previousResult.imageMeta;refs.resultStage?.replaceChildren(...previousResult.nodes);syncDetachedImageSaves();setWorkflowStatus('idle');await refreshModelPricing(); renderImageModelOptions(); updateActionState(); setMessage(''); return; }
+        if(res?.code==='consent_required'){setMessage(res.error,'error');setWorkflowStatus('idle');return;}
         if(res?.phase==='preflight') {
             setMessage(res.error,'error');setWorkflowStatus('preflightStopped');
             if(isAuthFailure(res)){state.sessionExpired=true;state.loggedIn=false;state.user=null;updateAccountPanel();}

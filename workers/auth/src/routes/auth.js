@@ -1,3 +1,5 @@
+import { MINIMAX_CONSENT_TEXT_VERSION } from '../../../../js/shared/minimax-consent.mjs';
+import { getMinimaxConsent, minimaxGrantStatements, recordMinimaxActivity } from '../lib/minimax-consent.js';
 import { json } from "../lib/response.js";
 import {
   BODY_LIMITS,
@@ -86,6 +88,7 @@ export async function handleMe(ctx) {
     loggedIn: true,
     user: {
       ...session.user,
+      minimaxConsent: await getMinimaxConsent(env,session.user.id),
       display_name: profileRow?.display_name || "",
       has_avatar: hasAvatar,
       avatar_url: hasAvatar ? "/api/profile/avatar" : null,
@@ -164,6 +167,8 @@ export async function handleRegister(ctx) {
     );
   }
 
+  if(body.minimaxConsent===true && body.displayedTextVersion!==MINIMAX_CONSENT_TEXT_VERSION)return json({ok:false,error:'Reload the current MiniMax consent text.',code:'consent_text_changed'},{status:409});
+
   const registrationStatus = await getRegistrationAvailability(env);
   if (registrationStatus.enabled === false) {
     return json(
@@ -218,14 +223,15 @@ export async function handleRegister(ctx) {
   const passwordHash = await hashPassword(password, env);
   const createdAt = nowIso();
 
-  await env.DB.prepare(
+  const insertUser = env.DB.prepare(
     `
     INSERT INTO users (id, email, password_hash, created_at, status)
     VALUES (?, ?, ?, ?, 'active')
     `
   )
-    .bind(userId, email, passwordHash, createdAt)
-    .run();
+    .bind(userId, email, passwordHash, createdAt);
+  await env.DB.batch([insertUser,...(body.minimaxConsent === true ? minimaxGrantStatements(env,userId,{source:'register',locale:body.locale||request.headers.get('Accept-Language'),at:createdAt}) : [])]);
+  if(body.minimaxConsent === true)ctx.execCtx.waitUntil(recordMinimaxActivity(ctx,userId,'grant',await getMinimaxConsent(env,userId)));
 
   // Send verification email (do not auto-login)
   await createAndSendVerificationToken(env, userId, email);

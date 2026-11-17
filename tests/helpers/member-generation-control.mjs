@@ -1,3 +1,5 @@
+import { minimaxGrantStatements, revokeMinimaxConsent } from '../../workers/auth/src/lib/minimax-consent.js';
+import { adminPixverseCase } from './canvas-video-control.mjs';
 import { SEEDANCE_25_MODEL } from '../../js/shared/seedance-25-contract.mjs';
 import {changeModelAvailability,readModelArea} from '../../workers/auth/src/lib/model-availability.js';
 import { changeModelTariff, getModelTariff } from '../../workers/auth/src/lib/model-tariffs.js';
@@ -20,6 +22,11 @@ function interceptDb(db, intercept, interceptBatch = (_, execute) => execute()) 
 }
 
 export async function memberGenerationCase(nativeEnv,name,fixture={}) {
+  if(name==='consent-admin-lab') {
+    const result=await adminPixverseCase({...nativeEnv,AI_SERVICE_AUTH_SECRET:'synthetic-consent-admin-service-not-live'},'h3',{...fixture,referenceBase64:fixture.h3OverrunBase64,preparedBase64:fixture.h3PreparedBase64});
+    check((await nativeEnv.DB.prepare("SELECT COUNT(*) AS n FROM minimax_consent_events WHERE user_id='pixverse-admin-h3'").first()).n===0,'Separate Admin Lab must remain exempt without manufactured consent');
+    return {...result,name,calls:{provider:result.calls},adminExempt:true};
+  }
   if(!name.startsWith('clock-')&&!name.replace('h3-lite-','h3-').startsWith('h3-callback')) return runMemberGenerationCase(nativeEnv,name,fixture);
   const RealDate=globalThis.Date;
   let offset=0;
@@ -67,7 +74,13 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
         const headers=new Headers(init.headers);
         check(options===undefined && headers.get('cf-aig-gateway-id')==='default' && headers.get('cf-aig-skip-cache')==='true' && headers.get('cf-aig-collect-log')==='false' && /^[a-f0-9]{32}$/.test(JSON.parse(headers.get('cf-aig-metadata')).bitbi_dispatch),'H3 REST private uncached Gateway and dispatch identity');
         await duringProvider(model,payload);
-        return globalThis.fetch(url,init);
+        const response=await globalThis.fetch(url,init);
+        if(name.startsWith('consent-') && name.endsWith('-interrupted')) {
+          const result=await response.json();
+          result.result.result.task.status='queued';delete result.result.result.task.content;
+          return Response.json(result);
+        }
+        return response;
       }
       check(url==='https://fixture.invalid/member.mp4','Only fixture output download allowed');
       calls.download++;return new Response(videoBytes,{headers:{'Content-Type':fixture.input?.output_format==='mov'?'video/quicktime':'video/mp4'}});
@@ -113,6 +126,12 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
       .bind(id,id,await sha256Hex(`${id}:${env.SESSION_HASH_SECRET}`),now,new Date(Date.now()+3600000).toISOString(),now).run();
   }
   if(name.startsWith('admin-lab-'))await db.prepare("UPDATE users SET role='admin' WHERE id=?").bind(owner).run();
+  // These positive synthetic identities explicitly opt in; no production backfill.
+  if(name!=='consent-admin-member' && ((kind==='music' && fixture.input?.model!=='elevenlabs/music-v2') || ['minimax/h3','minimax/h3-lite'].includes(fixture.input?.model))) {
+    await db.batch(minimaxGrantStatements(nativeEnv,owner,{source:'first_use',locale:'en'}));
+  }
+  if(name==='consent-admin-member')await db.prepare("UPDATE users SET role='admin' WHERE id=?").bind(owner).run();
+
   await topUpMemberDailyCredits({env,userId:owner});
   if(name==='admin-lab-grok-preview-generate') {
     const denied=await worker.fetch(new Request('https://bitbi.ai/api/ai/generate-video',{method:'POST',headers:{'Content-Type':'application/json',Origin:'https://bitbi.ai',Cookie:`bitbi_session=${owner}`,'Idempotency-Key':'insufficient-admin-grok','X-Bitbi-Tariff-Revision':String((await getModelTariff(env)).revision),'X-BITBI-Workspace':'generate-lab',Prefer:'respond-async'},body:JSON.stringify({model:'xai/grok-imagine-video-1.5-preview',prompt:'Synthetic budget rejection',duration:15,resolution:'720p'})}),env,{});
@@ -206,7 +225,37 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
       }
     };
   }
-  const body=JSON.stringify(input);
+  if(name.endsWith('-boundary') && name.startsWith('consent-')) env.DB=interceptDb(db,async(sql,execute)=>{
+    const result=await execute();
+    if(fail && sql.includes("SET status = 'provider_running'") && sql.includes('member_ai_usage_attempts_v2')) {
+      fail=false;await revokeMinimaxConsent(nativeEnv,owner);
+    }
+    return result;
+  });
+  if(name.endsWith('-receipt') && name.startsWith('consent-')) env.DB=interceptDb(db,async(sql,execute)=>{
+    if(fail && calls.provider>0 && sql.includes('INSERT INTO ai_text_assets')) {
+      fail=false;throw new Error('synthetic persistence interruption after primary receipt');
+    }
+    return execute();
+  });
+  if(name.endsWith('-intent') && name.startsWith('consent-')) env.DB=interceptDb(db,async(sql,execute)=>{
+    if(fail && sql.includes('UPDATE member_generation_jobs SET provider_receipts_json = ?')) {
+      fail=false;check(calls.provider===0,'Intent race precedes every provider call');
+      await revokeMinimaxConsent(nativeEnv,owner);
+    }
+    return execute();
+  });
+  if(name.endsWith('-interrupted') && name.startsWith('consent-')) env.DB=interceptDb(db,async(sql,execute)=>{
+    if(fail && calls.provider===1 && sql.includes("SET provider_outcome = 'unknown'")) {
+      fail=false;
+      // Fence the lost isolate after its pending receipt became durable. Neither
+      // this outcome write nor later job writes may commit under its old token.
+      await db.prepare("UPDATE member_generation_jobs SET processing_token='synthetic-interrupted-isolate' WHERE user_id=? AND status='processing'").bind(owner).run();
+      throw new Error('Synthetic isolate interruption before pending-outcome checkpoint');
+    }
+    return execute();
+  });
+  let body=JSON.stringify(input),canvasPath=null;
   const checkName = async (asset, id) => {
     if(!name.startsWith('asset-naming-')) return;
     const expected=input.title || 'a little worm';
@@ -238,7 +287,46 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     check(unsupported.status===400&&calls.provider===0&&messages.length===0,'Unsupported explicit model is rejected before durable admission');
     check((await db.prepare('SELECT COUNT(*) AS n FROM member_generation_jobs WHERE user_id=?').bind(owner).first()).n===0,'Malformed model cannot create a durable job');
   }
-  const accepted=await fetch(`/api/ai/generate-${kind}`,{method:'POST',headers,body,signal:abort.signal});
+  if(name==='consent-admin-member') {
+    const denied=await fetch(`/api/ai/generate-${kind}`,{method:'POST',headers:{...headers,'X-BITBI-Workspace':'generate-lab'},body});
+    check(denied.status===403 && (await denied.json()).code==='consent_required','Admin identity using member Generate Lab still needs consent');
+    check(calls.provider===0 && messages.length===0,'Missing member consent neither dispatches nor queues');
+    check((await db.prepare('SELECT COUNT(*) AS n FROM member_ai_usage_attempts_v2 WHERE user_id=?').bind(owner).first()).n===0,'Missing consent reserves no member credits');
+    return {name,calls,status:'consent_required'};
+  }
+  let accepted;
+  if(name==='consent-canvas') {
+    const projectId=(await sha256Hex(name+'project')).slice(0,32),nodeId=(await sha256Hex(name+'node')).slice(0,32);
+    await db.prepare("INSERT INTO canvas_projects(id,user_id,title,locale,created_at,updated_at) VALUES(?,?,?,'en',?,?)").bind(projectId,owner,'Consent retry fixture',now,now).run();
+    await db.prepare("INSERT INTO canvas_nodes(id,project_id,user_id,type,title,model_id,x,y,config_json,content_json,created_at,updated_at) VALUES(?,?,?,'video_generation','Consent node',?,0,0,?,'{}',?,?)")
+      .bind(nodeId,projectId,owner,input.model,JSON.stringify({prompt:input.prompt,duration:input.duration,resolution:input.resolution}),now,now).run();
+    canvasPath=`/api/account/canvas/projects/${projectId}/nodes/${nodeId}/run`;
+    const run=()=>fetch(canvasPath,{method:'POST',headers,body:'{}'});
+    await revokeMinimaxConsent(nativeEnv,owner);
+    const denied=await run(),payload=await denied.json();
+    check(denied.status===403 && payload.code==='consent_required','Stale Canvas request is blocked by actual server consent gate');
+    for(const table of ['canvas_runs','member_ai_usage_attempts_v2','member_generation_jobs'])check((await db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE user_id=?`).bind(owner).first()).n===0,`Consent denial creates no ${table} row`);
+    check(calls.provider===0 && messages.length===0,'Denied Canvas request reserves and dispatches nothing');
+    await db.batch(minimaxGrantStatements(nativeEnv,owner,{source:'settings',locale:'en'}));
+    // A second withdrawal wins after the early guard/Canvas claim but before the
+    // delegated member handler. This is the narrowly safe readmission state.
+    env.DB=interceptDb(db,async(sql,execute)=>{
+      const result=await execute();
+      if(fail && sql.includes("UPDATE canvas_runs SET status = 'running'")) {fail=false;await revokeMinimaxConsent(nativeEnv,owner);}
+      return result;
+    });
+    const raced=await run(),rejection=await raced.json();
+    check(!fail && raced.status===403 && rejection.code==='consent_required','Withdrawal after Canvas claim reaches delegated server guard');
+    const failedRun=await db.prepare('SELECT * FROM canvas_runs WHERE user_id=?').bind(owner).first();
+    check(failedRun.status==='failed' && failedRun.usage_attempt_id===null && failedRun.output_json===null,'Only pre-credit rejection can be safely readmitted');
+    check((await db.prepare('SELECT COUNT(*) AS n FROM member_generation_jobs WHERE user_id=?').bind(owner).first()).n===0,'Race rejected before a durable generation job');
+    await db.batch(minimaxGrantStatements(nativeEnv,owner,{source:'settings',locale:'en'}));
+    await db.prepare("UPDATE canvas_runs SET output_json='{}' WHERE id=?").bind(failedRun.id).run();
+    const unsafe=await run();check(unsafe.status===409 && (await unsafe.json()).code==='consent_required','A retained output checkpoint cannot be readmitted as fresh');
+    check(calls.provider===0 && messages.length===0,'Unsafe readmission negative control has no provider effects');
+    await db.prepare('UPDATE canvas_runs SET output_json=NULL WHERE id=?').bind(failedRun.id).run();
+    accepted=await run();
+  } else accepted=await fetch(`/api/ai/generate-${kind}`,{method:'POST',headers,body,signal:abort.signal});
   const acceptance=await accepted.json();
   if (input.model?.startsWith('xai/grok-imagine-video') && ['edit','extend'].includes(input._operation)) {
     check(accepted.status===409 && acceptance.code==='video_operation_billing_unverified','Unverified operation fails closed before reservation');
@@ -246,8 +334,20 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     check((await db.prepare('SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first()).n===0,'No debit for blocked operation');
     return {name,calls,status:'billing_unverified'};
   }
-  check(accepted.status===202,`Durable acceptance: ${accepted.status} ${acceptance.code||''}`);
-  const id=acceptance.data.job.id;
+  check(name==='consent-canvas'?acceptance.code==='canvas_video_pending':accepted.status===202,`Durable acceptance: ${accepted.status} ${acceptance.code||''}`);
+  const id=name==='consent-canvas'?acceptance.data.video_job_id:acceptance.data.job.id;
+  if(canvasPath) {
+    const queued=await db.prepare('SELECT * FROM member_generation_jobs WHERE id=? AND user_id=?').bind(id,owner).first();
+    check(queued?.canvas_run_id===acceptance.data.run_id,'Same Canvas key admits one genuine owned durable job after grant');
+    const run=await db.prepare('SELECT * FROM canvas_runs WHERE id=?').bind(queued.canvas_run_id).first();
+    await db.prepare("UPDATE canvas_runs SET status='failed',error_code='consent_required',output_json=NULL,usage_attempt_id=? WHERE id=?").bind(queued.usage_attempt_id,run.id).run();
+    const unsafe=await fetch(canvasPath,{method:'POST',headers,body:'{}'});
+    check(unsafe.status===409 && (await unsafe.json()).code==='consent_required','Existing actual usage/job forbids consent-only readmission');
+    check((await db.prepare('SELECT COUNT(*) AS n FROM member_generation_jobs WHERE user_id=?').bind(owner).first()).n===1 && calls.provider===0,'Usage negative control cannot create a second job or provider transfer');
+    await db.prepare('UPDATE canvas_runs SET status=?,error_code=?,output_json=?,usage_attempt_id=? WHERE id=?').bind(run.status,run.error_code,run.output_json,run.usage_attempt_id,run.id).run();
+    const stored=await env.USER_IMAGES.get(queued.input_r2_key);body=await new Response(stored.body).text();headers['Idempotency-Key']=queued.request_key;
+    check((await db.prepare('SELECT COUNT(*) AS n FROM canvas_runs WHERE user_id=?').bind(owner).first()).n===1,'Successful readmission preserves the same Canvas run');
+  }
   const duplicateAcceptance=await fetch(`/api/ai/generate-${kind}`,{method:'POST',headers,body});
   check(duplicateAcceptance.status===202 && (await duplicateAcceptance.json()).data.job.id===id,'Same accepted intent has one durable job');
   check(calls.provider===0,'HTTP acceptance must not dispatch provider');
@@ -295,6 +395,21 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     return worker.queue({queue:'bitbi-ai-video-jobs',messages:[{body:messages[0],attempts:1,
       ack(){calls.ack++;},retry(){calls.retry++;}}]},env,{waitUntil(){throw new Error('No detached queue work allowed');}});
   };
+  if(name.startsWith('consent-') && (name.endsWith('-queued') || name.endsWith('-boundary') || name.endsWith('-intent'))) {
+    if(name.endsWith('-queued'))await revokeMinimaxConsent(nativeEnv,owner);
+    await deliver();
+    const current=await row(),usage=await db.prepare('SELECT * FROM member_ai_usage_attempts_v2 WHERE id=?').bind(current.usage_attempt_id).first();
+    if(name.endsWith('-boundary') || name.endsWith('-intent'))check(!fail,'Revocation really crossed admission before the provider boundary');
+    check(calls.provider===0 && calls.download===0,'Revocation before a fresh transfer calls no provider');
+    check(usage.billing_status==='released','Undispatched consent failure releases the reservation');
+    check(current.status==='failed' && current.error_code==='consent_required',`Consent failure terminal and actionable: ${current.status}/${current.error_code}/${usage.provider_outcome}`);
+    check(calls.retry===0,'Revocation is not a retryable provider failure');
+    if(name.endsWith('-intent'))check(Object.keys(JSON.parse(current.provider_receipts_json)).length===0,'Revocation winning the intent CAS leaves no false dispatch receipt');
+    await deliver();
+    check((await row()).attempt_count===current.attempt_count && calls.provider===0 && calls.retry===0,'Duplicate queue delivery cannot revive revoked work');
+    check((await db.prepare('SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first()).n===0,'Revoked undispatched work never debits');
+    return {name,calls,status:current.status,released:true};
+  }
   if(name==='asset-naming-music-manual') {
     const before=await row(),future=new Date(Date.now()+60_000).toISOString();
     await db.prepare('UPDATE member_generation_jobs SET next_attempt_at=? WHERE id=?').bind(future,id).run();
@@ -350,6 +465,53 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     check(messages.length===1,'Scheduled repair recovers durable acceptance without browser polling');
     await Promise.all([deliver(),deliver()]);
   } else await deliver();
+  if(name.startsWith('consent-') && name.endsWith('-interrupted')) {
+    check(!fail,'Isolate was interrupted at the unknown-outcome checkpoint');
+    const interrupted=await row(),receipt=JSON.parse(interrupted.provider_receipts_json)['ai-0'];
+    const object=await nativeEnv.USER_IMAGES.get(receipt.key),stored=await new Response(object.body).json();
+    const usage=await db.prepare('SELECT provider_outcome,billing_status FROM member_ai_usage_attempts_v2 WHERE id=?').bind(interrupted.usage_attempt_id).first();
+    check(stored.value.task.status==='queued' && interrupted.status==='processing' && usage.provider_outcome==='dispatched' && usage.billing_status==='reserved','Exact crash boundary: queued receipt durable, outcome checkpoint absent');
+    await revokeMinimaxConsent(nativeEnv,owner);
+    await db.prepare("UPDATE member_generation_jobs SET next_attempt_at='2000-01-01T00:00:00.000Z',locked_until=NULL WHERE id=?").bind(id).run();
+    await deliver();
+    check((await row()).status==='outcome_unknown' && calls.provider===1,'Withdrawal preserves dispatched pending recovery without reinference');
+    const reclaimed=(await row()).attempt_count,retries=calls.retry;
+    for(let attempt=0;attempt<9;attempt++) {
+      await db.prepare("UPDATE member_generation_jobs SET next_attempt_at='2000-01-01T00:00:00.000Z' WHERE id=?").bind(id).run();
+      await worker.scheduled({cron:'*/5 * * * *'},env,{waitUntil(){throw new Error('Recovery must be awaited');}});
+      await deliver();
+    }
+    check((await row()).status==='outcome_unknown' && (await row()).attempt_count===reclaimed && calls.retry===retries && calls.provider===1,'Pending receipt cannot exhaust retries or scheduler-requeue before terminal callback');
+    const task={...stored.value.task,status:'succeeded',content:{url:'https://fixture.invalid/member.mp4'}};
+    const callback=await fetch(new URL(callbackUrl).pathname,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({task})});
+    check(callback.ok,'Genuine completion callback remains accepted after withdrawal and repeated recovery ticks');
+    await deliver();
+    check((await row()).status==='preview_pending' && calls.provider===1,'Terminal callback recovers original output without a second MiniMax request');
+  }
+  if(name.startsWith('consent-') && name.endsWith('-receipt')) {
+    check(!fail,'Primary-result persistence interruption was exercised');
+    const interrupted=await row(),receipts=JSON.parse(interrupted.provider_receipts_json);
+    const receipt=receipts[kind==='music'?'service-0':'ai-0'];
+    check(receipt?.key && await nativeEnv.USER_IMAGES.head(receipt.key),'Primary provider receipt is durably retained before withdrawal');
+    check(calls.provider===1,'Exactly one primary model call before withdrawal');
+    await revokeMinimaxConsent(nativeEnv,owner);
+    await db.prepare("UPDATE member_generation_jobs SET next_attempt_at='2000-01-01T00:00:00.000Z',locked_until=NULL WHERE id=?").bind(id).run();
+    await deliver();
+    const recovered=await row();
+    check(recovered.status===(kind==='music'?'succeeded':'preview_pending'),`Existing receipt must remain recoverable after withdrawal: ${recovered.status}/${recovered.error_code}`);
+    check(calls.provider===(kind==='music'?2:1),'No repeated MiniMax inference; only non-MiniMax bundled cover may be generated');
+    const asset=await db.prepare('SELECT * FROM ai_text_assets WHERE id=? AND user_id=?').bind(id,owner).first();
+    check(asset?.r2_key && await nativeEnv.USER_IMAGES.head(asset.r2_key),'Old output remains privately retained');
+    const file=await fetch(`/api/ai/text-assets/${id}/file`,{headers:{Cookie:`bitbi_session=${owner}`}});
+    check(file.ok,'Withdrawn consent does not revoke access to an already generated output');
+    const foreign=await fetch(`/api/ai/text-assets/${id}/file`,{headers:{Cookie:`bitbi_session=${owner}-other`}});
+    check(foreign.status===404,'Old output remains owner-only');
+    await deliver();check(calls.provider===(kind==='music'?2:1),'Further queue delivery never re-infers');
+    env.PUBLIC_RATE_LIMITER=browserLimiter;
+    const fresh=await fetch(`/api/ai/generate-${kind}`,{method:'POST',headers:{...headers,'Idempotency-Key':`fresh-after-${name}`},body});
+    check(fresh.status===403 && (await fresh.json()).code==='consent_required','Old receipt does not authorize a fresh generation');
+    if(kind==='music')return {name,calls,status:recovered.status,retained:true};
+  }
   if(name.startsWith('flux-') && name!=='flux-success') {
     const current=await row(), receipts=JSON.parse(current.provider_receipts_json);
     const code=name==='flux-schema'?'generation_schema_rejected_review':'generation_provider_outcome_unknown';
@@ -570,7 +732,8 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
   check(internalLimitCalls===0,'Recovery retries preserve HTTP admission without re-throttling');
   env.PUBLIC_RATE_LIMITER=browserLimiter;
   const duplicate=await fetch(`/api/ai/generate-${kind}`,{method:'POST',headers,body});
-  check(duplicate.status===202 && (await duplicate.json()).data.job.id===id,'HTTP retry retains paid identity');
+  if(name.startsWith('consent-') && (name.endsWith('-receipt') || name.endsWith('-interrupted')))check(duplicate.status===403 && (await duplicate.json()).code==='consent_required','Withdrawal blocks POST even though existing output remains readable');
+  else check(duplicate.status===202 && (await duplicate.json()).data.job.id===id,'HTTP retry retains paid identity');
   check(calls.provider===1,'No duplicate generation');
   const processor=(path,options={})=>fetch(path,{...options,headers:{...options.headers,Authorization:`Bearer ${env.HOMEPAGE_HERO_EXTERNAL_FFMPEG_SECRET}`}});
   const postJob=(job,path,options={})=>processor(path,{...options,headers:{...options.headers,'X-BITBI-Generation-Claim':job.generation_claim}});
@@ -632,7 +795,12 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
   const denied=await fetch(`/api/ai/generation-jobs/${id}`,{headers:{Cookie:`bitbi_session=${owner}-other`}});
   check(denied.status===404,'Foreign user cannot inspect job');
   const ownedList=await fetch('/api/ai/assets',{headers:{Cookie:`bitbi_session=${owner}`}});
-  check(ownedList.ok && (await ownedList.json()).data.assets.some(asset=>asset.id===id),'Later owner session lists the completed video');
+  const listed=ownedList.ok && (await ownedList.json()).data.assets.some(asset=>asset.id===id);
+  if(canvasPath) {
+    check(ownedList.ok && !listed,'Canvas-private output stays out of general My Assets');
+    const history=await fetch(canvasPath.replace(/\/run$/,'/runs'),{headers:{Cookie:`bitbi_session=${owner}`}});
+    check(history.ok && (await history.json()).data.runs.some(run=>run.asset_id===id && run.status==='completed'),'Owner Canvas history exposes the completed original output');
+  } else check(listed,'Later owner session lists the completed video');
   const otherList=await fetch('/api/ai/assets',{headers:{Cookie:`bitbi_session=${owner}-other`}});
   check(otherList.ok && !(await otherList.json()).data.assets.some(asset=>asset.id===id),'Other account cannot list completed video');
   const credits=await db.prepare('SELECT COUNT(*) AS n FROM member_credit_ledger WHERE user_id=? AND amount<0').bind(owner).first();
@@ -657,7 +825,8 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
     const tariff=await getModelTariff(env);
     await changeModelTariff(env,{id:owner},{action:'reset',modelId:h3Model,revision:tariff.revision,settings:{resolution:'480P'}});
   }
-  const completion={name,calls,status:(await row()).status,debits:credits.n,ownerDenied:denied.status};
+  const completion={name,calls,status:(await row()).status,debits:credits.n,ownerDenied:denied.status,...(name.startsWith('consent-')&&name.endsWith('-receipt')?{retained:true}:{})};
+  if(canvasPath)check((await db.prepare('SELECT status FROM canvas_runs WHERE user_id=?').bind(owner).first()).status==='completed','Readmitted Canvas run completes through the real queue');
   if(name==='closed-browser') {
     const removed=await fetch(`/api/ai/text-assets/${id}`,{method:'DELETE',headers});
     check(removed.ok,'Owner can remove their generated asset normally');
@@ -672,7 +841,7 @@ async function runMemberGenerationCase(nativeEnv,name,fixture={}) {
 export default {async fetch(request,env) {
   if(request.method!=='POST'||request.headers.get('x-q2-control')!==env.Q2_CONTROL_TOKEN) return new Response(null,{status:403});
   const {name,...fixture}=await request.json();
-  if(!/^(admin-lab-(grok-(base|preview)-(generate|edit|extend)|catalog-[0-9]{1,2})|flux-(success|schema|5006|http400|transport))$/.test(name) && !['seedance-fixed','seedance-auto','seedance-storage-restart','seedance-queued','seedance-running','area-queued','area-running','omni-inline','omni-storage-restart','omni-references','h3-rejection-known','h3-rejection-unknown','h3-rejection-settlement','h3-rejection-settlement-lost','h3-rejection-callback-race','h3-references','h3-callback-failed','h3-callback','h3-failed','h3-wrong-receipt','h3-credit-review-resolution','h3-credit-review-missing','h3-credit-review-invalid','h3-output-usage','admin-lab-image','admin-lab-music','admin-lab-video','asset-naming-video','asset-naming-manual','asset-naming-image','asset-naming-music','asset-naming-image-manual','asset-naming-music-manual','clock-lease-expired','clock-credit-expired','clock-finalization-expired','closed-browser','execution-exhausted','poster-retry','stale-poster','insert-response-lost','provider-unknown','music-failed','image','music','music-cover-retry','debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart'].includes(name.replace('h3-lite-','h3-'))) return new Response(null,{status:400});
+  if(!/^consent-(?:(?:h3|h3-lite|music)-(?:queued|boundary|receipt|intent|interrupted)|admin-(?:member|lab)|canvas)$/.test(name) && !/^(admin-lab-(grok-(base|preview)-(generate|edit|extend)|catalog-[0-9]{1,2})|flux-(success|schema|5006|http400|transport))$/.test(name) && !['seedance-fixed','seedance-auto','seedance-storage-restart','seedance-queued','seedance-running','area-queued','area-running','omni-inline','omni-storage-restart','omni-references','h3-rejection-known','h3-rejection-unknown','h3-rejection-settlement','h3-rejection-settlement-lost','h3-rejection-callback-race','h3-references','h3-callback-failed','h3-callback','h3-failed','h3-wrong-receipt','h3-credit-review-resolution','h3-credit-review-missing','h3-credit-review-invalid','h3-output-usage','admin-lab-image','admin-lab-music','admin-lab-video','asset-naming-video','asset-naming-manual','asset-naming-image','asset-naming-music','asset-naming-image-manual','asset-naming-music-manual','clock-lease-expired','clock-credit-expired','clock-finalization-expired','closed-browser','execution-exhausted','poster-retry','stale-poster','insert-response-lost','provider-unknown','music-failed','image','music','music-cover-retry','debit-response-lost','unpublished-asset','finalization-response-lost','storage-restart'].includes(name.replace('h3-lite-','h3-'))) return new Response(null,{status:400});
   return Response.json(await memberGenerationCase(env,name,fixture));
 }};
 

@@ -448,6 +448,9 @@ export const ROUTE_POLICIES = Object.freeze([
     body: { kind: "none", noneReason: "Unlink reads only the authenticated session." },
     audit: { event: "wallet_unlink" },
   }),
+  safeRead('minimax.consent.read','GET','/api/account/minimax-consent','profile'),
+  userJsonWrite('minimax.consent.grant','POST','/api/account/minimax-consent','profile','smallJson','minimax-consent-user',{audit:{event:'minimax_consent_grant'}}),
+  userJsonWrite('minimax.consent.revoke','POST','/api/account/minimax-consent/revoke','profile','smallJson','minimax-consent-user',{audit:{event:'minimax_consent_revoke'}}),
   safeRead("profile.read", "GET", "/api/profile", "profile"),
   userJsonWrite("profile.update", "PATCH", "/api/profile", "profile", "smallJson", "profile-update-user", {
     audit: { event: "update_profile" },

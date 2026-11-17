@@ -9,7 +9,7 @@
     "dev": "npx serve -l 3000",
     "test": "playwright test -c playwright.config.js && npm run test:workers",
     "test:static": "playwright test -c playwright.config.js",
-    "test:homepage-core": "playwright test -c playwright.config.js tests/audio-player.spec.js tests/canvas.spec.js tests/oma2-q1-canvas.spec.js tests/locale.spec.js tests/smoke.spec.js tests/website-assistant.spec.js tests/admin-website-assistant.spec.js --project=chromium --project=webkit-canvas --project=webkit-assistant --project=webkit-consumer",
+    "test:homepage-core": "playwright test -c playwright.config.js tests/audio-player.spec.js tests/canvas.spec.js tests/oma2-q1-canvas.spec.js tests/locale.spec.js tests/smoke.spec.js tests/minimax-consent.spec.js tests/website-assistant.spec.js tests/admin-website-assistant.spec.js --project=chromium --project=webkit-canvas --project=webkit-assistant --project=webkit-consumer",
     "test:homepage-carousel": "playwright test -c playwright.carousel.config.js",
     "check:homepage-selection": "node scripts/check-homepage-selection.mjs",
     "test:homepage-selection": "node scripts/test-homepage-selection.mjs",
@@ -43,7 +43,7 @@
     "test:cloudflare-resource-model": "node scripts/test-cloudflare-resource-model.mjs",
     "test:homepage-ffmpeg-processor": "node scripts/test-homepage-ffmpeg-processor.mjs",
     "test:live-canary": "node scripts/test-live-runtime-canary.mjs",
-    "test:asset-version": "node scripts/test-asset-version.mjs && node --test tests/privacy-ai-recipients.test.mjs",
+    "test:asset-version": "node scripts/test-asset-version.mjs && node --test tests/privacy-ai-recipients.test.mjs tests/minimax-consent-copy.test.mjs",
     "test:quality-gates": "node scripts/check-secrets.mjs && node scripts/test-quality-gates.mjs && node scripts/test-pre-push.mjs",
     "test:pre-push": "node scripts/test-pre-push.mjs",
     "hooks:install": "node scripts/install-pre-push.mjs",
@@ -119,6 +119,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
+    "parse5": "8.1.1",
     "serve": "^14.2.6"
   },
   "dependencies": {

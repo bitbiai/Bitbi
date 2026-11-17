@@ -1164,6 +1164,8 @@ class MockD1 {
     this.state = {
       modelPricingState: { revision:0, factory_version:'factory-2026-09-21', rules_json:'{}', updated_at:'2026-09-21T00:00:00Z' },
       users: [],
+      // Synthetic pre-existing positive route fixtures opt in explicitly; absence tests pass an empty array.
+      minimaxConsentCurrent: (seed.users || []).map(user => ({user_id:user.id,granted_at:"2026-11-16T00:00:00.000Z",revoked_at:null,text_version:"minimax-consent-v3-2026-11-16",locale:"en",source:"first_use"})),
       sessions: [],
       emailVerificationTokens: [],
       passwordResetTokens: [],
@@ -1407,6 +1409,7 @@ class MockD1 {
       return this.state.modelPricingState ? deepClone(this.state.modelPricingState) : null;
     }
     let query = originalQuery;
+    if (query === "SELECT * FROM minimax_consent_current WHERE user_id=?") return deepClone(this.state.minimaxConsentCurrent.find(row=>row.user_id===bindings[0]) || null);
     // These correlated anti-joins consume no parameters. Keep the existing
     // folder/cursor parser, but apply the view's SQL semantics before LIMIT.
     const unreadyTables = new Set(), canvasTables = new Set();

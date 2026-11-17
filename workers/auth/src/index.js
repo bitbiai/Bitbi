@@ -31,6 +31,8 @@ import { handleMediaInteractions } from "./routes/media-interactions.js";
 import { handleHomepageHeroVideos } from "./routes/homepage-hero-videos.js";
 import { handlePublicNewsPulse, handlePublicNewsPulseThumb } from "./routes/public-news-pulse.js";
 import { handleOpenClawNewsPulseIngest } from "./routes/openclaw-news-pulse.js";
+import { handleMinimaxConsent } from './routes/minimax-consent.js';
+import { purgeExpiredMinimaxProof } from './lib/minimax-consent.js';
 import { handleGetProfile, handleUpdateProfile } from "./routes/profile.js";
 import { handleAccountCredits } from "./routes/account-credits.js";
 import { handleConsumerDeclarations, handleAdminConsumerDeclarations } from "./routes/consumer-declarations.js";
@@ -440,6 +442,11 @@ export default {
     }
 
     // Profile
+    if (pathname === '/api/account/minimax-consent' && method === 'GET') return handleMinimaxConsent(ctx);
+    // route-policy: minimax.consent.grant
+    if (pathname === '/api/account/minimax-consent' && method === 'POST') return handleMinimaxConsent(ctx);
+    // route-policy: minimax.consent.revoke
+    if (pathname === '/api/account/minimax-consent/revoke' && method === 'POST') return handleMinimaxConsent(ctx);
     if (pathname === "/api/profile" && method === "GET") return handleGetProfile(ctx);
     // route-policy: profile.update
     if (pathname === "/api/profile" && method === "PATCH") return handleUpdateProfile(ctx);
@@ -645,6 +652,8 @@ export default {
       }
       return;
     }
+
+    await purgeExpiredMinimaxProof(env).catch(() => logDiagnostic({service:'bitbi-auth',component:'minimax-consent',event:'minimax_consent_retention_unavailable',level:'error'}));
 
     const now = nowIso();
     const dayStart = now.slice(0, 10) + "T00:00:00.000Z";

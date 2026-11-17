@@ -1,3 +1,5 @@
+import { isMinimaxConsentModel } from '../../../../js/shared/minimax-consent.mjs';
+import { assertMinimaxConsent } from '../lib/minimax-consent.js';
 import { canvasMediaConstraintError } from '../lib/canvas-agent-media-errors.js';
 import { canvasGenerationSettings } from '../../../../js/shared/canvas-generation-settings.mjs';
 import { updateWorkspace } from '../lib/canvas-workspace.js';
@@ -1115,6 +1117,10 @@ async function runNode(ctx, session, projectId, nodeId) {
   } else if (model.requiresOrganization) {
     return respond(ctx, { ok: false, code: "organization_required", error: "Select an active organization for this model." }, { status: 409 });
   }
+  if(isMinimaxConsentModel(model.id)) {
+    const retained=await ctx.env.DB.prepare('SELECT id FROM canvas_runs WHERE user_id=? AND idempotency_key=? AND deleted_at IS NULL').bind(userId,idempotencyKey).first();
+    if(!retained)await assertMinimaxConsent(ctx.env,userId,model.id);
+  }
   const resolution = await resolveCanvasNodeInputs(ctx.env, userId, projectId, node, model);
   let generationBody;
   try { generationBody = buildGenerationBody(node, model, resolution); } catch (error) { return respond(ctx, { ok: false, error: error.message, code: error.code || "validation_error" }, { status: error.status || 400 }); }
@@ -1139,7 +1145,7 @@ async function runNode(ctx, session, projectId, nodeId) {
     return respond(ctx, { ok: false, error: "Canvas run input is too large.", code: "run_input_too_large" }, { status: 413 });
   }
   let existing = await ctx.env.DB.prepare(
-    `SELECT id, project_id, node_id, model_id, operation_type, status, idempotency_key, input_json, output_json, asset_id,
+    `SELECT id, project_id, node_id, model_id, operation_type, status, idempotency_key, input_json, output_json, asset_id, usage_attempt_id,
             error_code, error_message, created_at, updated_at, completed_at
      FROM canvas_runs WHERE user_id = ? AND idempotency_key = ? AND deleted_at IS NULL LIMIT 1`
   ).bind(userId, idempotencyKey).first();
@@ -1153,9 +1159,15 @@ async function runNode(ctx, session, projectId, nodeId) {
     }
   }
   if (existing?.status === "completed") return respond(ctx, { ok: true, data: { run: runRecord((await annotateCanvasMedia(ctx.env,userId,[existing]))[0]), idempotent_replay: true } });
+  // A revoke racing between Canvas admission and the delegated pre-credit gate
+  // may retain a rejection. Resume only proof of no paid usage/job/checkpoint.
+  const consentReadmission=existing?.status==='failed' && existing.error_code==='consent_required'
+    && !existing.usage_attempt_id && !existing.output_json
+    && !await ctx.env.DB.prepare('SELECT id FROM member_generation_jobs WHERE canvas_run_id=? LIMIT 1').bind(existing.id).first();
+  if(consentReadmission)await assertMinimaxConsent(ctx.env,userId,model.id);
   const admissionWait = Boolean(canvasAgentAuthority(ctx.env)) && existing?.error_code === 'canvas_agent_admission_wait';
   if (admissionWait && safeJsonParse(existing.output_json, {}).retryAt > nowIso()) return respond(ctx, {ok:false,code:'canvas_agent_admission_wait',data:{run_id:existing.id,retryAt:safeJsonParse(existing.output_json, {}).retryAt}}, {status:429});
-  if (existing?.status === "failed" && !["canvas_image_save_pending", "canvas_video_pending"].includes(existing.error_code) && !admissionWait) return respond(ctx, { ok: false, error: existing.error_message || "Canvas run failed.", code: existing.error_code || "canvas_run_failed", data: { run: runRecord(existing), idempotent_replay: true } }, { status: 409 });
+  if (existing?.status === "failed" && !["canvas_image_save_pending", "canvas_video_pending"].includes(existing.error_code) && !admissionWait && !consentReadmission) return respond(ctx, { ok: false, error: existing.error_message || "Canvas run failed.", code: existing.error_code || "canvas_run_failed", data: { run: runRecord(existing), idempotent_replay: true } }, { status: 409 });
   if (existing?.status === "queued" || existing?.status === "running") {
     return respond(ctx, {
       ok: false,
@@ -1167,6 +1179,10 @@ async function runNode(ctx, session, projectId, nodeId) {
   let runId = existing?.id || randomTokenHex(16);
   const now = nowIso();
   if (!existing) {
+    // Reject before persisting an execution identity, so stale browser consent
+    // can be granted and retried with the same key. Existing output recovery above
+    // remains independent of consent; the delegated route still guards dispatch.
+    await assertMinimaxConsent(ctx.env,userId,model.id);
     try {
       await ctx.env.DB.batch([ctx.env.DB.prepare(
         `INSERT INTO canvas_runs (id, project_id, node_id, user_id, model_id, operation_type, idempotency_key, status,
@@ -1176,7 +1192,7 @@ async function runNode(ctx, session, projectId, nodeId) {
     } catch (error) {
       if (!String(error).includes("UNIQUE")) throw error;
       existing = await ctx.env.DB.prepare(
-        `SELECT id, project_id, node_id, model_id, operation_type, status, idempotency_key, input_json, output_json, asset_id,
+        `SELECT id, project_id, node_id, model_id, operation_type, status, idempotency_key, input_json, output_json, asset_id, usage_attempt_id,
                 error_code, error_message, created_at, updated_at, completed_at
          FROM canvas_runs WHERE user_id = ? AND idempotency_key = ? AND deleted_at IS NULL LIMIT 1`
       ).bind(userId, idempotencyKey).first();
@@ -1194,7 +1210,7 @@ async function runNode(ctx, session, projectId, nodeId) {
     }
   }
   ctx = {...ctx, env:canvasMediaEnvironment(ctx.env,runId)};
-  const claimed = await ctx.env.DB.prepare("UPDATE canvas_runs SET status = 'running', updated_at = ? WHERE id = ? AND user_id = ? AND (status = 'queued' OR (status = 'failed' AND (error_code IN ('canvas_image_save_pending', 'canvas_video_pending') OR (error_code='canvas_agent_admission_wait' AND ?=1))))").bind(nowIso(), runId, userId,admissionWait?1:0).run();
+  const claimed = await ctx.env.DB.prepare("UPDATE canvas_runs SET status = 'running', updated_at = ? WHERE id = ? AND user_id = ? AND (status = 'queued' OR (status = 'failed' AND (error_code IN ('canvas_image_save_pending', 'canvas_video_pending') OR (error_code='canvas_agent_admission_wait' AND ?=1) OR (error_code='consent_required' AND usage_attempt_id IS NULL AND output_json IS NULL AND ?=1))))").bind(nowIso(), runId, userId,admissionWait?1:0,consentReadmission?1:0).run();
   if (claimed.meta?.changes !== 1) return respond(ctx, { ok: false, code: "canvas_run_in_progress", error: "This Canvas run is already in progress." }, { status: 409 });
 
   if(!existing && !canvasAgentAuthority(ctx.env)) {

@@ -4,6 +4,7 @@ Required callers below apply to their selected impact scope; the bounded `admin-
 
 | Signature / first retained evidence | Cause and correction | Executable regression / countercontrol | Actual caller and required CI selection | Evidence and boundary |
 | --- | --- | --- | --- | --- |
+| CodeQL #33, PR #34, 2026-11-16: incomplete multi-character sanitization in legal-copy test | Regex tag deletion mishandled incomplete tags and quoted `>` attributes. Use the pinned, development-only parse5 fragment parser and collect text nodes for hash comparison; this is not a sanitizer or rendering path. | Existing MiniMax copy suite retains every independently approved EN/DE digest; extraction controls cover nested/malformed markup, quoted attributes, comments, and one-pass entity decoding. The former extractor fails those boundary controls. | Existing `npm run test:asset-version` runs `tests/minimax-consent-copy.test.mjs`; normal CodeQL scans the updated PR head. | No product/legal-text change, regenerated approval hashes, scanner suppression or alert dismissal. Actual remote CodeQL closure is separate from local test success. |
 | Private native browser reports unreadable by final Linux proof (2026-11-12, `b8387ec7`) | Docker cp created root-owned 0600 files/0700 directories before the ordinary UID1001 verifier. The prior dispatcher guard skipped transport with `existsSync=false` and no-op Docker. Validate both output trees and transfer ownership only in disposable Linux outputs; preserve modes and host originals. | Actual dispatcher calls the real helper before Linux; portable path/symlink controls plus guarded actual root-copy → UID1001 consumer prove missing-fix EACCES, unchanged bytes/modes, UID1002 denial and destination-link rejection. Pinned proof-tail controls reject altered raw/source/Voice/product/hosting/environment/origin. | `test:local-release` includes workspace and static-fixture guards; guarded `test-local-release-workspace.mjs --native-report-linux <owned-container>` exercises the real unprivileged boundary. The same `candidateProof` verifies final local proof and protected import. | Original 54 passes/final failure remain immutable. Closed direct tooling successor retains 34 unchanged blocks and raw b838 static/Voice source; refreshes 21 affected tooling/build/proof blocks. Original bundle and finally snapshot pinned separately; no product-suite replay, permissive chmod or root proof. Actual final release/import/live acceptance remains separately required. |
 | H3 fixture continuation rejects valid guest-memory observation after restart (2026-11-12, `b0b16249`) | The existing resource validator accepted configured 4 GiB/4 CPU with guest-usable memory 4095201280 bytes, but continuation deep-equality rejected its 8192-byte difference from 4095193088. Validate both raw observations through the unchanged resource contract, then normalize only guest-usable memory for identity comparison; never rewrite stored evidence. | Existing static-fixture guards accept observed positive/negative 8 KiB boot drift, preserve raw bytes, and reject absent/out-of-range memory, wrong host/profile/configuration/CPU/container/image, unreviewed lineage and broader follow-up deltas. | `test-local-release-static-fixture.mjs` through the existing complete Linux `test:local-release`; protected resume and final local/upload/import proof consume the same resource comparison. | Pre-suite failed attempt and exact restoration retained privately. Focused guards are not browser or release acceptance; unchanged capacity guard and all unresolved selected checks remain required. |
 | H3 addition accidentally changed the unrelated GPT Image 2.5 pricing search loop (2026-11-12, source `1b3b6deb`) | Broad test edit filtered GPT search results for MiniMax and required two rows. Retain the dimension-specific GPT search; restore its single-row count and independent identity while preserving all credit/reference tariff assertions. No product/pricing implementation change. | `test-local-release-static-fixture.mjs`: exact parent/fixture/mode and forbidden product/config deltas; missing/extra/failed/skipped/retried browser cases; intentional exclusions; interrupted execution and report separation; actual native→Linux dispatcher and fail-closed proof controls. | Existing `test:static` pricing cases in Chromium/WebKit; existing `test:local-release` and `release:local -- --resume` use a closed immutable-evidence continuation, with affected tooling checks and the unresolved carousel/Voice/proof tail still mandatory. | Original failures and raw reports remain failed and source-pinned. Only first-attempt unchanged passes may be retained; new browser acceptance and protected publication require their real final-source reports. Synthetic orchestration controls are not browser or production acceptance. |
@@ -2945,3 +2946,35 @@ scenarios; retain a negative non-provider-error control and the original timeout
 assertions. Preserve all 630 passes and rerun only the four affected cases before
 fresh Auth acceptance. Progress reporting must inspect cumulative failures and
 retries, not infer a clean run from the most recent successful log lines.
+
+## MiniMax consent admission and delivery (2026-11-16)
+
+Consent belongs before reservation/source preparation and again before fresh
+provider dispatch, not before receipt-only recovery. Initial negative native
+controls found two real integration defects: adapters flattened consent denial to
+`upstream_error`, and a job-level gate also blocked non-MiniMax cover delivery.
+The video/music adapters now retain `403 consent_required`; provider recovery gates
+only new MiniMax calls. New `member_generation_minimax_*` native queue cases assert
+zero invocation/no debit on denial, released reservations/no retry, retained primary
+receipt delivery, accessible old results, default Music selection and Admin-Lab
+versus administrator-member distinction. Current execution: member-generation99/99,
+consent API/schema12/12 under native workerd/D1 (no live-provider acceptance).
+
+A daily retention task initially used detached `waitUntil` on every scheduled path;
+the existing lease-expiry native case rejected it. Cleanup now runs awaited only on
+the existing daily lifecycle, preserving five-minute/Memvid recovery. API/schema
+cases exercise the actual scheduled purge, immutable evidence/deadlines,
+withdrawal/regrant cycles, operational and physical account deletion, and stale
+legal-version rejection. Browser scenarios cover unchecked optional registration,
+first-use decline/grant, stale403, one-click withdrawal and dialog-only regrant in
+both locales/engines; caller mapping is in [MiniMax consent](MINIMAX_CONSENT.md).
+
+Final native review controls also cover interruption after a pending H3 receipt
+but before outcome settlement, withdrawal between the final read and provider-intent
+CAS, and Canvas rejection/regrant using the same idempotency key. Pending receipts
+stay callback-recoverable, intent admission checks current consent atomically, and
+Canvas re-admits only consent-only failures with no usage, provider job or output.
+Browser controls reject decline-induced session expiry, stale grant notices and
+retrying undisplayed legal versions; an updated version requires a page reload.
+Reference replacement on an already connected H3 Canvas source also requires a
+fresh unchecked assurance before selecting or uploading another file.

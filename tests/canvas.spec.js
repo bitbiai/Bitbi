@@ -121,6 +121,7 @@ function source(relativePath) {
 }
 
 async function mockSharedAuth(page, loggedIn = true, role = 'user', userId = 'canvas-member') {
+  await page.route('**/api/account/minimax-consent',route=>route.fulfill({json:{ok:true,consent:{granted:true,grantedAt:'2026-11-16T00:00:00.000Z',textVersion:'minimax-consent-v3-2026-11-16'}}}));
   await page.route('**/api/me', (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -1886,3 +1887,20 @@ for(const locale of ['en','de'])test(`Canvas Seedance 2.5 ${locale} ordered refe
 });
 
 require('./helpers/canvas-voice-browser.cjs').registerCanvasVoiceTests((name,body)=>test(name,body), expect, { mockSharedAuth, createCanvasApiMock });
+
+for(const locale of ['en','de'])test(`Canvas MiniMax consent ${locale}: first use blocks node execution`,async({page})=>require('./helpers/minimax-consent-canvas.cjs')({page,expect,locale,mockSharedAuth,createCanvasApiMock}));
+
+for(const locale of ['en','de'])test(`Canvas MiniMax ${locale} replacing a connected reference requires fresh assurance`,async({page})=>{
+  const {state,assets,assignments,folderId,nodeId}=await prepareCanvasAssetPicker(page,{locale});
+  const target='9'.repeat(32);state.nodes.push({id:target,project_id:state.projects[0].id,type:'video_generation',title:'H3 target',model_id:'minimax/h3',x:750,y:80,config:{prompt:'Synthetic motion'},content:{}});
+  state.edges.push({id:'8'.repeat(32),project_id:state.projects[0].id,source_node_id:nodeId,target_node_id:target,config:{}});
+  await page.reload();await page.locator(`[data-node-id="${nodeId}"]`).press('Enter');
+  const choose=page.locator('#canvasAssetChoose'),box=page.locator('[data-minimax-reference-assurance]');
+  await choose.click();await expect(box).toBeVisible();await expect(box).not.toBeChecked();await expect(page.locator('#canvasAssetsOverlay')).toBeHidden();
+  const accept=page.getByRole('button',{name:locale==='de'?'Referenz hinzufügen':'Add reference',exact:true});await expect(accept).toBeDisabled();
+  await page.getByRole('button',{name:locale==='de'?'Nicht jetzt':'Not now',exact:true}).click();expect(assignments).toEqual([]);
+  await choose.click();await box.check();await accept.click();await expect(page.locator('#canvasAssetsOverlay')).toBeVisible();
+  await page.locator('#canvasAssetsFilter').selectOption(folderId);await page.locator(`#canvasAssetsGrid [data-asset-id="${assets[0].id}"]`).click();await page.locator('#canvasAssetsPickerApply').click();
+  await expect.poll(()=>assignments.length).toBe(1);await expect(page.locator('#canvasAssetsOverlay')).toBeHidden();
+  await choose.click();await expect(box).toBeVisible();await expect(box).not.toBeChecked();expect(assignments.length).toBe(1);
+});

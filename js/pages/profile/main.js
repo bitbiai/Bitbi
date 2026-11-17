@@ -3,6 +3,7 @@
    Entry point for profile.html
    ============================================================ */
 
+import { mountMinimaxSettings } from '../../shared/minimax-consent-ui.js?v=__ASSET_VERSION__';
 import { initSiteHeader }    from '../../shared/site-header.js?v=__ASSET_VERSION__';
 import { initParticles }     from '../../shared/particles.js';
 import { initBinaryRain }    from '../../shared/binary-rain.js';
@@ -44,6 +45,7 @@ import {
 } from './avatar-generate.js?v=__ASSET_VERSION__';
 
 /* ── DOM refs ── */
+mountMinimaxSettings(document.getElementById('minimax-consent'));
 const $loading        = document.getElementById('loadingState');
 const $denied         = document.getElementById('deniedState');
 const $content        = document.getElementById('profileContent');

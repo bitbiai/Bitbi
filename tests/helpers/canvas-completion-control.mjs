@@ -1,3 +1,4 @@
+import { minimaxGrantStatements } from '../../workers/auth/src/lib/minimax-consent.js';
 // Real Worker/queue/D1/R2 boundaries; only the external provider is synthetic.
 import worker from '../../workers/auth/src/index.js';
 import { sha256Hex } from '../../workers/auth/src/lib/tokens.js';
@@ -24,6 +25,7 @@ export async function canvasCompletionFixture(base,fixture) {
       return Response.json({success:true,result:{state:'Completed',result:{task:{id:'synthetic-'+prefix+'-'+calls.length,model:'MiniMax-H3',status:'succeeded',resolution:'768P',duration:4,content:{url:'https://fixture.invalid/completion.mp4'},usage:{output_seconds:4}}}}});
     }};
   await db.prepare("INSERT INTO users(id,email,password_hash,created_at,role,email_verified_at) VALUES(?,?,?,?,'user',?)").bind(owner,owner+'@example.invalid','synthetic',now,now).run();
+    await env.DB.batch(minimaxGrantStatements(env,owner,{source:'first_use',locale:'en'}));
   await db.prepare('INSERT INTO sessions(id,user_id,token_hash,created_at,expires_at,last_seen_at) VALUES(?,?,?,?,?,?)').bind(owner,owner,await sha256Hex(`${owner}:${env.SESSION_HASH_SECRET}`),now,new Date(Date.now()+3600000).toISOString(),now).run();
   await topUpMemberDailyCredits({env,userId:owner});await grantMemberCredits({env,userId:owner,amount:10000,createdByUserId:owner,idempotencyKey:'completion-credits'});
   await db.prepare("INSERT INTO canvas_projects(id,user_id,title,locale,created_at,updated_at) VALUES(?,?,'Completion chain','en',?,?)").bind(project,owner,now,now).run();

@@ -1,14 +1,16 @@
+import { MINIMAX_CONSENT_TEXT_VERSION } from './minimax-consent.mjs?v=__ASSET_VERSION__';
 /* ============================================================
    BITBI — Auth modal: login/register UI with focus trap
    Forms are injected only when modal opens (prevents Safari
    password autofill prompt on page load).
    ============================================================ */
 
+import { mountMinimaxRegistration } from './minimax-consent-ui.js?v=__ASSET_VERSION__';
 import { authLogin, authRegister } from './auth-state.js';
 import { apiResendVerification } from './auth-api.js?v=__ASSET_VERSION__';
 import { setupFocusTrap } from './focus-trap.js';
 import { requestWalletLogin } from './wallet/wallet-controller.js?v=__ASSET_VERSION__';
-import { localeText, localizedHref } from './locale.js?v=__ASSET_VERSION__';
+import { localeText, localizedHref, getCurrentLocale } from './locale.js?v=__ASSET_VERSION__';
 
 let overlay = null;
 let formsContainer = null;
@@ -99,6 +101,7 @@ function injectForms() {
 
     const loginForm = document.getElementById('authLoginForm');
     const registerForm = document.getElementById('authRegisterForm');
+    mountMinimaxRegistration(registerForm);
     const loginMsg = document.getElementById('authLoginMsg');
     const registerMsg = document.getElementById('authRegisterMsg');
     const walletLoginBtn = document.getElementById('authWalletLoginBtn');
@@ -157,7 +160,7 @@ function injectForms() {
         btn.disabled = true;
         btn.textContent = localeText('auth.creatingAccount');
         const requestVersion = modalVersion;
-        const res = await authRegister(email, password);
+        const res = await authRegister(email, password,{minimaxConsent:registerForm.elements.minimaxConsent.checked,locale:getCurrentLocale(),displayedTextVersion:MINIMAX_CONSENT_TEXT_VERSION});
         btn.disabled = false;
         btn.textContent = localeText('auth.createAccount');
         if (requestVersion !== modalVersion || !registerForm.isConnected) return;
