@@ -82,14 +82,14 @@ try {
   try{process.chdir(root);actual=gitSelection(base,head);}finally{process.chdir(previous);}
   assert.equal(actual.canvasVoice,true); const output=path.join(root,'output');fs.writeFileSync(output,'');
   execFileSync(process.execPath,['scripts/select-ci-tests.mjs','--base',base,'--head',head,'--github-output'],{
-    env:{...process.env,GIT_DIR:path.join(root,'.git'),GIT_WORK_TREE:root,GITHUB_OUTPUT:output,GITHUB_STEP_SUMMARY:''},stdio:'pipe'});
+    env:{...process.env,GIT_DIR:path.join(root,'.git'),GIT_WORK_TREE:root,GITHUB_ACTIONS:'false',GITHUB_OUTPUT:output,GITHUB_STEP_SUMMARY:''},stdio:'pipe'});
   assert.match(fs.readFileSync(output,'utf8'),/^canvas_voice=true$/m);fs.unlinkSync(output);
   fs.writeFileSync(path.join(root,CANVAS_COST_REGISTRY),registryAfter.replace('creditCost: 1','creditCost: 2'));
   const broken=commit('changed admission price');
   try{process.chdir(root);assert.notEqual(gitSelection(base,broken).canvasVoice,true);}finally{process.chdir(previous);}
   fs.writeFileSync(output,'');
   execFileSync(process.execPath,['scripts/select-ci-tests.mjs','--base',base,'--head',broken,'--github-output'],{
-    env:{...process.env,GIT_DIR:path.join(root,'.git'),GIT_WORK_TREE:root,GITHUB_OUTPUT:output,GITHUB_STEP_SUMMARY:''},stdio:'pipe'});
+    env:{...process.env,GIT_DIR:path.join(root,'.git'),GIT_WORK_TREE:root,GITHUB_ACTIONS:'false',GITHUB_OUTPUT:output,GITHUB_STEP_SUMMARY:''},stdio:'pipe'});
   assert.match(fs.readFileSync(output,'utf8'),/^canvas_voice=false$/m);
 } finally {fs.rmSync(root,{recursive:true,force:true});}
 
